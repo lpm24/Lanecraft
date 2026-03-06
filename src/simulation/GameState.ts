@@ -8,11 +8,11 @@ import {
   getMarginAtRow,
   LANE_PATHS, Vec2,
   GameCommand, BuildingType, BuildingState, ResourceType,
-  HarvesterAssignment, HarvesterState, UnitState,
+  HarvesterAssignment, HarvesterState, UnitState, WarHero,
   StatusType, SoundEvent,
 } from './types';
 import {
-  HARVESTER_HUT_COST, SPAWN_INTERVAL_TICKS, UNIT_STATS, TOWER_STATS,
+  SPAWN_INTERVAL_TICKS, UNIT_STATS, TOWER_STATS,
   HARVESTER_MOVE_SPEED, MINE_TIME_BASE_TICKS, MINE_TIME_DIAMOND_TICKS,
   HARVESTER_RESPAWN_TICKS, HARVESTER_MIN_SEPARATION, BASTION_TOWER_SHIELD_INTERVAL_TICKS,
   UPGRADE_TREES, UpgradeNodeDef, RACE_UPGRADE_COSTS, getBuildingCost,
@@ -20,6 +20,16 @@ import {
 
 function genId(state: GameState): number { return state.nextEntityId++; }
 const SELL_COOLDOWN_TICKS = 5 * TICK_RATE;
+
+// Passive income per second per race: +1 of primary resource, +0.1 of secondary
+const PASSIVE_INCOME: Record<Race, { gold: number; wood: number; stone: number }> = {
+  [Race.Surge]:   { gold: 1,   wood: 0,   stone: 0.1 },  // gold primary, tiny stone
+  [Race.Shade]:   { gold: 1,   wood: 0.1, stone: 0 },    // gold primary, tiny wood
+  [Race.Tide]:    { gold: 0.1, wood: 1,   stone: 0 },    // wood primary, tiny gold
+  [Race.Bastion]: { gold: 0.1, wood: 0,   stone: 1 },    // stone primary, tiny gold
+  [Race.Thorn]:   { gold: 0,   wood: 1,   stone: 0.1 },  // wood primary, tiny stone
+  [Race.Ember]:   { gold: 0,   wood: 0.1, stone: 1 },    // stone primary, tiny wood
+};
 
 type UpgradeChoice = 'B' | 'C' | 'D' | 'E' | 'F' | 'G';
 
@@ -208,9 +218,9 @@ export function createInitialState(
     id: i,
     team: i < 2 ? Team.Bottom : Team.Top,
     race: p.race,
-    gold: 200,
-    wood: 0,
-    stone: 0,
+    gold: p.race === Race.Thorn || p.race === Race.Ember ? 0 : 200,
+    wood: p.race === Race.Thorn ? 150 : p.race === Race.Ember ? 50 : p.race === Race.Tide ? 50 : p.race === Race.Shade ? 25 : 0,
+    stone: p.race === Race.Ember ? 150 : p.race === Race.Thorn ? 50 : p.race === Race.Bastion ? 50 : 0,
     nukeAvailable: true,
     connected: true,
     isBot: p.isBot,
@@ -226,7 +236,7 @@ export function createInitialState(
     mineProgress: 0,
   };
 
-  return {
+  const state: GameState = {
     tick: 0,
     players: playerStates,
     buildings: [],
@@ -249,7 +259,39 @@ export function createInitialState(
     soundEvents: [],
     nextEntityId: 1,
     playerStats: players.map(() => createPlayerStats()),
+    warHeroes: [],
+    fallenHeroes: [],
   };
+
+  // Give each player a free starter hut + harvester
+  for (let i = 0; i < playerStates.length; i++) {
+    const p = playerStates[i];
+    const origin = getHutGridOrigin(i);
+    const gx = 4; // center slot
+    const world = { x: origin.x + gx, y: origin.y };
+    const hutHp = getBuildingCost(p.race, BuildingType.HarvesterHut).hp;
+    const building: BuildingState = {
+      id: genId(state), type: BuildingType.HarvesterHut, playerId: i, buildGrid: 'hut',
+      gridX: gx, gridY: 0, worldX: world.x, worldY: world.y,
+      lane: Lane.Left, hp: hutHp, maxHp: hutHp, actionTimer: 0, placedTick: 0, upgradePath: [],
+    };
+    state.buildings.push(building);
+    // Assign starter harvester to the race's primary resource
+    let startAssignment = HarvesterAssignment.BaseGold;
+    if (p.race === Race.Tide || p.race === Race.Thorn) startAssignment = HarvesterAssignment.Wood;
+    if (p.race === Race.Bastion || p.race === Race.Ember) startAssignment = HarvesterAssignment.Stone;
+    state.harvesters.push({
+      id: genId(state), hutId: building.id, playerId: i, team: p.team,
+      x: world.x, y: world.y, hp: 30, maxHp: 30, damage: 0,
+      assignment: startAssignment,
+      state: 'walking_to_node', miningTimer: 0, respawnTimer: 0,
+      carryingDiamond: false, carryingResource: null, carryAmount: 0,
+      targetCellIdx: -1, fightTargetId: null,
+    });
+  }
+
+
+  return state;
 }
 
 // === Layout helpers ===
@@ -286,7 +328,9 @@ export function getHutGridOrigin(playerId: number): { x: number; y: number } {
 
 // Shared tower alley: 10-wide × 3-tall grid per team, centred on the neck path (x=35, overlaps x=40)
 export function getTeamAlleyOrigin(team: Team): { x: number; y: number } {
-  return { x: 35, y: team === Team.Bottom ? 86 : 31 };
+  // 20-wide grid centered on x=40 → starts at x=30
+  // 12-tall grid: bottom team above neck, top team below neck
+  return { x: 30, y: team === Team.Bottom ? 82 : 26 };
 }
 
 export function getHQPosition(team: Team): { x: number; y: number } {
@@ -380,16 +424,25 @@ export function simulateTick(state: GameState, commands: GameCommand[]): void {
     return;
   }
   if (state.matchPhase === 'ended') {
+    // Compute war heroes once on first ended tick
+    if (state.warHeroes.length === 0) computeWarHeroes(state);
     tickEffects(state);
     state.tick++;
     return;
   }
 
-  // Passive income
+  // Passive income: +1/sec of primary resource, +0.1/sec of secondary resource
+  // Primary = most-used resource in building costs; secondary = other needed resource
   if (state.tick % TICK_RATE === 0) {
     for (const p of state.players) {
-      p.gold += 1;
-      if (state.playerStats[p.id]) state.playerStats[p.id].totalGoldEarned += 1;
+      const inc = PASSIVE_INCOME[p.race];
+      const ps = state.playerStats[p.id];
+      if (inc.gold >= 1) { p.gold += Math.floor(inc.gold); if (ps) ps.totalGoldEarned += Math.floor(inc.gold); }
+      else if (inc.gold > 0) { p.goldFrac = (p.goldFrac ?? 0) + inc.gold; if (p.goldFrac >= 1) { p.goldFrac -= 1; p.gold += 1; if (ps) ps.totalGoldEarned += 1; } }
+      if (inc.wood >= 1) { p.wood += Math.floor(inc.wood); if (ps) ps.totalWoodEarned += Math.floor(inc.wood); }
+      else if (inc.wood > 0) { p.woodFrac = (p.woodFrac ?? 0) + inc.wood; if (p.woodFrac >= 1) { p.woodFrac -= 1; p.wood += 1; if (ps) ps.totalWoodEarned += 1; } }
+      if (inc.stone >= 1) { p.stone += Math.floor(inc.stone); if (ps) ps.totalStoneEarned += Math.floor(inc.stone); }
+      else if (inc.stone > 0) { p.stoneFrac = (p.stoneFrac ?? 0) + inc.stone; if (p.stoneFrac >= 1) { p.stoneFrac -= 1; p.stone += 1; if (ps) ps.totalStoneEarned += 1; } }
     }
   }
 
@@ -498,7 +551,13 @@ function placeBuilding(state: GameState, cmd: Extract<GameCommand, { type: 'plac
   if (cmd.buildingType === BuildingType.HarvesterHut) return; // huts use build_hut command
   const cost = getBuildingCost(player.race, cmd.buildingType);
   if (!cost) return;
-  if (player.gold < cost.gold || player.wood < cost.wood || player.stone < cost.stone) return;
+
+  // First tower is free for each player
+  const isFirstTower = cmd.buildingType === BuildingType.Tower &&
+    !state.buildings.some(b => b.playerId === cmd.playerId && b.type === BuildingType.Tower);
+  if (!isFirstTower) {
+    if (player.gold < cost.gold || player.wood < cost.wood || player.stone < cost.stone) return;
+  }
 
   const isAlley = cmd.gridType === 'alley';
   const isLeft = cmd.playerId === 0 || cmd.playerId === 2;
@@ -513,7 +572,7 @@ function placeBuilding(state: GameState, cmd: Extract<GameCommand, { type: 'plac
         b.gridX === cmd.gridX && b.gridY === cmd.gridY)) return;
     const origin = getTeamAlleyOrigin(playerTeam);
     const world = { x: origin.x + cmd.gridX, y: origin.y + cmd.gridY };
-    player.gold -= cost.gold; player.wood -= cost.wood; player.stone -= cost.stone;
+    if (!isFirstTower) { player.gold -= cost.gold; player.wood -= cost.wood; player.stone -= cost.stone; }
     state.buildings.push({
       id: genId(state), type: cmd.buildingType, playerId: cmd.playerId, buildGrid: 'alley',
       gridX: cmd.gridX, gridY: cmd.gridY, worldX: world.x, worldY: world.y,
@@ -525,7 +584,7 @@ function placeBuilding(state: GameState, cmd: Extract<GameCommand, { type: 'plac
     // Military grid
     if (cmd.gridX < 0 || cmd.gridX >= BUILD_GRID_COLS || cmd.gridY < 0 || cmd.gridY >= BUILD_GRID_ROWS) return;
     if (state.buildings.some(b => b.buildGrid === 'military' && b.playerId === cmd.playerId && b.gridX === cmd.gridX && b.gridY === cmd.gridY)) return;
-    player.gold -= cost.gold; player.wood -= cost.wood; player.stone -= cost.stone;
+    if (!isFirstTower) { player.gold -= cost.gold; player.wood -= cost.wood; player.stone -= cost.stone; }
     const world = gridSlotToWorld(cmd.playerId, cmd.gridX, cmd.gridY);
     const initialTimer = cmd.buildingType === BuildingType.Tower ? 0 : SPAWN_INTERVAL_TICKS;
     state.buildings.push({
@@ -578,9 +637,15 @@ function buildHut(state: GameState, cmd: Extract<GameCommand, { type: 'build_hut
   const player = state.players[cmd.playerId];
   const myHuts = state.buildings.filter(b => b.playerId === cmd.playerId && b.type === BuildingType.HarvesterHut);
   if (myHuts.length >= HUT_GRID_COLS) return;
-  const cost = HARVESTER_HUT_COST(myHuts.length);
-  if (player.gold < cost) return;
-  player.gold -= cost;
+  const hutRes = getBuildingCost(player.race, BuildingType.HarvesterHut);
+  const mult = Math.pow(1.35, Math.max(0, myHuts.length - 1));
+  const goldCost = Math.floor(hutRes.gold * mult);
+  const woodCost = Math.floor(hutRes.wood * mult);
+  const stoneCost = Math.floor(hutRes.stone * mult);
+  if (player.gold < goldCost || player.wood < woodCost || player.stone < stoneCost) return;
+  player.gold -= goldCost;
+  player.wood -= woodCost;
+  player.stone -= stoneCost;
 
   const origin = getHutGridOrigin(cmd.playerId);
   const occupiedHuts = new Set(myHuts.map(b => b.gridX));
@@ -623,6 +688,12 @@ function setHutAssignment(state: GameState, cmd: Extract<GameCommand, { type: 's
 function fireNuke(state: GameState, cmd: Extract<GameCommand, { type: 'fire_nuke' }>): void {
   const player = state.players[cmd.playerId];
   if (!player.nukeAvailable) return;
+
+  // Nukes can only land on your own half + mid zone (not enemy base/territory)
+  const team = player.team;
+  if (team === Team.Bottom && cmd.y < ZONES.MID.start) return;
+  if (team === Team.Top && cmd.y > ZONES.MID.end) return;
+
   player.nukeAvailable = false;
 
   // 1.25 second telegraph before detonation.
@@ -700,20 +771,23 @@ function tickSpawners(state: GameState): void {
       const category: UnitState['category'] =
         building.type === BuildingType.CasterSpawner ? 'caster' :
         building.type === BuildingType.RangedSpawner ? 'ranged' : 'melee';
-      state.units.push({
-        id: genId(state), type: stats.name, playerId: building.playerId, team: player.team,
-        x: building.worldX, y: building.worldY,
-        hp: Math.max(1, Math.round(stats.hp * upgrade.hp)),
-        maxHp: Math.max(1, Math.round(stats.hp * upgrade.hp)),
-        damage: Math.max(1, Math.round(stats.damage * upgrade.damage)),
-        attackSpeed: Math.max(0.2, stats.attackSpeed * upgrade.attackSpeed), attackTimer: 0,
-        moveSpeed: Math.max(0.5, stats.moveSpeed * upgrade.moveSpeed),
-        range: Math.max(1, stats.range * upgrade.range),
-        targetId: null, lane: building.lane, pathProgress: -1, carryingDiamond: false,
-        statusEffects: [], hitCount: 0, shieldHp: 0, category,
-        upgradeSpecial: upgrade.special,
-      });
-      if (state.playerStats[building.playerId]) state.playerStats[building.playerId].unitsSpawned++;
+      const count = stats.spawnCount ?? 1;
+      for (let si = 0; si < count; si++) {
+        state.units.push({
+          id: genId(state), type: stats.name, playerId: building.playerId, team: player.team,
+          x: building.worldX + (si * 0.3), y: building.worldY,
+          hp: Math.max(1, Math.round(stats.hp * upgrade.hp)),
+          maxHp: Math.max(1, Math.round(stats.hp * upgrade.hp)),
+          damage: Math.max(1, Math.round(stats.damage * upgrade.damage)),
+          attackSpeed: Math.max(0.2, stats.attackSpeed * upgrade.attackSpeed), attackTimer: 0,
+          moveSpeed: Math.max(0.5, stats.moveSpeed * upgrade.moveSpeed),
+          range: Math.max(1, stats.range * upgrade.range),
+          targetId: null, lane: building.lane, pathProgress: -1, carryingDiamond: false,
+          statusEffects: [], hitCount: 0, shieldHp: 0, category,
+          upgradeSpecial: upgrade.special, kills: 0, lastDamagedByName: '',
+        });
+        if (state.playerStats[building.playerId]) state.playerStats[building.playerId].unitsSpawned++;
+      }
     }
   }
 }
@@ -892,7 +966,7 @@ function applyKnockback(unit: UnitState, amount: number): void {
   unit.y = pos.y;
 }
 
-function dealDamage(state: GameState, target: UnitState, amount: number, showFloat: boolean, sourcePlayerId?: number): void {
+function dealDamage(state: GameState, target: UnitState, amount: number, showFloat: boolean, sourcePlayerId?: number, sourceUnitId?: number): void {
   // Dodge check
   const dodge = target.upgradeSpecial?.dodgeChance ?? 0;
   if (dodge > 0 && Math.random() < dodge) {
@@ -929,13 +1003,113 @@ function dealDamage(state: GameState, target: UnitState, amount: number, showFlo
         state.playerStats[sourcePlayerId].totalDamageNearHQ += amount;
       }
     }
+    // Track killer name and credit kill
+    if (sourceUnitId !== undefined) {
+      const killer = state.units.find(u => u.id === sourceUnitId);
+      if (killer) {
+        target.lastDamagedByName = killer.type;
+        if (target.hp <= 0) killer.kills++;
+      }
+    } else if (sourcePlayerId !== undefined) {
+      target.lastDamagedByName = 'Tower';
+    } else {
+      target.lastDamagedByName = 'HQ';
+    }
+  }
+}
+
+// === Caster Support Abilities ===
+// Each race's caster has a secondary support effect on nearby allies when they cast
+
+function applyCasterSupport(state: GameState, caster: UnitState, race: Race, sp: Record<string, any> | undefined): void {
+  const supportRange = 6;
+  const allies = state.units.filter(u =>
+    u.team === caster.team && u.id !== caster.id &&
+    Math.sqrt((u.x - caster.x) ** 2 + (u.y - caster.y) ** 2) <= supportRange
+  );
+  const healBonus = sp?.healBonus ?? 0;
+
+  switch (race) {
+    case Race.Bastion: {
+      // Shield allies (existing behavior)
+      const shieldCount = 3 + (sp?.shieldTargetBonus ?? 0);
+      const sorted = allies.slice().sort((a, b) =>
+        ((a.x - caster.x) ** 2 + (a.y - caster.y) ** 2) - ((b.x - caster.x) ** 2 + (b.y - caster.y) ** 2)
+      );
+      const absorbBonus = sp?.shieldAbsorbBonus ?? 0;
+      for (let i = 0; i < Math.min(shieldCount, sorted.length); i++) {
+        applyStatus(sorted[i], StatusType.Shield, 1);
+        if (absorbBonus > 0) sorted[i].shieldHp += absorbBonus;
+      }
+      break;
+    }
+    case Race.Thorn: {
+      // Regen aura: heal nearby allies
+      const healAmt = 3 + healBonus;
+      for (const a of allies) {
+        if (a.hp < a.maxHp) {
+          a.hp = Math.min(a.maxHp, a.hp + healAmt);
+          addDeathParticles(state, a.x, a.y, '#4caf50', 1);
+        }
+      }
+      if (allies.some(a => a.hp < a.maxHp)) {
+        addFloatingText(state, caster.x, caster.y - 0.5, `+${healAmt}`, '#4caf50');
+      }
+      break;
+    }
+    case Race.Shade: {
+      // Lifesteal aura: nearby allies heal 15% of their damage on next hit
+      // Implemented as a brief haste-like mark; actual heal happens in applyOnHitEffects
+      // For simplicity: heal lowest-HP allies directly
+      const healAmt = 2 + healBonus;
+      const wounded = allies.filter(a => a.hp < a.maxHp).sort((a, b) => (a.hp / a.maxHp) - (b.hp / b.maxHp));
+      const count = Math.min(3, wounded.length);
+      for (let i = 0; i < count; i++) {
+        wounded[i].hp = Math.min(wounded[i].maxHp, wounded[i].hp + healAmt);
+        addDeathParticles(state, wounded[i].x, wounded[i].y, '#ce93d8', 1);
+      }
+      if (count > 0) {
+        addFloatingText(state, caster.x, caster.y - 0.5, `+${healAmt}`, '#ce93d8');
+      }
+      break;
+    }
+    case Race.Surge: {
+      // Haste pulse: nearby allies get brief haste
+      let hasteCount = 0;
+      for (const a of allies) {
+        if (!a.statusEffects.some(e => e.type === StatusType.Haste)) {
+          applyStatus(a, StatusType.Haste, 1);
+          hasteCount++;
+          if (hasteCount >= 3 + healBonus) break;
+        }
+      }
+      break;
+    }
+    case Race.Tide: {
+      // Cleanse: remove burn stacks from nearby allies
+      let cleansed = 0;
+      for (const a of allies) {
+        const burnIdx = a.statusEffects.findIndex(e => e.type === StatusType.Burn);
+        if (burnIdx >= 0) {
+          const burn = a.statusEffects[burnIdx];
+          burn.stacks = Math.max(0, burn.stacks - (2 + healBonus));
+          if (burn.stacks <= 0) a.statusEffects.splice(burnIdx, 1);
+          addDeathParticles(state, a.x, a.y, '#2979ff', 1);
+          cleansed++;
+        }
+      }
+      if (cleansed > 0) {
+        addFloatingText(state, caster.x, caster.y - 0.5, 'CLEANSE', '#2979ff');
+      }
+      break;
+    }
   }
 }
 
 function applyOnHitEffects(state: GameState, attacker: UnitState, target: UnitState): void {
   const race = state.players[attacker.playerId].race;
   const isMelee = attacker.range <= 2;
-  const isCaster = attacker.type.includes('mage') || attacker.type.includes('caller') || attacker.type.includes('shaman');
+  const isCaster = attacker.category === 'caster';
   const sp = attacker.upgradeSpecial;
 
   switch (race) {
@@ -966,6 +1140,17 @@ function applyOnHitEffects(state: GameState, attacker: UnitState, target: UnitSt
           applyKnockback(target, 0.02);
         }
       }
+      break;
+    case Race.Shade:
+      // Poison on melee hit + lifesteal (heal 15% of damage dealt)
+      if (isMelee) {
+        applyStatus(target, StatusType.Burn, 1 + (sp?.extraBurnStacks ?? 0));
+        attacker.hp = Math.min(attacker.maxHp, attacker.hp + Math.round(attacker.damage * 0.15));
+      }
+      break;
+    case Race.Thorn:
+      // Slow on melee hit (entangling vines)
+      if (isMelee) applyStatus(target, StatusType.Slow, 1 + (sp?.extraSlowStacks ?? 0));
       break;
   }
 }
@@ -1071,30 +1256,32 @@ function tickCombat(state: GameState): void {
         const race = state.players[unit.playerId].race;
         const isCaster = unit.category === 'caster';
 
-        if (isCaster && race === Race.Bastion) {
-          // Bastion Caster: shield allies INSTEAD of dealing damage
+        if (isCaster && (race === Race.Bastion || race === Race.Thorn || race === Race.Shade || race === Race.Surge || race === Race.Tide)) {
+          // Support casters: perform support ability + fire AoE at enemy
           const sp = unit.upgradeSpecial;
-          const shieldCount = 3 + (sp?.shieldTargetBonus ?? 0);
-          const allies = state.units.filter(u => u.team === unit.team && u.id !== unit.id);
-          allies.sort((a, b) => {
-            const da = (a.x - unit.x) ** 2 + (a.y - unit.y) ** 2;
-            const db = (b.x - unit.x) ** 2 + (b.y - unit.y) ** 2;
-            return da - db;
-          });
-          const absorbBonus = sp?.shieldAbsorbBonus ?? 0;
-          for (let i = 0; i < Math.min(shieldCount, allies.length); i++) {
-            applyStatus(allies[i], StatusType.Shield, 1);
-            if (absorbBonus > 0) allies[i].shieldHp += absorbBonus;
+          applyCasterSupport(state, unit, race, sp);
+
+          // Non-Bastion support casters also fire an AoE projectile at the enemy
+          if (race !== Race.Bastion) {
+            const aoeRadius = (race === Race.Tide || race === Race.Thorn ? 4 : 3) + (sp?.aoeRadiusBonus ?? 0);
+            state.projectiles.push({
+              id: genId(state), x: unit.x, y: unit.y,
+              targetId: target.id, damage: unit.damage,
+              speed: 10, aoeRadius, team: unit.team,
+              sourcePlayerId: unit.playerId, sourceUnitId: unit.id,
+              extraBurnStacks: sp?.extraBurnStacks,
+              extraSlowStacks: sp?.extraSlowStacks,
+            });
           }
         } else if (isCaster) {
           // Other casters fire AoE projectiles
           const sp = unit.upgradeSpecial;
-          const aoeRadius = (race === Race.Tide ? 4 : 3) + (sp?.aoeRadiusBonus ?? 0);
+          const aoeRadius = (race === Race.Tide || race === Race.Thorn ? 4 : 3) + (sp?.aoeRadiusBonus ?? 0);
           state.projectiles.push({
             id: genId(state), x: unit.x, y: unit.y,
             targetId: target.id, damage: unit.damage,
             speed: 10, aoeRadius, team: unit.team,
-            sourcePlayerId: unit.playerId,
+            sourcePlayerId: unit.playerId, sourceUnitId: unit.id,
             extraBurnStacks: sp?.extraBurnStacks,
             extraSlowStacks: sp?.extraSlowStacks,
           });
@@ -1106,7 +1293,7 @@ function tickCombat(state: GameState): void {
             id: genId(state), x: unit.x, y: unit.y,
             targetId: target.id, damage: unit.damage,
             speed: 15, aoeRadius: splashR, team: unit.team,
-            sourcePlayerId: unit.playerId,
+            sourcePlayerId: unit.playerId, sourceUnitId: unit.id,
             extraBurnStacks: sp?.extraBurnStacks,
             extraSlowStacks: sp?.extraSlowStacks,
             splashDamagePct: sp?.splashDamagePct,
@@ -1125,7 +1312,7 @@ function tickCombat(state: GameState): void {
                 id: genId(state), x: unit.x, y: unit.y,
                 targetId: nearby[mi].u.id, damage: msDmg,
                 speed: 15, aoeRadius: 0, team: unit.team,
-                sourcePlayerId: unit.playerId,
+                sourcePlayerId: unit.playerId, sourceUnitId: unit.id,
               });
             }
           }
@@ -1149,14 +1336,14 @@ function tickCombat(state: GameState): void {
                 id: genId(state), x: lastX, y: lastY,
                 targetId: chainTarget.id, damage: Math.round(unit.damage * chainPct),
                 speed: 20, aoeRadius: 0, team: unit.team,
-                sourcePlayerId: unit.playerId,
+                sourcePlayerId: unit.playerId, sourceUnitId: unit.id,
               });
               lastX = chainTarget.x; lastY = chainTarget.y;
             }
           }
         } else {
           // Melee: instant damage
-          dealDamage(state, target, unit.damage, unit.damage >= 10, unit.playerId);
+          dealDamage(state, target, unit.damage, unit.damage >= 10, unit.playerId, unit.id);
           applyOnHitEffects(state, unit, target);
         }
 
@@ -1200,6 +1387,13 @@ function tickCombat(state: GameState): void {
     if (u.carryingDiamond) dropDiamond(state, u.x, u.y);
     if (state.playerStats[u.playerId]) state.playerStats[u.playerId].unitsLost++;
     if (deathSoundCount < 3) { addSound(state, 'unit_killed', u.x, u.y); deathSoundCount++; }
+    // Record fallen heroes (units with kills)
+    if (u.kills > 0) {
+      state.fallenHeroes.push({
+        name: u.type, playerId: u.playerId, category: u.category,
+        kills: u.kills, survived: false, killedByName: u.lastDamagedByName || 'unknown',
+      });
+    }
   }
   state.units = state.units.filter(u => u.hp > 0);
 }
@@ -1285,8 +1479,8 @@ function tickTowers(state: GameState): void {
       continue;
     }
 
-    // Surge/Tide towers have special attack patterns
-    if (player.race === Race.Surge || player.race === Race.Tide) {
+    // Surge/Tide/Shade/Thorn towers have special attack patterns
+    if (player.race === Race.Surge || player.race === Race.Tide || player.race === Race.Shade || player.race === Race.Thorn) {
       const hasEnemiesInRange = state.units.some(u => u.team === enemyTeam &&
         Math.sqrt((u.x - tx) ** 2 + (u.y - ty) ** 2) <= stats.range);
       if (hasEnemiesInRange) {
@@ -1372,7 +1566,7 @@ function tickProjectiles(state: GameState): void {
 
     if (dist <= moveAmt) {
       // Hit! Apply damage through shield
-      dealDamage(state, target, p.damage, true, p.sourcePlayerId);
+      dealDamage(state, target, p.damage, true, p.sourcePlayerId, p.sourceUnitId);
       addDeathParticles(state, target.x, target.y, '#ffaa00', 2);
 
       // Apply status effects based on source player's race + upgrade extras
@@ -1381,8 +1575,8 @@ function tickProjectiles(state: GameState): void {
         const race = sourcePlayer.race;
         const extraSlow = p.extraSlowStacks ?? 0;
         const extraBurn = p.extraBurnStacks ?? 0;
-        if (race === Race.Tide) applyStatus(target, StatusType.Slow, (p.aoeRadius > 0 ? 2 : 1) + extraSlow);
-        if (race === Race.Ember) applyStatus(target, StatusType.Burn, (p.aoeRadius > 0 ? 2 : 1) + extraBurn);
+        if (race === Race.Tide || race === Race.Thorn) applyStatus(target, StatusType.Slow, (p.aoeRadius > 0 ? 2 : 1) + extraSlow);
+        if (race === Race.Ember || race === Race.Shade) applyStatus(target, StatusType.Burn, (p.aoeRadius > 0 ? 2 : 1) + extraBurn);
       }
 
       // AOE damage
@@ -1392,13 +1586,13 @@ function tickProjectiles(state: GameState): void {
           const ad = Math.sqrt((u.x - target.x) ** 2 + (u.y - target.y) ** 2);
           if (ad <= p.aoeRadius) {
             const aoeDmg = Math.round(p.damage * (p.splashDamagePct ?? 0.5));
-            dealDamage(state, u, aoeDmg, true, p.sourcePlayerId);
+            dealDamage(state, u, aoeDmg, true, p.sourcePlayerId, p.sourceUnitId);
             if (sourcePlayer) {
               const race = sourcePlayer.race;
               const extraSlow = p.extraSlowStacks ?? 0;
               const extraBurn = p.extraBurnStacks ?? 0;
-              if (race === Race.Tide) applyStatus(u, StatusType.Slow, (p.aoeRadius > 0 ? 2 : 1) + extraSlow);
-              if (race === Race.Ember) applyStatus(u, StatusType.Burn, (p.aoeRadius > 0 ? 2 : 1) + extraBurn);
+              if (race === Race.Tide || race === Race.Thorn) applyStatus(u, StatusType.Slow, (p.aoeRadius > 0 ? 2 : 1) + extraSlow);
+              if (race === Race.Ember || race === Race.Shade) applyStatus(u, StatusType.Burn, (p.aoeRadius > 0 ? 2 : 1) + extraBurn);
               if (race === Race.Surge) applyStatus(u, StatusType.Slow, 1);
             }
           }
@@ -1446,12 +1640,17 @@ function tickEffects(state: GameState): void {
 // === Status Effects ===
 
 function tickStatusEffects(state: GameState): void {
-  // Upgrade regen: heal once per second
+  // Upgrade regen: heal once per second (suppressed by Blight: burn stacks >= 3)
   if (state.tick % TICK_RATE === 0) {
     for (const unit of state.units) {
       const regen = unit.upgradeSpecial?.regenPerSec ?? 0;
       if (regen > 0 && unit.hp < unit.maxHp) {
-        unit.hp = Math.min(unit.maxHp, unit.hp + regen);
+        const burnEff = unit.statusEffects.find(e => e.type === StatusType.Burn);
+        const blighted = burnEff && burnEff.stacks >= 3;
+        if (!blighted) {
+          unit.hp = Math.min(unit.maxHp, unit.hp + regen);
+          addDeathParticles(state, unit.x, unit.y, '#4caf50', 1);
+        }
       }
     }
   }
@@ -1461,10 +1660,25 @@ function tickStatusEffects(state: GameState): void {
       eff.duration--;
 
       // Burn DoT: 2 damage per stack per second (routes through shield)
+      // SEARED combo: if also slowed, burn does 50% more damage
       if (eff.type === StatusType.Burn && state.tick % TICK_RATE === 0) {
-        const burnDmg = 2 * eff.stacks;
+        const hasSlowCombo = unit.statusEffects.some(e => e.type === StatusType.Slow);
+        const baseBurnDmg = 2 * eff.stacks;
+        const burnDmg = hasSlowCombo ? Math.round(baseBurnDmg * 1.5) : baseBurnDmg;
         dealDamage(state, unit, burnDmg, true);
-        addDeathParticles(state, unit.x, unit.y, '#ff4400', 1);
+        if (hasSlowCombo) {
+          addDeathParticles(state, unit.x, unit.y, '#ff6600', 1);
+          addDeathParticles(state, unit.x, unit.y, '#2979ff', 1);
+          if (state.tick % (TICK_RATE * 3) === 0) { // show "SEARED" every 3 seconds
+            addFloatingText(state, unit.x, unit.y - 0.3, 'SEARED', '#ff8c00');
+          }
+        } else {
+          addDeathParticles(state, unit.x, unit.y, '#ff4400', 1);
+        }
+        // BLIGHT: burn 3+ stacks = no regen (shown every 3s)
+        if (eff.stacks >= 3 && state.tick % (TICK_RATE * 3) === 0) {
+          addFloatingText(state, unit.x, unit.y - 0.5, 'BLIGHT', '#9c27b0');
+        }
       }
 
       // Shield expired
@@ -1546,6 +1760,42 @@ function applyTowerSpecial(state: GameState, building: BuildingState, race: Race
         }
       }
       if (shielded) building.actionTimer = Math.round(BASTION_TOWER_SHIELD_INTERVAL_TICKS * intervalMult);
+      break;
+    }
+    case Race.Shade: {
+      // Wither: hit nearest enemy + apply burn (poison), reduce damage
+      const burnStacks = 1 + (sp.extraBurnStacks ?? 0);
+      let nearest: UnitState | null = null;
+      let nearestDist = stats.range;
+      for (const u of state.units) {
+        if (u.team !== enemyTeam) continue;
+        const d = Math.sqrt((u.x - tx) ** 2 + (u.y - ty) ** 2);
+        if (d <= nearestDist) { nearest = u; nearestDist = d; }
+      }
+      if (nearest) {
+        dealDamage(state, nearest, stats.damage, false, building.playerId);
+        applyStatus(nearest, StatusType.Burn, burnStacks);
+        addDeathParticles(state, nearest.x, nearest.y, '#9c27b0', 2);
+        building.actionTimer = Math.round(stats.attackSpeed * TICK_RATE);
+      }
+      break;
+    }
+    case Race.Thorn: {
+      // Thorns aura: damage ALL enemies in range + apply slow
+      const slowStacks = 1 + (sp.extraSlowStacks ?? 0);
+      const burnStacks = sp.extraBurnStacks ?? 0;
+      let hit = false;
+      for (const u of state.units) {
+        if (u.team !== enemyTeam) continue;
+        const d = Math.sqrt((u.x - tx) ** 2 + (u.y - ty) ** 2);
+        if (d <= stats.range) {
+          dealDamage(state, u, stats.damage, false, building.playerId);
+          applyStatus(u, StatusType.Slow, slowStacks);
+          if (burnStacks > 0) applyStatus(u, StatusType.Burn, burnStacks);
+          hit = true;
+        }
+      }
+      if (hit) building.actionTimer = Math.round(stats.attackSpeed * TICK_RATE);
       break;
     }
     // Ember: default single-target + burn (handled in tickTowers normally)
@@ -1903,7 +2153,7 @@ function getResourceNodePosition(h: HarvesterState): { x: number; y: number } {
   switch (h.assignment) {
     case HarvesterAssignment.BaseGold: {
       const hq = getHQPosition(h.team);
-      return { x: hq.x + HQ_WIDTH / 2, y: h.team === Team.Bottom ? hq.y - 3 : hq.y + HQ_HEIGHT + 3 };
+      return { x: hq.x + HQ_WIDTH / 2, y: h.team === Team.Bottom ? hq.y - 6 : hq.y + HQ_HEIGHT + 6 };
     }
     case HarvesterAssignment.Wood:
       return { x: WOOD_NODE_X, y: DIAMOND_CENTER_Y };
@@ -1911,6 +2161,35 @@ function getResourceNodePosition(h: HarvesterState): { x: number; y: number } {
       return { x: STONE_NODE_X, y: DIAMOND_CENTER_Y };
     case HarvesterAssignment.Center:
       return { x: DIAMOND_CENTER_X, y: DIAMOND_CENTER_Y };
+  }
+}
+
+function computeWarHeroes(state: GameState): void {
+  // Combine surviving units and fallen heroes, pick the top killer per player
+  const candidates: WarHero[] = [...state.fallenHeroes];
+  // Add surviving units
+  for (const u of state.units) {
+    if (u.kills > 0) {
+      candidates.push({
+        name: u.type, playerId: u.playerId, category: u.category,
+        kills: u.kills, survived: true, killedByName: null,
+      });
+    }
+  }
+  // Pick overall best (most kills)
+  candidates.sort((a, b) => b.kills - a.kills);
+  // Take the top hero (the single most impactful unit in the match)
+  if (candidates.length > 0) {
+    state.warHeroes.push(candidates[0]);
+  }
+  // Also add best per player if different
+  const seen = new Set<number>();
+  if (state.warHeroes.length > 0) seen.add(state.warHeroes[0].playerId);
+  for (const c of candidates) {
+    if (!seen.has(c.playerId)) {
+      state.warHeroes.push(c);
+      seen.add(c.playerId);
+    }
   }
 }
 

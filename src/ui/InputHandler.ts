@@ -3,10 +3,11 @@ import { Camera } from '../rendering/Camera';
 import { Renderer } from '../rendering/Renderer';
 import {
   BuildingType, TILE_SIZE, BUILD_GRID_COLS, BUILD_GRID_ROWS, SHARED_ALLEY_COLS, SHARED_ALLEY_ROWS, Lane,
-  HarvesterAssignment, Team,
+  HarvesterAssignment, Team, ZONES, MAP_WIDTH, MAP_HEIGHT, Race, UnitState,
 } from '../simulation/types';
 import { getBuildGridOrigin, getTeamAlleyOrigin } from '../simulation/GameState';
-import { HARVESTER_HUT_COST, UPGRADE_TREES, RACE_BUILDING_COSTS, RACE_UPGRADE_COSTS } from '../simulation/data';
+import { UPGRADE_TREES, RACE_BUILDING_COSTS, RACE_UPGRADE_COSTS, UNIT_STATS, TOWER_STATS, RACE_COLORS } from '../simulation/data';
+import { TICK_RATE } from '../simulation/types';
 
 interface BuildTrayItem {
   type: BuildingType;
@@ -84,8 +85,12 @@ export class InputHandler {
   private audioCtx: AudioContext | null = null;
   private nukeTargeting = false;
   private tooltip: { text: string; x: number; y: number } | null = null;
+  private selectedUnitId: number | null = null;
+  private hoveredUnitId: number | null = null;
   private showTutorial = true;
+  private devOverlayOpen = false;
   private abortController = new AbortController();
+  private currentRenderer: Renderer | null = null;
 
   constructor(game: Game, canvas: HTMLCanvasElement, camera: Camera) {
     this.game = game;
@@ -174,6 +179,12 @@ export class InputHandler {
   private setupKeyboard(): void {
     const sig = { signal: this.abortController.signal };
     window.addEventListener('keydown', (e) => {
+      // Dev overlay
+      if (e.key === '`') {
+        this.devOverlayOpen = !this.devOverlayOpen;
+        if (this.devOverlayOpen) this.devBalanceCache.lastRefresh = 0; // force refresh
+        return;
+      }
       // Nuke mode
       if (e.key === 'n' || e.key === 'N') {
         if (this.game.state.players[0]?.nukeAvailable) {
@@ -223,6 +234,7 @@ export class InputHandler {
       const item = BUILD_TRAY.find(b => b.key === e.key);
       if (item) {
         this.nukeTargeting = false;
+        this.selectedUnitId = null;
         this.selectedBuilding = this.selectedBuilding === item.type ? null : item.type;
         return;
       }
@@ -233,6 +245,7 @@ export class InputHandler {
         this.settingsOpen = false;
         this.selectedBuilding = null;
         this.nukeTargeting = false;
+        this.selectedUnitId = null;
       }
       if (e.key === 'l' || e.key === 'L') {
         const myBuildings = this.game.state.buildings.filter(b => b.playerId === 0);
@@ -258,37 +271,39 @@ export class InputHandler {
       this.pointerY = e.clientY - rect.top;
       this.tooltip = null;
       this.hoveredBuildingId = null;
+      this.hoveredUnitId = null;
       if (this.selectedBuilding !== null) {
         const world = this.eventToWorld(e);
         this.hoveredGridSlot = this.worldToGridSlot(0, world.x, world.y);
       } else {
         this.hoveredGridSlot = null;
-        // Check for building hover tooltip
         const world = this.eventToWorld(e);
-        const tileX = Math.floor(world.x / TILE_SIZE);
-        const tileY = Math.floor(world.y / TILE_SIZE);
-        const building = this.game.state.buildings.find(b =>
-          b.playerId === 0 && b.worldX === tileX && b.worldY === tileY
-        );
-        if (building) {
-          this.hoveredBuildingId = building.id;
-          let tip = `${building.type} HP:${building.hp}/${building.maxHp}`;
-          if (building.type === BuildingType.HarvesterHut) {
-            const h = this.game.state.harvesters.find(h => h.hutId === building.id);
-            if (h) tip += ` [${ASSIGNMENT_LABELS[h.assignment]}]`;
-          } else if (building.type !== BuildingType.Tower) {
-            tip += ` Lane:${building.lane}`;
+        const wx = world.x / TILE_SIZE;
+        const wy = world.y / TILE_SIZE;
+
+        // Check for unit hover (closest within 1.2 tiles)
+        const unit = this.findUnitNear(wx, wy, 1.2);
+        if (unit) {
+          this.hoveredUnitId = unit.id;
+          this.tooltip = { text: this.getUnitTooltip(unit), x: e.clientX, y: e.clientY - 20 };
+        } else {
+          // Check for building hover
+          const tileX = Math.floor(wx);
+          const tileY = Math.floor(wy);
+          const building = this.game.state.buildings.find(b =>
+            b.playerId === 0 && b.worldX === tileX && b.worldY === tileY
+          );
+          if (building) {
+            this.hoveredBuildingId = building.id;
+            this.tooltip = { text: this.getBuildingTooltip(building), x: e.clientX, y: e.clientY - 20 };
           }
-          if (building.upgradePath.length > 0) tip += ` Up:${building.upgradePath.join('>')}`;
-          const options = this.getUpgradeOptions(building);
-          if (options.length > 0) tip += ` Next:${options[0].choice}/${options[1].choice}`;
-          this.tooltip = { text: tip, x: e.clientX, y: e.clientY - 20 };
         }
       }
     }, sig);
 
     this.canvas.addEventListener('click', (e) => {
       if (Date.now() < this.suppressClicksUntil) return;
+      if (this.devOverlayOpen) { this.devOverlayOpen = false; return; }
       if (this.handleHelpButtonClick(e)) return;
       if (this.showTutorial) { this.showTutorial = false; return; }
       if (this.mobileHintVisible) this.dismissMobileHint();
@@ -303,12 +318,16 @@ export class InputHandler {
         return;
       }
 
-      // Nuke targeting
+      // Nuke targeting — restricted to own half + mid
       if (this.nukeTargeting) {
         const world = this.eventToWorld(e);
+        const tileY = world.y / TILE_SIZE;
+        const team = this.game.state.players[0]?.team ?? Team.Bottom;
+        const inRange = team === Team.Bottom ? tileY >= ZONES.MID.start : tileY <= ZONES.MID.end;
+        if (!inRange) return; // click in enemy zone — ignore
         this.game.sendCommand({
           type: 'fire_nuke', playerId: 0,
-          x: world.x / TILE_SIZE, y: world.y / TILE_SIZE,
+          x: world.x / TILE_SIZE, y: tileY,
         });
         this.nukeTargeting = false;
         return;
@@ -326,6 +345,9 @@ export class InputHandler {
           buildingType: this.selectedBuilding, gridX: slot.gx, gridY: slot.gy,
           ...(slot.isAlley ? { gridType: 'alley' as const } : {}),
         });
+        if (!e.shiftKey) {
+          this.selectedBuilding = null;
+        }
       }
     }, sig);
 
@@ -471,7 +493,15 @@ export class InputHandler {
     const building = this.game.state.buildings.find(b =>
       b.playerId === 0 && b.worldX === tileX && b.worldY === tileY
     );
-    if (!building) return;
+    if (!building) {
+      // Try selecting a unit
+      const wx = world.x / TILE_SIZE;
+      const wy = world.y / TILE_SIZE;
+      const unit = this.findUnitNear(wx, wy, 1.2);
+      this.selectedUnitId = unit ? unit.id : null;
+      return;
+    }
+    this.selectedUnitId = null;
     this.selectedBuildingId = building.id;
 
     // Click on hut: cycle harvester assignment
@@ -938,6 +968,7 @@ export class InputHandler {
   }
 
   render(renderer: Renderer): void {
+    this.currentRenderer = renderer;
     this.processQueuedQuickChat();
     const ctx = renderer.ctx;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -957,9 +988,34 @@ export class InputHandler {
       this.drawQuickChatRadial(ctx);
     }
 
-    if (this.selectedBuilding !== null && this.hoveredGridSlot) {
-      this.drawPlacementPreview(ctx, renderer);
+    if (this.selectedBuilding !== null) {
+      this.drawPlacementHighlight(ctx, renderer);
+      if (this.hoveredGridSlot) {
+        this.drawPlacementPreview(ctx, renderer);
+      }
+      this.drawBuildTooltip(ctx, renderer);
     }
+
+    // Hovered unit highlight ring
+    if (this.hoveredUnitId !== null && this.hoveredUnitId !== this.selectedUnitId) {
+      const hu = this.game.state.units.find(u => u.id === this.hoveredUnitId);
+      if (hu) {
+        ctx.save();
+        renderer.camera.applyTransform(ctx);
+        const hpx = hu.x * TILE_SIZE + TILE_SIZE / 2;
+        const hpy = hu.y * TILE_SIZE + TILE_SIZE / 2;
+        ctx.beginPath();
+        ctx.arc(hpx, hpy, TILE_SIZE * 0.55, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        ctx.restore();
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+      }
+    }
+
+    // Selected unit highlight + info panel
+    this.drawSelectedUnit(ctx, renderer);
 
     if (this.nukeTargeting) {
       this.drawNukeOverlay(ctx);
@@ -974,6 +1030,10 @@ export class InputHandler {
       ctx.textAlign = 'center';
       ctx.fillText(this.tooltip.text, this.tooltip.x, this.tooltip.y);
       ctx.textAlign = 'start';
+    }
+
+    if (this.devOverlayOpen) {
+      this.drawDevOverlay(ctx);
     }
   }
 
@@ -1032,58 +1092,173 @@ export class InputHandler {
       ctx.font = '10px monospace';
       ctx.textAlign = 'center';
       ctx.fillText('Tap = queue Defend', util.chatX + util.utilW / 2, utilY - 4);
-    }    // Miner button (col 0, earthy green-brown)
+    }
+    // --- Helper: draw colorized cost parts at a position ---
+    const drawCost = (parts: { val: number; type: 'g' | 'w' | 's' }[], cx: number, cy: number, affordable: boolean) => {
+      const goldColor = affordable ? '#ffd740' : '#665500';
+      const woodColor = affordable ? '#81c784' : '#2e5530';
+      const stoneColor = affordable ? '#b0bec5' : '#4a5058';
+      ctx.font = 'bold 12px monospace';
+      const strs = parts.map(p => `${p.val}${p.type}`);
+      const gap = 5;
+      let totalW = 0;
+      for (let j = 0; j < strs.length; j++) {
+        totalW += ctx.measureText(strs[j]).width;
+        if (j < strs.length - 1) totalW += gap;
+      }
+      let drawX = cx - totalW / 2;
+      for (let j = 0; j < parts.length; j++) {
+        ctx.fillStyle = parts[j].type === 'g' ? goldColor : parts[j].type === 'w' ? woodColor : stoneColor;
+        ctx.textAlign = 'left';
+        ctx.fillText(strs[j], drawX, cy);
+        drawX += ctx.measureText(strs[j]).width + gap;
+      }
+    };
+
+    // Cell layout: icon square on left (~22%), text column on right (~78%)
+    const iconColW = Math.min(Math.floor(milW * 0.22), 34);
+    const cellTextX = (cellX: number) => cellX + iconColW + (milW - iconColW) / 2;
+
+    // === Miner button (col 0) ===
     const myHuts = this.game.state.buildings.filter(
       b => b.playerId === 0 && b.type === BuildingType.HarvesterHut
     );
-    const hutCost = HARVESTER_HUT_COST(myHuts.length);
-    const canAffordHut = player.gold >= hutCost && myHuts.length < 10;
+    const hutBase = RACE_BUILDING_COSTS[player.race][BuildingType.HarvesterHut];
+    const hutMult = Math.pow(1.35, Math.max(0, myHuts.length - 1));
+    const hutGold = Math.floor(hutBase.gold * hutMult);
+    const hutWood = Math.floor(hutBase.wood * hutMult);
+    const hutStone = Math.floor(hutBase.stone * hutMult);
+    const canAffordHut = player.gold >= hutGold && player.wood >= hutWood && player.stone >= hutStone && myHuts.length < 10;
     const mx = 0;
     ctx.fillStyle = 'rgba(40, 55, 20, 0.9)';
     ctx.fillRect(mx + 1, milY + 1, milW - 2, milH - 2);
     ctx.strokeStyle = canAffordHut ? '#8bc34a' : '#3a4a1a';
     ctx.lineWidth = 1;
     ctx.strokeRect(mx + 1, milY + 1, milW - 2, milH - 2);
+
+    // Miner icon (pickaxe) in left column, scaled to cell
+    const mIcX = mx + iconColW / 2;
+    const mIcY = milY + milH / 2;
+    const ps = Math.min(iconColW * 0.4, milH * 0.28, 12);
+    ctx.strokeStyle = canAffordHut ? '#c5e1a5' : '#555';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(mIcX - ps, mIcY + ps);
+    ctx.lineTo(mIcX + ps * 0.65, mIcY - ps * 0.65);
+    ctx.lineTo(mIcX + ps, mIcY - ps * 0.15);
+    ctx.moveTo(mIcX + ps * 0.65, mIcY - ps * 0.65);
+    ctx.lineTo(mIcX + ps * 0.15, mIcY - ps);
+    ctx.stroke();
+    ctx.strokeStyle = canAffordHut ? '#8d6e63' : '#444';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(mIcX - ps, mIcY + ps);
+    ctx.lineTo(mIcX - ps * 0.2, mIcY + ps * 0.2);
+    ctx.stroke();
+
+    // Miner text in right column
+    const mTx = cellTextX(mx);
     ctx.textAlign = 'center';
     ctx.fillStyle = canAffordHut ? '#c5e1a5' : '#555';
-    ctx.font = 'bold 15px monospace';
-    ctx.fillText('Miner', mx + milW / 2, milY + 22);
-    ctx.fillStyle = canAffordHut ? '#ffd700' : '#553300';
-    ctx.font = '13px monospace';
-    ctx.fillText(myHuts.length < 10 ? `${hutCost}g` : 'MAX', mx + milW / 2, milY + 40);
-    ctx.fillStyle = '#4a5a2a';
-    ctx.font = '12px monospace';
-    ctx.fillText('[M]', mx + milW / 2, milY + 56);    // Military buttons (cols 1-4)
+    ctx.font = 'bold 12px monospace';
+    ctx.fillText('Miner', mTx, milY + 20);
+    const hutCostItems: { val: number; type: 'g' | 'w' | 's' }[] = [];
+    if (hutGold > 0) hutCostItems.push({ val: hutGold, type: 'g' });
+    if (hutWood > 0) hutCostItems.push({ val: hutWood, type: 'w' });
+    if (hutStone > 0) hutCostItems.push({ val: hutStone, type: 's' });
+    if (myHuts.length < 10) {
+      drawCost(hutCostItems, mTx, milY + 42, canAffordHut);
+    } else {
+      ctx.fillStyle = '#555'; ctx.font = '10px monospace'; ctx.textAlign = 'center';
+      ctx.fillText('MAX', mTx, milY + 42);
+    }
+    ctx.fillStyle = '#4a5a2a'; ctx.font = '9px monospace'; ctx.textAlign = 'center';
+    ctx.fillText('[M]', mTx, milY + 56);
+
+    // === Military buttons (cols 1-4) ===
+    const race = player.race;
+    const raceColor = RACE_COLORS[race]?.primary ?? '#fff';
     for (let i = 0; i < BUILD_TRAY.length; i++) {
       const item = BUILD_TRAY[i];
       const bx = (i + 1) * milW;
       const isSelected = this.selectedBuilding === item.type;
-      const race = this.game.state.players[0].race;
       const cost = RACE_BUILDING_COSTS[race][item.type];
-      const canAfford = player.gold >= cost.gold && player.wood >= cost.wood && player.stone >= cost.stone;
+      const isFirstTowerFree = item.type === BuildingType.Tower &&
+        !this.game.state.buildings.some(b => b.playerId === 0 && b.type === BuildingType.Tower);
+      const canAfford = isFirstTowerFree || (player.gold >= cost.gold && player.wood >= cost.wood && player.stone >= cost.stone);
 
+      let unitName: string;
+      let category: 'melee' | 'ranged' | 'caster' | 'tower';
+      if (item.type === BuildingType.Tower) {
+        unitName = 'Tower';
+        category = 'tower';
+      } else {
+        const stats = UNIT_STATS[race]?.[item.type];
+        unitName = stats?.name ?? item.label;
+        category = item.type === BuildingType.MeleeSpawner ? 'melee'
+          : item.type === BuildingType.RangedSpawner ? 'ranged' : 'caster';
+      }
+
+      // Cell background & border
       ctx.fillStyle = isSelected ? 'rgba(41, 121, 255, 0.28)' : 'rgba(28, 28, 28, 0.9)';
       ctx.fillRect(bx + 1, milY + 1, milW - 2, milH - 2);
       ctx.strokeStyle = isSelected ? '#2979ff' : (canAfford ? '#555' : '#333');
       ctx.lineWidth = isSelected ? 2 : 1;
       ctx.strokeRect(bx + 1, milY + 1, milW - 2, milH - 2);
 
+      // Icon in left column (vertically centered, scaled to cell size)
+      const sX = bx + iconColW / 2;
+      const sY = milY + milH / 2;
+      const iconR = Math.min(iconColW * 0.45, milH * 0.3, 14);
+      if (category !== 'tower' && this.currentRenderer) {
+        this.currentRenderer.drawUnitShape(ctx, sX, sY, iconR, race, category, Team.Bottom, raceColor);
+      } else {
+        // Tower icon
+        const tw = iconR * 1.2;
+        const th = iconR * 1.8;
+        ctx.fillStyle = raceColor;
+        ctx.fillRect(sX - tw / 2, sY - th / 2, tw, th);
+        ctx.fillRect(sX - tw / 2 - 2, sY - th / 2 - 2, tw + 4, 3);
+        ctx.strokeStyle = canAfford ? '#888' : '#444';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(sX - tw / 2, sY - th / 2, tw, th);
+      }
+
+      // Text in right column
+      const tx = cellTextX(bx);
       ctx.textAlign = 'center';
+
+      // Unit name (only wrap if too wide for text column)
       ctx.fillStyle = canAfford ? '#eee' : '#555';
-      ctx.font = 'bold 15px monospace';
-      ctx.fillText(item.label, bx + milW / 2, milY + 22);
+      const textColW = milW - iconColW - 6;
+      ctx.font = 'bold 12px monospace';
+      const nameW = ctx.measureText(unitName).width;
+      if (nameW > textColW && unitName.includes(' ')) {
+        const parts = unitName.split(' ');
+        ctx.font = 'bold 10px monospace';
+        ctx.fillText(parts[0], tx, milY + 15);
+        ctx.fillText(parts.slice(1).join(' '), tx, milY + 26);
+      } else {
+        ctx.fillText(unitName, tx, milY + 20);
+      }
 
-      let costStr = `${cost.gold}g`;
-      if (cost.wood > 0) costStr += ` ${cost.wood}w`;
-      if (cost.stone > 0) costStr += ` ${cost.stone}s`;
-      ctx.fillStyle = canAfford ? '#ffd700' : '#553300';
-      ctx.font = '13px monospace';
-      ctx.fillText(costStr, bx + milW / 2, milY + 40);
+      // Cost (colorized per resource, same Y)
+      if (isFirstTowerFree) {
+        ctx.fillStyle = '#4caf50'; ctx.font = 'bold 12px monospace'; ctx.textAlign = 'center';
+        ctx.fillText('FREE', tx, milY + 42);
+      } else {
+        const costItems: { val: number; type: 'g' | 'w' | 's' }[] = [];
+        if (cost.gold > 0) costItems.push({ val: cost.gold, type: 'g' });
+        if (cost.wood > 0) costItems.push({ val: cost.wood, type: 'w' });
+        if (cost.stone > 0) costItems.push({ val: cost.stone, type: 's' });
+        drawCost(costItems, tx, milY + 42, canAfford);
+      }
 
-      ctx.fillStyle = '#555';
-      ctx.font = '12px monospace';
-      ctx.fillText(`[${item.key}]`, bx + milW / 2, milY + 56);
-    }    // Nuke button (col 5)
+      // Key hint
+      ctx.fillStyle = '#444'; ctx.font = '9px monospace'; ctx.textAlign = 'center';
+      ctx.fillText(`[${item.key}]`, tx, milY + 56);
+    }
+    // Nuke button (col 5)
     const nukeAvail = player.nukeAvailable;
     const nukeX = (BUILD_TRAY.length + 1) * milW;
     ctx.fillStyle = this.nukeTargeting ? 'rgba(255, 50, 0, 0.35)' : 'rgba(28, 28, 28, 0.9)';
@@ -1275,6 +1450,528 @@ export class InputHandler {
     ctx.textAlign = 'start';
   }
 
+  private drawSelectedUnit(ctx: CanvasRenderingContext2D, renderer: Renderer): void {
+    // Clean up stale selection
+    if (this.selectedUnitId !== null) {
+      const u = this.game.state.units.find(u => u.id === this.selectedUnitId);
+      if (!u) { this.selectedUnitId = null; return; }
+
+      const cam = renderer.camera;
+
+      // Draw selection ring on the unit in world space
+      ctx.save();
+      cam.applyTransform(ctx);
+      const px = u.x * TILE_SIZE + TILE_SIZE / 2;
+      const py = u.y * TILE_SIZE + TILE_SIZE / 2;
+      const ringR = TILE_SIZE * 0.6;
+      ctx.beginPath();
+      ctx.arc(px, py, ringR, 0, Math.PI * 2);
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([4, 3]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.restore();
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+
+      // Draw info panel at top of screen
+      const player = this.game.state.players[u.playerId];
+      const race = player?.race;
+      const raceColor = race ? (RACE_COLORS[race]?.primary ?? '#fff') : '#fff';
+      const teamLabel = u.team === Team.Bottom ? 'Ally' : 'Enemy';
+
+      const lines: string[] = [];
+      lines.push(`${u.type}`);
+      lines.push(`${teamLabel} ${u.category}  HP: ${u.hp}/${u.maxHp}${u.shieldHp > 0 ? ` +${u.shieldHp} shield` : ''}`);
+      lines.push(`DMG: ${u.damage}  SPD: ${u.attackSpeed.toFixed(1)}s  RNG: ${u.range}  Move: ${u.moveSpeed.toFixed(1)}`);
+
+      // Status effects
+      if (u.statusEffects.length > 0) {
+        const effs = u.statusEffects.map(e => `${e.type}x${e.stacks}`).join('  ');
+        lines.push(`Status: ${effs}`);
+      }
+
+      // Kills
+      if (u.kills > 0) lines.push(`Kills: ${u.kills}`);
+
+      const lineH = 16;
+      const padX = 14;
+      const padY = 8;
+      const boxH = lines.length * lineH + padY * 2;
+
+      ctx.font = '12px monospace';
+      let maxW = 0;
+      for (const line of lines) {
+        const m = ctx.measureText(line).width;
+        if (m > maxW) maxW = m;
+      }
+      const boxW = maxW + padX * 2;
+      const boxX = (this.canvas.width - boxW) / 2;
+      const boxY = 8;
+
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.92)';
+      ctx.fillRect(boxX, boxY, boxW, boxH);
+      ctx.strokeStyle = raceColor;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(boxX, boxY, boxW, boxH);
+
+      // Draw unit shape in the panel
+      if (this.currentRenderer && race) {
+        this.currentRenderer.drawUnitShape(ctx, boxX + 20, boxY + boxH / 2, 10, race, u.category, u.team, raceColor);
+      }
+
+      ctx.textAlign = 'left';
+      const textStartX = boxX + 38;
+      for (let i = 0; i < lines.length; i++) {
+        if (i === 0) {
+          ctx.fillStyle = raceColor;
+          ctx.font = 'bold 13px monospace';
+        } else if (lines[i].startsWith('Status:')) {
+          ctx.fillStyle = '#ffcc80';
+          ctx.font = '11px monospace';
+        } else {
+          ctx.fillStyle = '#ccc';
+          ctx.font = '12px monospace';
+        }
+        ctx.fillText(lines[i], textStartX, boxY + padY + (i + 1) * lineH - 3);
+      }
+      ctx.textAlign = 'start';
+    }
+  }
+
+  private findUnitNear(wx: number, wy: number, radius: number): UnitState | null {
+    let best: UnitState | null = null;
+    let bestDist = radius * radius;
+    for (const u of this.game.state.units) {
+      const dx = u.x - wx;
+      const dy = u.y - wy;
+      const d2 = dx * dx + dy * dy;
+      if (d2 < bestDist) {
+        bestDist = d2;
+        best = u;
+      }
+    }
+    return best;
+  }
+
+  private getBuildingLabel(type: BuildingType): string {
+    switch (type) {
+      case BuildingType.HarvesterHut: return 'Miner Hut';
+      case BuildingType.MeleeSpawner: return 'Melee Barracks';
+      case BuildingType.RangedSpawner: return 'Ranged Barracks';
+      case BuildingType.CasterSpawner: return 'Caster Barracks';
+      case BuildingType.Tower: return 'Tower';
+      default: return type;
+    }
+  }
+
+  private getBuildingTooltip(building: { type: BuildingType; hp: number; maxHp: number; lane: Lane; upgradePath: string[]; id: number }): string {
+    let tip = `${this.getBuildingLabel(building.type)}  HP: ${building.hp}/${building.maxHp}`;
+    if (building.type === BuildingType.HarvesterHut) {
+      const h = this.game.state.harvesters.find(h => h.hutId === building.id);
+      if (h) tip += `  [${ASSIGNMENT_LABELS[h.assignment]}]`;
+    } else if (building.type !== BuildingType.Tower) {
+      tip += `  Lane: ${building.lane}`;
+    }
+    if (building.upgradePath.length > 1) {
+      tip += `  Tier ${building.upgradePath.length - 1}`;
+    }
+    return tip;
+  }
+
+  private getUnitTooltip(u: UnitState): string {
+    const teamLabel = u.team === Team.Bottom ? 'Ally' : 'Enemy';
+    let tip = `${u.type} (${teamLabel} ${u.category})  HP: ${u.hp}/${u.maxHp}`;
+    if (u.shieldHp > 0) tip += ` +${u.shieldHp} shield`;
+    return tip;
+  }
+
+  private devBalanceCache: { data: any[] | null; lastRefresh: number } = { data: null, lastRefresh: 0 };
+
+  private drawDevOverlay(ctx: CanvasRenderingContext2D): void {
+    const state = this.game.state;
+    const W = this.canvas.width;
+
+    // Semi-transparent background
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
+    ctx.fillRect(0, 0, W, this.canvas.height);
+
+    const lh = 16;
+    const col1 = 20;
+    let y = 30;
+
+    // Title
+    ctx.fillStyle = '#ffd740';
+    ctx.font = 'bold 16px monospace';
+    ctx.textAlign = 'left';
+    ctx.fillText('DEV PANEL  [` to close]', col1, y);
+    y += lh + 8;
+
+    // --- LIVE MATCH STATS ---
+    ctx.fillStyle = '#81c784';
+    ctx.font = 'bold 13px monospace';
+    ctx.fillText('LIVE MATCH', col1, y);
+    y += lh;
+
+    const tickSec = Math.floor(state.tick / TICK_RATE);
+    const mins = Math.floor(tickSec / 60);
+    const secs = tickSec % 60;
+    ctx.fillStyle = '#ccc';
+    ctx.font = '12px monospace';
+    ctx.fillText(`Time: ${mins}:${secs.toString().padStart(2, '0')}  Phase: ${state.matchPhase}  Winner: ${state.winner ?? 'none'}`, col1, y);
+    y += lh;
+    ctx.fillText(`HQ HP: Bottom ${state.hqHp[0]} | Top ${state.hqHp[1]}`, col1, y);
+    y += lh + 4;
+
+    // Per-player live stats table
+    const headers = ['P#', 'Race', 'Team', 'Gold', 'Wood', 'Stone', 'DMG', 'Spawn', 'Lost', 'Bld'];
+    const colWidths = [28, 65, 45, 90, 90, 90, 55, 50, 40, 35];
+
+    ctx.fillStyle = '#90caf9';
+    ctx.font = 'bold 11px monospace';
+    let hx = col1;
+    for (let i = 0; i < headers.length; i++) {
+      ctx.fillText(headers[i], hx, y);
+      hx += colWidths[i];
+    }
+    y += lh;
+
+    for (let pi = 0; pi < state.players.length; pi++) {
+      const p = state.players[pi];
+      const s = state.playerStats[pi];
+      const bcount = state.buildings.filter(b => b.playerId === pi).length;
+      const vals = [
+        `${pi}${p.isBot ? 'b' : ''}`,
+        p.race,
+        p.team === Team.Bottom ? 'Bot' : 'Top',
+        `${p.gold}(+${s.totalGoldEarned})`,
+        `${p.wood}(+${s.totalWoodEarned})`,
+        `${p.stone}(+${s.totalStoneEarned})`,
+        `${s.totalDamageDealt}`,
+        `${s.unitsSpawned}`,
+        `${s.unitsLost}`,
+        `${bcount}`,
+      ];
+      ctx.fillStyle = pi === 0 ? '#e8f5e9' : '#fafafa';
+      ctx.font = '11px monospace';
+      let vx = col1;
+      for (let i = 0; i < vals.length; i++) {
+        ctx.fillText(vals[i], vx, y);
+        vx += colWidths[i];
+      }
+      y += lh;
+    }
+    y += 8;
+
+    // Unit counts per team
+    ctx.fillStyle = '#81c784';
+    ctx.font = 'bold 13px monospace';
+    ctx.fillText('UNIT COUNTS', col1, y);
+    y += lh;
+    const botUnits = state.units.filter(u => u.team === Team.Bottom);
+    const topUnits = state.units.filter(u => u.team === Team.Top);
+    const botMelee = botUnits.filter(u => u.category === 'melee').length;
+    const botRanged = botUnits.filter(u => u.category === 'ranged').length;
+    const botCaster = botUnits.filter(u => u.category === 'caster').length;
+    const topMelee = topUnits.filter(u => u.category === 'melee').length;
+    const topRanged = topUnits.filter(u => u.category === 'ranged').length;
+    const topCaster = topUnits.filter(u => u.category === 'caster').length;
+    ctx.fillStyle = '#ccc';
+    ctx.font = '11px monospace';
+    ctx.fillText(`Bottom: ${botUnits.length} total (${botMelee}m ${botRanged}r ${botCaster}c)  Harvesters: ${state.harvesters.filter(h => h.playerId < 2).length}`, col1, y);
+    y += lh;
+    ctx.fillText(`Top:    ${topUnits.length} total (${topMelee}m ${topRanged}r ${topCaster}c)  Harvesters: ${state.harvesters.filter(h => h.playerId >= 2).length}`, col1, y);
+    y += lh + 8;
+
+    // --- HISTORICAL BALANCE (from localStorage) ---
+    ctx.fillStyle = '#ffd740';
+    ctx.font = 'bold 13px monospace';
+    ctx.fillText('BALANCE HISTORY', col1, y);
+    y += lh;
+
+    const now = Date.now();
+    if (!this.devBalanceCache.data || now - this.devBalanceCache.lastRefresh > 2000) {
+      try {
+        const raw = localStorage.getItem('asciiwars.balanceLog');
+        this.devBalanceCache.data = raw ? JSON.parse(raw) : [];
+      } catch { this.devBalanceCache.data = []; }
+      this.devBalanceCache.lastRefresh = now;
+    }
+    const records = this.devBalanceCache.data!;
+
+    if (records.length === 0) {
+      ctx.fillStyle = '#888';
+      ctx.font = '11px monospace';
+      ctx.fillText('No completed matches yet.', col1, y);
+      y += lh;
+    } else {
+      // Aggregate by race
+      const byRace: Record<string, { wins: number; games: number; dmg: number; res: number; spawned: number; lost: number }> = {};
+      for (const r of records) {
+        for (const p of r.players) {
+          if (!byRace[p.race]) byRace[p.race] = { wins: 0, games: 0, dmg: 0, res: 0, spawned: 0, lost: 0 };
+          const a = byRace[p.race];
+          a.games++;
+          if (p.won) a.wins++;
+          a.dmg += p.damageDealt;
+          a.res += p.goldEarned + p.woodEarned + p.stoneEarned;
+          a.spawned += p.unitsSpawned;
+          a.lost += p.unitsLost;
+        }
+      }
+
+      ctx.fillStyle = '#888';
+      ctx.font = '11px monospace';
+      ctx.fillText(`${records.length} matches recorded`, col1, y);
+      y += lh + 2;
+
+      const rHeaders = ['Race', 'Games', 'Win%', 'Avg DMG', 'Avg Res', 'Avg Spawn', 'Avg Lost'];
+      const rWidths = [70, 50, 50, 70, 70, 75, 65];
+      ctx.fillStyle = '#90caf9';
+      ctx.font = 'bold 11px monospace';
+      let rx = col1;
+      for (let i = 0; i < rHeaders.length; i++) {
+        ctx.fillText(rHeaders[i], rx, y);
+        rx += rWidths[i];
+      }
+      y += lh;
+
+      for (const [race, a] of Object.entries(byRace)) {
+        const winPct = a.games > 0 ? Math.round(100 * a.wins / a.games) : 0;
+        const vals = [
+          race,
+          `${a.games}`,
+          `${winPct}%`,
+          `${a.games > 0 ? Math.round(a.dmg / a.games) : 0}`,
+          `${a.games > 0 ? Math.round(a.res / a.games) : 0}`,
+          `${a.games > 0 ? Math.round(a.spawned / a.games) : 0}`,
+          `${a.games > 0 ? Math.round(a.lost / a.games) : 0}`,
+        ];
+        // Color win% — green if >55%, red if <45%, white otherwise
+        ctx.font = '11px monospace';
+        let vx = col1;
+        for (let i = 0; i < vals.length; i++) {
+          if (i === 2) {
+            ctx.fillStyle = winPct > 55 ? '#81c784' : winPct < 45 ? '#ef9a9a' : '#ccc';
+          } else if (i === 0) {
+            ctx.fillStyle = RACE_COLORS[race as Race]?.primary ?? '#ccc';
+          } else {
+            ctx.fillStyle = '#ccc';
+          }
+          ctx.fillText(vals[i], vx, y);
+          vx += rWidths[i];
+        }
+        y += lh;
+      }
+    }
+
+    // Income rate display
+    y += 8;
+    ctx.fillStyle = '#ffd740';
+    ctx.font = 'bold 13px monospace';
+    ctx.fillText('ECONOMY (current rates)', col1, y);
+    y += lh;
+    ctx.fillStyle = '#ccc';
+    ctx.font = '11px monospace';
+    for (let pi = 0; pi < state.players.length; pi++) {
+      const p = state.players[pi];
+      const s = state.playerStats[pi];
+      const elapsed = Math.max(1, state.tick / TICK_RATE);
+      const gps = (s.totalGoldEarned / elapsed).toFixed(1);
+      const wps = (s.totalWoodEarned / elapsed).toFixed(1);
+      const sps = (s.totalStoneEarned / elapsed).toFixed(1);
+      ctx.fillStyle = pi === 0 ? '#e8f5e9' : '#fafafa';
+      ctx.fillText(`P${pi} ${p.race}: ${gps}g/s  ${wps}w/s  ${sps}s/s  total: ${s.totalGoldEarned + s.totalWoodEarned + s.totalStoneEarned}`, col1, y);
+      y += lh;
+    }
+
+    ctx.textAlign = 'start';
+  }
+
+  private getSpecialDesc(race: Race, type: BuildingType): string {
+    if (type === BuildingType.Tower) {
+      const descs: Record<Race, string> = {
+        [Race.Surge]: 'Chain lightning',
+        [Race.Tide]: 'AoE slow',
+        [Race.Ember]: 'Burn splash',
+        [Race.Bastion]: 'Shield allies',
+        [Race.Shade]: 'Poison on hit',
+        [Race.Thorn]: 'Regen aura',
+      };
+      return descs[race] ?? '';
+    }
+    if (type === BuildingType.CasterSpawner) {
+      const descs: Record<Race, string> = {
+        [Race.Surge]: 'Haste pulse + AoE',
+        [Race.Tide]: 'Cleanse + AoE slow',
+        [Race.Ember]: 'Pure burst AoE',
+        [Race.Bastion]: 'Shield allies',
+        [Race.Shade]: 'Lifesteal heal + AoE',
+        [Race.Thorn]: 'Heal aura + AoE',
+      };
+      return descs[race] ?? '';
+    }
+    if (type === BuildingType.MeleeSpawner) {
+      const descs: Record<Race, string> = {
+        [Race.Surge]: 'Fast attack',
+        [Race.Tide]: 'Slow on hit',
+        [Race.Ember]: 'High damage',
+        [Race.Bastion]: 'High HP tank',
+        [Race.Shade]: 'Poison + lifesteal',
+        [Race.Thorn]: 'Slow on hit + tanky',
+      };
+      return descs[race] ?? '';
+    }
+    if (type === BuildingType.RangedSpawner) {
+      const descs: Record<Race, string> = {
+        [Race.Surge]: 'Long range',
+        [Race.Tide]: 'Slow projectile',
+        [Race.Ember]: 'Burn projectile',
+        [Race.Bastion]: 'Siege range',
+        [Race.Shade]: 'Poison projectile',
+        [Race.Thorn]: 'Slow projectile',
+      };
+      return descs[race] ?? '';
+    }
+    return '';
+  }
+
+  private drawPlacementHighlight(ctx: CanvasRenderingContext2D, renderer: Renderer): void {
+    if (!this.selectedBuilding) return;
+    const cam = renderer.camera;
+    const isTower = this.selectedBuilding === BuildingType.Tower;
+    const myTeam = Team.Bottom;
+
+    ctx.save();
+    cam.applyTransform(ctx);
+
+    // Highlight military grid slots (for non-tower or all types)
+    if (!isTower) {
+      const origin = getBuildGridOrigin(0);
+      for (let gy = 0; gy < BUILD_GRID_ROWS; gy++) {
+        for (let gx = 0; gx < BUILD_GRID_COLS; gx++) {
+          const wx = (origin.x + gx) * TILE_SIZE;
+          const wy = (origin.y + gy) * TILE_SIZE;
+          const occupied = this.game.state.buildings.some(
+            b => b.buildGrid === 'military' && b.gridX === gx && b.gridY === gy && b.playerId === 0
+          );
+          ctx.fillStyle = occupied ? 'rgba(255, 60, 60, 0.15)' : 'rgba(60, 255, 60, 0.15)';
+          ctx.fillRect(wx, wy, TILE_SIZE, TILE_SIZE);
+          ctx.strokeStyle = occupied ? 'rgba(255, 60, 60, 0.3)' : 'rgba(60, 255, 60, 0.3)';
+          ctx.lineWidth = 1;
+          ctx.strokeRect(wx, wy, TILE_SIZE, TILE_SIZE);
+        }
+      }
+    }
+
+    // Highlight tower alley slots (for towers)
+    if (isTower) {
+      const alley = getTeamAlleyOrigin(myTeam);
+      for (let gy = 0; gy < SHARED_ALLEY_ROWS; gy++) {
+        for (let gx = 0; gx < SHARED_ALLEY_COLS; gx++) {
+          const wx = (alley.x + gx) * TILE_SIZE;
+          const wy = (alley.y + gy) * TILE_SIZE;
+          const occupied = this.game.state.buildings.some(
+            b => {
+              if (b.buildGrid !== 'alley' || b.gridX !== gx || b.gridY !== gy) return false;
+              const bTeam = b.playerId < 2 ? Team.Bottom : Team.Top;
+              return bTeam === myTeam;
+            }
+          );
+          ctx.fillStyle = occupied ? 'rgba(255, 60, 60, 0.15)' : 'rgba(60, 255, 60, 0.15)';
+          ctx.fillRect(wx, wy, TILE_SIZE, TILE_SIZE);
+          ctx.strokeStyle = occupied ? 'rgba(255, 60, 60, 0.3)' : 'rgba(60, 255, 60, 0.3)';
+          ctx.lineWidth = 1;
+          ctx.strokeRect(wx, wy, TILE_SIZE, TILE_SIZE);
+        }
+      }
+    }
+
+    ctx.restore();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+  }
+
+  private drawBuildTooltip(ctx: CanvasRenderingContext2D, _renderer: Renderer): void {
+    if (!this.selectedBuilding) return;
+    const player = this.game.state.players[0];
+    const race = player.race;
+    const type = this.selectedBuilding;
+
+    let name: string;
+    let hp: number;
+    let damage: number;
+    let atkSpd: number;
+    let range: number;
+
+    if (type === BuildingType.Tower) {
+      const ts = TOWER_STATS[race];
+      name = 'Tower';
+      hp = ts.hp;
+      damage = ts.damage;
+      atkSpd = ts.attackSpeed;
+      range = ts.range;
+    } else {
+      const us = UNIT_STATS[race]?.[type];
+      if (!us) return;
+      name = us.name;
+      hp = us.hp;
+      damage = us.damage;
+      atkSpd = us.attackSpeed;
+      range = us.range;
+    }
+
+    const special = this.getSpecialDesc(race, type);
+    const raceColor = RACE_COLORS[race]?.primary ?? '#fff';
+    const { milY } = this.getTrayLayout();
+
+    // Tooltip box above the build tray
+    const lines = [
+      name,
+      `HP:${hp}  DMG:${damage}  SPD:${atkSpd.toFixed(1)}s  RNG:${range}`,
+    ];
+    if (special) lines.push(special);
+
+    const lineH = 16;
+    const padX = 12;
+    const padY = 8;
+    const boxH = lines.length * lineH + padY * 2;
+
+    ctx.font = '12px monospace';
+    let maxW = 0;
+    for (const line of lines) {
+      const m = ctx.measureText(line).width;
+      if (m > maxW) maxW = m;
+    }
+    const boxW = maxW + padX * 2;
+    const boxX = (this.canvas.width - boxW) / 2;
+    const boxY = milY - boxH - 8;
+
+    // Background
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.92)';
+    ctx.fillRect(boxX, boxY, boxW, boxH);
+    ctx.strokeStyle = raceColor;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(boxX, boxY, boxW, boxH);
+
+    // Text
+    ctx.textAlign = 'center';
+    const centerX = boxX + boxW / 2;
+    for (let i = 0; i < lines.length; i++) {
+      if (i === 0) {
+        ctx.fillStyle = raceColor;
+        ctx.font = 'bold 13px monospace';
+      } else if (i === lines.length - 1 && special) {
+        ctx.fillStyle = '#aaa';
+        ctx.font = 'italic 11px monospace';
+      } else {
+        ctx.fillStyle = '#ccc';
+        ctx.font = '12px monospace';
+      }
+      ctx.fillText(lines[i], centerX, boxY + padY + (i + 1) * lineH - 3);
+    }
+    ctx.textAlign = 'start';
+  }
+
   private drawPlacementPreview(ctx: CanvasRenderingContext2D, renderer: Renderer): void {
     if (!this.hoveredGridSlot) return;
     const slot = this.hoveredGridSlot;
@@ -1306,15 +2003,40 @@ export class InputHandler {
   }
 
   private drawNukeOverlay(ctx: CanvasRenderingContext2D): void {
-    // Red-tinted screen overlay
-    ctx.fillStyle = 'rgba(255, 0, 0, 0.05)';
+    const cam = this.camera;
+    const team = this.game.state.players[0]?.team ?? Team.Bottom;
+
+    // Draw red blocked zone over enemy half (can't nuke there)
+    const forbiddenMinY = team === Team.Bottom ? 0 : ZONES.MID.end;
+    const forbiddenMaxY = team === Team.Bottom ? ZONES.MID.start : MAP_HEIGHT;
+    const screenX1 = (0 - cam.x) * cam.zoom;
+    const screenY1 = (forbiddenMinY * TILE_SIZE - cam.y) * cam.zoom;
+    const screenX2 = (MAP_WIDTH * TILE_SIZE - cam.x) * cam.zoom;
+    const screenY2 = (forbiddenMaxY * TILE_SIZE - cam.y) * cam.zoom;
+
+    ctx.fillStyle = 'rgba(255, 0, 0, 0.15)';
+    ctx.fillRect(screenX1, screenY1, screenX2 - screenX1, screenY2 - screenY1);
+
+    // Striped forbidden border
+    ctx.strokeStyle = 'rgba(255, 50, 0, 0.6)';
+    ctx.lineWidth = 3;
+    ctx.setLineDash([10, 6]);
+    const borderY = team === Team.Bottom ? screenY1 + (screenY2 - screenY1) : screenY1;
+    ctx.beginPath();
+    ctx.moveTo(screenX1, borderY);
+    ctx.lineTo(screenX2, borderY);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Light valid zone tint
+    ctx.fillStyle = 'rgba(255, 100, 0, 0.04)';
     ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
 
     // Instruction text
     ctx.fillStyle = '#ff5722';
     ctx.font = 'bold 16px monospace';
     ctx.textAlign = 'center';
-    ctx.fillText('CLICK TO FIRE NUKE  [ESC to cancel]', this.canvas.width / 2, 60);
+    ctx.fillText('CLICK TO FIRE NUKE (own half only)  [ESC to cancel]', this.canvas.width / 2, 60);
     ctx.textAlign = 'start';
   }
 

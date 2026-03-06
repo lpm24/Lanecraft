@@ -15,8 +15,8 @@ export const HUT_GRID_COLS = 10;
 export const HUT_GRID_ROWS = 1;
 
 // Shared tower alley: 10 wide x 3 tall, one per team, straddling the neck path
-export const SHARED_ALLEY_COLS = 10;
-export const SHARED_ALLEY_ROWS = 3;
+export const SHARED_ALLEY_COLS = 20;
+export const SHARED_ALLEY_ROWS = 12;
 
 // Map zone boundaries (row indices)
 // Y=0 is TOP of map, Y=MAP_HEIGHT is BOTTOM
@@ -158,6 +158,8 @@ export enum Race {
   Tide = 'tide',
   Ember = 'ember',
   Bastion = 'bastion',
+  Shade = 'shade',
+  Thorn = 'thorn',
 }
 
 export enum Lane {
@@ -215,6 +217,9 @@ export interface PlayerState {
   gold: number;
   wood: number;
   stone: number;
+  goldFrac?: number;  // fractional accumulator for passive income < 1/sec
+  woodFrac?: number;
+  stoneFrac?: number;
   nukeAvailable: boolean;
   connected: boolean;
   isBot: boolean;
@@ -260,6 +265,18 @@ export interface UnitState {
   shieldHp: number;       // absorb pool from Shield status
   category: 'melee' | 'ranged' | 'caster';
   upgradeSpecial: Record<string, any>; // upgrade-granted special effects
+  kills: number;          // individual kill count for war hero tracking
+  lastDamagedByName: string; // name of last unit/source that dealt damage
+}
+
+// Snapshot of a notable unit for post-match display
+export interface WarHero {
+  name: string;         // unit type name (e.g. "Volt Runner")
+  playerId: number;
+  category: 'melee' | 'ranged' | 'caster';
+  kills: number;
+  survived: boolean;
+  killedByName: string | null; // name of the unit/source that killed it, null if survived
 }
 
 // A single gold cell in the diamond obstacle
@@ -311,6 +328,7 @@ export interface ProjectileState {
   aoeRadius: number;
   team: Team;
   sourcePlayerId: number; // tracks which player fired it for race-specific effects
+  sourceUnitId?: number;  // tracks which unit fired it for kill credit
   extraBurnStacks?: number;
   extraSlowStacks?: number;
   splashDamagePct?: number;
@@ -430,6 +448,8 @@ export interface GameState {
   soundEvents: SoundEvent[];
   nextEntityId: number;
   playerStats: PlayerStats[];
+  warHeroes: WarHero[];          // populated at match end — top unit per player
+  fallenHeroes: WarHero[];       // units with kills > 0 that died during the match
 }
 
 // === Commands (client -> server) ===

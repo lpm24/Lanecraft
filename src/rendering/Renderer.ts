@@ -256,8 +256,8 @@ export class Renderer {
 
     const bHQ = getHQPosition(Team.Bottom);
     const tHQ = getHQPosition(Team.Top);
-    drawNode(bHQ.x + HQ_WIDTH / 2, bHQ.y - 3, 'GOLD', 'rgba(255, 215, 0, 0.2)');
-    drawNode(tHQ.x + HQ_WIDTH / 2, tHQ.y + HQ_HEIGHT + 3, 'GOLD', 'rgba(255, 215, 0, 0.2)');
+    drawNode(bHQ.x + HQ_WIDTH / 2, bHQ.y - 6, 'GOLD', 'rgba(255, 215, 0, 0.2)');
+    drawNode(tHQ.x + HQ_WIDTH / 2, tHQ.y + HQ_HEIGHT + 6, 'GOLD', 'rgba(255, 215, 0, 0.2)');
   }
 
   // === Build Grids ===
@@ -566,16 +566,25 @@ export class Renderer {
       ctx.fillStyle = laneColor; ctx.fill();
 
       // Status effect visuals
+      const hasSlow = u.statusEffects.find(e => e.type === StatusType.Slow);
+      const hasBurn = u.statusEffects.find(e => e.type === StatusType.Burn);
+      const isSeared = hasSlow && hasBurn; // combo: slow + burn
+      const isBlighted = hasBurn && hasBurn.stacks >= 3; // high burn = regen disabled
+
       for (const eff of u.statusEffects) {
         if (eff.type === StatusType.Slow) {
           ctx.beginPath(); ctx.arc(px, py, r + 2, 0, Math.PI * 2);
-          ctx.strokeStyle = `rgba(41, 121, 255, ${0.3 + 0.1 * eff.stacks})`;
-          ctx.lineWidth = 1; ctx.stroke();
+          ctx.strokeStyle = isSeared
+            ? `rgba(255, 140, 0, ${0.5 + 0.1 * eff.stacks})` // orange for seared combo
+            : `rgba(41, 121, 255, ${0.3 + 0.1 * eff.stacks})`;
+          ctx.lineWidth = isSeared ? 2 : 1; ctx.stroke();
         }
         if (eff.type === StatusType.Burn) {
           ctx.beginPath(); ctx.arc(px, py, r + 2, 0, Math.PI * 2);
-          ctx.strokeStyle = `rgba(255, 87, 34, ${0.3 + 0.1 * eff.stacks})`;
-          ctx.lineWidth = 1; ctx.stroke();
+          ctx.strokeStyle = isBlighted
+            ? `rgba(100, 0, 100, ${0.5 + 0.1 * eff.stacks})` // dark purple for blight
+            : `rgba(255, 87, 34, ${0.3 + 0.1 * eff.stacks})`;
+          ctx.lineWidth = isBlighted ? 2 : 1; ctx.stroke();
         }
         if (eff.type === StatusType.Haste) {
           ctx.beginPath(); ctx.arc(px, py, r + 3, 0, Math.PI * 2);
@@ -587,6 +596,24 @@ export class Renderer {
           ctx.strokeStyle = 'rgba(100, 181, 246, 0.7)';
           ctx.lineWidth = 2; ctx.stroke();
         }
+      }
+
+      // Seared combo indicator: pulsing orange-blue double ring
+      if (isSeared) {
+        const pulse = 0.5 + 0.3 * Math.sin(Date.now() / 150);
+        ctx.beginPath(); ctx.arc(px, py, r + 4, 0, Math.PI * 2);
+        ctx.strokeStyle = `rgba(255, 100, 0, ${pulse})`;
+        ctx.lineWidth = 1; ctx.setLineDash([2, 2]); ctx.stroke(); ctx.setLineDash([]);
+      }
+
+      // Blight indicator: skull-like X mark
+      if (isBlighted) {
+        ctx.strokeStyle = 'rgba(180, 0, 180, 0.6)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(px - 2, py - r - 5); ctx.lineTo(px + 2, py - r - 1);
+        ctx.moveTo(px + 2, py - r - 5); ctx.lineTo(px - 2, py - r - 1);
+        ctx.stroke();
       }
 
       // HP bar (only if damaged)
@@ -625,7 +652,7 @@ export class Renderer {
 
   // === Unit Shape Helper ===
 
-  private drawUnitShape(
+  drawUnitShape(
     ctx: CanvasRenderingContext2D,
     px: number, py: number, r: number,
     race: Race | undefined, category: string, team: Team, playerColor: string
@@ -782,6 +809,88 @@ export class Renderer {
           ctx.lineTo(px + r * 0.5, py);
           ctx.lineTo(px, py + r * 1.1);
           ctx.lineTo(px - r * 0.5, py);
+          ctx.closePath();
+          ctx.fill();
+        }
+        break;
+
+      // ─── SHADE: wispy, sinister ───
+      case Race.Shade:
+        if (category === 'melee') {
+          // Curved dagger / fang shape
+          ctx.beginPath();
+          ctx.moveTo(px, py - r);
+          ctx.quadraticCurveTo(px + r * 1.2, py - r * 0.2, px + r * 0.3, py + r);
+          ctx.lineTo(px, py + r * 0.4);
+          ctx.lineTo(px - r * 0.3, py + r);
+          ctx.quadraticCurveTo(px - r * 1.2, py - r * 0.2, px, py - r);
+          ctx.closePath();
+          ctx.fill();
+        } else if (category === 'ranged') {
+          // Eye/slit shape
+          ctx.beginPath();
+          ctx.moveTo(px - r, py);
+          ctx.quadraticCurveTo(px, py - r * 1.1, px + r, py);
+          ctx.quadraticCurveTo(px, py + r * 1.1, px - r, py);
+          ctx.closePath();
+          ctx.fill();
+        } else {
+          // Void portal: ring with gap
+          ctx.beginPath();
+          ctx.arc(px, py, r, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = '#0a0a0a';
+          ctx.beginPath();
+          ctx.arc(px, py, r * 0.55, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = playerColor;
+          // Inner dot
+          ctx.beginPath();
+          ctx.arc(px, py, r * 0.2, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        break;
+
+      // ─── THORN: organic, spiky ───
+      case Race.Thorn:
+        if (category === 'melee') {
+          // Thorny pentagon with spikes
+          ctx.beginPath();
+          for (let i = 0; i < 5; i++) {
+            const a = (i * Math.PI * 2 / 5) - Math.PI / 2;
+            const outerR = r * 1.1;
+            const midA = a + Math.PI / 5;
+            const innerR = r * 0.55;
+            const sx = px + Math.cos(a) * outerR;
+            const sy = py + Math.sin(a) * outerR;
+            const mx = px + Math.cos(midA) * innerR;
+            const my = py + Math.sin(midA) * innerR;
+            if (i === 0) ctx.moveTo(sx, sy); else ctx.lineTo(sx, sy);
+            ctx.lineTo(mx, my);
+          }
+          ctx.closePath();
+          ctx.fill();
+        } else if (category === 'ranged') {
+          // Spore: 3-lobed trefoil
+          for (let i = 0; i < 3; i++) {
+            const a = (i * Math.PI * 2 / 3) - Math.PI / 2;
+            ctx.beginPath();
+            ctx.arc(px + Math.cos(a) * r * 0.4, py + Math.sin(a) * r * 0.4, r * 0.5, 0, Math.PI * 2);
+            ctx.fill();
+          }
+        } else {
+          // Root: Y-shape / trident
+          const armW = r * 0.25;
+          ctx.beginPath();
+          ctx.moveTo(px - armW, py + r);
+          ctx.lineTo(px - armW, py);
+          ctx.lineTo(px - r, py - r * 0.8);
+          ctx.lineTo(px - r * 0.5, py - r);
+          ctx.lineTo(px, py - r * 0.3);
+          ctx.lineTo(px + r * 0.5, py - r);
+          ctx.lineTo(px + r, py - r * 0.8);
+          ctx.lineTo(px + armW, py);
+          ctx.lineTo(px + armW, py + r);
           ctx.closePath();
           ctx.fill();
         }

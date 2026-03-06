@@ -7,9 +7,11 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "test:sim": "tsc -p tsconfig.simtest.json && node -e \"require('fs').mkdirSync('dist-simtest',{recursive:true});require('fs').writeFileSync('dist-simtest/package.json','{\\\"type\\\":\\\"commonjs\\\"}')\" && node dist-simtest/tests/simSmoke.js"
+    "test:sim": "tsc -p tsconfig.simtest.json && node -e \"require('fs').mkdirSync('dist-simtest',{recursive:true});require('fs').writeFileSync('dist-simtest/package.json','{\\\"type\\\":\\\"commonjs\\\"}')\" && node dist-simtest/tests/simSmoke.js",
+    "balance": "tsc -p tsconfig.simtest.json && node -e \"require('fs').mkdirSync('dist-simtest',{recursive:true});require('fs').writeFileSync('dist-simtest/package.json','{\\\"type\\\":\\\"commonjs\\\"}')\" && node dist-simtest/tests/balanceSim.js"
   },
   "devDependencies": {
+    "@types/node": "^25.3.5",
     "typescript": "^5.9.3",
     "vite": "^7.3.1"
   }

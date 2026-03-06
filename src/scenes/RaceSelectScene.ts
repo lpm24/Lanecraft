@@ -11,11 +11,16 @@ interface RaceOption {
 }
 
 const RACES: RaceOption[] = [
-  { race: Race.Surge, label: 'SURGE', desc: 'Fast & bursty', econ: 'Gold only', ascii: '/>' },
-  { race: Race.Tide, label: 'TIDE', desc: 'Tanky & control', econ: 'Wood heavy', ascii: '|W|' },
-  { race: Race.Ember, label: 'EMBER', desc: 'High burst damage', econ: 'Gold + Stone', ascii: '/F\\' },
-  { race: Race.Bastion, label: 'BASTION', desc: 'Durable fortress', econ: 'Stone heavy', ascii: '[#]' },
+  { race: Race.Surge,   label: 'SURGE',   desc: 'Speed + haste aura',   econ: 'Gold only',      ascii: '/>' },
+  { race: Race.Shade,   label: 'SHADE',   desc: 'Poison + lifesteal',   econ: 'Gold + Wood',    ascii: '~^' },
+  { race: Race.Tide,    label: 'TIDE',    desc: 'Control + cleanse',     econ: 'Wood + Gold',    ascii: '|W|' },
+  { race: Race.Bastion, label: 'BASTION', desc: 'Shields + fortress',    econ: 'Stone + Gold',   ascii: '[#]' },
+  { race: Race.Thorn,   label: 'THORN',   desc: 'Regen + healing aura',  econ: 'Wood + Stone',   ascii: '%#' },
+  { race: Race.Ember,   label: 'EMBER',   desc: 'Pure burst damage',     econ: 'Stone + Wood',   ascii: '/F\\' },
 ];
+
+const COLS = 3;
+const ROWS = 2;
 
 export interface RaceSelectResult {
   playerRace: Race;
@@ -43,8 +48,21 @@ export class RaceSelectScene implements Scene {
     this.hoverIndex = -1;
 
     this.keyHandler = (e) => {
-      if (e.key === 'ArrowLeft' || e.key === 'a') this.selectedIndex = Math.max(0, this.selectedIndex - 1);
-      if (e.key === 'ArrowRight' || e.key === 'd') this.selectedIndex = Math.min(RACES.length - 1, this.selectedIndex + 1);
+      const col = this.selectedIndex % COLS;
+      const row = Math.floor(this.selectedIndex / COLS);
+      if (e.key === 'ArrowLeft' || e.key === 'a') {
+        if (col > 0) this.selectedIndex--;
+      }
+      if (e.key === 'ArrowRight' || e.key === 'd') {
+        if (col < COLS - 1) this.selectedIndex++;
+      }
+      if (e.key === 'ArrowUp' || e.key === 'w') {
+        if (row > 0) this.selectedIndex -= COLS;
+      }
+      if (e.key === 'ArrowDown' || e.key === 's') {
+        if (row < ROWS - 1) this.selectedIndex += COLS;
+      }
+      this.selectedIndex = Math.max(0, Math.min(RACES.length - 1, this.selectedIndex));
       if (e.key === 'Enter' || e.key === ' ') this.confirm();
       if (e.key === 'Escape') this.manager.switchTo('title');
     };
@@ -54,7 +72,6 @@ export class RaceSelectScene implements Scene {
       const idx = this.getBoxIndexAt(cx, cy);
       if (idx >= 0) {
         this.selectedIndex = idx;
-        this.confirm();
       } else if (this.isStartButtonAt(cx, cy)) {
         this.confirm();
       }
@@ -73,7 +90,6 @@ export class RaceSelectScene implements Scene {
       const idx = this.getBoxIndexAt(cx, cy);
       if (idx >= 0) {
         this.selectedIndex = idx;
-        this.confirm();
       } else if (this.isStartButtonAt(cx, cy)) {
         this.confirm();
       }
@@ -103,18 +119,25 @@ export class RaceSelectScene implements Scene {
   private getBoxLayout(): { x: number; y: number; w: number; h: number }[] {
     const w = this.canvas.width;
     const h = this.canvas.height;
-    const boxW = Math.min(160, (w - 60) / 4 - 10);
-    const boxH = boxW * 1.4;
-    const totalW = RACES.length * boxW + (RACES.length - 1) * 12;
+    const gapX = 12;
+    const gapY = 12;
+    const boxW = Math.min(150, (w - 60) / COLS - gapX);
+    const boxH = boxW * 1.3;
+    const totalW = COLS * boxW + (COLS - 1) * gapX;
+    const totalH = ROWS * boxH + (ROWS - 1) * gapY;
     const startX = (w - totalW) / 2;
-    const startY = h * 0.35;
+    const startY = (h * 0.25) + ((h * 0.55 - totalH) / 2);
 
-    return RACES.map((_, i) => ({
-      x: startX + i * (boxW + 12),
-      y: startY,
-      w: boxW,
-      h: boxH,
-    }));
+    return RACES.map((_, i) => {
+      const col = i % COLS;
+      const row = Math.floor(i / COLS);
+      return {
+        x: startX + col * (boxW + gapX),
+        y: startY + row * (boxH + gapY),
+        w: boxW,
+        h: boxH,
+      };
+    });
   }
 
   private toCanvasCoords(clientX: number, clientY: number): [number, number] {
@@ -128,7 +151,7 @@ export class RaceSelectScene implements Scene {
     const btnW = 180;
     const btnH = 48;
     const btnX = (w - btnW) / 2;
-    const btnY = h * 0.78;
+    const btnY = h * 0.88;
     return cx >= btnX && cx <= btnX + btnW && cy >= btnY && cy <= btnY + btnH;
   }
 
@@ -157,20 +180,20 @@ export class RaceSelectScene implements Scene {
     ctx.font = `bold ${titleSize}px monospace`;
     ctx.textAlign = 'center';
     ctx.fillStyle = '#fff';
-    ctx.fillText('ASCII WARS', w / 2, h * 0.10);
+    ctx.fillText('ASCII WARS', w / 2, h * 0.08);
 
     // Subtitle
     const subSize = Math.max(12, Math.min(w / 30, 22));
     ctx.font = `${subSize}px monospace`;
     ctx.fillStyle = '#666';
-    ctx.fillText('Choose your race', w / 2, h * 0.16);
+    ctx.fillText('Choose your race', w / 2, h * 0.14);
 
     // Hint
     ctx.font = `${subSize * 0.7}px monospace`;
     ctx.fillStyle = '#444';
-    ctx.fillText('Click or Arrow keys + Enter', w / 2, h * 0.21);
+    ctx.fillText('Arrow keys + Enter  or  Click', w / 2, h * 0.19);
 
-    // === Race boxes ===
+    // === Race boxes (3x2 grid) ===
     const boxes = this.getBoxLayout();
     const fontSize = Math.max(10, Math.min(boxes[0].w / 8, 16));
 
@@ -181,7 +204,6 @@ export class RaceSelectScene implements Scene {
       const isSelected = i === this.selectedIndex;
       const isHover = i === this.hoverIndex;
 
-      // Clip to box so text doesn't bleed
       ctx.save();
       ctx.beginPath();
       ctx.rect(box.x, box.y, box.w, box.h);
@@ -206,31 +228,31 @@ export class RaceSelectScene implements Scene {
       const cx = box.x + box.w / 2;
 
       // ASCII sprite large
-      ctx.font = `bold ${fontSize * 2.5}px monospace`;
+      ctx.font = `bold ${fontSize * 2.2}px monospace`;
       ctx.textAlign = 'center';
       ctx.fillStyle = colors.primary;
-      ctx.fillText(race.ascii, cx, box.y + box.h * 0.28);
+      ctx.fillText(race.ascii, cx, box.y + box.h * 0.25);
 
       // Race name
-      ctx.font = `bold ${fontSize * 1.3}px monospace`;
+      ctx.font = `bold ${fontSize * 1.2}px monospace`;
       ctx.fillStyle = isSelected ? colors.primary : '#aaa';
-      ctx.fillText(race.label, cx, box.y + box.h * 0.50);
+      ctx.fillText(race.label, cx, box.y + box.h * 0.46);
 
       // Description
       ctx.font = `${fontSize * 0.75}px monospace`;
       ctx.fillStyle = '#999';
-      ctx.fillText(race.desc, cx, box.y + box.h * 0.63);
+      ctx.fillText(race.desc, cx, box.y + box.h * 0.60);
 
       // Economy hint
       ctx.font = `${fontSize * 0.7}px monospace`;
       ctx.fillStyle = '#777';
-      ctx.fillText(race.econ, cx, box.y + box.h * 0.74);
+      ctx.fillText(race.econ, cx, box.y + box.h * 0.72);
 
       // Selected indicator
       if (isSelected) {
-        ctx.font = `bold ${fontSize * 0.9}px monospace`;
+        ctx.font = `bold ${fontSize * 0.85}px monospace`;
         ctx.fillStyle = colors.secondary;
-        ctx.fillText('[ SELECTED ]', cx, box.y + box.h * 0.89);
+        ctx.fillText('[ SELECTED ]', cx, box.y + box.h * 0.88);
       }
 
       ctx.restore();
@@ -240,10 +262,9 @@ export class RaceSelectScene implements Scene {
     const btnW = 180;
     const btnH = 48;
     const btnX = (w - btnW) / 2;
-    const btnY = h * 0.78;
+    const btnY = h * 0.88;
     const selColors = RACE_COLORS[RACES[this.selectedIndex].race];
 
-    // Button glow
     ctx.shadowColor = selColors.primary;
     ctx.shadowBlur = 12;
     ctx.fillStyle = selColors.primary;
@@ -258,6 +279,6 @@ export class RaceSelectScene implements Scene {
     // Back hint
     ctx.font = `${fontSize * 0.7}px monospace`;
     ctx.fillStyle = '#444';
-    ctx.fillText('ESC to go back', w / 2, h - 30);
+    ctx.fillText('ESC to go back', w / 2, h - 12);
   }
 }

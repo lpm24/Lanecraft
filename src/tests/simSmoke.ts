@@ -70,12 +70,12 @@ function testLaneToggleAllSpawners(): void {
     b.playerId === 0 &&
     (b.type === BuildingType.MeleeSpawner || b.type === BuildingType.RangedSpawner || b.type === BuildingType.CasterSpawner)
   );
-  const myTowers = state.buildings.filter(b => b.playerId === 0 && b.type === BuildingType.Tower);
+  const myPlacedTowers = state.buildings.filter(b => b.playerId === 0 && b.type === BuildingType.Tower && b.placedTick > 0);
 
   assert(mySpawners.length === 2, 'expected two spawners for lane toggle check');
   assert(mySpawners.every(b => b.lane === Lane.Right), 'all spawners should switch to requested lane');
-  assert(myTowers.length === 1, 'expected one tower for lane toggle check');
-  assert(myTowers[0].lane === Lane.Left, 'tower lane should not be changed by toggle_all_lanes');
+  assert(myPlacedTowers.length === 1, 'expected one player-placed tower for lane toggle check');
+  assert(myPlacedTowers[0].lane === Lane.Left, 'tower lane should not be changed by toggle_all_lanes');
 }
 
 function testSellCooldown(): void {
@@ -86,6 +86,7 @@ function testSellCooldown(): void {
     { race: Race.Bastion, isBot: true },
   ]);
   state.players[0].gold = 1000;
+  state.players[0].stone = 100;
 
   runTick(state, [{ type: 'place_building', playerId: 0, buildingType: BuildingType.MeleeSpawner, gridX: 0, gridY: 0 }]);
   const placed = state.buildings.find(b => b.playerId === 0 && b.type === BuildingType.MeleeSpawner);
