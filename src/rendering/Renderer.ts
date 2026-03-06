@@ -2,18 +2,34 @@ import { Camera } from './Camera';
 import {
   GameState, Team, MAP_WIDTH, MAP_HEIGHT, TILE_SIZE,
   DIAMOND_CENTER_X, DIAMOND_CENTER_Y,
+  WOOD_NODE_X, STONE_NODE_X,
   ZONES, BUILD_GRID_COLS, BUILD_GRID_ROWS, HUT_GRID_COLS, SHARED_ALLEY_COLS, SHARED_ALLEY_ROWS,
   HQ_WIDTH, HQ_HEIGHT, HQ_HP,
   getMarginAtRow,
   BuildingType, Lane, LANE_PATHS, Vec2,
   StatusType,
 } from '../simulation/types';
-import { getHQPosition, getBuildGridOrigin, getHutGridOrigin, getTeamAlleyOrigin } from '../simulation/GameState';
+import { getHQPosition, getBuildGridOrigin, getHutGridOrigin, getTeamAlleyOrigin, getUnitUpgradeMultipliers } from '../simulation/GameState';
 import { RACE_COLORS, TOWER_STATS, PLAYER_COLORS } from '../simulation/data';
 
 const T = TILE_SIZE;
 const LANE_LEFT_COLOR = '#4fc3f7';
 const LANE_RIGHT_COLOR = '#ff8a65';
+
+/** Convert a #rrggbb hex color to an `rgba(r,g,b,` prefix string for use as `hexToRgba(c) + '0.5)'` */
+function hexToRgba(hex: string): string {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return `rgba(${r},${g},${b},`;
+}
+
+function quickChatStyle(message: string): { icon: string; color: string } {
+  if (message === 'Attack Left') return { icon: '<', color: '#4fc3f7' };
+  if (message === 'Attack Right') return { icon: '>', color: '#ff8a65' };
+  if (message === 'Get Diamond') return { icon: 'D', color: '#ffe082' };
+  return { icon: '!', color: '#ffcc80' };
+}
 
 export class Renderer {
   canvas: HTMLCanvasElement;
@@ -55,12 +71,14 @@ export class Renderer {
     this.drawHarvesters(ctx, state);
     this.drawDiamondObjective(ctx, state);
     this.drawNukeTelegraphs(ctx, state);
+    this.drawPings(ctx, state);
     this.drawParticles(ctx, state);
     this.drawFloatingTexts(ctx, state);
     this.drawNukeEffects(ctx, state);
 
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     this.drawHUD(ctx, state);
+    this.drawQuickChats(ctx, state);
     this.drawMinimap(ctx, state);
   }
 
@@ -233,8 +251,8 @@ export class Renderer {
       ctx.textAlign = 'start';
     };
 
-    drawNode(6, DIAMOND_CENTER_Y, 'WOOD', 'rgba(76, 175, 80, 0.2)');
-    drawNode(74, DIAMOND_CENTER_Y, 'STONE', 'rgba(158, 158, 158, 0.2)');
+    drawNode(WOOD_NODE_X, DIAMOND_CENTER_Y, 'WOOD', 'rgba(76, 175, 80, 0.2)');
+    drawNode(STONE_NODE_X, DIAMOND_CENTER_Y, 'STONE', 'rgba(158, 158, 158, 0.2)');
 
     const bHQ = getHQPosition(Team.Bottom);
     const tHQ = getHQPosition(Team.Top);
@@ -251,11 +269,7 @@ export class Renderer {
       if (!player) continue;
 
       const pc = PLAYER_COLORS[p];
-      // Extract RGB from hex for rgba usage
-      const r = parseInt(pc.slice(1, 3), 16);
-      const g = parseInt(pc.slice(3, 5), 16);
-      const b = parseInt(pc.slice(5, 7), 16);
-      const tc = `rgba(${r}, ${g}, ${b},`;
+      const tc = hexToRgba(pc);
 
       ctx.fillStyle = tc + '0.08)';
       ctx.fillRect(origin.x * T, origin.y * T, BUILD_GRID_COLS * T, BUILD_GRID_ROWS * T);
@@ -294,10 +308,7 @@ export class Renderer {
       if (!player) continue;
       const origin = getHutGridOrigin(p);
       const pc = PLAYER_COLORS[p];
-      const r = parseInt(pc.slice(1, 3), 16);
-      const g = parseInt(pc.slice(3, 5), 16);
-      const b = parseInt(pc.slice(5, 7), 16);
-      const tc = `rgba(${r}, ${g}, ${b},`;
+      const tc = hexToRgba(pc);
 
       ctx.fillStyle = tc + '0.06)';
       ctx.fillRect(origin.x * T, origin.y * T, HUT_GRID_COLS * T, T);
@@ -414,9 +425,10 @@ export class Renderer {
       const py = b.worldY * T + T / 2;
       const half = T / 2 - 2;
 
+      const upgradeTier = b.upgradePath.length - 1; // 0=base, 1=tier1, 2=tier2
       ctx.fillStyle = 'rgba(20, 20, 20, 0.9)';
       ctx.strokeStyle = playerColor;
-      ctx.lineWidth = 2;
+      ctx.lineWidth = upgradeTier >= 2 ? 3 : 2;
 
       switch (b.type) {
         case BuildingType.MeleeSpawner:
@@ -444,10 +456,13 @@ export class Renderer {
           ctx.closePath(); ctx.fill();
           ctx.strokeStyle = rc.primary;
           ctx.stroke();
-          // Tower range indicator (subtle)
+          // Tower range indicator (subtle) — reflects upgrades
           const towerStats = TOWER_STATS[player.race];
+          const towerUpgrade = getUnitUpgradeMultipliers(b.upgradePath, player.race, BuildingType.Tower);
+          const towerRangeBonus = towerUpgrade.special.towerRangeBonus ?? 0;
+          const effectiveRange = Math.max(1, towerStats.range * towerUpgrade.range) + towerRangeBonus;
           ctx.beginPath();
-          ctx.arc(px, py, towerStats.range * T, 0, Math.PI * 2);
+          ctx.arc(px, py, effectiveRange * T, 0, Math.PI * 2);
           ctx.strokeStyle = `${rc.primary}33`;
           ctx.lineWidth = 1;
           ctx.stroke();
@@ -476,6 +491,30 @@ export class Renderer {
       ctx.globalAlpha = 0.6;
       ctx.beginPath(); ctx.arc(px, py - half + 2, 2, 0, Math.PI * 2); ctx.fill();
       ctx.globalAlpha = 1;
+
+      // Upgrade tier pips below building
+      if (upgradeTier >= 1) {
+        ctx.fillStyle = rc.primary;
+        ctx.globalAlpha = 0.85;
+        if (upgradeTier === 1) {
+          // Single pip centered
+          ctx.beginPath(); ctx.arc(px, py + half + 2, 1.5, 0, Math.PI * 2); ctx.fill();
+        } else {
+          // Two pips side by side
+          ctx.beginPath(); ctx.arc(px - 3, py + half + 2, 1.5, 0, Math.PI * 2); ctx.fill();
+          ctx.beginPath(); ctx.arc(px + 3, py + half + 2, 1.5, 0, Math.PI * 2); ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+
+        // Tier 2: brighter border highlight
+        if (upgradeTier >= 2) {
+          ctx.strokeStyle = rc.primary;
+          ctx.globalAlpha = 0.35;
+          ctx.lineWidth = 1;
+          ctx.strokeRect(px - half - 1, py - half - 1, (half + 1) * 2, (half + 1) * 2);
+          ctx.globalAlpha = 1;
+        }
+      }
 
       // HP bar (only if damaged)
       if (b.hp < b.maxHp) {
@@ -519,8 +558,33 @@ export class Renderer {
       const laneColor = u.lane === Lane.Left ? LANE_LEFT_COLOR : LANE_RIGHT_COLOR;
       const r = u.range > 2 ? 3 : 4;
 
-      ctx.beginPath(); ctx.arc(px, py, r, 0, Math.PI * 2);
-      ctx.fillStyle = playerColor; ctx.fill();
+      // Shape by unit category
+      if (u.category === 'melee') {
+        // Melee: filled square
+        ctx.fillStyle = playerColor;
+        ctx.fillRect(px - r, py - r, r * 2, r * 2);
+      } else if (u.category === 'ranged') {
+        // Ranged: filled triangle pointing in move direction
+        const dir = u.team === Team.Bottom ? -1 : 1; // bottom moves up, top moves down
+        ctx.beginPath();
+        ctx.moveTo(px, py - r * dir);
+        ctx.lineTo(px + r, py + r * dir);
+        ctx.lineTo(px - r, py + r * dir);
+        ctx.closePath();
+        ctx.fillStyle = playerColor;
+        ctx.fill();
+      } else {
+        // Caster: diamond/star shape
+        ctx.beginPath();
+        ctx.moveTo(px, py - r);
+        ctx.lineTo(px + r * 0.7, py);
+        ctx.lineTo(px, py + r);
+        ctx.lineTo(px - r * 0.7, py);
+        ctx.closePath();
+        ctx.fillStyle = playerColor;
+        ctx.fill();
+      }
+      // Lane color center dot
       ctx.beginPath(); ctx.arc(px, py, 1.5, 0, Math.PI * 2);
       ctx.fillStyle = laneColor; ctx.fill();
 
@@ -631,12 +695,40 @@ export class Renderer {
 
   private drawDiamondObjective(ctx: CanvasRenderingContext2D, state: GameState): void {
     const d = state.diamond;
-    if (d.state === 'carried' || d.state === 'hidden') return;
+    if (d.state === 'carried') return;
 
     const px = d.x * T + T / 2;
     const py = d.y * T + T / 2;
     const size = 10;
     const pulse = 0.7 + 0.3 * Math.sin(Date.now() / 300);
+
+    if (d.state === 'hidden') {
+      // Always show a center beacon while hidden so players learn
+      // "mid control + mining unlocks the diamond win path".
+      const r = 18 + 4 * pulse;
+      ctx.beginPath();
+      ctx.arc(px, py, r, 0, Math.PI * 2);
+      ctx.strokeStyle = 'rgba(255, 230, 120, 0.45)';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([6, 5]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      ctx.beginPath();
+      ctx.arc(px, py, 7, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(255, 230, 150, 0.55)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255, 255, 220, 0.7)';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+
+      ctx.fillStyle = '#ffe082';
+      ctx.font = 'bold 10px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('MINE CENTER TO EXPOSE DIAMOND', px, py - r - 10);
+      ctx.textAlign = 'start';
+      return;
+    }
 
     ctx.save();
     ctx.shadowColor = '#ffffff';
@@ -696,6 +788,35 @@ export class Renderer {
       ctx.font = 'bold 14px monospace';
       ctx.textAlign = 'center';
       ctx.fillText('NUKE INCOMING', px, py - r - 8);
+      ctx.textAlign = 'start';
+    }
+  }
+
+  private drawPings(ctx: CanvasRenderingContext2D, state: GameState): void {
+    const localTeam = state.players[0]?.team ?? Team.Bottom;
+    for (const p of state.pings) {
+      if (p.team !== localTeam) continue;
+      const progress = p.age / p.maxAge;
+      const alpha = Math.max(0, 1 - progress);
+      const px = p.x * T;
+      const py = p.y * T;
+      const baseR = 10 + progress * 16;
+
+      ctx.beginPath();
+      ctx.arc(px, py, baseR, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(255, 235, 59, ${0.7 * alpha})`;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.arc(px, py, 4, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(255, 235, 59, ${0.9 * alpha})`;
+      ctx.fill();
+
+      ctx.fillStyle = `rgba(255, 235, 59, ${alpha})`;
+      ctx.font = 'bold 10px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(`PING P${p.playerId + 1}`, px, py - baseR - 6);
       ctx.textAlign = 'start';
     }
   }
@@ -768,15 +889,20 @@ export class Renderer {
     if (!player) return;
 
     ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
-    ctx.fillRect(0, 0, this.canvas.width, 44);
+    ctx.fillRect(0, 0, this.canvas.width, 56);
 
     ctx.font = 'bold 14px monospace';
     let x = 12;
     const y = 30;
 
-    ctx.fillStyle = '#ffd700'; ctx.fillText(`Gold: ${player.gold}`, x, y); x += 120;
-    ctx.fillStyle = '#4caf50'; ctx.fillText(`Wood: ${player.wood}`, x, y); x += 120;
-    ctx.fillStyle = '#9e9e9e'; ctx.fillText(`Stone: ${player.stone}`, x, y); x += 120;
+    const ps = state.playerStats?.[0];
+    const elapsed = Math.max(1, state.tick / 20); // seconds since match start
+    const goldRate = ps ? (ps.totalGoldEarned / elapsed).toFixed(1) : '?';
+    const woodRate = ps ? (ps.totalWoodEarned / elapsed).toFixed(1) : '?';
+    const stoneRate = ps ? (ps.totalStoneEarned / elapsed).toFixed(1) : '?';
+    ctx.fillStyle = '#ffd700'; ctx.fillText(`Gold: ${player.gold} (+${goldRate}/s)`, x, y); x += 160;
+    ctx.fillStyle = '#4caf50'; ctx.fillText(`Wood: ${player.wood} (+${woodRate}/s)`, x, y); x += 150;
+    ctx.fillStyle = '#9e9e9e'; ctx.fillText(`Stone: ${player.stone} (+${stoneRate}/s)`, x, y); x += 150;
     ctx.fillStyle = player.nukeAvailable ? '#ff5722' : '#555';
     ctx.fillText(`Nuke: ${player.nukeAvailable ? 'READY [N]' : 'USED'}`, x, y); x += 160;
 
@@ -789,7 +915,7 @@ export class Renderer {
     const totalGold = state.diamondCells.reduce((s, c) => s + c.maxGold, 0);
     const minedPct = Math.round((1 - goldRemaining / totalGold) * 100);
     ctx.fillStyle = state.diamond.exposed ? '#fff' : '#aa8800';
-    ctx.fillText(state.diamond.exposed ? 'DIAMOND EXPOSED!' : `Mined: ${minedPct}%`, x, y);
+    ctx.fillText(state.diamond.exposed ? 'DIAMOND EXPOSED!' : `CENTER: MINE ${minedPct}%`, x, y);
     x += 160;
 
     // Unit counts
@@ -800,6 +926,40 @@ export class Renderer {
     x += 80;
     ctx.fillStyle = '#ff8a65';
     ctx.fillText(`vs ${enemyUnits}`, x, y);
+
+    // === Second HUD row: HQ health + building count ===
+    const y2 = 48;
+    let x2 = 12;
+    ctx.font = 'bold 11px monospace';
+
+    // HQ health bars
+    const btmHp = state.hqHp[Team.Bottom];
+    const topHp = state.hqHp[Team.Top];
+    const hqBarW = 60;
+    const hqBarH = 6;
+    const drawHQBar = (label: string, hp: number, color: string, xPos: number) => {
+      ctx.fillStyle = '#999';
+      ctx.fillText(label, xPos, y2);
+      const barX = xPos + ctx.measureText(label).width + 4;
+      ctx.fillStyle = '#222';
+      ctx.fillRect(barX, y2 - hqBarH, hqBarW, hqBarH);
+      const pct = Math.max(0, hp / HQ_HP);
+      ctx.fillStyle = pct > 0.5 ? color : pct > 0.25 ? '#ff9800' : '#f44336';
+      ctx.fillRect(barX, y2 - hqBarH, hqBarW * pct, hqBarH);
+      ctx.fillStyle = '#ccc';
+      ctx.font = '9px monospace';
+      ctx.fillText(`${hp}`, barX + hqBarW + 4, y2);
+      ctx.font = 'bold 11px monospace';
+      return barX + hqBarW + ctx.measureText(`${hp}`).width + 14;
+    };
+    x2 = drawHQBar('BTM', btmHp, '#2979ff', x2);
+    x2 = drawHQBar('TOP', topHp, '#ff1744', x2);
+
+    // Building count
+    const myBuildings = state.buildings.filter(b => b.playerId === 0).length;
+    const maxBuildings = BUILD_GRID_COLS * BUILD_GRID_ROWS;
+    ctx.fillStyle = '#aaa';
+    ctx.fillText(`Bldgs: ${myBuildings}/${maxBuildings}`, x2, y2);
 
     // Prematch
     if (state.matchPhase === 'prematch') {
@@ -821,12 +981,37 @@ export class Renderer {
 
   }
 
+  private drawQuickChats(ctx: CanvasRenderingContext2D, state: GameState): void {
+    if (state.quickChats.length === 0) return;
+    const localTeam = state.players[0]?.team ?? Team.Bottom;
+    const visibleChats = state.quickChats.filter(c => c.team === localTeam);
+    if (visibleChats.length === 0) return;
+    const startX = 12;
+    const startY = 62;
+    const lineH = 18;
+
+    for (let i = 0; i < visibleChats.length; i++) {
+      const c = visibleChats[visibleChats.length - 1 - i];
+      const alpha = Math.max(0.2, 1 - c.age / c.maxAge);
+      const style = quickChatStyle(c.message);
+      const text = `${style.icon} P${c.playerId + 1}: ${c.message}`;
+      ctx.font = 'bold 12px monospace';
+      const w = ctx.measureText(text).width + 12;
+      const y = startY + i * lineH;
+      const rgb = hexToRgba(style.color);
+      ctx.fillStyle = `${rgb}${0.18 * alpha})`;
+      ctx.fillRect(startX, y - 12, w, 15);
+      ctx.fillStyle = `${rgb}${0.95 * alpha})`;
+      ctx.fillText(text, startX + 6, y);
+    }
+  }
+
   // === Minimap ===
 
   private drawMinimap(ctx: CanvasRenderingContext2D, state: GameState): void {
     const mmW = 120, mmH = 180;
     const mx = this.canvas.width - mmW - 10;
-    const my = 48; // top-right, just below HUD bar
+    const my = 60; // top-right, just below HUD bar
     const scaleX = mmW / MAP_WIDTH;
     const scaleY = mmH / MAP_HEIGHT;
 
@@ -856,18 +1041,41 @@ export class Renderer {
     const goldRemaining = state.diamondCells.some(c => c.gold > 0);
     if (goldRemaining) {
       ctx.fillStyle = 'rgba(200, 170, 20, 0.6)';
-      ctx.fillRect(
-        mx + (DIAMOND_CENTER_X - 10) * scaleX,
-        my + (DIAMOND_CENTER_Y - 12) * scaleY,
-        20 * scaleX,
-        24 * scaleY
-      );
+      const cx = mx + DIAMOND_CENTER_X * scaleX;
+      const cy = my + DIAMOND_CENTER_Y * scaleY;
+      const rw = 10 * scaleX;
+      const rh = 12 * scaleY;
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - rh);
+      ctx.lineTo(cx + rw, cy);
+      ctx.lineTo(cx, cy + rh);
+      ctx.lineTo(cx - rw, cy);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255, 220, 120, 0.85)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
     }
 
     // Units as dots (player colored)
     for (const u of state.units) {
       ctx.fillStyle = PLAYER_COLORS[u.playerId] || '#888';
       ctx.fillRect(mx + u.x * scaleX - 1, my + u.y * scaleY - 1, 2, 2);
+    }
+
+    // Team-visible ping markers
+    const localTeam = state.players[0]?.team ?? Team.Bottom;
+    for (const p of state.pings) {
+      if (p.team !== localTeam) continue;
+      const pp = p.age / p.maxAge;
+      const pr = 2 + 4 * pp;
+      const px = mx + p.x * scaleX;
+      const py = my + p.y * scaleY;
+      ctx.beginPath();
+      ctx.arc(px, py, pr, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(255,235,59,${0.9 - 0.7 * pp})`;
+      ctx.lineWidth = 1;
+      ctx.stroke();
     }
 
     // Harvesters as smaller dots
@@ -892,6 +1100,19 @@ export class Renderer {
       ctx.fillRect(mx + hq.x * scaleX, my + hq.y * scaleY, HQ_WIDTH * scaleX, HQ_HEIGHT * scaleY);
     }
 
+    // Recent quick-chat badges near team HQ
+    const recentChats = state.quickChats.filter(c => c.team === localTeam && c.age < 20);
+    for (const c of recentChats) {
+      const hq = getHQPosition(c.team);
+      const bx = mx + (hq.x + HQ_WIDTH / 2 + (c.playerId % 2 === 0 ? -4 : 4)) * scaleX;
+      const by = my + (hq.y + HQ_HEIGHT / 2) * scaleY;
+      const style = quickChatStyle(c.message);
+      ctx.fillStyle = style.color;
+      ctx.beginPath();
+      ctx.arc(bx, by, 3.2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
     // Camera viewport box
     const vx = this.camera.x, vy = this.camera.y;
     const vw = this.canvas.width / this.camera.zoom;
@@ -905,9 +1126,6 @@ export class Renderer {
       (vh / T) * scaleY
     );
 
-    // Label
-    ctx.fillStyle = '#666';
-    ctx.font = '14px monospace';
-    ctx.fillText('MINIMAP', mx, my - 5);
+    // Minimap label intentionally omitted for a cleaner HUD.
   }
 }

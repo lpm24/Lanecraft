@@ -93,19 +93,20 @@ Support bots as teammate and/or opponent, with difficulty variants later.
 - **Mobile:** Drag to pan vertically, pinch to zoom.
 - **Desktop:** Mouse drag or WASD to pan, scroll wheel to zoom.
 - Fully zoomed out on phone shows entire map width and ~70% of the vertical battlefield; slight scroll needed to see both bases.
-- **Zoom levels:** 3 discrete levels (base view, mid view, full view) with smooth interpolation.
+- **Prototype status:** Zoom is currently continuous with min/max clamping.
 
 ### Primary Player Actions
-1. Place buildings by drag-and-drop onto base grid.
+1. Place buildings by selecting from tray/hotkey and tapping a base grid slot.
 2. Toggle building lane (left or right).
 3. Purchase upgrades for buildings.
 4. Build harvester huts and assign them to resource types.
-5. Use 1 nuke per match via drag-and-drop targeting.
+5. Use 1 nuke per match via armed targeting mode (`N` then tap target).
 6. Pan/zoom the camera to scout.
 
 ### Communication (MVP)
-- **Ping system:** Tap-and-hold anywhere on the map to send a ping visible to your teammate.
-- **Quick chat:** 4 preset messages (Attack Left, Attack Right, Defend, Get Diamond) accessible via a radial menu.
+- **Ping system:** `P`, middle-click, or the `PING` utility button sends team-visible ping.
+- **Quick chat:** 4 preset messages (Attack Left, Attack Right, Defend, Get Diamond) via radial menu (`Q` hold or touch long-press).
+- **Cooldown fallback:** While quick-chat is on cooldown, utility button switches to `DEFEND` and can queue/cancel a delayed `Defend` send.
 
 ---
 
@@ -578,6 +579,51 @@ Each step is a self-contained mini-scenario (~30 seconds each). Total tutorial: 
 - [ ] Social features (friends list, clans)
 
 ---
+
+## Implementation Backlog
+
+Track feature work here so scope changes are explicit and implementation can proceed incrementally.
+
+### Done
+- [x] Enforce building sell cooldown (5 seconds after placement) before a sell command succeeds.
+- [x] Add cooldown-denied sell feedback text with countdown near the building.
+- [x] Implement `purchase_upgrade` command handling in simulation and connect initial UI trigger.
+- [x] Add basic ping command visualization (`ping` command + map marker fadeout).
+- [x] Add quick-chat callout stub (`quick_chat` command + short-lived rendered text).
+- [x] Add explicit on-screen upgrade branch buttons for hovered buildings.
+- [x] Show upgrade branch availability/affordability in tooltip and tray UI.
+- [x] Add minimal radial quick-chat UI (tap/hold + 4 options) in addition to hotkeys.
+- [x] Persist selected-building upgrade panel so upgrades no longer depend on hover.
+- [x] Add click-safe spawner lane toggling (double-click to toggle, single-click selects).
+- [x] Add quick-chat cooldown guard with visible cooldown indicator.
+- [x] Add minimap ping/quick-chat badges for team communication awareness while zoomed out.
+- [x] Add quick-chat category icon/color styling in callout feed.
+- [x] Add touch long-press quick-chat radial (no keyboard dependency).
+- [x] Add lane-toggle mode setting (single vs double click) with in-game toggle.
+- [x] Add settings drawer UI and persist lane-toggle mode preference between sessions.
+- [x] Add haptic/audio quick-chat feedback for send and cooldown rejection.
+- [x] Add optional mute toggle for UI feedback beeps/haptics in settings drawer.
+- [x] Add dedicated touch-first quick-chat button (in addition to long-press gesture).
+- [x] Add radial quick-chat edge clamping so options stay visible near screen borders.
+- [x] Add visual touch affordance ring while long-press is arming radial quick-chat.
+- [x] Add settings-based tuning for quick-chat long-press delay and radial size.
+- [x] Add subtle non-blocking toast when quick-chat is blocked by cooldown.
+- [x] Add reset-to-defaults action in settings drawer.
+- [x] Add first-time mobile hint chip for hold-to-chat gesture.
+- [x] Add explicit close button for settings drawer panel.
+- [x] Add quick-chat radial accessibility mode (larger labels + higher contrast).
+- [x] Add tap-outside-to-close behavior for settings drawer.
+- [x] Add tooltip/help copy directly in settings for each row (lane mode, hold delay, radial size, a11y).
+- [x] Prevent long-press quick-chat arming while multi-touch pinch zoom is active.
+- [x] Add lane-toggle confirmation toast in Safe mode to clarify first-tap select vs toggle.
+- [x] Add one-tap quick-chat fallback button while radial is on cooldown (defaults to Defend).
+- [x] Add small lane-mode legend beside settings button (`Fast`/`Safe`) on compact screens.
+- [x] Add queued fallback cancellation on second tap of `DEFEND` button before send.
+- [x] Add mini inline tooltip over `DEFEND` button explaining queued-send behavior.
+
+### Next Up
+- [ ] Add small queued-chat countdown indicator (`queued in 0.8s`) beside `DEFEND`.
+- [ ] Add settings toggle to enable/disable queued fallback behavior.
 
 ## Balance Philosophy
 

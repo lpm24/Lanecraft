@@ -31,8 +31,8 @@ export const ZONES = {
 // Peanut/hourglass-shaped map: wide bases, narrow necks, widest at diamond center.
 // The shape bulges outward at diamond level creating left/right tips for wood/stone.
 export const SHAPE_BASE_WIDTH = 64;        // playable width at base zones
-export const SHAPE_NECK_WIDTH = 38;        // narrowest point between base and mid
-export const SHAPE_CENTER_WIDTH = 74;      // widest at diamond center level (tips for resources)
+export const SHAPE_NECK_WIDTH = 34;        // narrowed ~10% to tighten mid/neck walkable area
+export const SHAPE_CENTER_WIDTH = 67;      // narrowed ~10%; keeps base/player spaces unchanged
 // Y-coordinates of key shape control points
 export const SHAPE_NECK_TOP_Y = 25;        // top neck narrowest row
 export const SHAPE_NECK_BOTTOM_Y = 95;     // bottom neck narrowest row
@@ -81,6 +81,10 @@ export const DIAMOND_CENTER_Y = 60;
 export const DIAMOND_HALF_W = 14; // half-width in tiles (was 8)
 export const DIAMOND_HALF_H = 16; // half-height in tiles (was 12)
 export const GOLD_PER_CELL = 10;
+
+// Side resource node positions (moved inward to stay aligned with narrower walkable area)
+export const WOOD_NODE_X = 12;
+export const STONE_NODE_X = 68;
 
 // HQ
 export const HQ_WIDTH = 8;
@@ -228,7 +232,8 @@ export interface BuildingState {
   lane: Lane;
   hp: number;
   maxHp: number;
-  spawnTimer: number;
+  actionTimer: number;
+  placedTick: number;
   upgradePath: string[];
 }
 
@@ -253,6 +258,8 @@ export interface UnitState {
   statusEffects: StatusEffect[];
   hitCount: number;       // for Bastion knockback (every 3rd hit)
   shieldHp: number;       // absorb pool from Shield status
+  category: 'melee' | 'ranged' | 'caster';
+  upgradeSpecial: Record<string, any>; // upgrade-granted special effects
 }
 
 // A single gold cell in the diamond obstacle
@@ -304,6 +311,9 @@ export interface ProjectileState {
   aoeRadius: number;
   team: Team;
   sourcePlayerId: number; // tracks which player fired it for race-specific effects
+  extraBurnStacks?: number;
+  extraSlowStacks?: number;
+  splashDamagePct?: number;
 }
 
 export interface FloatingText {
@@ -342,6 +352,25 @@ export interface NukeTelegraph {
   timer: number;     // ticks remaining before detonation
 }
 
+export interface PingState {
+  id: number;
+  playerId: number;
+  team: Team;
+  x: number;
+  y: number;
+  age: number;
+  maxAge: number;
+}
+
+export interface QuickChatState {
+  id: number;
+  playerId: number;
+  team: Team;
+  message: string;
+  age: number;
+  maxAge: number;
+}
+
 // === Sound Events ===
 
 export type SoundEventType =
@@ -354,6 +383,28 @@ export interface SoundEvent {
   type: SoundEventType;
   x?: number; // world tile coords
   y?: number;
+}
+
+export interface PlayerStats {
+  totalGoldEarned: number;
+  totalWoodEarned: number;
+  totalStoneEarned: number;
+  totalDamageDealt: number;
+  totalDamageNearHQ: number; // within 20 tiles of own HQ
+  unitsSpawned: number;
+  unitsLost: number;
+  nukeKills: number;
+  diamondPickups: number;
+  diamondTimeHeld: number; // ticks carrying diamond
+}
+
+export function createPlayerStats(): PlayerStats {
+  return {
+    totalGoldEarned: 0, totalWoodEarned: 0, totalStoneEarned: 0,
+    totalDamageDealt: 0, totalDamageNearHQ: 0,
+    unitsSpawned: 0, unitsLost: 0, nukeKills: 0,
+    diamondPickups: 0, diamondTimeHeld: 0,
+  };
 }
 
 export interface GameState {
@@ -374,7 +425,11 @@ export interface GameState {
   particles: Particle[];
   nukeEffects: NukeEffect[];
   nukeTelegraphs: NukeTelegraph[];
+  pings: PingState[];
+  quickChats: QuickChatState[];
   soundEvents: SoundEvent[];
+  nextEntityId: number;
+  playerStats: PlayerStats[];
 }
 
 // === Commands (client -> server) ===
