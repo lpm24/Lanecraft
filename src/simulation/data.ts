@@ -2,13 +2,13 @@ import { BuildingType, Race, TICK_RATE } from './types';
 
 // Race-specific building costs
 export const RACE_BUILDING_COSTS: Record<Race, Record<BuildingType, { gold: number; wood: number; stone: number; hp: number }>> = {
-  // Crown: Gold+Wood economy. Balanced costs.
+  // Crown: Gold+Wood economy. Higher gold cost, low wood requirement.
   [Race.Crown]: {
-    [BuildingType.MeleeSpawner]:  { gold: 70,  wood: 20, stone: 0,  hp: 280 },
-    [BuildingType.RangedSpawner]: { gold: 80,  wood: 25, stone: 0,  hp: 230 },
-    [BuildingType.CasterSpawner]: { gold: 100, wood: 30, stone: 0,  hp: 200 },
-    [BuildingType.Tower]:         { gold: 120, wood: 30, stone: 0,  hp: 220 },
-    [BuildingType.HarvesterHut]:  { gold: 40,  wood: 10, stone: 0,  hp: 150 },
+    [BuildingType.MeleeSpawner]:  { gold: 91,  wood: 10, stone: 0,  hp: 280 },
+    [BuildingType.RangedSpawner]: { gold: 104, wood: 13, stone: 0,  hp: 230 },
+    [BuildingType.CasterSpawner]: { gold: 130, wood: 15, stone: 0,  hp: 200 },
+    [BuildingType.Tower]:         { gold: 156, wood: 15, stone: 0,  hp: 220 },
+    [BuildingType.HarvesterHut]:  { gold: 52,  wood: 5,  stone: 0,  hp: 150 },
   },
   // Horde: Gold+Stone economy. Expensive, durable buildings.
   [Race.Horde]: {
@@ -18,13 +18,13 @@ export const RACE_BUILDING_COSTS: Record<Race, Record<BuildingType, { gold: numb
     [BuildingType.Tower]:         { gold: 130, wood: 0,  stone: 35, hp: 280 },
     [BuildingType.HarvesterHut]:  { gold: 45,  wood: 0,  stone: 10, hp: 180 },
   },
-  // Goblins: Gold+Wood economy. Cheap, fragile buildings.
+  // Goblins: Gold+Wood economy. Very cheap, fragile buildings.
   [Race.Goblins]: {
-    [BuildingType.MeleeSpawner]:  { gold: 50,  wood: 15, stone: 0,  hp: 180 },
-    [BuildingType.RangedSpawner]: { gold: 55,  wood: 20, stone: 0,  hp: 160 },
-    [BuildingType.CasterSpawner]: { gold: 70,  wood: 25, stone: 0,  hp: 140 },
-    [BuildingType.Tower]:         { gold: 80,  wood: 25, stone: 0,  hp: 150 },
-    [BuildingType.HarvesterHut]:  { gold: 30,  wood: 10, stone: 0,  hp: 110 },
+    [BuildingType.MeleeSpawner]:  { gold: 35,  wood: 11, stone: 0,  hp: 180 },
+    [BuildingType.RangedSpawner]: { gold: 39,  wood: 14, stone: 0,  hp: 160 },
+    [BuildingType.CasterSpawner]: { gold: 49,  wood: 18, stone: 0,  hp: 140 },
+    [BuildingType.Tower]:         { gold: 56,  wood: 18, stone: 0,  hp: 150 },
+    [BuildingType.HarvesterHut]:  { gold: 21,  wood: 7,  stone: 0,  hp: 110 },
   },
   // Oozlings: Gold+Stone economy. Cheap (swarm units).
   [Race.Oozlings]: {
@@ -138,13 +138,13 @@ export const UNIT_STATS: Record<Race, RaceUnits> = {
   // === HORDE (Orcs) — Brute Force ===
   [Race.Horde]: {
     [BuildingType.MeleeSpawner]: {
-      name: 'Brute', hp: 110, damage: 10, attackSpeed: 1.1, moveSpeed: 3.2, range: 1, ascii: '[#]',
+      name: 'Brute', hp: 143, damage: 13, attackSpeed: 1.1, moveSpeed: 3.2, range: 1, ascii: '[#]',
     },
     [BuildingType.RangedSpawner]: {
-      name: 'Bowcleaver', hp: 65, damage: 11, attackSpeed: 1.4, moveSpeed: 3.0, range: 6, ascii: '=>',
+      name: 'Bowcleaver', hp: 85, damage: 14, attackSpeed: 1.4, moveSpeed: 3.0, range: 6, ascii: '=>',
     },
     [BuildingType.CasterSpawner]: {
-      name: 'War Chanter', hp: 35, damage: 6, attackSpeed: 1.8, moveSpeed: 3.2, range: 7, ascii: '{H}',
+      name: 'War Chanter', hp: 46, damage: 8, attackSpeed: 1.8, moveSpeed: 3.2, range: 7, ascii: '{H}',
     },
   },
   // === GOBLINS — Speed & Trickery ===
@@ -186,7 +186,7 @@ export const UNIT_STATS: Record<Race, RaceUnits> = {
   // === DEEP (Aquatic) — Control & Attrition ===
   [Race.Deep]: {
     [BuildingType.MeleeSpawner]: {
-      name: 'Shell Guard', hp: 150, damage: 6, attackSpeed: 1.2, moveSpeed: 2.5, range: 1, ascii: '|W|',
+      name: 'Shell Guard', hp: 188, damage: 6, attackSpeed: 1.2, moveSpeed: 2.5, range: 1, ascii: '|W|',
     },
     [BuildingType.RangedSpawner]: {
       name: 'Harpooner', hp: 55, damage: 9, attackSpeed: 1.2, moveSpeed: 3.2, range: 7, ascii: '->',
@@ -198,10 +198,10 @@ export const UNIT_STATS: Record<Race, RaceUnits> = {
   // === WILD (Beasts) — Aggression & Poison ===
   [Race.Wild]: {
     [BuildingType.MeleeSpawner]: {
-      name: 'Lurker', hp: 70, damage: 9, attackSpeed: 0.9, moveSpeed: 4.5, range: 1, ascii: '%#',
+      name: 'Lurker', hp: 45, damage: 5, attackSpeed: 0.9, moveSpeed: 3.0, range: 1, ascii: '%#',
     },
     [BuildingType.RangedSpawner]: {
-      name: 'Bonechucker', hp: 50, damage: 8, attackSpeed: 1.0, moveSpeed: 4.0, range: 6, ascii: '.@',
+      name: 'Bonechucker', hp: 45, damage: 7, attackSpeed: 1.0, moveSpeed: 3.6, range: 6, ascii: '.@',
     },
     [BuildingType.CasterSpawner]: {
       name: 'Scaled Sage', hp: 38, damage: 11, attackSpeed: 2.0, moveSpeed: 3.5, range: 7, ascii: '{W}',
@@ -259,12 +259,12 @@ export const RACE_COLORS: Record<Race, { primary: string; secondary: string }> =
   [Race.Tenders]:  { primary: '#33691e', secondary: '#a5d6a7' },
 };
 
-// Player colors: Blue and Teal (bottom team) vs Red and Orange (top team)
+// Player colors: match building sprite variants (Blue/Purple/Red/Yellow)
 export const PLAYER_COLORS: string[] = [
-  '#2979ff',  // P0 - Blue
-  '#00bfa5',  // P1 - Teal
-  '#ff1744',  // P2 - Red
-  '#ff9100',  // P3 - Orange
+  '#2979ff',  // P0 - Blue (Blue Buildings)
+  '#9c27b0',  // P1 - Purple (Purple Buildings)
+  '#ff1744',  // P2 - Red (Red Buildings)
+  '#fdd835',  // P3 - Yellow (Yellow Buildings)
 ];
 
 // Harvester constants

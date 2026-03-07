@@ -4,7 +4,7 @@ import { runAllBotAI, createBotContext } from '../simulation/BotAI';
 
 // ==================== CONFIG ====================
 
-const MATCHES_PER_MATCHUP = 10;
+const MATCHES_PER_MATCHUP = 3;
 const MAX_MATCH_TICKS = 15 * 60 * TICK_RATE; // 15 min hard cap
 const ALL_RACES = [Race.Crown, Race.Horde, Race.Goblins, Race.Oozlings, Race.Demon, Race.Deep, Race.Wild, Race.Geists, Race.Tenders];
 
@@ -275,25 +275,24 @@ function printResults(results: MatchResult[]): void {
 function main(): void {
   const args = process.argv.slice(2);
   const matchesPerMatchup = parseInt(args[0] ?? '', 10) || MATCHES_PER_MATCHUP;
-  const quickMode = args.includes('--quick');
+  const fullMode = args.includes('--full');
 
   let matchups: Matchup[];
-  if (quickMode) {
-    // Quick mode: only mirror matchups (each race pair vs itself) + round-robin 1v1 style
+  if (fullMode) {
+    matchups = generateMatchups();
+  } else {
+    // Default: mirror-team round robin (much faster, still informative)
     matchups = [];
     for (let i = 0; i < ALL_RACES.length; i++) {
       for (let j = i + 1; j < ALL_RACES.length; j++) {
-        // Race i+i vs Race j+j (pure mirror teams)
         matchups.push({ bottom: [ALL_RACES[i], ALL_RACES[i]], top: [ALL_RACES[j], ALL_RACES[j]] });
       }
     }
-  } else {
-    matchups = generateMatchups();
   }
 
   const totalMatches = matchups.length * matchesPerMatchup;
   console.log(`Running ${totalMatches} matches (${matchups.length} matchups x ${matchesPerMatchup} each)...`);
-  if (quickMode) console.log('  (quick mode: mirror-team round robin only)');
+  if (!fullMode) console.log('  (quick mode: mirror-team round robin — use --full for exhaustive)');
 
   const results: MatchResult[] = [];
   let completed = 0;

@@ -262,7 +262,7 @@ export class RaceSelectScene implements Scene {
         const frame = isSelected ? Math.floor(this.tick / 6) % def.cols : 0;
         const slotCx = box.x + spriteSlotW * (ui + 0.5);
         const dx = Math.round(slotCx - drawW / 2);
-        const dy = Math.round(spriteBaseY - drawH); // bottom-anchor
+        const dy = Math.round(spriteBaseY - drawH * (def.groundY ?? 0.71));
         drawSpriteFrame(ctx, img, def, frame, dx, dy, drawW, drawH);
       }
 

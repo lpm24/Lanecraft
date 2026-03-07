@@ -251,6 +251,7 @@ export function createInitialState(
     nukeAvailable: true,
     connected: true,
     isBot: p.isBot,
+    hasBuiltTower: false,
   }));
 
   const diamond: DiamondState = {
@@ -508,7 +509,7 @@ export function simulateTick(state: GameState, commands: GameCommand[]): void {
     }
   }
 
-  if (state.tick >= 20 * 60 * TICK_RATE) {
+  if (state.tick >= 30 * 60 * TICK_RATE) {
     state.matchPhase = 'ended';
     if (state.hqHp[0] > state.hqHp[1]) state.winner = Team.Bottom;
     else if (state.hqHp[1] > state.hqHp[0]) state.winner = Team.Top;
@@ -577,9 +578,8 @@ function placeBuilding(state: GameState, cmd: Extract<GameCommand, { type: 'plac
   const cost = getBuildingCost(player.race, cmd.buildingType);
   if (!cost) return;
 
-  // First tower is free for each player
-  const isFirstTower = cmd.buildingType === BuildingType.Tower &&
-    !state.buildings.some(b => b.playerId === cmd.playerId && b.type === BuildingType.Tower);
+  // First tower is free for each player (one-time only)
+  const isFirstTower = cmd.buildingType === BuildingType.Tower && !player.hasBuiltTower;
   if (!isFirstTower) {
     if (player.gold < cost.gold || player.wood < cost.wood || player.stone < cost.stone) return;
   }
@@ -605,6 +605,7 @@ function placeBuilding(state: GameState, cmd: Extract<GameCommand, { type: 'plac
       hp: cost.hp, maxHp: cost.hp, actionTimer: 0, placedTick: state.tick, upgradePath: ['A'],
     });
     addSound(state, 'building_placed', world.x, world.y);
+    if (isFirstTower) player.hasBuiltTower = true;
   } else {
     // Military grid
     if (cmd.gridX < 0 || cmd.gridX >= BUILD_GRID_COLS || cmd.gridY < 0 || cmd.gridY >= BUILD_GRID_ROWS) return;
@@ -619,6 +620,7 @@ function placeBuilding(state: GameState, cmd: Extract<GameCommand, { type: 'plac
       hp: cost.hp, maxHp: cost.hp, actionTimer: initialTimer, placedTick: state.tick, upgradePath: ['A'],
     });
     addSound(state, 'building_placed', world.x, world.y);
+    if (isFirstTower) player.hasBuiltTower = true;
   }
 }
 
@@ -2278,7 +2280,7 @@ function tickHarvesters(state: GameState, cellMap: Map<string, GoldCell>): void 
       if (h.miningTimer <= 0) {
         switch (h.assignment) {
           case HarvesterAssignment.BaseGold:
-            h.carryingResource = ResourceType.Gold; h.carryAmount = 3; break;
+            h.carryingResource = ResourceType.Gold; h.carryAmount = 5; break;
           case HarvesterAssignment.Wood:
             h.carryingResource = ResourceType.Wood; h.carryAmount = 10; break;
           case HarvesterAssignment.Stone:

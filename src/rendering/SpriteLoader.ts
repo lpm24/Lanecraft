@@ -214,6 +214,23 @@ import uiIconWood from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Fr
 import uiIconMeat from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/UI Elements/UI Elements/Icons/Icon_04.png?url';
 
 // ============================================================
+// PROJECTILE SPRITES
+// ============================================================
+// Arrows (Crown ranged — per team color)
+import arrowBlue from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Units/Blue Units/Archer/Arrow.png?url';
+import arrowRed from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Units/Red Units/Archer/Arrow.png?url';
+// Orbs (OVERBURN 32px short full — 6x5 grid, 288x240, 48x48 per frame)
+import orbYellow from '../assets/images/OVERBURN AssetPack/OVERBURN AssetPack/00 Yellow-Orange FX/FX_Fire00_Orb32px_Short_Full_6x5.png?url';
+import orbBlue from '../assets/images/OVERBURN AssetPack/OVERBURN AssetPack/01 Blue FX/FX_Fire01_Orb32px_Short_Full_6x5.png?url';
+import orbGreen from '../assets/images/OVERBURN AssetPack/OVERBURN AssetPack/02 Green FX/FX_Fire02_Orb32px_Short_Full_6x5.png?url';
+import orbPurple from '../assets/images/OVERBURN AssetPack/OVERBURN AssetPack/03 Purple FX/FX_Fire03_Orb32px_Short_Full_6x5.png?url';
+// Circles (OVERBURN 32px — 8x6 grid, 384x288, 48x48 per frame — for AoE/caster)
+import circleYellow from '../assets/images/OVERBURN AssetPack/OVERBURN AssetPack/00 Yellow-Orange FX/FX_Fire00_Circle32px_8x6.png?url';
+import circleBlue from '../assets/images/OVERBURN AssetPack/OVERBURN AssetPack/01 Blue FX/FX_Fire01_Circle32px_8x6.png?url';
+import circleGreen from '../assets/images/OVERBURN AssetPack/OVERBURN AssetPack/02 Green FX/FX_Fire02_Circle32px_8x6.png?url';
+import circlePurple from '../assets/images/OVERBURN AssetPack/OVERBURN AssetPack/03 Purple FX/FX_Fire03_Circle32px_8x6.png?url';
+
+// ============================================================
 // VFX SPRITES (OVERBURN + Tiny Swords Particle FX)
 // ============================================================
 // Status effect overlays
@@ -241,25 +258,27 @@ export interface SpriteDef {
   frameW: number;   // width of one frame in pixels
   frameH: number;   // height of one frame in pixels
   cols: number;     // number of columns (frames) in the sheet
+  groundY?: number;  // where the feet/ground contact is as fraction of frame height (0=top, 1=bottom)
+  scale?: number;    // optional display scale multiplier (default 1.0)
 }
 
 // Tiny Swords spritesheets: divide total width by frame height to get frame count
 // Most TS units are 192px tall frames, Enemy pack also 192, some 256 or 320
-function tsSheet(url: string, totalW: number, totalH: number): SpriteDef {
+function tsSheet(url: string, totalW: number, totalH: number, groundY = 0.71): SpriteDef {
   // For TS, frames are square-ish: frameW = totalH (frame width equals frame height)
   const frameW = totalH;
   const cols = Math.round(totalW / frameW);
-  return { url, frameW, frameH: totalH, cols };
+  return { url, frameW, frameH: totalH, cols, groundY };
 }
 
 // Single-frame sprites (CHARACTER MEGAPACK individual files, slimes)
-function singleFrame(url: string, w: number, h: number): SpriteDef {
-  return { url, frameW: w, frameH: h, cols: 1 };
+function singleFrame(url: string, w: number, h: number, groundY = 0.95): SpriteDef {
+  return { url, frameW: w, frameH: h, cols: 1, groundY };
 }
 
 // CHARACTER MEGAPACK horizontal strip: name contains NxM (e.g. Idle_34x1.png = 34 cols, 1 row)
-function cmStrip(url: string, totalW: number, totalH: number, cols: number): SpriteDef {
-  return { url, frameW: Math.round(totalW / cols), frameH: totalH, cols };
+function cmStrip(url: string, totalW: number, totalH: number, cols: number, groundY = 0.95): SpriteDef {
+  return { url, frameW: Math.round(totalW / cols), frameH: totalH, cols, groundY };
 }
 
 /** Grid-based spritesheet (e.g. 8x6 = 48 frames in an 8-col grid) */
@@ -299,43 +318,43 @@ const RACE_UNIT_SPRITES: Record<Race, RaceUnitSprites> = {
   },
   [Race.Horde]: {
     melee:  cmStrip(hordeMelee, 57 * 5, 58, 5),
-    ranged: cmStrip(hordeRanged, 74 * 6, 41, 6),
-    caster: cmStrip(hordeCaster, 38 * 10, 26, 10),
+    ranged: { ...cmStrip(hordeRanged, 74 * 6, 41, 6), scale: 1.6 },
+    caster: { ...cmStrip(hordeCaster, 38 * 10, 26, 10), scale: 0.55 },
   },
   [Race.Goblins]: {
-    melee:  tsSheet(goblinsMelee, 1536, 256),
-    ranged: tsSheet(goblinsRanged, 1152, 192),
+    melee:  tsSheet(goblinsMelee, 1536, 256, 0.67),
+    ranged: tsSheet(goblinsRanged, 1152, 192, 0.69),
     caster: tsSheet(goblinsCaster, 768, 192),
   },
   [Race.Oozlings]: {
-    melee:  cmStrip(oozlingsMelee, 30 * 5, 30, 5),
-    ranged: cmStrip(oozlingsRanged, 40 * 6, 40, 6),
-    caster: cmStrip(oozlingsCaster, 30 * 6, 40, 6),
+    melee:  cmStrip(oozlingsMelee, 30 * 5, 30, 5, 0.93),
+    ranged: cmStrip(oozlingsRanged, 40 * 6, 40, 6, 0.75),
+    caster: cmStrip(oozlingsCaster, 30 * 6, 40, 6, 0.93),
   },
   [Race.Demon]: {
-    melee:  cmStrip(demonMelee, 78 * 8, 54, 8),
-    ranged: cmStrip(demonRanged, 624, 30, 16),
-    caster: cmStrip(demonCaster, 173 * 48, 156, 48),
+    melee:  cmStrip(demonMelee, 78 * 8, 54, 8, 0.76),
+    ranged: { ...cmStrip(demonRanged, 624, 30, 16), scale: 0.85 },
+    caster: cmStrip(demonCaster, 173 * 48, 156, 48, 0.86),
   },
   [Race.Deep]: {
-    melee:  tsSheet(deepMelee, 2240, 320),
+    melee:  { ...tsSheet(deepMelee, 2240, 320, 0.65), scale: 1.4 },
     ranged: tsSheet(deepRanged, 1152, 192),
     caster: tsSheet(deepCaster, 1152, 192),
   },
   [Race.Wild]: {
     melee:  tsSheet(wildMelee, 960, 192),
-    ranged: tsSheet(wildRanged, 1536, 192),
-    caster: tsSheet(wildCaster, 1152, 192),
+    ranged: tsSheet(wildRanged, 1536, 192, 0.70),
+    caster: { ...tsSheet(wildCaster, 1152, 192, 0.79), scale: 1.3 },
   },
   [Race.Geists]: {
-    melee:  tsSheet(geistsMelee, 1152, 192),
-    ranged: cmStrip(geistsRanged, 740, 29, 20),
-    caster: cmStrip(geistsCaster, 984, 42, 24),
+    melee:  tsSheet(geistsMelee, 1152, 192, 0.68),
+    ranged: { ...cmStrip(geistsRanged, 740, 29, 20), scale: 0.55 },
+    caster: cmStrip(geistsCaster, 984, 42, 24, 0.69),
   },
   [Race.Tenders]: {
-    melee:  cmStrip(tendersMelee, 1666, 52, 34),
-    ranged: tsSheet(tendersRanged, 1152, 192),
-    caster: tsSheet(tendersCaster, 1536, 256),
+    melee:  cmStrip(tendersMelee, 1666, 52, 34, 0.94),
+    ranged: tsSheet(tendersRanged, 1152, 192, 0.66),
+    caster: tsSheet(tendersCaster, 1536, 256, 0.67),
   },
 };
 
@@ -348,38 +367,38 @@ const RACE_ATK_SPRITES: Record<Race, Partial<RaceUnitSprites>> = {
   },
   [Race.Horde]: {
     melee:  cmStrip(hordeMeleeAtk, 684, 58, 12),
-    ranged: cmStrip(hordeRangedAtk, 1332, 41, 18),
-    caster: cmStrip(hordeCasterAtk, 380, 26, 10),
+    ranged: { ...cmStrip(hordeRangedAtk, 1332, 41, 18), scale: 1.6 },
+    caster: { ...cmStrip(hordeCasterAtk, 380, 26, 10), scale: 0.55 },
   },
   [Race.Goblins]: {
-    melee:  tsSheet(goblinsMeleeAtk, 2048, 256),
-    ranged: tsSheet(goblinsRangedAtk, 1152, 192),
+    melee:  tsSheet(goblinsMeleeAtk, 2048, 256, 0.67),
+    ranged: tsSheet(goblinsRangedAtk, 1152, 192, 0.69),
     caster: tsSheet(goblinsCasterAtk, 1920, 192),
   },
   [Race.Oozlings]: {}, // slimes use same animation for move/attack
   [Race.Demon]: {
-    melee:  cmStrip(demonMeleeAtk, 3276, 54, 42),
-    ranged: cmStrip(demonRangedAtk, 858, 30, 22),
-    caster: cmStrip(demonCasterAtk, 8304, 156, 48),
+    melee:  cmStrip(demonMeleeAtk, 3276, 54, 42, 0.76),
+    ranged: { ...cmStrip(demonRangedAtk, 858, 30, 22), scale: 0.85 },
+    caster: cmStrip(demonCasterAtk, 8304, 156, 48, 0.86),
   },
   [Race.Deep]: {
-    melee:  tsSheet(deepMeleeAtk, 3200, 320),
+    melee:  { ...tsSheet(deepMeleeAtk, 3200, 320, 0.65), scale: 1.4 },
     ranged: tsSheet(deepRangedAtk, 1536, 192),
     caster: tsSheet(deepCasterAtk, 1152, 192),
   },
   [Race.Wild]: {
     melee:  tsSheet(wildMeleeAtk, 1536, 192),
-    ranged: tsSheet(wildRangedAtk, 1536, 192),
-    caster: tsSheet(wildCasterAtk, 1728, 192),
+    ranged: tsSheet(wildRangedAtk, 1536, 192, 0.70),
+    caster: { ...tsSheet(wildCasterAtk, 1728, 192, 0.79), scale: 1.3 },
   },
   [Race.Geists]: {
-    melee:  tsSheet(geistsMeleeAtk, 1344, 192),
-    ranged: cmStrip(geistsRangedAtk, 888, 29, 24),
+    melee:  tsSheet(geistsMeleeAtk, 1344, 192, 0.68),
+    ranged: { ...cmStrip(geistsRangedAtk, 888, 29, 24), scale: 0.55 },
   },
   [Race.Tenders]: {
-    melee:  cmStrip(tendersMeleeAtk, 2646, 52, 54),
-    ranged: tsSheet(tendersRangedAtk, 1344, 192),
-    caster: tsSheet(tendersCasterAtk, 3328, 256),
+    melee:  cmStrip(tendersMeleeAtk, 2646, 52, 54, 0.94),
+    ranged: tsSheet(tendersRangedAtk, 1344, 192, 0.66),
+    caster: tsSheet(tendersCasterAtk, 3328, 256, 0.67),
   },
 };
 
@@ -498,6 +517,47 @@ export const FX_SPRITES = {
 };
 
 // ============================================================
+// PROJECTILE SPRITE DEFINITIONS
+// ============================================================
+
+// Arrows: single 64x64 frames, per team color
+const ARROW_SPRITES: { [team: number]: SpriteDef } = {
+  0: singleFrame(arrowBlue, 64, 64),   // Team.Bottom (Blue/Purple)
+  1: singleFrame(arrowRed, 64, 64),    // Team.Top (Red/Yellow)
+};
+
+// Orbs: 6x5 grid (288x240, 48x48/frame, 30 frames) — for ranged projectiles
+const ORB_SPRITES = {
+  yellow: gridSheet(orbYellow, 288, 240, 6, 5),
+  blue:   gridSheet(orbBlue, 288, 240, 6, 5),
+  green:  gridSheet(orbGreen, 288, 240, 6, 5),
+  purple: gridSheet(orbPurple, 288, 240, 6, 5),
+};
+
+// Circles: 8x6 grid (384x288, 48x48/frame, 48 frames) — for caster AoE projectiles
+const CIRCLE_SPRITES = {
+  yellow: gridSheet(circleYellow, 384, 288, 8, 6),
+  blue:   gridSheet(circleBlue, 384, 288, 8, 6),
+  green:  gridSheet(circleGreen, 384, 288, 8, 6),
+  purple: gridSheet(circlePurple, 384, 288, 8, 6),
+};
+
+type OrbColor = 'yellow' | 'blue' | 'green' | 'purple';
+
+// Race → orb color mapping for projectiles
+const RACE_ORB_COLOR: Record<Race, OrbColor> = {
+  [Race.Crown]:    'blue',
+  [Race.Horde]:    'yellow',
+  [Race.Goblins]:  'green',
+  [Race.Oozlings]: 'purple',
+  [Race.Demon]:    'yellow',
+  [Race.Deep]:     'blue',
+  [Race.Wild]:     'green',
+  [Race.Geists]:   'purple',
+  [Race.Tenders]:  'green',
+};
+
+// ============================================================
 // SPRITE LOADER
 // ============================================================
 
@@ -606,6 +666,31 @@ export class SpriteLoader {
     return img ? [img, def] : null;
   }
 
+  // --- Projectiles ---
+
+  /** Get arrow sprite for Crown ranged (team 0=bottom, 1=top) */
+  getArrowSprite(team: number): [HTMLImageElement, SpriteDef] | null {
+    const def = ARROW_SPRITES[team] ?? ARROW_SPRITES[0];
+    const img = this.loadImage(def.url);
+    return img ? [img, def] : null;
+  }
+
+  /** Get orb sprite for a race's ranged projectiles */
+  getOrbSprite(race: Race): [HTMLImageElement, GridSpriteDef] | null {
+    const color = RACE_ORB_COLOR[race];
+    const def = ORB_SPRITES[color];
+    const img = this.loadImage(def.url);
+    return img ? [img, def] : null;
+  }
+
+  /** Get circle sprite for a race's caster AoE projectiles */
+  getCircleSprite(race: Race): [HTMLImageElement, GridSpriteDef] | null {
+    const color = RACE_ORB_COLOR[race];
+    const def = CIRCLE_SPRITES[color];
+    const img = this.loadImage(def.url);
+    return img ? [img, def] : null;
+  }
+
   // --- VFX ---
 
   getFxSprite(key: keyof typeof FX_SPRITES): [HTMLImageElement, SpriteDef | GridSpriteDef] | null {
@@ -657,6 +742,11 @@ export class SpriteLoader {
 
     // FX sprites
     for (const def of Object.values(FX_SPRITES)) urls.add(def.url);
+
+    // Projectile sprites
+    for (const def of Object.values(ARROW_SPRITES)) urls.add(def.url);
+    for (const def of Object.values(ORB_SPRITES)) urls.add(def.url);
+    for (const def of Object.values(CIRCLE_SPRITES)) urls.add(def.url);
 
     // Kick off loading for all URLs
     for (const url of urls) this.loadImage(url);

@@ -50,6 +50,16 @@ export class Renderer {
   private waterCache: HTMLCanvasElement | null = null;
   private terrainReady = false;
   private waterEdges: { x: number; y: number; dirs: number }[] = [];
+  // Track previous x per entity for facing direction
+  private prevX = new Map<number, number>();
+  private facing = new Map<number, boolean>(); // true = face left
+  // Death effects: client-side animated sprites at death locations
+  private deathEffects: { x: number; y: number; frame: number; maxFrames: number; size: number; type: 'dust' | 'explosion' }[] = [];
+  // Track unit/building IDs from last frame to detect removals
+  private lastUnitIds = new Set<number>();
+  private lastUnitPositions = new Map<number, { x: number; y: number; team: number }>();
+  private lastBuildingIds = new Set<number>();
+  private lastBuildingPositions = new Map<number, { x: number; y: number; hpPct: number }>();
 
   constructor(canvas: HTMLCanvasElement, ui?: UIAssets) {
     this.canvas = canvas;
@@ -66,7 +76,23 @@ export class Renderer {
     this.canvas.height = window.innerHeight;
   }
 
+  /** Update facing direction for an entity based on movement. Returns true if facing left. */
+  private updateFacing(id: number, x: number, defaultLeft: boolean): boolean {
+    const prev = this.prevX.get(id);
+    if (prev !== undefined) {
+      const dx = x - prev;
+      if (Math.abs(dx) > 0.01) {
+        this.facing.set(id, dx < 0);
+      }
+    }
+    this.prevX.set(id, x);
+    return this.facing.get(id) ?? defaultLeft;
+  }
+
   render(state: GameState): void {
+    // Detect deaths: compare current IDs to last frame
+    this.detectDeaths(state);
+
     const ctx = this.ctx;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.fillStyle = '#4a8a7b';
@@ -86,6 +112,7 @@ export class Renderer {
     this.drawNukeTelegraphs(ctx, state);
     this.drawPings(ctx, state);
     this.drawParticles(ctx, state);
+    this.drawDeathEffects(ctx);
     this.drawFloatingTexts(ctx, state);
     this.drawNukeEffects(ctx, state);
 
@@ -1023,35 +1050,68 @@ export class Renderer {
   // === Projectiles ===
 
   private drawOneProjectile(ctx: CanvasRenderingContext2D, state: GameState, p: ProjectileState): void {
-    {
-      const px = p.x * T + T / 2, py = p.y * T + T / 2;
-      const isBottom = p.team === Team.Bottom;
+    const px = p.x * T + T / 2, py = p.y * T + T / 2;
+    const isBottom = p.team === Team.Bottom;
+    const teamIdx = isBottom ? 0 : 1;
+    const race = state.players[p.sourcePlayerId]?.race;
 
-      // Find target to draw trail line
-      const target = state.units.find(u => u.id === p.targetId);
-      if (target) {
-        const tx = target.x * T + T / 2, ty = target.y * T + T / 2;
-        ctx.beginPath();
-        ctx.moveTo(px, py);
-        ctx.lineTo(tx, ty);
-        ctx.strokeStyle = isBottom ? 'rgba(79, 195, 247, 0.15)' : 'rgba(255, 138, 101, 0.15)';
-        ctx.lineWidth = 1;
-        ctx.stroke();
+    // Determine projectile type: caster AoE (speed 10), tower (speed 12), ranged (speed 15)
+    const isCasterProj = p.speed <= 10 && p.aoeRadius >= 3;
+    const isTowerProj = p.speed === 12;
+    const isRangedProj = !isCasterProj && !isTowerProj;
+
+    // Animation frame — loop through the bright middle portion of the lifecycle
+    // Orbs: 30 frames, circles: 48 frames. Frames ~5-15 are the brightest.
+    const animFrame = 5 + Math.floor(state.tick / 2) % 10;
+
+    // Crown ranged gets arrow sprite; everyone else gets orbs
+    const usesArrow = race === Race.Crown && isRangedProj;
+
+    let drewSprite = false;
+
+    if (usesArrow) {
+      // Arrow sprite — rotate toward target
+      const arrowData = this.sprites.getArrowSprite(teamIdx);
+      if (arrowData) {
+        const [img] = arrowData;
+        const target = state.units.find(u => u.id === p.targetId);
+        const angle = target
+          ? Math.atan2((target.y - p.y), (target.x - p.x))
+          : isBottom ? -Math.PI / 2 : Math.PI / 2;
+        const size = T * 1.2;
+        ctx.save();
+        ctx.translate(px, py);
+        ctx.rotate(angle);
+        ctx.drawImage(img, -size / 2, -size / 2, size, size);
+        ctx.restore();
+        drewSprite = true;
       }
+    } else if (isCasterProj && race != null) {
+      // Caster AoE — use circle sprite (bigger, more dramatic)
+      const circData = this.sprites.getCircleSprite(race);
+      if (circData) {
+        const [img, def] = circData;
+        const size = T * 1.6;
+        drawGridFrame(ctx, img, def, animFrame, px - size / 2, py - size / 2, size, size);
+        drewSprite = true;
+      }
+    } else if (race != null) {
+      // Ranged or tower — use orb sprite
+      const orbData = this.sprites.getOrbSprite(race);
+      if (orbData) {
+        const [img, def] = orbData;
+        const size = isTowerProj ? T * 1.2 : T * 1.0;
+        drawGridFrame(ctx, img, def, animFrame, px - size / 2, py - size / 2, size, size);
+        drewSprite = true;
+      }
+    }
 
-      // Outer glow
+    // Fallback: colored circles if sprite not loaded
+    if (!drewSprite) {
       ctx.beginPath();
-      ctx.arc(px, py, 6, 0, Math.PI * 2);
-      ctx.fillStyle = isBottom ? 'rgba(79, 195, 247, 0.25)' : 'rgba(255, 138, 101, 0.25)';
-      ctx.fill();
-
-      // Core
-      ctx.beginPath();
-      ctx.arc(px, py, 3.5, 0, Math.PI * 2);
+      ctx.arc(px, py, 4, 0, Math.PI * 2);
       ctx.fillStyle = isBottom ? '#4fc3f7' : '#ff8a65';
       ctx.fill();
-
-      // Bright center
       ctx.beginPath();
       ctx.arc(px, py, 1.5, 0, Math.PI * 2);
       ctx.fillStyle = '#fff';
@@ -1068,6 +1128,14 @@ export class Renderer {
       const laneColor = u.lane === Lane.Left ? LANE_LEFT_COLOR : LANE_RIGHT_COLOR;
       const r = u.range > 2 ? 3 : 4;
 
+      // Drop shadow
+      const cx = px + T / 2;
+      const cy = py + T / 2;
+      ctx.fillStyle = 'rgba(0,0,0,0.2)';
+      ctx.beginPath();
+      ctx.ellipse(cx, cy + 3, 5, 2.5, 0, 0, Math.PI * 2);
+      ctx.fill();
+
       // Try sprite first, fall back to procedural shapes
       const race = state.players[u.playerId]?.race;
       const cat = u.category as 'melee' | 'ranged' | 'caster';
@@ -1075,16 +1143,36 @@ export class Renderer {
       const spriteData = race ? this.sprites.getUnitSprite(race, cat, u.playerId, isAttacking) : null;
       if (spriteData) {
         const [img, def] = spriteData;
-        const drawH = T * 1.4;
+        const spriteScale = def.scale ?? 1.0;
+        const drawH = T * 1.82 * spriteScale;
         const aspect = def.frameW / def.frameH;
         const drawW = drawH * aspect;
         // Normalize animation: ~1 cycle per second (20 ticks) regardless of frame count
         const ticksPerFrame = Math.max(1, Math.round(20 / def.cols));
         const frame = Math.floor(state.tick / ticksPerFrame) % def.cols;
-        // Center horizontally, bottom-anchor vertically on tile center
-        const cx = px + T / 2;
-        const cy = py + T / 2;
-        drawSpriteFrame(ctx, img, def, frame, cx - drawW / 2, cy - drawH * 0.6, drawW, drawH);
+        // Anchor feet at consistent ground level
+        const feetY = py + T * 0.70;
+        const drawY = feetY - drawH * (def.groundY ?? 0.71);
+
+        // Determine facing: track movement direction, override when attacking toward target
+        let faceLeft = this.updateFacing(u.id, u.x, u.team === Team.Top);
+        if (u.targetId !== null) {
+          const target = state.units.find(t => t.id === u.targetId);
+          if (target) {
+            faceLeft = target.x < u.x;
+            this.facing.set(u.id, faceLeft);
+          }
+        }
+
+        if (faceLeft) {
+          ctx.save();
+          ctx.translate(cx, 0);
+          ctx.scale(-1, 1);
+          drawSpriteFrame(ctx, img, def, frame, -drawW / 2, drawY, drawW, drawH);
+          ctx.restore();
+        } else {
+          drawSpriteFrame(ctx, img, def, frame, cx - drawW / 2, drawY, drawW, drawH);
+        }
       } else {
         this.drawUnitShape(ctx, px + T / 2, py + T / 2, r, race, u.category, u.team, playerColor);
       }
@@ -1538,15 +1626,36 @@ export class Renderer {
     {
       const px = h.x * T, py = h.y * T;
 
+      // Drop shadow
+      ctx.fillStyle = 'rgba(0,0,0,0.18)';
+      ctx.beginPath();
+      ctx.ellipse(px, py + 2, 4, 2, 0, 0, Math.PI * 2);
+      ctx.fill();
+
       const spriteData = this.sprites.getHarvesterSprite(h.playerId, h.state, h.carryingResource, h.assignment);
       if (spriteData) {
         const [img, def] = spriteData;
-        const drawH = T * 1.2;
+        const hScale = def.scale ?? 1.0;
+        const drawH = T * 1.56 * hScale;
         const aspect = def.frameW / def.frameH;
         const drawW = drawH * aspect;
         const ticksPerFrame = Math.max(1, Math.round(20 / def.cols));
         const frame = Math.floor(state.tick / ticksPerFrame) % def.cols;
-        drawSpriteFrame(ctx, img, def, frame, px - drawW / 2, py - drawH * 0.6, drawW, drawH);
+
+        // Use negative id space for harvesters to avoid collision with unit ids
+        const faceLeft = this.updateFacing(-h.id, h.x, h.team === Team.Top);
+        const hFeetY = py + T * 0.17;
+        const hDrawY = hFeetY - drawH * (def.groundY ?? 0.71);
+
+        if (faceLeft) {
+          ctx.save();
+          ctx.translate(px, 0);
+          ctx.scale(-1, 1);
+          drawSpriteFrame(ctx, img, def, frame, -drawW / 2, hDrawY, drawW, drawH);
+          ctx.restore();
+        } else {
+          drawSpriteFrame(ctx, img, def, frame, px - drawW / 2, hDrawY, drawW, drawH);
+        }
       } else {
         // Fallback procedural
         let color = PLAYER_COLORS[h.playerId] || (h.team === Team.Bottom ? '#64b5f6' : '#ef9a9a');
@@ -1721,12 +1830,82 @@ export class Renderer {
 
   private drawParticles(ctx: CanvasRenderingContext2D, state: GameState): void {
     for (const p of state.particles) {
-      const alpha = 1 - p.age / p.maxAge;
+      const progress = p.age / p.maxAge;
+      const alpha = 1 - progress;
+      // Shrink slightly as they age
+      const size = p.size * (1 - progress * 0.4);
       ctx.globalAlpha = alpha;
       ctx.fillStyle = p.color;
-      ctx.fillRect(p.x * T - p.size / 2, p.y * T - p.size / 2, p.size, p.size);
+      ctx.beginPath();
+      ctx.arc(p.x * T, p.y * T, size, 0, Math.PI * 2);
+      ctx.fill();
     }
     ctx.globalAlpha = 1;
+  }
+
+  private drawDeathEffects(ctx: CanvasRenderingContext2D): void {
+    for (let i = this.deathEffects.length - 1; i >= 0; i--) {
+      const d = this.deathEffects[i];
+      const progress = d.frame / d.maxFrames;
+      const fxKey = d.type === 'explosion' ? 'explosion' : 'dust';
+      const fxData = this.sprites.getFxSprite(fxKey);
+      if (fxData) {
+        const [img, def] = fxData;
+        const totalFrames = def.cols;
+        const sprFrame = Math.min(Math.floor(progress * totalFrames), totalFrames - 1);
+        const alpha = 1 - progress * 0.5;
+        ctx.globalAlpha = alpha;
+        const s = d.size;
+        drawSpriteFrame(ctx, img, def as SpriteDef, sprFrame, d.x * T - s / 2, d.y * T - s / 2, s, s);
+        ctx.globalAlpha = 1;
+      }
+      d.frame++;
+      if (d.frame >= d.maxFrames) this.deathEffects.splice(i, 1);
+    }
+  }
+
+  private detectDeaths(state: GameState): void {
+    // Unit deaths
+    const currentUnitIds = new Set<number>();
+    for (const u of state.units) {
+      currentUnitIds.add(u.id);
+      this.lastUnitPositions.set(u.id, { x: u.x, y: u.y, team: u.team });
+    }
+    for (const id of this.lastUnitIds) {
+      if (!currentUnitIds.has(id)) {
+        const pos = this.lastUnitPositions.get(id);
+        if (pos) {
+          this.deathEffects.push({ x: pos.x, y: pos.y, frame: 0, maxFrames: 12, size: T * 1.5, type: 'dust' });
+        }
+        this.lastUnitPositions.delete(id);
+        this.prevX.delete(id);
+        this.facing.delete(id);
+      }
+    }
+    this.lastUnitIds = currentUnitIds;
+
+    // Building deaths — explosion for destroyed (low HP), dust puff for sold (high HP)
+    const currentBuildingIds = new Set<number>();
+    for (const b of state.buildings) {
+      currentBuildingIds.add(b.id);
+      this.lastBuildingPositions.set(b.id, { x: b.worldX + 0.5, y: b.worldY + 0.5, hpPct: b.hp / b.maxHp });
+    }
+    for (const id of this.lastBuildingIds) {
+      if (!currentBuildingIds.has(id)) {
+        const pos = this.lastBuildingPositions.get(id);
+        if (pos) {
+          const wasDestroyed = pos.hpPct <= 0.15;
+          this.deathEffects.push({
+            x: pos.x, y: pos.y, frame: 0,
+            maxFrames: wasDestroyed ? 16 : 10,
+            size: wasDestroyed ? T * 2.5 : T * 1.5,
+            type: wasDestroyed ? 'explosion' : 'dust',
+          });
+        }
+        this.lastBuildingPositions.delete(id);
+      }
+    }
+    this.lastBuildingIds = currentBuildingIds;
   }
 
   private drawFloatingTexts(ctx: CanvasRenderingContext2D, state: GameState): void {
@@ -1734,9 +1913,13 @@ export class Renderer {
       const alpha = 1 - ft.age / ft.maxAge;
       const yOff = -(ft.age / ft.maxAge) * 20; // float upward
       ctx.globalAlpha = alpha;
-      ctx.fillStyle = ft.color;
       ctx.font = 'bold 10px monospace';
       ctx.textAlign = 'center';
+      // Dark outline for readability
+      ctx.strokeStyle = 'rgba(0,0,0,0.7)';
+      ctx.lineWidth = 2.5;
+      ctx.strokeText(ft.text, ft.x * T, ft.y * T + yOff);
+      ctx.fillStyle = ft.color;
       ctx.fillText(ft.text, ft.x * T, ft.y * T + yOff);
     }
     ctx.globalAlpha = 1;
@@ -1796,115 +1979,136 @@ export class Renderer {
   private drawHUD(ctx: CanvasRenderingContext2D, state: GameState): void {
     const player = state.players[0];
     if (!player) return;
+    const W = this.canvas.width;
+    const compact = W < 600;  // mobile breakpoint
+    const fontSize = compact ? 11 : 14;
+    const iconSz = compact ? 16 : 22;
+    const hudH = compact ? 42 : 56;
+    const pad = compact ? 6 : 12;
 
-    // HUD background - wood table 9-slice
-    if (!this.ui.drawWoodTable(ctx, 0, 0, this.canvas.width, 56)) {
+    // HUD background — oversized to hide left/right edges, taller for breathing room
+    const bgOverW = Math.round(W * 0.25);
+    const bgH = Math.round(hudH * 1.10);
+    if (!this.ui.drawWoodTable(ctx, -bgOverW / 2, 0, W + bgOverW, bgH)) {
       ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
-      ctx.fillRect(0, 0, this.canvas.width, 56);
+      ctx.fillRect(0, 0, W, bgH);
     }
 
-    ctx.font = 'bold 14px monospace';
-    let x = 12;
-    const y = 30;
-    const iconSz = 22;
-    const iconY = y - iconSz + 4;
-
+    ctx.font = `bold ${fontSize}px monospace`;
     const ps = state.playerStats?.[0];
     const elapsed = Math.max(1, state.tick / 20);
+
+    // Row 1: Resources + timer
+    const y1 = compact ? 14 : 20;
+    let x = pad;
+    const iconY = y1 - iconSz / 2;
+
+    // Resource helper
+    const drawRes = (icon: 'gold' | 'wood' | 'meat', val: number, color: string, rate?: string) => {
+      this.ui.drawIcon(ctx, icon, x, iconY, iconSz);
+      x += iconSz + 1;
+      ctx.fillStyle = color;
+      const text = !compact && rate ? `${val} (+${rate}/s)` : `${val}`;
+      ctx.fillText(text, x, y1 + fontSize * 0.35);
+      x += ctx.measureText(text).width + (compact ? 4 : 8);
+    };
+
     const goldRate = ps ? (ps.totalGoldEarned / elapsed).toFixed(1) : '?';
     const woodRate = ps ? (ps.totalWoodEarned / elapsed).toFixed(1) : '?';
     const stoneRate = ps ? (ps.totalStoneEarned / elapsed).toFixed(1) : '?';
 
-    // Gold icon + text
-    this.ui.drawIcon(ctx, 'gold', x, iconY, iconSz);
-    x += iconSz + 2;
-    ctx.fillStyle = '#ffd700'; ctx.fillText(`${player.gold} (+${goldRate}/s)`, x, y); x += 130;
-    // Wood icon + text
-    this.ui.drawIcon(ctx, 'wood', x, iconY, iconSz);
-    x += iconSz + 2;
-    ctx.fillStyle = '#4caf50'; ctx.fillText(`${player.wood} (+${woodRate}/s)`, x, y); x += 130;
-    // Stone/meat icon + text
-    this.ui.drawIcon(ctx, 'meat', x, iconY, iconSz);
-    x += iconSz + 2;
-    ctx.fillStyle = '#9e9e9e'; ctx.fillText(`${player.stone} (+${stoneRate}/s)`, x, y); x += 130;
-    ctx.fillStyle = player.nukeAvailable ? '#ff5722' : '#555';
-    ctx.fillText(`Nuke: ${player.nukeAvailable ? 'READY [N]' : 'USED'}`, x, y); x += 160;
+    drawRes('gold', player.gold, '#ffd700', goldRate);
+    drawRes('wood', player.wood, '#4caf50', woodRate);
+    drawRes('meat', player.stone, '#9e9e9e', stoneRate);
 
-    ctx.fillStyle = '#888';
+    // Timer — right-aligned
     const secs = Math.floor(state.tick / 20);
-    ctx.fillText(`${Math.floor(secs / 60)}:${(secs % 60).toString().padStart(2, '0')}`, x, y);
-    x += 80;
+    const timerText = `${Math.floor(secs / 60)}:${(secs % 60).toString().padStart(2, '0')}`;
+    ctx.fillStyle = '#888';
+    ctx.fillText(timerText, W - pad - ctx.measureText(timerText).width, y1 + fontSize * 0.35);
 
+    // Row 2: HQ bars + diamond + units
+    const y2 = compact ? 32 : 42;
+    const smallFont = compact ? 9 : 11;
+    ctx.font = `bold ${smallFont}px monospace`;
+    let x2 = pad;
+
+    // HQ health bars
+    const btmHp = state.hqHp[Team.Bottom];
+    const topHp = state.hqHp[Team.Top];
+    const hqBarW = compact ? 40 : 60;
+    const hqBarH = compact ? 8 : 12;
+    const drawHQBar = (label: string, hp: number, _color: string) => {
+      ctx.fillStyle = '#ddd';
+      ctx.fillText(label, x2, y2);
+      x2 += ctx.measureText(label).width + 3;
+      const pct = Math.max(0, hp / HQ_HP);
+      if (!this.ui.drawBar(ctx, x2, y2 - hqBarH, hqBarW, hqBarH, pct)) {
+        ctx.fillStyle = '#222';
+        ctx.fillRect(x2, y2 - hqBarH, hqBarW, hqBarH);
+        ctx.fillStyle = pct > 0.5 ? _color : pct > 0.25 ? '#ff9800' : '#f44336';
+        ctx.fillRect(x2, y2 - hqBarH, hqBarW * pct, hqBarH);
+      }
+      x2 += hqBarW + 4;
+    };
+    drawHQBar('US', btmHp, '#2979ff');
+    drawHQBar('EN', topHp, '#ff1744');
+
+    // Diamond status
     const goldRemaining = state.diamondCells.reduce((s, c) => s + c.gold, 0);
     const totalGold = state.diamondCells.reduce((s, c) => s + c.maxGold, 0);
     const minedPct = Math.round((1 - goldRemaining / totalGold) * 100);
-    ctx.fillStyle = state.diamond.exposed ? '#fff' : '#aa8800';
-    ctx.fillText(state.diamond.exposed ? 'DIAMOND EXPOSED!' : `CENTER: MINE ${minedPct}%`, x, y);
-    x += 160;
+    if (state.diamond.exposed) {
+      ctx.fillStyle = '#fff';
+      ctx.fillText(compact ? 'DIAMOND!' : 'DIAMOND EXPOSED!', x2, y2);
+      x2 += ctx.measureText(compact ? 'DIAMOND!' : 'DIAMOND EXPOSED!').width + 8;
+    } else {
+      ctx.fillStyle = '#aa8800';
+      const mineText = compact ? `${minedPct}%` : `MINE ${minedPct}%`;
+      ctx.fillText(mineText, x2, y2);
+      x2 += ctx.measureText(mineText).width + 8;
+    }
 
-    // Unit counts
+    // Right side of row 2: unit counts
+    const rightItems: string[] = [];
+    const rightColors: string[] = [];
+
+    // Units
     const myUnits = state.units.filter(u => u.team === player.team).length;
     const enemyUnits = state.units.filter(u => u.team !== player.team).length;
-    ctx.fillStyle = '#4fc3f7';
-    ctx.fillText(`Units: ${myUnits}`, x, y);
-    x += 80;
-    ctx.fillStyle = '#ff8a65';
-    ctx.fillText(`vs ${enemyUnits}`, x, y);
+    rightItems.push(`${myUnits}v${enemyUnits}`);
+    rightColors.push('#aaa');
 
-    // === Second HUD row: HQ health + building count ===
-    const y2 = 48;
-    let x2 = 12;
-    ctx.font = 'bold 11px monospace';
-
-    // HQ health bars (using UI bar sprites)
-    const btmHp = state.hqHp[Team.Bottom];
-    const topHp = state.hqHp[Team.Top];
-    const hqBarW = 80;
-    const hqBarH = 14;
-    const drawHQBar = (label: string, hp: number, _color: string, xPos: number) => {
-      ctx.fillStyle = '#ddd';
-      ctx.fillText(label, xPos, y2);
-      const barX = xPos + ctx.measureText(label).width + 4;
-      const pct = Math.max(0, hp / HQ_HP);
-      if (!this.ui.drawBar(ctx, barX, y2 - hqBarH, hqBarW, hqBarH, pct)) {
-        ctx.fillStyle = '#222';
-        ctx.fillRect(barX, y2 - hqBarH, hqBarW, hqBarH);
-        ctx.fillStyle = pct > 0.5 ? _color : pct > 0.25 ? '#ff9800' : '#f44336';
-        ctx.fillRect(barX, y2 - hqBarH, hqBarW * pct, hqBarH);
-      }
-      ctx.fillStyle = '#fff';
-      ctx.font = '9px monospace';
-      ctx.fillText(`${hp}`, barX + hqBarW + 4, y2);
-      ctx.font = 'bold 11px monospace';
-      return barX + hqBarW + ctx.measureText(`${hp}`).width + 14;
-    };
-    x2 = drawHQBar('BTM', btmHp, '#2979ff', x2);
-    x2 = drawHQBar('TOP', topHp, '#ff1744', x2);
-
-    // Building count
-    const myBuildings = state.buildings.filter(b => b.playerId === 0).length;
-    const maxBuildings = BUILD_GRID_COLS * BUILD_GRID_ROWS;
-    ctx.fillStyle = '#aaa';
-    ctx.fillText(`Bldgs: ${myBuildings}/${maxBuildings}`, x2, y2);
+    let rx = W - pad;
+    for (let i = rightItems.length - 1; i >= 0; i--) {
+      const tw = ctx.measureText(rightItems[i]).width;
+      rx -= tw;
+      ctx.fillStyle = rightColors[i];
+      ctx.fillText(rightItems[i], rx, y2);
+      rx -= 8;
+    }
 
     // Prematch
     if (state.matchPhase === 'prematch') {
-      ctx.fillStyle = '#fff'; ctx.font = 'bold 32px monospace'; ctx.textAlign = 'center';
-      ctx.fillText(`Match starts in ${Math.ceil(state.prematchTimer / 20)}`, this.canvas.width / 2, this.canvas.height / 2);
+      const pmFont = compact ? 22 : 32;
+      ctx.fillStyle = '#fff'; ctx.font = `bold ${pmFont}px monospace`; ctx.textAlign = 'center';
+      ctx.fillText(`Match starts in ${Math.ceil(state.prematchTimer / 20)}`, W / 2, this.canvas.height / 2);
       ctx.textAlign = 'start';
     }
 
     // Win
     if (state.matchPhase === 'ended' && state.winner !== null) {
+      const winFont = compact ? 20 : 36;
       ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-      ctx.fillRect(0, this.canvas.height / 2 - 40, this.canvas.width, 80);
+      ctx.fillRect(0, this.canvas.height / 2 - 40, W, 80);
       ctx.fillStyle = state.winner === Team.Bottom ? '#2979ff' : '#ff1744';
-      ctx.font = 'bold 36px monospace'; ctx.textAlign = 'center';
-      ctx.fillText(`${state.winner === Team.Bottom ? 'BOTTOM' : 'TOP'} TEAM WINS! (${state.winCondition})`,
-        this.canvas.width / 2, this.canvas.height / 2 + 12);
+      ctx.font = `bold ${winFont}px monospace`; ctx.textAlign = 'center';
+      const winText = compact
+        ? `${state.winner === Team.Bottom ? 'BTM' : 'TOP'} WINS!`
+        : `${state.winner === Team.Bottom ? 'BOTTOM' : 'TOP'} TEAM WINS! (${state.winCondition})`;
+      ctx.fillText(winText, W / 2, this.canvas.height / 2 + 12);
       ctx.textAlign = 'start';
     }
-
   }
 
   private drawQuickChats(ctx: CanvasRenderingContext2D, state: GameState): void {
@@ -1912,8 +2116,9 @@ export class Renderer {
     const localTeam = state.players[0]?.team ?? Team.Bottom;
     const visibleChats = state.quickChats.filter(c => c.team === localTeam);
     if (visibleChats.length === 0) return;
+    const compact = this.canvas.width < 600;
     const startX = 12;
-    const startY = 62;
+    const startY = compact ? 48 : 62;
     const lineH = 18;
 
     for (let i = 0; i < visibleChats.length; i++) {
@@ -1934,10 +2139,23 @@ export class Renderer {
 
   // === Minimap ===
 
-  private drawMinimap(ctx: CanvasRenderingContext2D, state: GameState): void {
-    const mmW = 120, mmH = 180;
+  /** If screen coords (sx, sy) are inside the minimap, return world-pixel coords. */
+  minimapHitTest(sx: number, sy: number): { worldX: number; worldY: number } | null {
+    const compact = this.canvas.width < 600;
+    const mmW = compact ? 80 : 120, mmH = compact ? 120 : 180;
     const mx = this.canvas.width - mmW - 10;
-    const my = 60; // top-right, just below HUD bar
+    const my = compact ? 46 : 60;
+    if (sx < mx || sx > mx + mmW || sy < my || sy > my + mmH) return null;
+    const tileX = ((sx - mx) / mmW) * MAP_WIDTH;
+    const tileY = ((sy - my) / mmH) * MAP_HEIGHT;
+    return { worldX: tileX * TILE_SIZE, worldY: tileY * TILE_SIZE };
+  }
+
+  private drawMinimap(ctx: CanvasRenderingContext2D, state: GameState): void {
+    const compact = this.canvas.width < 600;
+    const mmW = compact ? 80 : 120, mmH = compact ? 120 : 180;
+    const mx = this.canvas.width - mmW - 10;
+    const my = compact ? 46 : 60; // top-right, just below HUD bar
     const scaleX = mmW / MAP_WIDTH;
     const scaleY = mmH / MAP_HEIGHT;
 

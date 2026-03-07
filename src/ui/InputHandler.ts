@@ -3,9 +3,9 @@ import { Camera } from '../rendering/Camera';
 import { Renderer } from '../rendering/Renderer';
 import {
   BuildingType, TILE_SIZE, BUILD_GRID_COLS, BUILD_GRID_ROWS, SHARED_ALLEY_COLS, SHARED_ALLEY_ROWS, Lane,
-  HarvesterAssignment, Team, ZONES, MAP_WIDTH, MAP_HEIGHT, Race, UnitState,
+  HarvesterAssignment, Team, ZONES, MAP_WIDTH, MAP_HEIGHT, Race, UnitState, HUT_GRID_COLS,
 } from '../simulation/types';
-import { getBuildGridOrigin, getTeamAlleyOrigin } from '../simulation/GameState';
+import { getBuildGridOrigin, getTeamAlleyOrigin, getHutGridOrigin } from '../simulation/GameState';
 import { UPGRADE_TREES, RACE_BUILDING_COSTS, RACE_UPGRADE_COSTS, UNIT_STATS, TOWER_STATS, RACE_COLORS } from '../simulation/data';
 import { TICK_RATE } from '../simulation/types';
 import { UIAssets } from '../rendering/UIAssets';
@@ -202,7 +202,14 @@ export class InputHandler {
       }
 
       if (e.key === 'm' || e.key === 'M') {
-        this.game.sendCommand({ type: 'build_hut', playerId: 0 });
+        this.nukeTargeting = false;
+        this.selectedUnitId = null;
+        if (this.selectedBuilding === BuildingType.HarvesterHut) {
+          this.selectedBuilding = null;
+        } else {
+          this.selectedBuilding = BuildingType.HarvesterHut;
+          this.panToHutArea();
+        }
         return;
       }
       if (e.key === 'q' || e.key === 'Q') {
@@ -242,7 +249,12 @@ export class InputHandler {
       if (item) {
         this.nukeTargeting = false;
         this.selectedUnitId = null;
-        this.selectedBuilding = this.selectedBuilding === item.type ? null : item.type;
+        if (this.selectedBuilding === item.type) {
+          this.selectedBuilding = null;
+        } else {
+          this.selectedBuilding = item.type;
+          this.panToBuildArea(item.type);
+        }
         return;
       }
       if (e.key === 'Escape') {
@@ -314,6 +326,17 @@ export class InputHandler {
       if (this.handleHelpButtonClick(e)) return;
       if (this.showTutorial) { this.showTutorial = false; return; }
       if (this.mobileHintVisible) this.dismissMobileHint();
+
+      // Minimap click → pan camera to that world position
+      if (this.currentRenderer) {
+        const rect = this.canvas.getBoundingClientRect();
+        const hit = this.currentRenderer.minimapHitTest(e.clientX - rect.left, e.clientY - rect.top);
+        if (hit) {
+          this.camera.panTo(hit.worldX, hit.worldY);
+          return;
+        }
+      }
+
       // UI panels consume click first
       if (this.handleUIClick(e)) return;
 
@@ -344,6 +367,16 @@ export class InputHandler {
         this.handleBuildingClick(e);
         return;
       }
+
+      // Miner hut: click anywhere on map to confirm auto-placement
+      if (this.selectedBuilding === BuildingType.HarvesterHut) {
+        this.game.sendCommand({ type: 'build_hut', playerId: 0 });
+        if (!e.shiftKey) {
+          this.selectedBuilding = null;
+        }
+        return;
+      }
+
       const world = this.eventToWorld(e);
       const slot = this.worldToGridSlot(0, world.x, world.y);
       if (slot) {
@@ -470,6 +503,30 @@ export class InputHandler {
       x: Math.max(pad, Math.min(this.canvas.width - pad, x)),
       y: Math.max(pad, Math.min(this.canvas.height - pad, y)),
     };
+  }
+
+  /** Pan camera to the build area for a given building type */
+  private panToBuildArea(type: BuildingType): void {
+    if (type === BuildingType.Tower) {
+      const team = this.game.state.players[0]?.team ?? Team.Bottom;
+      const alley = getTeamAlleyOrigin(team);
+      const cx = (alley.x + SHARED_ALLEY_COLS / 2) * TILE_SIZE;
+      const cy = (alley.y + SHARED_ALLEY_ROWS / 2) * TILE_SIZE;
+      this.camera.panTo(cx, cy, 1.8);
+    } else {
+      const origin = getBuildGridOrigin(0);
+      const cx = (origin.x + BUILD_GRID_COLS / 2) * TILE_SIZE;
+      const cy = (origin.y + BUILD_GRID_ROWS / 2) * TILE_SIZE;
+      this.camera.panTo(cx, cy, 1.8);
+    }
+  }
+
+  /** Pan camera to the harvester hut area */
+  private panToHutArea(): void {
+    const origin = getHutGridOrigin(0);
+    const cx = (origin.x + HUT_GRID_COLS / 2) * TILE_SIZE;
+    const cy = (origin.y + 0.5) * TILE_SIZE;
+    this.camera.panTo(cx, cy, 1.8);
   }
 
   private worldToGridSlot(playerId: number, worldPixelX: number, worldPixelY: number): { gx: number; gy: number; isAlley: boolean } | null {
@@ -1000,12 +1057,25 @@ export class InputHandler {
     if (cy >= milY && cy < milY + milH) {
       const colIdx = Math.floor(cx / milW);
       if (colIdx === 0) {
-        // Miner button
-        this.game.sendCommand({ type: 'build_hut', playerId: 0 });
+        // Miner button — select-then-place flow
+        this.nukeTargeting = false;
+        this.selectedUnitId = null;
+        if (this.selectedBuilding === BuildingType.HarvesterHut) {
+          this.selectedBuilding = null;
+        } else {
+          this.selectedBuilding = BuildingType.HarvesterHut;
+          this.panToHutArea();
+        }
       } else if (colIdx >= 1 && colIdx <= BUILD_TRAY.length) {
         const item = BUILD_TRAY[colIdx - 1];
         this.nukeTargeting = false;
-        this.selectedBuilding = this.selectedBuilding === item.type ? null : item.type;
+        this.selectedUnitId = null;
+        if (this.selectedBuilding === item.type) {
+          this.selectedBuilding = null;
+        } else {
+          this.selectedBuilding = item.type;
+          this.panToBuildArea(item.type);
+        }
       } else if (colIdx === BUILD_TRAY.length + 1) {
         if (player.nukeAvailable) {
           this.selectedBuilding = null;
@@ -1213,7 +1283,7 @@ export class InputHandler {
           const aspect = def.frameW / def.frameH;
           const dh = spriteSize;
           const dw = dh * aspect;
-          drawSpriteFrame(ctx, img, def, frame, Math.round(cellCx - dw / 2), Math.round(adjBaseY - dh), dw, dh);
+          drawSpriteFrame(ctx, img, def, frame, Math.round(cellCx - dw / 2), Math.round(adjBaseY - dh * (def.groundY ?? 0.71)), dw, dh);
         }
       }
 
@@ -1251,7 +1321,8 @@ export class InputHandler {
     if (hutGold > 0) hutCostItems.push({ val: hutGold, type: 'g' });
     if (hutWood > 0) hutCostItems.push({ val: hutWood, type: 'w' });
     if (hutStone > 0) hutCostItems.push({ val: hutStone, type: 's' });
-    drawCell(0, false, canAffordHut, 'Miner', 'miner',
+    const hutSelected = this.selectedBuilding === BuildingType.HarvesterHut;
+    drawCell(0, hutSelected, canAffordHut, 'Miner', 'miner',
       myHuts.length < 10 ? hutCostItems : null,
       myHuts.length >= 10 ? 'MAX' : null, 'M');
 
@@ -1261,8 +1332,7 @@ export class InputHandler {
       const bx = (i + 1) * milW;
       const isSelected = this.selectedBuilding === item.type;
       const cost = RACE_BUILDING_COSTS[race][item.type];
-      const isFirstTowerFree = item.type === BuildingType.Tower &&
-        !this.game.state.buildings.some(b => b.playerId === 0 && b.type === BuildingType.Tower);
+      const isFirstTowerFree = item.type === BuildingType.Tower && !player.hasBuiltTower;
       const canAfford = isFirstTowerFree || (player.gold >= cost.gold && player.wood >= cost.wood && player.stone >= cost.stone);
 
       let unitName: string;
@@ -1884,13 +1954,45 @@ export class InputHandler {
     if (!this.selectedBuilding) return;
     const cam = renderer.camera;
     const isTower = this.selectedBuilding === BuildingType.Tower;
+    const isHut = this.selectedBuilding === BuildingType.HarvesterHut;
     const myTeam = Team.Bottom;
 
     ctx.save();
     cam.applyTransform(ctx);
 
-    // Highlight military grid slots (for non-tower or all types)
-    if (!isTower) {
+    // Highlight hut grid for miner
+    if (isHut) {
+      const origin = getHutGridOrigin(0);
+      const myHuts = this.game.state.buildings.filter(b => b.playerId === 0 && b.type === BuildingType.HarvesterHut);
+      const occupiedSlots = new Set(myHuts.map(b => b.gridX));
+      // Show next auto-placement slot with a bright highlight
+      const CENTER_OUT = [4, 5, 3, 6, 2, 7, 1, 8, 0, 9];
+      const nextSlot = CENTER_OUT.find(gx => !occupiedSlots.has(gx));
+      for (let gx = 0; gx < HUT_GRID_COLS; gx++) {
+        const wx = (origin.x + gx) * TILE_SIZE;
+        const wy = origin.y * TILE_SIZE;
+        const occupied = occupiedSlots.has(gx);
+        const isNext = gx === nextSlot;
+        if (isNext) {
+          // Pulsing highlight for next placement
+          const pulse = 0.5 + 0.3 * Math.sin(Date.now() / 200);
+          ctx.fillStyle = `rgba(60, 255, 60, ${pulse * 0.3})`;
+          ctx.fillRect(wx, wy, TILE_SIZE, TILE_SIZE);
+          ctx.strokeStyle = `rgba(60, 255, 60, ${pulse})`;
+          ctx.lineWidth = 2;
+          ctx.strokeRect(wx, wy, TILE_SIZE, TILE_SIZE);
+        } else {
+          ctx.fillStyle = occupied ? 'rgba(255, 200, 60, 0.15)' : 'rgba(60, 255, 60, 0.08)';
+          ctx.fillRect(wx, wy, TILE_SIZE, TILE_SIZE);
+          ctx.strokeStyle = occupied ? 'rgba(255, 200, 60, 0.3)' : 'rgba(60, 255, 60, 0.15)';
+          ctx.lineWidth = 1;
+          ctx.strokeRect(wx, wy, TILE_SIZE, TILE_SIZE);
+        }
+      }
+    }
+
+    // Highlight military grid slots (for non-tower, non-hut types)
+    if (!isTower && !isHut) {
       const origin = getBuildGridOrigin(0);
       for (let gy = 0; gy < BUILD_GRID_ROWS; gy++) {
         for (let gx = 0; gx < BUILD_GRID_COLS; gx++) {
@@ -1947,7 +2049,11 @@ export class InputHandler {
     let atkSpd: number;
     let range: number;
 
-    if (type === BuildingType.Tower) {
+    if (type === BuildingType.HarvesterHut) {
+      // Simple tooltip for miners — no combat stats
+      name = 'Miner Hut';
+      hp = 0; damage = 0; atkSpd = 0; range = 0;
+    } else if (type === BuildingType.Tower) {
       const ts = TOWER_STATS[race];
       name = 'Tower';
       hp = ts.hp;
@@ -1964,15 +2070,13 @@ export class InputHandler {
       range = us.range;
     }
 
-    const special = this.getSpecialDesc(race, type);
     const raceColor = RACE_COLORS[race]?.primary ?? '#fff';
     const { milY } = this.getTrayLayout();
 
     // Tooltip box above the build tray
-    const lines = [
-      name,
-      `HP:${hp}  DMG:${damage}  SPD:${atkSpd.toFixed(1)}s  RNG:${range}`,
-    ];
+    const lines = [name];
+    if (hp > 0) lines.push(`HP:${hp}  DMG:${damage}  SPD:${atkSpd.toFixed(1)}s  RNG:${range}`);
+    const special = type !== BuildingType.HarvesterHut ? this.getSpecialDesc(race, type) : 'Click to place (auto-fills center-out)';
     if (special) lines.push(special);
 
     const lineH = 16;

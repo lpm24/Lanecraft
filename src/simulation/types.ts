@@ -226,6 +226,7 @@ export interface PlayerState {
   nukeAvailable: boolean;
   connected: boolean;
   isBot: boolean;
+  hasBuiltTower: boolean;
 }
 
 export interface BuildingState {

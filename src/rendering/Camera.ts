@@ -5,6 +5,10 @@ export class Camera {
   y = 0;
   zoom = 1;
   private maxZoom = 3;
+  // Smooth pan target
+  private panTargetX: number | null = null;
+  private panTargetY: number | null = null;
+  private panTargetZoom: number | null = null;
 
   private get minZoom(): number {
     const worldW = MAP_WIDTH * TILE_SIZE;
@@ -100,6 +104,10 @@ export class Camera {
 
     c.addEventListener('wheel', (e) => {
       e.preventDefault();
+      // Manual zoom cancels smooth pan
+      this.panTargetX = null;
+      this.panTargetY = null;
+      this.panTargetZoom = null;
       const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
       const rect = c.getBoundingClientRect();
       const cursorX = e.clientX - rect.left;
@@ -126,13 +134,52 @@ export class Camera {
     this.y = Math.max(-margin, Math.min(worldH - viewH + margin, this.y));
   }
 
-  /** Call once per render frame to apply keyboard panning. */
+  /** Smoothly pan camera to center on a world-pixel position at a given zoom. */
+  panTo(worldX: number, worldY: number, targetZoom?: number): void {
+    this.panTargetX = worldX - this.canvas.width / (2 * (targetZoom ?? this.zoom));
+    this.panTargetY = worldY - this.canvas.height / (2 * (targetZoom ?? this.zoom));
+    this.panTargetZoom = targetZoom ?? null;
+  }
+
+  /** Call once per render frame to apply keyboard panning and smooth camera animation. */
   tick(): void {
     const panSpeed = 8;
+    const hasKeyInput = this.keys.has('w') || this.keys.has('arrowup') ||
+      this.keys.has('s') || this.keys.has('arrowdown') ||
+      this.keys.has('a') || this.keys.has('arrowleft') ||
+      this.keys.has('d') || this.keys.has('arrowright');
+
+    if (hasKeyInput || this.isDragging) {
+      // Manual input cancels smooth pan
+      this.panTargetX = null;
+      this.panTargetY = null;
+      this.panTargetZoom = null;
+    }
+
     if (this.keys.has('w') || this.keys.has('arrowup')) this.y -= panSpeed / this.zoom;
     if (this.keys.has('s') || this.keys.has('arrowdown')) this.y += panSpeed / this.zoom;
     if (this.keys.has('a') || this.keys.has('arrowleft')) this.x -= panSpeed / this.zoom;
     if (this.keys.has('d') || this.keys.has('arrowright')) this.x += panSpeed / this.zoom;
+
+    // Smooth pan interpolation
+    if (this.panTargetX !== null && this.panTargetY !== null) {
+      const lerp = 0.12;
+      this.x += (this.panTargetX - this.x) * lerp;
+      this.y += (this.panTargetY - this.y) * lerp;
+      if (this.panTargetZoom !== null) {
+        this.zoom += (this.panTargetZoom - this.zoom) * lerp;
+      }
+      // Stop when close enough
+      if (Math.abs(this.panTargetX - this.x) < 0.5 && Math.abs(this.panTargetY - this.y) < 0.5) {
+        this.x = this.panTargetX;
+        this.y = this.panTargetY;
+        if (this.panTargetZoom !== null) this.zoom = this.panTargetZoom;
+        this.panTargetX = null;
+        this.panTargetY = null;
+        this.panTargetZoom = null;
+      }
+    }
+
     this.clamp();
   }
 

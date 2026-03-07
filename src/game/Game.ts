@@ -45,7 +45,7 @@ export class Game {
       () => this.render(),
     );
 
-    this.sounds.startMusic();
+    this.sounds.startMusic(playerRace);
   }
 
   start(): void {

@@ -130,7 +130,7 @@ export class PostMatchScene implements Scene {
 
     // Win condition + match time
     ctx.font = `${fontSize}px monospace`;
-    ctx.fillStyle = 'rgba(255,255,255,0.7)';
+    ctx.fillStyle = '#ddd';
     const condText = state.winCondition === 'military' ? 'HQ Destroyed'
       : state.winCondition === 'diamond' ? 'Diamond Delivered'
       : state.winCondition === 'timeout' ? 'Time Expired' : '';
@@ -153,7 +153,7 @@ export class PostMatchScene implements Scene {
 
     // Header row with icons
     ctx.font = `bold ${fontSize * 0.7}px monospace`;
-    ctx.fillStyle = '#fff';
+    ctx.fillStyle = '#3e2c1a';
     ctx.textAlign = 'left';
     ctx.fillText('PLAYER', colX[0], tableY);
     ctx.textAlign = 'right';
@@ -162,36 +162,54 @@ export class PostMatchScene implements Scene {
     this.ui.drawIcon(ctx, 'wood', colX[3] - hdrIconSz, tableY - hdrIconSz + 2, hdrIconSz);
     this.ui.drawIcon(ctx, 'meat', colX[4] - hdrIconSz, tableY - hdrIconSz + 2, hdrIconSz);
     this.ui.drawIcon(ctx, 'sword', colX[5] - hdrIconSz, tableY - hdrIconSz + 2, hdrIconSz);
-    ctx.fillStyle = '#fff';
+    ctx.fillStyle = '#3e2c1a';
     ctx.fillText('KILLED', colX[6], tableY);
     ctx.fillText('DAMAGE', colX[7], tableY);
+
+    // Header separator line
+    ctx.strokeStyle = 'rgba(62,44,26,0.3)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(colX[0] - 6, tableY + 6);
+    ctx.lineTo(colX[0] - 6 + panelW * 0.92, tableY + 6);
+    ctx.stroke();
 
     const pStats = state.playerStats ?? [];
     for (let i = 0; i < state.players.length; i++) {
       const p = state.players[i];
       const ps = pStats[i];
       const y = tableY + (i + 1) * rowH;
+      const rowTop = y - rowH * 0.65;
 
+      // Alternating row backgrounds for readability
+      if (i % 2 === 0) {
+        ctx.fillStyle = 'rgba(62,44,26,0.08)';
+        ctx.fillRect(colX[0] - 6, rowTop, panelW * 0.92, rowH);
+      }
+      // Highlight local player row
       if (i === localPlayerId) {
-        ctx.fillStyle = 'rgba(41,121,255,0.1)';
-        ctx.fillRect(colX[0] - 6, y - rowH * 0.65, panelW * 0.92, rowH);
+        ctx.fillStyle = 'rgba(41,121,255,0.15)';
+        ctx.fillRect(colX[0] - 6, rowTop, panelW * 0.92, rowH);
       }
 
       const teamStr = p.team === Team.Bottom ? 'BTM' : 'TOP';
       const raceStr = p.race.charAt(0).toUpperCase() + p.race.slice(1);
       ctx.font = `bold ${fontSize * 0.8}px monospace`;
       ctx.textAlign = 'left';
-      ctx.fillStyle = PLAYER_COLORS[i];
+      // Use darker player colors for parchment background
+      const pc = PLAYER_COLORS[i];
+      ctx.fillStyle = this.darkenColor(pc, 0.6);
       ctx.fillText(`P${i + 1} ${teamStr} ${raceStr}`, colX[0], y);
 
       ctx.font = `${fontSize * 0.75}px monospace`;
-      ctx.fillStyle = '#fff';
+      ctx.fillStyle = '#2a1e10';
       ctx.textAlign = 'right';
       ctx.fillText(`${ps?.totalGoldEarned ?? 0}`, colX[2], y);
       ctx.fillText(`${ps?.totalWoodEarned ?? 0}`, colX[3], y);
       ctx.fillText(`${ps?.totalStoneEarned ?? 0}`, colX[4], y);
       ctx.fillText(`${ps?.unitsSpawned ?? 0}`, colX[5], y);
       ctx.fillText(`${ps?.unitsLost ?? 0}`, colX[6], y);
+      ctx.font = `bold ${fontSize * 0.75}px monospace`;
       ctx.fillText(`${ps?.totalDamageDealt ?? 0}`, colX[7], y);
     }
 
@@ -199,18 +217,18 @@ export class PostMatchScene implements Scene {
     const hqY = tableY + (state.players.length + 1.5) * rowH;
     ctx.font = `bold ${fontSize * 0.85}px monospace`;
     ctx.textAlign = 'center';
-    ctx.fillStyle = '#fff';
+    ctx.fillStyle = '#3e2c1a';
     ctx.fillText('HQ Health', w / 2, hqY);
 
     const barW = Math.min(120, panelW * 0.15);
     const barH = 16;
     const barGap = 40;
     this.ui.drawBar(ctx, w / 2 - barW - barGap, hqY + 6, barW, barH, state.hqHp[0] / 1000);
-    ctx.fillStyle = '#2979ff';
-    ctx.font = `${fontSize * 0.7}px monospace`;
+    ctx.fillStyle = '#1a4a8a';
+    ctx.font = `bold ${fontSize * 0.7}px monospace`;
     ctx.fillText(`BTM ${state.hqHp[0]}`, w / 2 - barW / 2 - barGap, hqY + 30);
     this.ui.drawBar(ctx, w / 2 + barGap, hqY + 6, barW, barH, state.hqHp[1] / 1000);
-    ctx.fillStyle = '#ff1744';
+    ctx.fillStyle = '#a01020';
     ctx.fillText(`TOP ${state.hqHp[1]}`, w / 2 + barW / 2 + barGap, hqY + 30);
 
     // Awards
@@ -220,12 +238,12 @@ export class PostMatchScene implements Scene {
     const awardRibH = fontSize * 1.6;
     this.ui.drawSmallRibbon(ctx, (w - awardRibW) / 2, awardY - awardRibH * 0.7, awardRibW, awardRibH, 2);
     ctx.font = `bold ${fontSize * 0.85}px monospace`;
-    ctx.fillStyle = '#fff';
+    ctx.fillStyle = '#3e2c1a';
     ctx.fillText('AWARDS', w / 2, awardY);
-    ctx.font = `${fontSize * 0.75}px monospace`;
+    ctx.font = `bold ${fontSize * 0.75}px monospace`;
     for (let i = 0; i < awards.length; i++) {
       const a = awards[i];
-      ctx.fillStyle = PLAYER_COLORS[a.playerId];
+      ctx.fillStyle = this.darkenColor(PLAYER_COLORS[a.playerId], 0.6);
       ctx.fillText(`${a.label}: P${a.playerId + 1} (${a.value})`, w / 2, awardY + (i + 1) * rowH * 0.75);
     }
 
@@ -257,26 +275,36 @@ export class PostMatchScene implements Scene {
     this.ui.drawIcon(ctx, 'shield', w / 2 - fontSize * 0.5, y - fontSize * 0.8, fontSize * 1.0);
     ctx.font = `bold ${fontSize * 0.85}px monospace`;
     ctx.textAlign = 'center';
-    ctx.fillStyle = '#fff';
+    ctx.fillStyle = '#3e2c1a';
     ctx.fillText('WAR HERO', w / 2, y + fontSize * 0.5);
 
     ctx.font = `bold ${fontSize}px monospace`;
-    ctx.fillStyle = raceColor;
+    ctx.fillStyle = this.darkenColor(raceColor, 0.55);
     ctx.fillText(`${hero.name}`, w / 2, y + fontSize * 1.6);
 
-    ctx.font = `${fontSize * 0.8}px monospace`;
-    ctx.fillStyle = playerColor;
+    ctx.font = `bold ${fontSize * 0.8}px monospace`;
+    ctx.fillStyle = this.darkenColor(playerColor, 0.6);
     const categoryIcon = hero.category === 'melee' ? 'Melee' : hero.category === 'ranged' ? 'Ranged' : 'Caster';
     ctx.fillText(`P${hero.playerId + 1}'s ${categoryIcon}  -  ${hero.kills} kills`, w / 2, y + fontSize * 2.8);
 
-    ctx.font = `${fontSize * 0.75}px monospace`;
+    ctx.font = `bold ${fontSize * 0.75}px monospace`;
     if (hero.survived) {
-      ctx.fillStyle = '#4caf50';
+      ctx.fillStyle = '#1b6e24';
       ctx.fillText('Survived the battle', w / 2, y + fontSize * 3.8);
     } else {
-      ctx.fillStyle = '#ff6666';
+      ctx.fillStyle = '#9a1a1a';
       ctx.fillText(`Slain by ${hero.killedByName}`, w / 2, y + fontSize * 3.8);
     }
+  }
+
+  /** Darken a hex color by multiplying RGB channels by factor (0–1). */
+  private darkenColor(hex: string, factor: number): string {
+    const m = hex.match(/^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i);
+    if (!m) return hex;
+    const r = Math.round(parseInt(m[1], 16) * factor);
+    const g = Math.round(parseInt(m[2], 16) * factor);
+    const b = Math.round(parseInt(m[3], 16) * factor);
+    return `rgb(${r},${g},${b})`;
   }
 
   private computeAwards(stats: PlayerStats[]): { label: string; playerId: number; value: string }[] {
