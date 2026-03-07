@@ -7,6 +7,11 @@ import { SoundManager } from '../audio/SoundManager';
 import { runAllBotAI, createBotContext, BotContext } from '../simulation/BotAI';
 import { UIAssets } from '../rendering/UIAssets';
 
+export interface GamePartyOptions {
+  player1Race: Race;
+  player1Human: boolean;
+}
+
 export class Game {
   state: GameState;
   private renderer: Renderer;
@@ -19,22 +24,38 @@ export class Game {
 
   private botCtx: BotContext = createBotContext();
 
-  constructor(canvas: HTMLCanvasElement, playerRace: Race = Race.Crown, ui?: UIAssets) {
-    // Pick bot races: fill remaining 3 slots from races other than player's
+  constructor(canvas: HTMLCanvasElement, playerRace: Race = Race.Crown, ui?: UIAssets, partyOpts?: GamePartyOptions) {
+    // Pick bot races: fill remaining slots from races other than player's
     const allRaces = [Race.Crown, Race.Horde, Race.Goblins, Race.Oozlings, Race.Demon, Race.Deep, Race.Wild, Race.Geists, Race.Tenders];
-    const otherRaces = allRaces.filter(r => r !== playerRace);
-    // Shuffle to get variety
-    for (let i = otherRaces.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [otherRaces[i], otherRaces[j]] = [otherRaces[j], otherRaces[i]];
+
+    if (partyOpts) {
+      // 2-player party mode: P0 + P1 are humans, P2 + P3 are bots
+      const usedRaces = new Set([playerRace, partyOpts.player1Race]);
+      const otherRaces = allRaces.filter(r => !usedRaces.has(r));
+      for (let i = otherRaces.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [otherRaces[i], otherRaces[j]] = [otherRaces[j], otherRaces[i]];
+      }
+      this.state = createInitialState([
+        { race: playerRace, isBot: false },                          // P0 - human (host)
+        { race: partyOpts.player1Race, isBot: !partyOpts.player1Human }, // P1 - human (guest) or bot
+        { race: otherRaces[0], isBot: true },                        // P2 - bot enemy
+        { race: otherRaces[1], isBot: true },                        // P3 - bot enemy
+      ]);
+    } else {
+      // Solo mode: P0 human, P1/P2/P3 bots
+      const otherRaces = allRaces.filter(r => r !== playerRace);
+      for (let i = otherRaces.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [otherRaces[i], otherRaces[j]] = [otherRaces[j], otherRaces[i]];
+      }
+      this.state = createInitialState([
+        { race: playerRace, isBot: false },          // P0 - human
+        { race: otherRaces[0], isBot: true },        // P1 - bot teammate
+        { race: otherRaces[1], isBot: true },        // P2 - bot enemy
+        { race: otherRaces[2], isBot: true },        // P3 - bot enemy
+      ]);
     }
-    // Teammate gets first other race, enemies get next two
-    this.state = createInitialState([
-      { race: playerRace, isBot: false },          // P0 - human
-      { race: otherRaces[0], isBot: true },        // P1 - bot teammate
-      { race: otherRaces[1], isBot: true },        // P2 - bot enemy
-      { race: otherRaces[2], isBot: true },        // P3 - bot enemy
-    ]);
 
     this.renderer = new Renderer(canvas, ui);
     this.input = new InputHandler(this, canvas, this.renderer.camera, ui, this.renderer.sprites);

@@ -138,8 +138,8 @@ export class PostMatchScene implements Scene {
     ctx.fillText(`${condText}  -  ${Math.floor(totalSec / 60)}:${(totalSec % 60).toString().padStart(2, '0')}`, w / 2, headerBannerY + headerBannerH + 20);
 
     // Stats table panel - Banner 9-slice
-    const panelW = Math.min(w * 0.92, 800);
-    const panelH = h * 0.55;
+    const panelW = Math.min(w * 0.92, 1040);
+    const panelH = h * 0.82;
     const panelX = (w - panelW) / 2;
     const panelY = headerBannerY + headerBannerH + 32;
     this.ui.drawBanner(ctx, panelX, panelY, panelW, panelH);

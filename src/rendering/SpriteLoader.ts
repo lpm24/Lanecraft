@@ -260,6 +260,7 @@ export interface SpriteDef {
   cols: number;     // number of columns (frames) in the sheet
   groundY?: number;  // where the feet/ground contact is as fraction of frame height (0=top, 1=bottom)
   scale?: number;    // optional display scale multiplier (default 1.0)
+  heightScale?: number; // squash/stretch height independently of width (default 1.0)
 }
 
 // Tiny Swords spritesheets: divide total width by frame height to get frame count
@@ -318,7 +319,7 @@ const RACE_UNIT_SPRITES: Record<Race, RaceUnitSprites> = {
   },
   [Race.Horde]: {
     melee:  cmStrip(hordeMelee, 57 * 5, 58, 5),
-    ranged: { ...cmStrip(hordeRanged, 74 * 6, 41, 6), scale: 1.6 },
+    ranged: { ...cmStrip(hordeRanged, 74 * 6, 41, 6), scale: 1.4, heightScale: 0.8 },
     caster: { ...cmStrip(hordeCaster, 38 * 10, 26, 10), scale: 0.55 },
   },
   [Race.Goblins]: {
@@ -367,7 +368,7 @@ const RACE_ATK_SPRITES: Record<Race, Partial<RaceUnitSprites>> = {
   },
   [Race.Horde]: {
     melee:  cmStrip(hordeMeleeAtk, 684, 58, 12),
-    ranged: { ...cmStrip(hordeRangedAtk, 1332, 41, 18), scale: 1.6 },
+    ranged: { ...cmStrip(hordeRangedAtk, 1332, 41, 18), scale: 1.4, heightScale: 0.8 },
     caster: { ...cmStrip(hordeCasterAtk, 380, 26, 10), scale: 0.55 },
   },
   [Race.Goblins]: {

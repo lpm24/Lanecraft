@@ -42,7 +42,7 @@ const ASSIGNMENT_CYCLE: HarvesterAssignment[] = [
 const ASSIGNMENT_LABELS: Record<HarvesterAssignment, string> = {
   [HarvesterAssignment.BaseGold]: '* Gold',
   [HarvesterAssignment.Wood]: 'W Wood',
-  [HarvesterAssignment.Stone]: 'S Stone',
+  [HarvesterAssignment.Stone]: 'M Meat',
   [HarvesterAssignment.Center]: 'C Center',
 };
 
@@ -731,7 +731,7 @@ export class InputHandler {
     heading('THE MAP');
     line('Bottom base is yours, top base is enemy.');
     line('Lanes merge, split around center, then merge again.');
-    line('Gold near HQ; wood left tip; stone right tip.');
+    line('Gold near HQ; wood left tip; meat right tip.');
     y += compact ? 0 : 2;
     rule();
 
@@ -1204,7 +1204,7 @@ export class InputHandler {
     const drawCost = (parts: { val: number; type: 'g' | 'w' | 's' }[], cx: number, cy: number, affordable: boolean) => {
       const goldColor = affordable ? '#ffd740' : '#665500';
       const woodColor = affordable ? '#81c784' : '#2e5530';
-      const stoneColor = affordable ? '#b0bec5' : '#4a5058';
+      const stoneColor = affordable ? '#e57373' : '#6d2828';
       ctx.font = 'bold 11px monospace';
       const gap = 4;
       // Calculate total width: icon + number for each part
@@ -1531,7 +1531,7 @@ export class InputHandler {
           ctx.fillText(opt.desc ?? '', x + w / 2, panelY + 30);
           ctx.fillStyle = canAfford ? '#ffd700' : '#666';
           ctx.font = '10px monospace';
-          ctx.fillText(`${opt.cost.gold}g ${opt.cost.wood}w ${opt.cost.stone}s`, x + w / 2, panelY + 44);
+          ctx.fillText(`${opt.cost.gold}g ${opt.cost.wood}w ${opt.cost.stone}m`, x + w / 2, panelY + 44);
           ctx.fillStyle = canAfford ? '#64b5f6' : '#555';
           ctx.font = '9px monospace';
           ctx.fillText(`[${opt.choice === options[0].choice ? 'U' : 'I'}]`, x + w / 2, panelY + 56);
@@ -1726,7 +1726,7 @@ export class InputHandler {
     y += lh + 4;
 
     // Per-player live stats table
-    const headers = ['P#', 'Race', 'Team', 'Gold', 'Wood', 'Stone', 'DMG', 'Spawn', 'Lost', 'Bld'];
+    const headers = ['P#', 'Race', 'Team', 'Gold', 'Wood', 'Meat', 'DMG', 'Spawn', 'Lost', 'Bld'];
     const colWidths = [28, 65, 45, 90, 90, 90, 55, 50, 40, 35];
 
     ctx.fillStyle = '#90caf9';
@@ -1883,7 +1883,7 @@ export class InputHandler {
       const wps = (s.totalWoodEarned / elapsed).toFixed(1);
       const sps = (s.totalStoneEarned / elapsed).toFixed(1);
       ctx.fillStyle = pi === 0 ? '#e8f5e9' : '#fafafa';
-      ctx.fillText(`P${pi} ${p.race}: ${gps}g/s  ${wps}w/s  ${sps}s/s  total: ${s.totalGoldEarned + s.totalWoodEarned + s.totalStoneEarned}`, col1, y);
+      ctx.fillText(`P${pi} ${p.race}: ${gps}g/s  ${wps}w/s  ${sps}m/s  total: ${s.totalGoldEarned + s.totalWoodEarned + s.totalStoneEarned}`, col1, y);
       y += lh;
     }
 

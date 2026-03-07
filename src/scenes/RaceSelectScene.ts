@@ -257,8 +257,9 @@ export class RaceSelectScene implements Scene {
         const [img, def] = spriteData;
         const fitSize = Math.min(spriteSlotW * 0.9, spriteZoneH);
         const aspect = def.frameW / def.frameH;
+        const hScale = def.heightScale ?? 1.0;
         const drawW = aspect >= 1 ? fitSize : fitSize * aspect;
-        const drawH = aspect >= 1 ? fitSize / aspect : fitSize;
+        const drawH = (aspect >= 1 ? fitSize / aspect : fitSize) * hScale;
         const frame = isSelected ? Math.floor(this.tick / 6) % def.cols : 0;
         const slotCx = box.x + spriteSlotW * (ui + 0.5);
         const dx = Math.round(slotCx - drawW / 2);

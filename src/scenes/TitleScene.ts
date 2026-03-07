@@ -3,6 +3,8 @@ import { UIAssets } from '../rendering/UIAssets';
 import { SpriteLoader, drawSpriteFrame, drawGridFrame } from '../rendering/SpriteLoader';
 import { Race, BuildingType, StatusType, StatusEffect, TICK_RATE } from '../simulation/types';
 import { UNIT_STATS, RACE_COLORS } from '../simulation/data';
+import { PartyManager, PartyState, PartyPlayer } from '../network/PartyManager';
+import { isFirebaseConfigured, initFirebase } from '../network/FirebaseService';
 
 // ─── Mini 1v1 simulation using real game stats ───
 
@@ -118,7 +120,7 @@ function applyDuelOnHit(attacker: DuelUnit, target: DuelUnit): void {
       if (isMelee) {
         attacker.hitCount++;
         if (attacker.hitCount % 3 === 0) {
-          target.x += target.facingLeft ? -0.8 : 0.8;
+          target.x += target.facingLeft ? 0.8 : -0.8;
           target.x = Math.max(0, Math.min(ARENA_WIDTH, target.x));
         }
       }
@@ -454,6 +456,13 @@ function updateElo(winner: DuelUnit | null, loser: DuelUnit | null, isDraw: bool
 
 // ─── Title Scene ───
 
+// Race label lookup for party UI
+const RACE_LABELS: Record<Race, string> = {
+  [Race.Crown]: 'CROWN', [Race.Horde]: 'HORDE', [Race.Goblins]: 'GOBLINS',
+  [Race.Oozlings]: 'OOZLINGS', [Race.Demon]: 'DEMON', [Race.Deep]: 'DEEP',
+  [Race.Wild]: 'WILD', [Race.Geists]: 'GEISTS', [Race.Tenders]: 'TENDERS',
+};
+
 export class TitleScene implements Scene {
   private manager: SceneManager;
   private canvas: HTMLCanvasElement;
@@ -462,6 +471,7 @@ export class TitleScene implements Scene {
   private pulseTime = 0;
   private clickHandler: ((e: MouseEvent) => void) | null = null;
   private touchHandler: ((e: TouchEvent) => void) | null = null;
+  private keyHandler: ((e: KeyboardEvent) => void) | null = null;
 
   // Duel state
   private blue: DuelUnit | null = null;
@@ -485,6 +495,16 @@ export class TitleScene implements Scene {
   private userInteracted = false;
   private fightStartPlayed = false;
 
+  // Party / multiplayer state
+  party: PartyManager | null = null;
+  private partyState: PartyState | null = null;
+  private partyError: string = '';
+  private partyErrorTimer = 0;
+  private joinCodeInput: string = '';
+  private joinInputActive = false;
+  private firebaseReady = false;
+  onPartyStart: ((party: PartyState) => void) | null = null;
+
   constructor(manager: SceneManager, canvas: HTMLCanvasElement, ui: UIAssets, sprites: SpriteLoader) {
     this.manager = manager;
     this.canvas = canvas;
@@ -502,6 +522,15 @@ export class TitleScene implements Scene {
     this.winText = '';
     this.winTimer = 0;
     this.userInteracted = false;
+    this.joinCodeInput = '';
+    this.joinInputActive = false;
+    this.partyError = '';
+
+    // Listen for party state changes
+    if (this.party) {
+      this.partyState = this.party.state;
+      this.party.addListener(this.partyListener);
+    }
 
     const interactHandler = () => { this.userInteracted = true; };
     this.clickHandler = (e: MouseEvent) => {
@@ -509,7 +538,7 @@ export class TitleScene implements Scene {
       const rect = this.canvas.getBoundingClientRect();
       const cx = e.clientX - rect.left;
       const cy = e.clientY - rect.top;
-      if (this.isSwordAt(cx, cy)) this.manager.switchTo('raceSelect');
+      this.handleClick(cx, cy);
     };
     this.touchHandler = (e: TouchEvent) => {
       e.preventDefault();
@@ -519,31 +548,213 @@ export class TitleScene implements Scene {
       const rect = this.canvas.getBoundingClientRect();
       const cx = touch.clientX - rect.left;
       const cy = touch.clientY - rect.top;
-      if (this.isSwordAt(cx, cy)) this.manager.switchTo('raceSelect');
+      this.handleClick(cx, cy);
+    };
+    this.keyHandler = (e: KeyboardEvent) => {
+      if (this.joinInputActive) {
+        if (e.key === 'Escape') { this.joinInputActive = false; this.joinCodeInput = ''; return; }
+        if (e.key === 'Backspace') { this.joinCodeInput = this.joinCodeInput.slice(0, -1); return; }
+        if (e.key === 'Enter' && this.joinCodeInput.length >= 4) { this.doJoinParty(); return; }
+        if (this.joinCodeInput.length < 5 && /^[a-zA-Z0-9]$/.test(e.key)) {
+          this.joinCodeInput += e.key.toUpperCase();
+          return;
+        }
+      }
     };
     this.canvas.addEventListener('mousedown', interactHandler, { once: true });
     this.canvas.addEventListener('click', this.clickHandler);
     this.canvas.addEventListener('touchstart', this.touchHandler);
+    window.addEventListener('keydown', this.keyHandler);
   }
 
   exit(): void {
     if (this.clickHandler) this.canvas.removeEventListener('click', this.clickHandler);
     if (this.touchHandler) this.canvas.removeEventListener('touchstart', this.touchHandler);
+    if (this.keyHandler) window.removeEventListener('keydown', this.keyHandler);
     this.clickHandler = null;
     this.touchHandler = null;
+    this.keyHandler = null;
+    if (this.party) {
+      this.party.removeListener(this.partyListener);
+    }
   }
 
-  private getSwordRect(): { x: number; y: number; w: number; h: number } {
+  private partyListener = (s: PartyState | null) => {
+    this.partyState = s;
+    if (s && s.status === 'starting' && this.onPartyStart) {
+      this.onPartyStart(s);
+    }
+  };
+
+  // ─── Button layout ───
+
+  private getButtonLayout(): {
+    solo: { x: number; y: number; w: number; h: number };
+    create: { x: number; y: number; w: number; h: number };
+    join: { x: number; y: number; w: number; h: number };
+  } {
     const w = this.canvas.width;
     const h = this.canvas.height;
-    const swordW = Math.min(w * 0.5, 360);
-    const swordH = Math.min(h * 0.09, 64);
-    return { x: (w - swordW) / 2, y: h * 0.30, w: swordW, h: swordH };
+    const btnW = Math.min(w * 0.38, 280);
+    const btnH = Math.min(h * 0.07, 52);
+    const gap = 10;
+    const startY = h * 0.28;
+    return {
+      solo: { x: (w - btnW) / 2, y: startY, w: btnW, h: btnH },
+      create: { x: (w - btnW) / 2, y: startY + btnH + gap, w: btnW, h: btnH },
+      join: { x: (w - btnW) / 2, y: startY + (btnH + gap) * 2, w: btnW, h: btnH },
+    };
   }
 
-  private isSwordAt(cx: number, cy: number): boolean {
-    const s = this.getSwordRect();
-    return cx >= s.x && cx <= s.x + s.w && cy >= s.y && cy <= s.y + s.h;
+  private getPartyLayout(): {
+    panel: { x: number; y: number; w: number; h: number };
+    slot1Race: { x: number; y: number; w: number; h: number };
+    slot2Race: { x: number; y: number; w: number; h: number };
+    start: { x: number; y: number; w: number; h: number };
+    leave: { x: number; y: number; w: number; h: number };
+    code: { x: number; y: number; w: number; h: number };
+  } {
+    const w = this.canvas.width;
+    const h = this.canvas.height;
+    const panelW = Math.min(w * 0.7, 440);
+    const panelH = Math.min(h * 0.42, 300);
+    const px = (w - panelW) / 2;
+    const py = h * 0.26;
+    const slotW = 40;
+    const slotH = 40;
+    const slotY = py + panelH * 0.40;
+    const halfW = panelW / 2;
+    return {
+      panel: { x: px, y: py, w: panelW, h: panelH },
+      slot1Race: { x: px + halfW * 0.5 - slotW / 2, y: slotY, w: slotW, h: slotH },
+      slot2Race: { x: px + halfW + halfW * 0.5 - slotW / 2, y: slotY, w: slotW, h: slotH },
+      start: { x: px + panelW * 0.15, y: py + panelH - 56, w: panelW * 0.42, h: 44 },
+      leave: { x: px + panelW * 0.60, y: py + panelH - 56, w: panelW * 0.28, h: 44 },
+      code: { x: px + panelW * 0.25, y: py + 8, w: panelW * 0.5, h: 36 },
+    };
+  }
+
+  private hitRect(cx: number, cy: number, r: { x: number; y: number; w: number; h: number }): boolean {
+    return cx >= r.x && cx <= r.x + r.w && cy >= r.y && cy <= r.y + r.h;
+  }
+
+  private handleClick(cx: number, cy: number): void {
+    // If in a party, handle party UI
+    if (this.partyState) {
+      const pl = this.getPartyLayout();
+      // Click race icon to cycle (only own slot)
+      const isHost = this.party?.isHost;
+      const mySlot = isHost ? pl.slot1Race : pl.slot2Race;
+      if (this.hitRect(cx, cy, mySlot)) {
+        this.cycleRace();
+        return;
+      }
+      if (isHost && this.hitRect(cx, cy, pl.start) && this.partyState.guest) {
+        this.party?.startGame();
+        return;
+      }
+      if (this.hitRect(cx, cy, pl.leave)) {
+        this.party?.leaveParty();
+        return;
+      }
+      // Click invite code to copy
+      if (this.hitRect(cx, cy, pl.code)) {
+        navigator.clipboard?.writeText(this.partyState.code).catch(() => {});
+        return;
+      }
+      return;
+    }
+
+    // If join input is active, clicking outside the input box dismisses
+    if (this.joinInputActive) {
+      const w = this.canvas.width;
+      const h = this.canvas.height;
+      const boxW = Math.min(w * 0.55, 340);
+      const boxH = Math.min(h * 0.16, 120);
+      const boxX = (w - boxW) / 2;
+      const boxY = h * 0.30;
+      if (!this.hitRect(cx, cy, { x: boxX, y: boxY, w: boxW, h: boxH })) {
+        this.joinInputActive = false;
+        this.joinCodeInput = '';
+      }
+      return;
+    }
+
+    const btns = this.getButtonLayout();
+    if (this.hitRect(cx, cy, btns.solo)) {
+      this.manager.switchTo('raceSelect');
+      return;
+    }
+    if (this.hitRect(cx, cy, btns.create)) {
+      this.doCreateParty();
+      return;
+    }
+    if (this.hitRect(cx, cy, btns.join)) {
+      this.joinInputActive = true;
+      this.joinCodeInput = '';
+      return;
+    }
+  }
+
+  // ─── Party actions ───
+
+  private firebaseInitPromise: Promise<void> | null = null;
+
+  private ensureFirebase(): Promise<void> {
+    if (this.firebaseReady) return Promise.resolve();
+    if (!isFirebaseConfigured()) {
+      this.showPartyError('Firebase not configured');
+      return Promise.reject(new Error('Firebase not configured'));
+    }
+    // Deduplicate concurrent calls
+    if (this.firebaseInitPromise) return this.firebaseInitPromise;
+    this.firebaseInitPromise = initFirebase().then(() => {
+      this.firebaseReady = true;
+      if (!this.party) this.party = new PartyManager();
+      this.party.addListener(this.partyListener);
+      this.firebaseInitPromise = null;
+    }).catch((err) => {
+      this.firebaseInitPromise = null;
+      this.showPartyError(err.message || 'Firebase error');
+      throw err;
+    });
+    return this.firebaseInitPromise;
+  }
+
+  private async doCreateParty(): Promise<void> {
+    try {
+      await this.ensureFirebase();
+      await this.party!.createParty(Race.Crown);
+    } catch (e: any) {
+      this.showPartyError(e.message || 'Failed to create party');
+    }
+  }
+
+  private async doJoinParty(): Promise<void> {
+    if (this.joinCodeInput.length < 4) return;
+    try {
+      await this.ensureFirebase();
+      await this.party!.joinParty(this.joinCodeInput, Race.Crown);
+      this.joinInputActive = false;
+      this.joinCodeInput = '';
+    } catch (e: any) {
+      this.showPartyError(e.message || 'Failed to join');
+    }
+  }
+
+  private cycleRace(): void {
+    if (!this.party || !this.partyState) return;
+    const currentRace = this.party.isHost
+      ? this.partyState.host.race
+      : this.partyState.guest?.race ?? Race.Crown;
+    const idx = ALL_RACES.indexOf(currentRace);
+    const nextRace = ALL_RACES[(idx + 1) % ALL_RACES.length];
+    this.party.updateRace(nextRace);
+  }
+
+  private showPartyError(msg: string): void {
+    this.partyError = msg;
+    this.partyErrorTimer = 3;
   }
 
   private spawnDuel(): void {
@@ -569,6 +780,8 @@ export class TitleScene implements Scene {
     this.pulseTime += dt;
     const dtSec = dt / 1000;
     this.animTime += dtSec;
+
+    if (this.partyErrorTimer > 0) this.partyErrorTimer -= dtSec;
 
     // Animate win announcement
     if (this.winTimer > 0) {
@@ -872,28 +1085,31 @@ export class TitleScene implements Scene {
     ctx.fillStyle = '#fff';
     ctx.fillText('Build. Spawn. Conquer.', w / 2, subY + subH * 0.5);
 
-    // Sword START button
-    const swordW = Math.min(w * 0.5, 360);
-    const swordH = Math.min(h * 0.09, 64);
-    const swordX = (w - swordW) / 2;
-    const swordY = h * 0.30;
+    // === Buttons or Party Panel ===
+    if (this.partyState) {
+      this.renderPartyPanel(ctx, w, h);
+    } else if (this.joinInputActive) {
+      this.renderJoinInput(ctx, w, h);
+    } else {
+      this.renderMenuButtons(ctx, w, h);
+    }
 
-    const alpha = 0.3 + 0.3 * Math.sin(this.pulseTime / 400);
-    ctx.shadowColor = '#4fc3f7';
-    ctx.shadowBlur = 16 * alpha;
-    this.ui.drawSword(ctx, swordX, swordY, swordW, swordH, 0);
-    ctx.shadowBlur = 0;
-
-    const startSize = Math.max(13, Math.min(swordH * 0.32, 22));
-    ctx.font = `bold ${startSize}px monospace`;
-    ctx.textBaseline = 'middle';
-    ctx.globalAlpha = 0.6 + 0.4 * Math.sin(this.pulseTime / 500);
-    const textX = swordX + swordW * 0.52;
-    ctx.fillStyle = 'rgba(0,0,0,0.6)';
-    ctx.fillText('TAP TO START', textX + 1, swordY + swordH * 0.5 + 1);
-    ctx.fillStyle = '#fff';
-    ctx.fillText('TAP TO START', textX, swordY + swordH * 0.5);
-    ctx.globalAlpha = 1;
+    // Party error toast
+    if (this.partyError && this.partyErrorTimer > 0) {
+      const errAlpha = Math.min(1, this.partyErrorTimer);
+      ctx.globalAlpha = errAlpha;
+      const errW = Math.min(w * 0.6, 360);
+      const errH = 36;
+      const errX = (w - errW) / 2;
+      const errY = h * 0.70;
+      this.ui.drawBigRibbon(ctx, errX, errY, errW, errH, 1); // red ribbon
+      ctx.font = `bold ${Math.max(10, errH * 0.36)}px monospace`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = '#fff';
+      ctx.fillText(this.partyError, w / 2, errY + errH * 0.5);
+      ctx.globalAlpha = 1;
+    }
 
     // Version
     ctx.textAlign = 'center';
@@ -901,6 +1117,215 @@ export class TitleScene implements Scene {
     ctx.font = `${Math.max(10, Math.min(w / 60, 14))}px monospace`;
     ctx.fillStyle = 'rgba(255,255,255,0.35)';
     ctx.fillText('v0.1.0 - dev build', w / 2, h - 12);
+  }
+
+  // ─── Render: Main menu buttons ───
+
+  private renderMenuButtons(ctx: CanvasRenderingContext2D, _w: number, _h: number): void {
+    const btns = this.getButtonLayout();
+    const pulse = 0.6 + 0.4 * Math.sin(this.pulseTime / 500);
+
+    // PLAY SOLO — blue sword (pulsing)
+    ctx.shadowColor = '#4fc3f7';
+    ctx.shadowBlur = 12 * (0.3 + 0.3 * Math.sin(this.pulseTime / 400));
+    this.ui.drawSword(ctx, btns.solo.x, btns.solo.y, btns.solo.w, btns.solo.h, 0);
+    ctx.shadowBlur = 0;
+    this.drawSwordLabel(ctx, btns.solo, 'PLAY SOLO', pulse);
+
+    // CREATE PARTY — yellow sword
+    this.ui.drawSword(ctx, btns.create.x, btns.create.y, btns.create.w, btns.create.h, 2);
+    this.drawSwordLabel(ctx, btns.create, 'CREATE PARTY', 1);
+
+    // JOIN PARTY — purple sword
+    this.ui.drawSword(ctx, btns.join.x, btns.join.y, btns.join.w, btns.join.h, 3);
+    this.drawSwordLabel(ctx, btns.join, 'JOIN PARTY', 1);
+  }
+
+  private drawSwordLabel(
+    ctx: CanvasRenderingContext2D,
+    rect: { x: number; y: number; w: number; h: number },
+    text: string,
+    alpha: number,
+  ): void {
+    const fontSize = Math.max(11, Math.min(rect.h * 0.32, 18));
+    ctx.font = `bold ${fontSize}px monospace`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.globalAlpha = alpha;
+    const tx = rect.x + rect.w * 0.52;
+    const ty = rect.y + rect.h * 0.5;
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.fillText(text, tx + 1, ty + 1);
+    ctx.fillStyle = '#fff';
+    ctx.fillText(text, tx, ty);
+    ctx.globalAlpha = 1;
+  }
+
+  // ─── Render: Join code input ───
+
+  private renderJoinInput(ctx: CanvasRenderingContext2D, w: number, h: number): void {
+    const boxW = Math.min(w * 0.55, 340);
+    const boxH = Math.min(h * 0.16, 120);
+    const boxX = (w - boxW) / 2;
+    const boxY = h * 0.30;
+
+    this.ui.drawBanner(ctx, boxX, boxY, boxW, boxH);
+
+    const labelSize = Math.max(11, Math.min(boxH * 0.18, 16));
+    ctx.font = `bold ${labelSize}px monospace`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#fff';
+    ctx.fillText('ENTER INVITE CODE', w / 2, boxY + boxH * 0.25);
+
+    // Code display
+    const codeSize = Math.max(18, Math.min(boxH * 0.28, 32));
+    ctx.font = `bold ${codeSize}px monospace`;
+    const display = this.joinCodeInput + (Math.floor(this.animTime * 2) % 2 === 0 ? '_' : ' ');
+    ctx.fillStyle = '#ffe082';
+    ctx.fillText(display, w / 2, boxY + boxH * 0.52);
+
+    // Hint
+    ctx.font = `${Math.max(9, labelSize * 0.8)}px monospace`;
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    ctx.fillText('Type code + Enter  |  ESC to cancel', w / 2, boxY + boxH * 0.78);
+  }
+
+  // ─── Render: Party panel ───
+
+  private renderPartyPanel(ctx: CanvasRenderingContext2D, w: number, _h: number): void {
+    const pl = this.getPartyLayout();
+    const ps = this.partyState!;
+
+    // Panel background
+    this.ui.drawWoodTable(ctx, pl.panel.x, pl.panel.y, pl.panel.w, pl.panel.h);
+
+    const fontSize = Math.max(10, Math.min(pl.panel.w / 28, 15));
+
+    // Header ribbon with invite code
+    const codeRibW = pl.panel.w * 0.6;
+    const codeRibH = 32;
+    const codeRibX = pl.panel.x + (pl.panel.w - codeRibW) / 2;
+    const codeRibY = pl.panel.y + 8;
+    this.ui.drawSmallRibbon(ctx, codeRibX, codeRibY, codeRibW, codeRibH, 2); // yellow
+    ctx.font = `bold ${Math.max(11, codeRibH * 0.42)}px monospace`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.fillText(`PARTY  ${ps.code}`, w / 2 + 1, codeRibY + codeRibH * 0.5 + 1);
+    ctx.fillStyle = '#fff';
+    ctx.fillText(`PARTY  ${ps.code}`, w / 2, codeRibY + codeRibH * 0.5);
+
+    // Tap to copy hint
+    ctx.font = `${Math.max(8, fontSize * 0.7)}px monospace`;
+    ctx.fillStyle = 'rgba(255,255,255,0.4)';
+    ctx.fillText('click code to copy', w / 2, codeRibY + codeRibH + 10);
+
+    // Player slots
+    const halfW = pl.panel.w / 2;
+    this.renderPlayerSlot(ctx, pl.panel.x, pl.panel.y + pl.panel.h * 0.30, halfW, ps.host, true, pl.slot1Race);
+    if (ps.guest) {
+      this.renderPlayerSlot(ctx, pl.panel.x + halfW, pl.panel.y + pl.panel.h * 0.30, halfW, ps.guest, false, pl.slot2Race);
+    } else {
+      // Empty slot
+      const slotCx = pl.panel.x + halfW + halfW / 2;
+      const slotY = pl.panel.y + pl.panel.h * 0.38;
+      ctx.font = `bold ${fontSize}px monospace`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = 'rgba(255,255,255,0.3)';
+      ctx.fillText('Waiting...', slotCx, slotY);
+      ctx.font = `${Math.max(8, fontSize * 0.7)}px monospace`;
+      ctx.fillText('Share the code!', slotCx, slotY + fontSize * 1.5);
+    }
+
+    // Divider line between slots
+    ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(pl.panel.x + halfW, pl.panel.y + pl.panel.h * 0.28);
+    ctx.lineTo(pl.panel.x + halfW, pl.panel.y + pl.panel.h * 0.75);
+    ctx.stroke();
+
+    // START button (host only, enabled when 2 players)
+    const isHost = this.party?.isHost;
+    if (isHost) {
+      const canStart = !!ps.guest;
+      ctx.globalAlpha = canStart ? 1 : 0.4;
+      this.ui.drawSword(ctx, pl.start.x, pl.start.y, pl.start.w, pl.start.h, canStart ? 0 : 4); // blue or dark
+      const startFontSize = Math.max(10, Math.min(pl.start.h * 0.35, 16));
+      ctx.font = `bold ${startFontSize}px monospace`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = '#fff';
+      ctx.fillText('START', pl.start.x + pl.start.w * 0.52, pl.start.y + pl.start.h * 0.5);
+      ctx.globalAlpha = 1;
+    } else {
+      // Guest sees "waiting for host"
+      ctx.font = `${Math.max(9, fontSize * 0.8)}px monospace`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = 'rgba(255,255,255,0.5)';
+      ctx.fillText('Waiting for host to start...', pl.start.x + pl.start.w * 0.5, pl.start.y + pl.start.h * 0.5);
+    }
+
+    // LEAVE button — red sword
+    this.ui.drawSword(ctx, pl.leave.x, pl.leave.y, pl.leave.w, pl.leave.h, 1);
+    const leaveFontSize = Math.max(9, Math.min(pl.leave.h * 0.32, 14));
+    ctx.font = `bold ${leaveFontSize}px monospace`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#fff';
+    ctx.fillText('LEAVE', pl.leave.x + pl.leave.w * 0.52, pl.leave.y + pl.leave.h * 0.5);
+  }
+
+  private renderPlayerSlot(
+    ctx: CanvasRenderingContext2D,
+    x: number, _y: number, slotW: number,
+    player: PartyPlayer, isHost: boolean,
+    raceRect: { x: number; y: number; w: number; h: number },
+  ): void {
+    const cx = x + slotW / 2;
+    const fontSize = Math.max(10, Math.min(slotW / 10, 14));
+
+    // Race icon (unit sprite as avatar)
+    const spriteData = this.sprites.getUnitSprite(player.race, 'melee', isHost ? 0 : 1);
+    if (spriteData) {
+      const [img, def] = spriteData;
+      const iconSize = raceRect.w;
+      const frame = Math.floor(this.animTime * 5) % def.cols;
+      const gY = def.groundY ?? 0.71;
+      const drawY = raceRect.y + raceRect.h - iconSize * gY;
+      drawSpriteFrame(ctx, img, def, frame, raceRect.x, drawY, iconSize, iconSize);
+    }
+
+    // Race label below icon
+    const labelY = raceRect.y + raceRect.h + 6;
+    const colors = RACE_COLORS[player.race];
+    ctx.font = `bold ${fontSize}px monospace`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillStyle = colors.primary;
+    ctx.fillText(RACE_LABELS[player.race], cx, labelY);
+
+    // Player name
+    ctx.font = `${Math.max(9, fontSize * 0.85)}px monospace`;
+    ctx.fillStyle = '#fff';
+    ctx.fillText(player.name, cx, labelY + fontSize * 1.3);
+
+    // Host crown or "Guest" label
+    ctx.font = `${Math.max(8, fontSize * 0.7)}px monospace`;
+    ctx.fillStyle = isHost ? '#ffe082' : 'rgba(255,255,255,0.5)';
+    ctx.fillText(isHost ? 'HOST' : 'GUEST', cx, labelY + fontSize * 2.4);
+
+    // "Click to change" hint if this is the local player's slot
+    const isLocalSlot = this.party &&
+      ((this.party.isHost && isHost) || (!this.party.isHost && !isHost));
+    if (isLocalSlot) {
+      ctx.font = `${Math.max(7, fontSize * 0.6)}px monospace`;
+      ctx.fillStyle = 'rgba(255,255,255,0.35)';
+      ctx.fillText('click to change', cx, raceRect.y - 10);
+    }
   }
 
   private drawDuelProjectile(ctx: CanvasRenderingContext2D, proj: DuelProjectile, baseY: number, unitSize: number, screenW: number): void {
@@ -967,19 +1392,21 @@ export class TitleScene implements Scene {
     const [img, def] = spriteData;
     const spriteScale = def.scale ?? 1.0;
     const scaledSize = size * spriteScale;
+    const drawW = scaledSize;
+    const drawH = scaledSize * (def.heightScale ?? 1.0);
     const frame = frameTick % def.cols;
     const sx = this.tileToScreen(unit.x, screenW);
     const gY = def.groundY ?? 0.71;
-    const drawY = baseY - scaledSize * gY;
+    const drawY = baseY - drawH * gY;
 
     if (unit.facingLeft) {
       ctx.save();
       ctx.translate(sx, 0);
       ctx.scale(-1, 1);
-      drawSpriteFrame(ctx, img, def, frame, -scaledSize / 2, drawY, scaledSize, scaledSize);
+      drawSpriteFrame(ctx, img, def, frame, -drawW / 2, drawY, drawW, drawH);
       ctx.restore();
     } else {
-      drawSpriteFrame(ctx, img, def, frame, sx - scaledSize / 2, drawY, scaledSize, scaledSize);
+      drawSpriteFrame(ctx, img, def, frame, sx - drawW / 2, drawY, drawW, drawH);
     }
 
     // Status effect VFX overlays

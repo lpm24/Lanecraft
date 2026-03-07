@@ -111,7 +111,7 @@ function printMatchSummary(r: MatchRecord): void {
     'K/D': p.unitsLost > 0 ? ((p.unitsSpawned - p.unitsLost) / p.unitsLost).toFixed(1) : '∞',
     Gold: p.goldEarned,
     Wood: p.woodEarned,
-    Stone: p.stoneEarned,
+    Meat: p.stoneEarned,
     Nukes: p.nukeKills,
     Diamond: p.diamondPickups,
     Buildings: p.buildingCount,

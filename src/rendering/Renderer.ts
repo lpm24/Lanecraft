@@ -14,6 +14,11 @@ import {
 } from '../simulation/types';
 import { getHQPosition, getBuildGridOrigin, getHutGridOrigin, getTeamAlleyOrigin, getUnitUpgradeMultipliers } from '../simulation/GameState';
 import { RACE_COLORS, TOWER_STATS, PLAYER_COLORS } from '../simulation/data';
+import {
+  getDayNight, DayNightState,
+  ScreenShake, WeatherSystem, AmbientParticles,
+  ProjectileTrails, ConstructionAnims, HitFlashTracker, triggerHaptic,
+} from './VisualEffects';
 
 const T = TILE_SIZE;
 const LANE_LEFT_COLOR = '#4fc3f7';
@@ -61,6 +66,24 @@ export class Renderer {
   private lastBuildingIds = new Set<number>();
   private lastBuildingPositions = new Map<number, { x: number; y: number; hpPct: number }>();
 
+  // Visual effects systems
+  private dayNight: DayNightState = getDayNight(0);
+  screenShake = new ScreenShake();
+  private weather = new WeatherSystem();
+  private ambientParticles = new AmbientParticles();
+  private projectileTrails = new ProjectileTrails();
+  private constructionAnims = new ConstructionAnims();
+  private hitFlash = new HitFlashTracker();
+  private unitHpTracker = new Map<number, number>();
+  private matchStartTime = Date.now();
+  private lastFrameTime = Date.now();
+  // Track known building IDs for construction anim detection
+  private knownBuildingIds = new Set<number>();
+  // Smooth HP bars: unitId -> displayed HP fraction
+  private smoothHp = new Map<number, number>();
+  // Track previous nuke effect count to detect new nukes
+  private lastNukeCount = 0;
+
   constructor(canvas: HTMLCanvasElement, ui?: UIAssets) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d')!;
@@ -90,15 +113,63 @@ export class Renderer {
   }
 
   render(state: GameState): void {
+    const now = Date.now();
+    const dt = Math.min((now - this.lastFrameTime) / 1000, 0.1);
+    this.lastFrameTime = now;
+    const elapsedSec = (now - this.matchStartTime) / 1000;
+
     // Detect deaths: compare current IDs to last frame
     this.detectDeaths(state);
+    // Detect new buildings for construction animation
+    this.detectNewBuildings(state);
+    // Track HP changes for hit flash
+    this.hitFlash.updateFromState(this.unitHpTracker, state.units);
+
+    // Update visual effects
+    this.dayNight = getDayNight(elapsedSec);
+    this.screenShake.update(dt);
+    this.weather.update(dt, elapsedSec, this.dayNight.phase);
+    this.projectileTrails.update(dt);
+
+    // Detect nuke detonation for screen shake + haptic
+    if (state.nukeEffects.length > this.lastNukeCount) {
+      this.screenShake.trigger(8, 0.6);
+      triggerHaptic(200, 1.0);
+    }
+    this.lastNukeCount = state.nukeEffects.length;
+
+    // Gather combat zones for ambient particles
+    const combatZones: { x: number; y: number }[] = [];
+    for (const u of state.units) {
+      if (u.targetId !== null) combatZones.push({ x: u.x, y: u.y });
+    }
+    this.ambientParticles.update(dt, combatZones);
+
+    // Spawn race-themed ambient particles near units
+    for (const u of state.units) {
+      const race = state.players[u.playerId]?.race;
+      if (race) this.ambientParticles.spawnRaceParticle(u.x, u.y, race);
+    }
+
+    // Record projectile trail points (every 3rd frame to limit volume)
+    if (state.tick % 3 === 0) {
+      for (const p of state.projectiles) {
+        const race = state.players[p.sourcePlayerId]?.race;
+        const color = race ? (RACE_COLORS[race]?.primary ?? '#fff') : '#fff';
+        this.projectileTrails.addPoint(p.x, p.y, color);
+      }
+    }
 
     const ctx = this.ctx;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.fillStyle = '#4a8a7b';
     ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
 
+    // Apply camera + screen shake
     this.camera.applyTransform(ctx);
+    if (this.screenShake.active) {
+      ctx.translate(this.screenShake.offsetX, this.screenShake.offsetY);
+    }
 
     this.drawZones(ctx, state.tick);
     this.drawLanePaths(ctx);
@@ -111,12 +182,29 @@ export class Renderer {
     this.drawDiamondObjective(ctx, state);
     this.drawNukeTelegraphs(ctx, state);
     this.drawPings(ctx, state);
+    this.projectileTrails.draw(ctx);
     this.drawParticles(ctx, state);
+    this.ambientParticles.draw(ctx);
     this.drawDeathEffects(ctx);
     this.drawFloatingTexts(ctx, state);
     this.drawNukeEffects(ctx, state);
 
+    // Weather particles (world-space)
+    this.weather.drawWorld(ctx);
+
+    // Day/night tint overlay (world-space)
+    if (this.dayNight.tintAlpha > 0.005) {
+      ctx.fillStyle = this.dayNight.tint;
+      ctx.fillRect(
+        this.camera.x - 100, this.camera.y - 100,
+        this.canvas.width / this.camera.zoom + 200,
+        this.canvas.height / this.camera.zoom + 200
+      );
+    }
+
     ctx.setTransform(1, 0, 0, 1, 0, 0);
+    // Weather screen overlay
+    this.weather.drawOverlay(ctx, this.canvas.width, this.canvas.height);
     this.drawHUD(ctx, state);
     this.drawQuickChats(ctx, state);
     this.drawMinimap(ctx, state);
@@ -844,22 +932,24 @@ export class Renderer {
       ctx.fillText(team === Team.Bottom ? 'B' : 'T', cx, cy + 3);
     }
 
-    const cx = px + w / 2;
-    const barW = w - 8, barH = 5;
-    const barX = px + 4;
-    const barY = team === Team.Bottom ? py - 10 : py + h + 4;
-    const hpPct = Math.max(0, hp / HQ_HP);
+    if (hp < HQ_HP) {
+      const cx = px + w / 2;
+      const barW = w - 8, barH = 5;
+      const barX = px + 4;
+      const barY = team === Team.Bottom ? py - 10 : py + h + 4;
+      const hpPct = Math.max(0, hp / HQ_HP);
 
-    ctx.fillStyle = '#222';
-    ctx.fillRect(barX, barY, barW, barH);
-    ctx.fillStyle = hpPct > 0.5 ? '#4caf50' : hpPct > 0.25 ? '#ff9800' : '#f44336';
-    ctx.fillRect(barX, barY, barW * hpPct, barH);
+      ctx.fillStyle = '#222';
+      ctx.fillRect(barX, barY, barW, barH);
+      ctx.fillStyle = hpPct > 0.5 ? '#4caf50' : hpPct > 0.25 ? '#ff9800' : '#f44336';
+      ctx.fillRect(barX, barY, barW * hpPct, barH);
 
-    ctx.fillStyle = '#999';
-    ctx.font = '8px monospace';
-    ctx.textAlign = 'center';
-    ctx.fillText(`${hp}`, cx, barY + barH + 10);
-    ctx.textAlign = 'start';
+      ctx.fillStyle = '#999';
+      ctx.font = '8px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(`${hp}`, cx, barY + barH + 10);
+      ctx.textAlign = 'start';
+    }
   }
 
   // === Buildings ===
@@ -879,10 +969,24 @@ export class Renderer {
       if (sprite) {
         // Draw sprite scaled to fit one tile, anchored at bottom-center
         // Sprites are taller than wide, so scale by width to fit tile
-        const drawW = T + 4; // slightly larger than tile for visual presence
-        const drawH = (drawW / sprite.width) * sprite.height;
+        const baseDrawW = T + 4; // slightly larger than tile for visual presence
+        const baseDrawH = (baseDrawW / sprite.width) * sprite.height;
+
+        // Construction animation: scale-up bounce
+        const buildScale = this.constructionAnims.getScale(b.id, state.tick);
+        const drawW = baseDrawW * buildScale;
+        const drawH = baseDrawH * buildScale;
         const drawX = px - drawW / 2;
         const drawY = py + half - drawH + 2; // anchor bottom to tile bottom
+
+        // Building shadow (day/night responsive)
+        const bShadowLen = this.dayNight.shadowLength;
+        const bShadowX = Math.cos(this.dayNight.shadowAngle) * bShadowLen * 4;
+        const bShadowY = 2 + bShadowLen;
+        ctx.fillStyle = `rgba(0,0,0,${this.dayNight.brightness * 0.15})`;
+        ctx.beginPath();
+        ctx.ellipse(px + bShadowX, py + half + bShadowY, drawW * 0.4, drawH * 0.08, 0, 0, Math.PI * 2);
+        ctx.fill();
 
         ctx.drawImage(sprite, drawX, drawY, drawW, drawH);
 
@@ -1022,17 +1126,7 @@ export class Renderer {
         }
       }
 
-      // Damage tint on sprite when HP < 75%
-      if (bHpPct < 0.75 && sprite) {
-        ctx.globalAlpha = 0.15 + (1 - bHpPct) * 0.2;
-        ctx.fillStyle = '#000';
-        const drawW = T + 4;
-        const drawH = (drawW / sprite.width) * sprite.height;
-        const drawX = px - drawW / 2;
-        const drawY = py + half - drawH + 2;
-        ctx.fillRect(drawX, drawY, drawW, drawH);
-        ctx.globalAlpha = 1;
-      }
+      // (fire overlay alone communicates damage — no dark tint rect needed)
 
       // HP bar (only if damaged)
       if (b.hp < b.maxHp) {
@@ -1128,12 +1222,16 @@ export class Renderer {
       const laneColor = u.lane === Lane.Left ? LANE_LEFT_COLOR : LANE_RIGHT_COLOR;
       const r = u.range > 2 ? 3 : 4;
 
-      // Drop shadow
+      // Drop shadow — moves with day/night sun angle
       const cx = px + T / 2;
       const cy = py + T / 2;
-      ctx.fillStyle = 'rgba(0,0,0,0.2)';
+      const shadowLen = this.dayNight.shadowLength;
+      const shadowOffX = Math.cos(this.dayNight.shadowAngle) * shadowLen * 3;
+      const shadowOffY = Math.sin(this.dayNight.shadowAngle) * shadowLen * 1.5 + 3;
+      const shadowAlpha = this.dayNight.brightness * 0.25;
+      ctx.fillStyle = `rgba(0,0,0,${shadowAlpha})`;
       ctx.beginPath();
-      ctx.ellipse(cx, cy + 3, 5, 2.5, 0, 0, Math.PI * 2);
+      ctx.ellipse(cx + shadowOffX, cy + shadowOffY, 5 + shadowLen, 2.5 + shadowLen * 0.3, 0, 0, Math.PI * 2);
       ctx.fill();
 
       // Try sprite first, fall back to procedural shapes
@@ -1144,9 +1242,10 @@ export class Renderer {
       if (spriteData) {
         const [img, def] = spriteData;
         const spriteScale = def.scale ?? 1.0;
-        const drawH = T * 1.82 * spriteScale;
+        const baseH = T * 1.82 * spriteScale;
         const aspect = def.frameW / def.frameH;
-        const drawW = drawH * aspect;
+        const drawW = baseH * aspect;
+        const drawH = baseH * (def.heightScale ?? 1.0);
         // Normalize animation: ~1 cycle per second (20 ticks) regardless of frame count
         const ticksPerFrame = Math.max(1, Math.round(20 / def.cols));
         const frame = Math.floor(state.tick / ticksPerFrame) % def.cols;
@@ -1172,6 +1271,22 @@ export class Renderer {
           ctx.restore();
         } else {
           drawSpriteFrame(ctx, img, def, frame, cx - drawW / 2, drawY, drawW, drawH);
+        }
+        // Hit flash: bright white tint when taking damage
+        if (this.hitFlash.consume(u.id)) {
+          ctx.globalAlpha = 0.55;
+          ctx.globalCompositeOperation = 'lighter';
+          if (faceLeft) {
+            ctx.save();
+            ctx.translate(cx, 0);
+            ctx.scale(-1, 1);
+            drawSpriteFrame(ctx, img, def, frame, -drawW / 2, drawY, drawW, drawH);
+            ctx.restore();
+          } else {
+            drawSpriteFrame(ctx, img, def, frame, cx - drawW / 2, drawY, drawW, drawH);
+          }
+          ctx.globalCompositeOperation = 'source-over';
+          ctx.globalAlpha = 1;
         }
       } else {
         this.drawUnitShape(ctx, px + T / 2, py + T / 2, r, race, u.category, u.team, playerColor);
@@ -1229,15 +1344,39 @@ export class Renderer {
         }
       }
 
-      // HP bar (only if damaged) — above unit
+      // HP bar (only if damaged) — smooth drain with gradient
       if (u.hp < u.maxHp) {
-        const barW = 12, barH = 2;
+        const barW = 12, barH = 2.5;
         const barX = ux - barW / 2, barY = py - 1;
-        const pct = u.hp / u.maxHp;
+        const targetPct = u.hp / u.maxHp;
+        // Smooth HP drain
+        const prevPct = this.smoothHp.get(u.id) ?? targetPct;
+        const displayPct = prevPct + (targetPct - prevPct) * 0.15;
+        this.smoothHp.set(u.id, displayPct);
+
         ctx.fillStyle = '#111';
-        ctx.fillRect(barX, barY, barW, barH);
-        ctx.fillStyle = pct > 0.5 ? '#4caf50' : pct > 0.25 ? '#ff9800' : '#f44336';
-        ctx.fillRect(barX, barY, barW * pct, barH);
+        ctx.fillRect(barX - 0.5, barY - 0.5, barW + 1, barH + 1);
+        // Gradient fill green -> yellow -> red
+        const grad = ctx.createLinearGradient(barX, barY, barX + barW * displayPct, barY);
+        if (displayPct > 0.5) {
+          grad.addColorStop(0, '#4caf50');
+          grad.addColorStop(1, '#8bc34a');
+        } else if (displayPct > 0.25) {
+          grad.addColorStop(0, '#ff9800');
+          grad.addColorStop(1, '#ffc107');
+        } else {
+          grad.addColorStop(0, '#f44336');
+          grad.addColorStop(1, '#ff5722');
+        }
+        ctx.fillStyle = grad;
+        ctx.fillRect(barX, barY, barW * displayPct, barH);
+        // Delayed damage indicator (red ghost bar)
+        if (displayPct > targetPct + 0.01) {
+          ctx.fillStyle = 'rgba(255, 50, 50, 0.5)';
+          ctx.fillRect(barX + barW * targetPct, barY, barW * (displayPct - targetPct), barH);
+        }
+      } else {
+        this.smoothHp.delete(u.id);
       }
 
       // Shield bar (below HP bar)
@@ -1880,6 +2019,7 @@ export class Renderer {
         this.lastUnitPositions.delete(id);
         this.prevX.delete(id);
         this.facing.delete(id);
+        this.smoothHp.delete(id);
       }
     }
     this.lastUnitIds = currentUnitIds;
@@ -1906,6 +2046,21 @@ export class Renderer {
       }
     }
     this.lastBuildingIds = currentBuildingIds;
+  }
+
+  private detectNewBuildings(state: GameState): void {
+    for (const b of state.buildings) {
+      if (!this.knownBuildingIds.has(b.id)) {
+        this.knownBuildingIds.add(b.id);
+        this.constructionAnims.register(b.id, state.tick);
+      }
+    }
+    // Cleanup removed buildings
+    const currentIds = new Set(state.buildings.map(b => b.id));
+    for (const id of this.knownBuildingIds) {
+      if (!currentIds.has(id)) this.knownBuildingIds.delete(id);
+    }
+    this.constructionAnims.cleanup(currentIds);
   }
 
   private drawFloatingTexts(ctx: CanvasRenderingContext2D, state: GameState): void {
@@ -2019,7 +2174,7 @@ export class Renderer {
 
     drawRes('gold', player.gold, '#ffd700', goldRate);
     drawRes('wood', player.wood, '#4caf50', woodRate);
-    drawRes('meat', player.stone, '#9e9e9e', stoneRate);
+    drawRes('meat', player.stone, '#e57373', stoneRate);
 
     // Timer — right-aligned
     const secs = Math.floor(state.tick / 20);
@@ -2199,6 +2354,33 @@ export class Renderer {
       ctx.strokeStyle = 'rgba(255, 220, 120, 0.85)';
       ctx.lineWidth = 1;
       ctx.stroke();
+    }
+
+    // Combat glow zones on minimap — pulse where fighting is happening
+    const combatClusters: { x: number; y: number; count: number }[] = [];
+    for (const u of state.units) {
+      if (u.targetId === null) continue;
+      let added = false;
+      for (const c of combatClusters) {
+        if (Math.abs(c.x - u.x) < 8 && Math.abs(c.y - u.y) < 8) {
+          c.x = (c.x * c.count + u.x) / (c.count + 1);
+          c.y = (c.y * c.count + u.y) / (c.count + 1);
+          c.count++;
+          added = true;
+          break;
+        }
+      }
+      if (!added) combatClusters.push({ x: u.x, y: u.y, count: 1 });
+    }
+    const pulse = 0.5 + 0.5 * Math.sin(Date.now() / 200);
+    for (const c of combatClusters) {
+      if (c.count < 2) continue;
+      const intensity = Math.min(1, c.count / 8);
+      const r = 3 + intensity * 4;
+      ctx.beginPath();
+      ctx.arc(mx + c.x * scaleX, my + c.y * scaleY, r * (0.8 + pulse * 0.4), 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(255, 100, 50, ${intensity * 0.3 * (0.6 + pulse * 0.4)})`;
+      ctx.fill();
     }
 
     // Units as dots (player colored)

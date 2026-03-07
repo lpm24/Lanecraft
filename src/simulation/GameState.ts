@@ -971,14 +971,14 @@ function applyStatus(target: UnitState, type: StatusType, stacks: number): void 
   const duration = type === StatusType.Burn ? 3 * TICK_RATE :
                    type === StatusType.Slow ? 3 * TICK_RATE :
                    type === StatusType.Haste ? 3 * TICK_RATE :
-                   5 * TICK_RATE; // Shield
+                   4 * TICK_RATE; // Shield
   if (existing) {
     existing.stacks = Math.min(existing.stacks + stacks, maxStacks);
     existing.duration = duration; // refresh
   } else {
     target.statusEffects.push({ type, stacks: Math.min(stacks, maxStacks), duration });
   }
-  if (type === StatusType.Shield && target.shieldHp <= 0) target.shieldHp = 20;
+  if (type === StatusType.Shield && target.shieldHp <= 0) target.shieldHp = 12;
 }
 
 function applyKnockback(unit: UnitState, amount: number): void {
@@ -1057,7 +1057,7 @@ function applyCasterSupport(state: GameState, caster: UnitState, race: Race, sp:
   switch (race) {
     case Race.Crown: {
       // Shield allies (like old Bastion)
-      const shieldCount = 3 + (sp?.shieldTargetBonus ?? 0);
+      const shieldCount = 2 + (sp?.shieldTargetBonus ?? 0);
       const sorted = allies.slice().sort((a, b) =>
         ((a.x - caster.x) ** 2 + (a.y - caster.y) ** 2) - ((b.x - caster.x) ** 2 + (b.y - caster.y) ** 2)
       );
@@ -1068,15 +1068,26 @@ function applyCasterSupport(state: GameState, caster: UnitState, race: Race, sp:
       }
       break;
     }
-    case Race.Horde:
-    case Race.Oozlings: {
-      // Haste pulse: nearby allies get brief haste
-      let hasteCount = 0;
+    case Race.Horde: {
+      // Haste pulse: nearby allies get haste (5 base — Horde's War Chanter is a force multiplier)
+      let hordeHasteCount = 0;
       for (const a of allies) {
         if (!a.statusEffects.some(e => e.type === StatusType.Haste)) {
           applyStatus(a, StatusType.Haste, 1);
-          hasteCount++;
-          if (hasteCount >= 3 + healBonus) break;
+          hordeHasteCount++;
+          if (hordeHasteCount >= 5 + healBonus) break;
+        }
+      }
+      break;
+    }
+    case Race.Oozlings: {
+      // Haste pulse: nearby allies get brief haste
+      let oozHasteCount = 0;
+      for (const a of allies) {
+        if (!a.statusEffects.some(e => e.type === StatusType.Haste)) {
+          applyStatus(a, StatusType.Haste, 1);
+          oozHasteCount++;
+          if (oozHasteCount >= 3 + healBonus) break;
         }
       }
       break;
@@ -1171,11 +1182,13 @@ function applyOnHitEffects(state: GameState, attacker: UnitState, target: UnitSt
       // Swordsman: 10% damage reduction is passive (handled in damage calc), no on-hit
       break;
     case Race.Horde:
-      // Brute: knockback every 3rd hit
+      // Brute: knockback every 3rd hit + 10% lifesteal
       if (isMelee) {
         attacker.hitCount++;
         const knockN = sp?.knockbackEveryN ?? 3;
         if (knockN > 0 && attacker.hitCount % knockN === 0) applyKnockback(target, 0.02);
+        const hordeSteal = Math.round(attacker.damage * 0.10);
+        if (hordeSteal > 0) attacker.hp = Math.min(attacker.maxHp, attacker.hp + hordeSteal);
       }
       break;
     case Race.Goblins:
@@ -2429,7 +2442,7 @@ function walkHome(state: GameState, h: HarvesterState, movePerTick: number): voi
     } else if (h.carryingResource === ResourceType.Stone) {
       player.stone += h.carryAmount;
       if (ps) ps.totalStoneEarned += h.carryAmount;
-      addFloatingText(state, h.x, h.y, `+${h.carryAmount}s`, '#9e9e9e');
+      addFloatingText(state, h.x, h.y, `+${h.carryAmount}m`, '#e57373');
     }
     h.carryingResource = null;
     h.carryAmount = 0;
