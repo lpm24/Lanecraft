@@ -1,5 +1,5 @@
 // Party creation, joining, and real-time sync via Firebase RTDB
-import { ref, set, get, onValue, remove, onDisconnect, Unsubscribe } from 'firebase/database';
+import { ref, set, get, onValue, remove, onDisconnect, Unsubscribe, query, orderByChild, equalTo } from 'firebase/database';
 import { getDb, getUserId } from './FirebaseService';
 import { Race } from '../simulation/types';
 
@@ -16,6 +16,7 @@ export interface PartyState {
   guest: PartyPlayer | null;
   status: 'waiting' | 'starting' | 'in_game' | 'ended';
   seed: number;
+  difficulty?: string; // BotDifficultyLevel value, set by host
 }
 
 export type PartyListener = (state: PartyState | null) => void;
@@ -178,11 +179,51 @@ export class PartyManager {
     await set(ref(db, `parties/${this.partyCode}/${this.localSlot}/race`), race);
   }
 
+  async updateDifficulty(difficulty: string): Promise<void> {
+    if (!this.partyCode || !this._state || !this._isHost) return;
+    const db = getDb();
+    await set(ref(db, `parties/${this.partyCode}/difficulty`), difficulty);
+  }
+
   async startGame(): Promise<void> {
     if (!this.partyCode || !this._state) return;
     if (!this.isHost) return;
     if (!this._state.guest) return;
     await set(ref(getDb(), `parties/${this.partyCode}/status`), 'starting');
+  }
+
+  /** Find an open party (status=waiting, no guest) and join it.
+   *  Returns true if joined, false if none found. */
+  async findAndJoinGame(race: Race): Promise<boolean> {
+    await this.leaveParty();
+
+    const db = getDb();
+    const uid = getUserId();
+    const q = query(ref(db, 'parties'), orderByChild('status'), equalTo('waiting'));
+    const snap = await get(q);
+
+    if (!snap.exists()) return false;
+
+    // Collect all candidate parties (no guest, not ours)
+    const candidates: string[] = [];
+    snap.forEach((child) => {
+      const data = child.val() as PartyState;
+      if (!data.guest && data.hostUid !== uid && child.key) {
+        candidates.push(child.key);
+      }
+    });
+
+    // Try each candidate — may fail if someone else joined first
+    for (const code of candidates) {
+      try {
+        await this.joinParty(code, race);
+        return true;
+      } catch {
+        // Race condition — someone else grabbed it, try next
+      }
+    }
+
+    return false;
   }
 
   private subscribeToParty(code: string): void {

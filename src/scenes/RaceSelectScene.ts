@@ -3,6 +3,7 @@ import { Race } from '../simulation/types';
 import { RACE_COLORS } from '../simulation/data';
 import { SpriteLoader, drawSpriteFrame } from '../rendering/SpriteLoader';
 import { UIAssets } from '../rendering/UIAssets';
+import { BotDifficultyLevel } from '../simulation/BotAI';
 
 type ResIcon = 'uiGold' | 'uiWood' | 'uiMeat';
 
@@ -39,8 +40,16 @@ function woodText(
   ctx.fillText(text, x, y);
 }
 
+const DIFFICULTY_OPTIONS: { level: BotDifficultyLevel; label: string; color: string }[] = [
+  { level: BotDifficultyLevel.Easy, label: 'EASY', color: '#4caf50' },
+  { level: BotDifficultyLevel.Medium, label: 'MEDIUM', color: '#ffd740' },
+  { level: BotDifficultyLevel.Hard, label: 'HARD', color: '#ff9100' },
+  { level: BotDifficultyLevel.Nightmare, label: 'NIGHTMARE', color: '#ff1744' },
+];
+
 export interface RaceSelectResult {
   playerRace: Race;
+  botDifficulty: BotDifficultyLevel;
 }
 
 export class RaceSelectScene implements Scene {
@@ -48,6 +57,7 @@ export class RaceSelectScene implements Scene {
   private canvas: HTMLCanvasElement;
   private selectedIndex = 0;
   private hoverIndex = -1;
+  private selectedDifficulty = 1; // index into DIFFICULTY_OPTIONS (default Medium)
   private onConfirm: (result: RaceSelectResult) => void;
   private sprites: SpriteLoader;
   private ui: UIAssets;
@@ -86,8 +96,13 @@ export class RaceSelectScene implements Scene {
       const idx = this.getBoxIndexAt(cx, cy);
       if (idx >= 0) {
         this.selectedIndex = idx;
-      } else if (this.isStartButtonAt(cx, cy)) {
-        this.confirm();
+      } else {
+        const di = this.getDifficultyIndexAt(cx, cy);
+        if (di >= 0) {
+          this.selectedDifficulty = di;
+        } else if (this.isStartButtonAt(cx, cy)) {
+          this.confirm();
+        }
       }
     };
 
@@ -104,8 +119,13 @@ export class RaceSelectScene implements Scene {
       const idx = this.getBoxIndexAt(cx, cy);
       if (idx >= 0) {
         this.selectedIndex = idx;
-      } else if (this.isStartButtonAt(cx, cy)) {
-        this.confirm();
+      } else {
+        const di = this.getDifficultyIndexAt(cx, cy);
+        if (di >= 0) {
+          this.selectedDifficulty = di;
+        } else if (this.isStartButtonAt(cx, cy)) {
+          this.confirm();
+        }
       }
     };
 
@@ -127,14 +147,43 @@ export class RaceSelectScene implements Scene {
   }
 
   private confirm(): void {
-    this.onConfirm({ playerRace: RACES[this.selectedIndex].race });
+    this.onConfirm({
+      playerRace: RACES[this.selectedIndex].race,
+      botDifficulty: DIFFICULTY_OPTIONS[this.selectedDifficulty].level,
+    });
+  }
+
+  private getDifficultyLayout(): { x: number; y: number; w: number; h: number }[] {
+    const w = this.canvas.width;
+    const h = this.canvas.height;
+    const btnW = 70;
+    const btnH = 26;
+    const gap = 6;
+    const totalW = DIFFICULTY_OPTIONS.length * btnW + (DIFFICULTY_OPTIONS.length - 1) * gap;
+    const startX = (w - totalW) / 2;
+    const y = h - 110; // between race grid and START button
+    return DIFFICULTY_OPTIONS.map((_, i) => ({
+      x: startX + i * (btnW + gap),
+      y,
+      w: btnW,
+      h: btnH,
+    }));
+  }
+
+  private getDifficultyIndexAt(cx: number, cy: number): number {
+    const btns = this.getDifficultyLayout();
+    for (let i = 0; i < btns.length; i++) {
+      const b = btns[i];
+      if (cx >= b.x && cx <= b.x + b.w && cy >= b.y && cy <= b.y + b.h) return i;
+    }
+    return -1;
   }
 
   private getBoxLayout(): { x: number; y: number; w: number; h: number }[] {
     const w = this.canvas.width;
     const h = this.canvas.height;
     const headerH = 70;
-    const footerH = 80;
+    const footerH = 120; // extra room for difficulty selector + START button
     const availH = h - headerH - footerH;
     const availW = w - 40;
     const gapX = 8;
@@ -310,6 +359,50 @@ export class RaceSelectScene implements Scene {
       }
 
       ctx.restore();
+    }
+
+    // Difficulty selector
+    const diffBtns = this.getDifficultyLayout();
+    const diffLabelSize = Math.max(8, Math.min(w / 60, 11));
+    ctx.font = `${diffLabelSize}px monospace`;
+    ctx.textAlign = 'center';
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    ctx.fillText('DIFFICULTY', w / 2, diffBtns[0].y - 6);
+
+    for (let i = 0; i < DIFFICULTY_OPTIONS.length; i++) {
+      const d = DIFFICULTY_OPTIONS[i];
+      const b = diffBtns[i];
+      const isSel = i === this.selectedDifficulty;
+
+      // Background
+      ctx.fillStyle = isSel ? d.color : 'rgba(0,0,0,0.35)';
+      ctx.beginPath();
+      const r = 4;
+      ctx.moveTo(b.x + r, b.y);
+      ctx.lineTo(b.x + b.w - r, b.y);
+      ctx.arcTo(b.x + b.w, b.y, b.x + b.w, b.y + r, r);
+      ctx.lineTo(b.x + b.w, b.y + b.h - r);
+      ctx.arcTo(b.x + b.w, b.y + b.h, b.x + b.w - r, b.y + b.h, r);
+      ctx.lineTo(b.x + r, b.y + b.h);
+      ctx.arcTo(b.x, b.y + b.h, b.x, b.y + b.h - r, r);
+      ctx.lineTo(b.x, b.y + r);
+      ctx.arcTo(b.x, b.y, b.x + r, b.y, r);
+      ctx.closePath();
+      ctx.fill();
+
+      // Border
+      if (!isSel) {
+        ctx.strokeStyle = d.color;
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+
+      // Label
+      const labelSize = Math.max(8, Math.min(b.w / 7, 11));
+      ctx.font = `bold ${labelSize}px monospace`;
+      ctx.textAlign = 'center';
+      ctx.fillStyle = isSel ? '#000' : d.color;
+      ctx.fillText(d.label, b.x + b.w / 2, b.y + b.h / 2 + labelSize * 0.35);
     }
 
     // Start button - Sword

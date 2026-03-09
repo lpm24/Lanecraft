@@ -5,6 +5,77 @@ import {
 } from './types';
 import { RACE_BUILDING_COSTS, RACE_UPGRADE_COSTS } from './data';
 
+// --- Bot Difficulty System ---
+
+export enum BotDifficultyLevel {
+  Easy = 'easy',
+  Medium = 'medium',
+  Hard = 'hard',
+  Nightmare = 'nightmare',
+}
+
+export interface BotDifficulty {
+  /** Ticks between build decisions (higher = slower). Medium baseline: ~40 */
+  buildSpeed: number;
+  /** Ticks between upgrade checks (higher = slower). Medium baseline: ~60 */
+  upgradeSpeed: number;
+  /** Min spawner count before considering upgrades. 99 = never */
+  upgradeThreshold: number;
+  /** Min game minutes before bot will fire nuke */
+  nukeMinTime: number;
+  /** Lane IQ: 'random' = random picks, 'basic' = defend only, 'threat' = full analysis */
+  laneIQ: 'random' | 'basic' | 'threat';
+  /** Whether bot adapts build order to enemy race archetypes */
+  counterBuild: boolean;
+  /** Multiplier on urgency scaling (0 = no urgency, 1 = current, 2 = hyper-reactive) */
+  urgencyMultiplier: number;
+  /** Whether to use per-race optimized nightmare profiles */
+  useNightmareProfiles: boolean;
+}
+
+export const BOT_DIFFICULTY_PRESETS: Record<BotDifficultyLevel, BotDifficulty> = {
+  [BotDifficultyLevel.Easy]: {
+    buildSpeed: 80,
+    upgradeSpeed: 999999,
+    upgradeThreshold: 99,
+    nukeMinTime: 4.0,
+    laneIQ: 'random',
+    counterBuild: false,
+    urgencyMultiplier: 0,
+    useNightmareProfiles: false,
+  },
+  [BotDifficultyLevel.Medium]: {
+    buildSpeed: 40,
+    upgradeSpeed: 60,
+    upgradeThreshold: 2,
+    nukeMinTime: 1.5,
+    laneIQ: 'threat',
+    counterBuild: true,
+    urgencyMultiplier: 1,
+    useNightmareProfiles: false,
+  },
+  [BotDifficultyLevel.Hard]: {
+    buildSpeed: 25,
+    upgradeSpeed: 40,
+    upgradeThreshold: 3,
+    nukeMinTime: 1.0,
+    laneIQ: 'threat',
+    counterBuild: true,
+    urgencyMultiplier: 1.5,
+    useNightmareProfiles: false,
+  },
+  [BotDifficultyLevel.Nightmare]: {
+    buildSpeed: 15,
+    upgradeSpeed: 25,
+    upgradeThreshold: 2,
+    nukeMinTime: 0.5,
+    laneIQ: 'threat',
+    counterBuild: true,
+    urgencyMultiplier: 2,
+    useNightmareProfiles: true,
+  },
+};
+
 // --- Bot personality profiles per race ---
 interface RaceProfile {
   earlyMelee: number;
@@ -187,6 +258,73 @@ const RACE_PROFILES: Record<Race, RaceProfile> = {
 export { RACE_PROFILES };
 export type { RaceProfile };
 
+// --- Nightmare-optimized profiles (exploit best strategies per race) ---
+const NIGHTMARE_PROFILES: Record<Race, RaceProfile> = {
+  // Oozlings: all-in melee swarm, skip econ
+  [Race.Oozlings]: {
+    ...RACE_PROFILES[Race.Oozlings],
+    earlyMelee: 4, earlyRanged: 0, earlyHuts: 0, earlyTowers: 0,
+    midMelee: 4, midRanged: 2, midCasters: 1, midTowers: 0, midHuts: 1,
+    maxHuts: 2, pushThreshold: 0.7,
+  },
+  // Horde: rush melee + ranged, minimal econ
+  [Race.Horde]: {
+    ...RACE_PROFILES[Race.Horde],
+    earlyMelee: 3, earlyRanged: 1, earlyHuts: 0, earlyTowers: 0,
+    midMelee: 4, midRanged: 2, midCasters: 1, midTowers: 0, midHuts: 1,
+    maxHuts: 2, pushThreshold: 0.8,
+  },
+  // Demon: rush cheap melee + ranged, pure aggression
+  [Race.Demon]: {
+    ...RACE_PROFILES[Race.Demon],
+    earlyMelee: 3, earlyRanged: 1, earlyHuts: 0, earlyTowers: 0,
+    midMelee: 3, midRanged: 3, midCasters: 1, midTowers: 0, midHuts: 1,
+    maxHuts: 2, pushThreshold: 0.8,
+  },
+  // Goblins: mass cheap spawners, flood with bodies
+  [Race.Goblins]: {
+    ...RACE_PROFILES[Race.Goblins],
+    earlyMelee: 3, earlyRanged: 1, earlyHuts: 0, earlyTowers: 0,
+    midMelee: 4, midRanged: 3, midCasters: 1, midTowers: 0, midHuts: 1,
+    maxHuts: 2, pushThreshold: 0.8,
+  },
+  // Crown: balanced but invest in shield casters, upgrade for shields
+  [Race.Crown]: {
+    ...RACE_PROFILES[Race.Crown],
+    earlyMelee: 2, earlyRanged: 0, earlyHuts: 1, earlyTowers: 0,
+    midMelee: 3, midRanged: 2, midCasters: 2, midTowers: 1, midHuts: 3,
+    maxHuts: 4, pushThreshold: 1.1,
+  },
+  // Geists: rush melee for lifesteal, then upgrade
+  [Race.Geists]: {
+    ...RACE_PROFILES[Race.Geists],
+    earlyMelee: 3, earlyRanged: 0, earlyHuts: 1, earlyTowers: 0,
+    midMelee: 3, midRanged: 2, midCasters: 1, midTowers: 1, midHuts: 2,
+    maxHuts: 3, pushThreshold: 1.0,
+  },
+  // Deep: early tower + ranged, commit lanes at 5min
+  [Race.Deep]: {
+    ...RACE_PROFILES[Race.Deep],
+    earlyMelee: 1, earlyRanged: 1, earlyHuts: 1, earlyTowers: 1,
+    midMelee: 2, midRanged: 2, midCasters: 1, midTowers: 2, midHuts: 3,
+    lateTowers: 3, alleyTowers: 4, maxHuts: 4, pushThreshold: 0.9,
+  },
+  // Wild: aggressive poison, commit lanes early
+  [Race.Wild]: {
+    ...RACE_PROFILES[Race.Wild],
+    earlyMelee: 2, earlyRanged: 1, earlyHuts: 0, earlyTowers: 0,
+    midMelee: 3, midRanged: 3, midCasters: 2, midTowers: 1, midHuts: 2,
+    maxHuts: 3, pushThreshold: 0.8,
+  },
+  // Tenders: invest in upgrades, regen scales with quality
+  [Race.Tenders]: {
+    ...RACE_PROFILES[Race.Tenders],
+    earlyMelee: 1, earlyRanged: 0, earlyHuts: 2, earlyTowers: 0,
+    midMelee: 2, midRanged: 1, midCasters: 2, midTowers: 1, midHuts: 4,
+    lateTowers: 3, alleyTowers: 3, maxHuts: 5, pushThreshold: 0.9,
+  },
+};
+
 // Persistent per-bot state
 export interface BotContext {
   lastChatTick: Record<number, number>;
@@ -196,12 +334,22 @@ export interface BotContext {
   lastBuildTick: Record<number, number>;
   lastUpgradeTick: Record<number, number>;
   lastHarvesterTick: Record<number, number>;
+  // Nuke coordination: tick when bot declared "Nuking Now!", 0 = none
+  nukeIntentTick: Record<number, number>;
+  // Difficulty settings
+  difficulty: Record<number, BotDifficulty>;
+  defaultDifficulty: BotDifficulty;
 }
 
-export function createBotContext(): BotContext {
+export function createBotContext(
+  difficulty: BotDifficultyLevel = BotDifficultyLevel.Medium,
+): BotContext {
   return {
     lastChatTick: {}, currentLane: {}, lastPushTick: {},
     lastBuildTick: {}, lastUpgradeTick: {}, lastHarvesterTick: {},
+    nukeIntentTick: {},
+    difficulty: {},
+    defaultDifficulty: BOT_DIFFICULTY_PRESETS[difficulty],
   };
 }
 
@@ -275,8 +423,11 @@ export function runAllBotAI(state: GameState, ctx: BotContext, emit: Emit): void
 }
 
 function runSingleBotAI(state: GameState, ctx: BotContext, playerId: number, emit: Emit): void {
+  const diff = ctx.difficulty[playerId] ?? ctx.defaultDifficulty;
   const player = state.players[playerId];
-  const profile = RACE_PROFILES[player.race];
+  const profile = diff.useNightmareProfiles
+    ? NIGHTMARE_PROFILES[player.race]
+    : RACE_PROFILES[player.race];
   const myBuildings = state.buildings.filter(b => b.playerId === playerId);
   const meleeCount = myBuildings.filter(b => b.type === BuildingType.MeleeSpawner).length;
   const rangedCount = myBuildings.filter(b => b.type === BuildingType.RangedSpawner).length;
@@ -291,8 +442,9 @@ function runSingleBotAI(state: GameState, ctx: BotContext, playerId: number, emi
   const myHqHp = state.hqHp[myTeam];
   const enemyHqHp = state.hqHp[botEnemyTeam(playerId)];
 
-  // Urgency: faster decisions when losing or late game
-  const urgency = myHqHp < HQ_HP * 0.4 ? 2 : gameMinutes > 5 ? 1.5 : 1;
+  // Urgency: faster decisions when losing or late game, scaled by difficulty
+  const rawUrgency = myHqHp < HQ_HP * 0.4 ? 2 : gameMinutes > 5 ? 1.5 : 1;
+  const urgency = 1 + (rawUrgency - 1) * diff.urgencyMultiplier;
 
   // 0. Place free tower immediately if we have none (every tick until placed)
   const totalTowers = towerCount + alleyTowerCount;
@@ -300,34 +452,33 @@ function runSingleBotAI(state: GameState, ctx: BotContext, playerId: number, emi
     botPlaceAlleyTower(state, playerId, emit);
   }
 
-  // 1. Build order — faster interval, urgency-scaled
-  const buildInterval = Math.max(20, Math.floor((40 + playerId * 5) / urgency));
+  // 1. Build order — interval scaled by difficulty
+  const buildInterval = Math.max(15, Math.floor((diff.buildSpeed + playerId * 5) / urgency));
   if (state.tick - (ctx.lastBuildTick[playerId] ?? 0) >= buildInterval) {
     const totalSpawners = meleeCount + rangedCount + casterCount;
     let built = false;
     if (totalSpawners === 0 && gameMinutes > 0.3) {
-      // Emergency: no spawners, build whatever we can afford
       built = botBuildAffordable(state, playerId, [BuildingType.MeleeSpawner, BuildingType.RangedSpawner, BuildingType.CasterSpawner], myBuildings, emit);
     } else if (hutCount === 0 && gameMinutes > 0.3 && botCanAffordHut(state, playerId, hutCount)) {
       emit({ type: 'build_hut', playerId }); built = true;
     } else {
       built = botDoBuildOrder(state, playerId, profile, myBuildings,
         meleeCount, rangedCount, casterCount, towerCount, alleyTowerCount, hutCount,
-        gameMinutes, enemyRaces, emit);
+        gameMinutes, enemyRaces, diff, emit);
     }
     if (built) ctx.lastBuildTick[playerId] = state.tick;
   }
 
-  // 2. Upgrades — separate timer, slightly slower
-  const upgradeInterval = Math.max(30, Math.floor((60 + playerId * 8) / urgency));
+  // 2. Upgrades — gated by difficulty threshold
+  const upgradeInterval = Math.max(20, Math.floor((diff.upgradeSpeed + playerId * 8) / urgency));
   if (state.tick - (ctx.lastUpgradeTick[playerId] ?? 0) >= upgradeInterval) {
-    if (botUpgradeBuildings(state, playerId, player.race, profile, myBuildings, enemyRaces, gameMinutes, emit)) {
+    if (botUpgradeBuildings(state, playerId, player.race, profile, myBuildings, enemyRaces, gameMinutes, diff, emit)) {
       ctx.lastUpgradeTick[playerId] = state.tick;
     }
   }
 
-  // 3. Lane management
-  botEvaluateLanes(state, ctx, playerId, myTeam, profile, myBuildings, gameMinutes, emit);
+  // 3. Lane management — quality scaled by difficulty
+  botEvaluateLanes(state, ctx, playerId, myTeam, profile, myBuildings, gameMinutes, diff, emit);
 
   // 4. Harvesters — check every ~3 seconds
   const harvInterval = Math.max(40, Math.floor(60 / urgency));
@@ -336,13 +487,14 @@ function runSingleBotAI(state: GameState, ctx: BotContext, playerId: number, emi
     ctx.lastHarvesterTick[playerId] = state.tick;
   }
 
-  // 5. Nuke — check every second. Aggressive races nuke earlier to snowball.
+  // 5. Nuke — telegraph with "Nuking Now!" then fire after a half-beat
   if (state.tick % 20 === playerId * 5) {
-    const isAggressive = player.race === Race.Horde || player.race === Race.Demon ||
-      player.race === Race.Goblins || player.race === Race.Oozlings;
-    const nukeMinTime = myHqHp < HQ_HP * 0.5 ? 0.5 : isAggressive ? 1.0 : 1.5;
+    const nukeMinTime = myHqHp < HQ_HP * 0.5 ? Math.min(0.5, diff.nukeMinTime) : diff.nukeMinTime;
     if (player.nukeAvailable && gameMinutes > nukeMinTime) {
-      botFireNuke(state, playerId, myTeam, myHqHp, emit);
+      botNukeWithTelegraph(state, ctx, playerId, myTeam, myHqHp, emit);
+    } else {
+      // Clear stale intent if nuke is no longer available
+      ctx.nukeIntentTick[playerId] = 0;
     }
   }
 
@@ -371,11 +523,11 @@ function botDoBuildOrder(
   myBuildings: GameState['buildings'],
   meleeCount: number, rangedCount: number, casterCount: number,
   towerCount: number, alleyTowerCount: number, hutCount: number,
-  gameMinutes: number, enemyRaces: Race[], emit: Emit,
+  gameMinutes: number, enemyRaces: Race[], diff: BotDifficulty, emit: Emit,
 ): boolean {
-  const vsSwarm = enemyHasArchetype(enemyRaces, SWARM_RACES);
-  const vsTank = enemyHasArchetype(enemyRaces, TANK_RACES);
-  const vsGlass = enemyHasArchetype(enemyRaces, GLASS_CANNON_RACES);
+  const vsSwarm = diff.counterBuild && enemyHasArchetype(enemyRaces, SWARM_RACES);
+  const vsTank = diff.counterBuild && enemyHasArchetype(enemyRaces, TANK_RACES);
+  const vsGlass = diff.counterBuild && enemyHasArchetype(enemyRaces, GLASS_CANNON_RACES);
 
   const extraCasters = vsSwarm ? profile.vsSwarmExtraCasters : 0;
   const extraRanged = vsTank ? profile.vsTankExtraRanged : 0;
@@ -539,15 +691,15 @@ function botPlaceAlleyTower(state: GameState, playerId: number, emit: Emit): boo
 function botUpgradeBuildings(
   state: GameState, playerId: number, race: Race, profile: RaceProfile,
   myBuildings: GameState['buildings'], enemyRaces: Race[],
-  gameMinutes: number, emit: Emit,
+  gameMinutes: number, diff: BotDifficulty, emit: Emit,
 ): boolean {
   const player = state.players[playerId];
 
-  // Don't upgrade if we should be building spawners instead (early game)
+  // Don't upgrade until we have enough spawners (controlled by difficulty)
   const spawnerCount = myBuildings.filter(b =>
     b.type === BuildingType.MeleeSpawner || b.type === BuildingType.RangedSpawner || b.type === BuildingType.CasterSpawner
   ).length;
-  if (gameMinutes < 2 && spawnerCount < 2) return false;
+  if (spawnerCount < diff.upgradeThreshold) return false;
 
   // Priority: spawners first, towers later; most-owned type first; lowest tier first
   const typeCounts: Record<string, number> = {};
@@ -634,13 +786,31 @@ function botPickUpgrade(
 function botEvaluateLanes(
   state: GameState, ctx: BotContext, playerId: number, myTeam: Team,
   profile: RaceProfile, myBuildings: GameState['buildings'],
-  gameMinutes: number, emit: Emit,
+  gameMinutes: number, diff: BotDifficulty, emit: Emit,
 ): void {
   // Faster lane checks (every ~4-5 seconds, urgency-scaled)
   const myHqHp = state.hqHp[myTeam];
   const urgency = myHqHp < HQ_HP * 0.4 ? 2 : 1;
   const laneInterval = Math.max(40, Math.floor((80 + playerId * 10) / urgency));
   if (state.tick % laneInterval !== 0) return;
+
+  // Random lane IQ: just pick a random lane occasionally
+  if (diff.laneIQ === 'random') {
+    const spawners = myBuildings.filter(b =>
+      b.type === BuildingType.MeleeSpawner ||
+      b.type === BuildingType.RangedSpawner ||
+      b.type === BuildingType.CasterSpawner
+    );
+    if (spawners.length === 0) return;
+    if (state.rng() < 0.15) {
+      const lane = state.rng() < 0.5 ? Lane.Left : Lane.Right;
+      if (lane !== spawners[0].lane) {
+        emit({ type: 'toggle_all_lanes', playerId, lane });
+        ctx.currentLane[playerId] = lane;
+      }
+    }
+    return;
+  }
 
   let myLeftStr = 0, myRightStr = 0, enemyLeftStr = 0, enemyRightStr = 0;
   let myLeftCount = 0, myRightCount = 0;
@@ -682,6 +852,25 @@ function botEvaluateLanes(
     } else if (rightThreat > leftThreat && rightThreat > 1.3) {
       targetLane = Lane.Right;
     }
+  }
+
+  // Basic lane IQ: only defend, skip proactive/coordination/stall-breaker
+  if (diff.laneIQ === 'basic') {
+    // Only do reactive defense (check below)
+    if (targetLane === null) {
+      if (leftThreat > 1.8 && leftThreat > rightThreat * 1.2) {
+        targetLane = Lane.Left;
+      } else if (rightThreat > 1.8 && rightThreat > leftThreat * 1.2) {
+        targetLane = Lane.Right;
+      }
+    }
+    if (targetLane !== null && targetLane !== currentLane) {
+      emit({ type: 'toggle_all_lanes', playerId, lane: targetLane });
+      ctx.currentLane[playerId] = targetLane;
+    } else {
+      ctx.currentLane[playerId] = currentLane;
+    }
+    return;
   }
 
   // PROACTIVE: push weaker lane when strong enough
@@ -837,6 +1026,86 @@ function botManageHarvesters(
 }
 
 // ==================== NUKE ====================
+
+/** Telegraph "Nuking Now!" then fire after a delay. Coordinates with teammate to avoid double-nuke. */
+function botNukeWithTelegraph(
+  state: GameState, ctx: BotContext, playerId: number, myTeam: Team, myHqHp: number, emit: Emit,
+): void {
+  const TELEGRAPH_DELAY = 10; // ~0.5s at 20 tps
+
+  const intentTick = ctx.nukeIntentTick[playerId] ?? 0;
+
+  if (intentTick === 0) {
+    // Phase 1: Announce intent — check if we actually have a target first
+    if (!botHasNukeTarget(state, playerId, myTeam, myHqHp)) return;
+
+    // Check if teammate already declared intent recently
+    const teammate = getTeammateId(playerId);
+    const teammateIntent = ctx.nukeIntentTick[teammate] ?? 0;
+    if (teammateIntent > 0 && state.tick - teammateIntent < TELEGRAPH_DELAY + 20) {
+      // Teammate is nuking — hold off
+      return;
+    }
+
+    // Announce "Nuking Now!" and record intent
+    emit({ type: 'quick_chat', playerId, message: 'Nuking Now!' });
+    ctx.lastChatTick[playerId] = state.tick;
+    ctx.nukeIntentTick[playerId] = state.tick;
+    return;
+  }
+
+  // Phase 2: After half-beat delay, fire the nuke
+  if (state.tick - intentTick < TELEGRAPH_DELAY) return;
+
+  // Clear intent
+  ctx.nukeIntentTick[playerId] = 0;
+
+  // Check if teammate declared intent AFTER us — if so, we yield
+  const teammate = getTeammateId(playerId);
+  const teammateIntent = ctx.nukeIntentTick[teammate] ?? 0;
+  if (teammateIntent > 0 && teammateIntent > intentTick) {
+    // Teammate declared after us — let them have it
+    return;
+  }
+
+  // Also check if a teammate's "Nuking Now!" quick chat appeared — respect human ally too
+  const recentTeammateNukeChat = state.quickChats.some(
+    c => c.playerId !== playerId && c.team === myTeam && c.message === 'Nuking Now!' && c.age < TELEGRAPH_DELAY + 10
+  );
+  if (recentTeammateNukeChat) return;
+
+  botFireNuke(state, playerId, myTeam, myHqHp, emit);
+}
+
+/** Check if there's a worthwhile nuke target without actually firing. */
+function botHasNukeTarget(state: GameState, playerId: number, myTeam: Team, myHqHp: number): boolean {
+  const enemyTeam = botEnemyTeam(playerId);
+  const minY = myTeam === Team.Bottom ? 35 : 0;
+  const maxY = myTeam === Team.Bottom ? 120 : 85;
+  const enemyUnits = state.units.filter(u => u.team === enemyTeam && u.y >= minY && u.y <= maxY);
+
+  // Diamond carrier is always worth nuking
+  if (state.units.some(u => u.team === enemyTeam && u.carryingDiamond)) return true;
+  if (state.harvesters.some(h => h.team === enemyTeam && h.carryingDiamond)) return true;
+
+  if (enemyUnits.length < 2) return false;
+
+  // HQ defense
+  const hqX = 40;
+  const hqY = myTeam === Team.Bottom ? 105 : 12;
+  if (myHqHp < HQ_HP * 0.5) {
+    const nearHq = enemyUnits.filter(u => {
+      const dx = u.x - hqX; const dy = u.y - hqY;
+      return dx * dx + dy * dy < 25 * 25;
+    });
+    if (nearHq.length >= 2) return true;
+  }
+
+  // Large cluster
+  if (enemyUnits.length >= 4) return true;
+
+  return false;
+}
 
 function botFireNuke(state: GameState, playerId: number, myTeam: Team, myHqHp: number, emit: Emit): void {
   const enemyTeam = botEnemyTeam(playerId);

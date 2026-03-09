@@ -4,7 +4,7 @@ import { GameLoop } from './GameLoop';
 import { Renderer } from '../rendering/Renderer';
 import { InputHandler } from '../ui/InputHandler';
 import { SoundManager } from '../audio/SoundManager';
-import { runAllBotAI, createBotContext, BotContext } from '../simulation/BotAI';
+import { runAllBotAI, createBotContext, BotContext, BotDifficultyLevel } from '../simulation/BotAI';
 import { UIAssets } from '../rendering/UIAssets';
 import { CommandSync, TICKS_PER_TURN } from '../network/CommandSync';
 
@@ -14,6 +14,7 @@ export interface GamePartyOptions {
   seed: number;
   partyCode?: string;       // set for networked multiplayer (enables CommandSync)
   localPlayerId?: number;   // 0 = host, 1 = guest
+  botDifficulty?: BotDifficultyLevel;
 }
 
 export class Game {
@@ -26,7 +27,7 @@ export class Game {
   onMatchEnd: (() => void) | null = null;
   private matchEndTick = 0;
 
-  private botCtx: BotContext = createBotContext();
+  private botCtx!: BotContext;
 
   // Multiplayer state
   private commandSync: CommandSync | null = null;
@@ -49,7 +50,7 @@ export class Game {
   /** Current round-trip latency in ms (0 for solo). */
   get networkLatencyMs(): number { return this.commandSync?.latencyMs ?? 0; }
 
-  constructor(canvas: HTMLCanvasElement, playerRace: Race = Race.Crown, ui?: UIAssets, partyOpts?: GamePartyOptions) {
+  constructor(canvas: HTMLCanvasElement, playerRace: Race = Race.Crown, ui?: UIAssets, partyOpts?: GamePartyOptions, soloDifficulty?: BotDifficultyLevel) {
     // Pick bot races: fill remaining slots from races other than player's
     const allRaces = [Race.Crown, Race.Horde, Race.Goblins, Race.Oozlings, Race.Demon, Race.Deep, Race.Wild, Race.Geists, Race.Tenders];
 
@@ -83,6 +84,9 @@ export class Game {
         { race: otherRaces[2], isBot: true },        // P3 - bot enemy
       ]);
     }
+
+    // Set up bot difficulty
+    this.botCtx = createBotContext(partyOpts?.botDifficulty ?? soloDifficulty ?? BotDifficultyLevel.Medium);
 
     // Set up multiplayer command sync if party code provided
     if (partyOpts?.partyCode != null) {

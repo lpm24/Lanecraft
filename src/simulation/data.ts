@@ -533,20 +533,20 @@ export const UPGRADE_TREES: Record<Race, Partial<Record<BuildingType, Record<Upg
   // ============ WILD (Beasts) — Poison & Speed ============
   [Race.Wild]: {
     [BuildingType.MeleeSpawner]: {
-      B: { name: 'Armored Lurker', desc: '+25% HP, +15% dmg', hpMult: 1.25, damageMult: 1.15 },
-      C: { name: 'Minotaur', desc: '+20% speed, faster atk', moveSpeedMult: 1.2, attackSpeedMult: 0.9 },
-      D: { name: 'Venom Lurker', desc: '+20% dmg, +1 burn', damageMult: 1.2, special: { extraBurnStacks: 1 } },
-      E: { name: 'Pack Alpha', desc: '+30% dmg, +1 slow', damageMult: 1.3, special: { extraSlowStacks: 1 } },
-      F: { name: 'Raging Bull', desc: '+30% speed, cleave 2, 25% dodge', moveSpeedMult: 1.3, special: { dodgeChance: 0.25, cleaveTargets: 2 } },
-      G: { name: 'Stampede', desc: '+35% dmg, cleave 2, +2 burn', damageMult: 1.35, special: { extraBurnStacks: 2, cleaveTargets: 2 } },
+      B: { name: 'Cave Bear', desc: '+30% HP, +15% dmg', hpMult: 1.3, damageMult: 1.15 },
+      C: { name: 'Spider Brood', desc: '+20% speed, faster atk', moveSpeedMult: 1.2, attackSpeedMult: 0.9 },
+      D: { name: 'Minotaur', desc: '+40% HP, +25% dmg, cleave 2', hpMult: 1.4, damageMult: 1.25, special: { cleaveTargets: 2 } },
+      E: { name: 'Dire Bear', desc: '+50% HP, +20% dmg, 15% dmg reduction', hpMult: 1.5, damageMult: 1.2, special: { damageReductionPct: 0.15 } },
+      F: { name: 'Viper Nest', desc: '+30% speed, cleave 2, +1 burn', moveSpeedMult: 1.3, special: { cleaveTargets: 2, extraBurnStacks: 1 } },
+      G: { name: 'Spider Swarm', desc: '+35% dmg, faster atk, 25% dodge', damageMult: 1.35, attackSpeedMult: 0.85, special: { dodgeChance: 0.25 } },
     },
     [BuildingType.RangedSpawner]: {
       B: { name: 'Heavy Chucker', desc: '+20% HP, +20% dmg', hpMult: 1.2, damageMult: 1.2 },
-      C: { name: 'Rapid Chucker', desc: 'Faster atk, +1 slow', attackSpeedMult: 0.85, special: { extraSlowStacks: 1 } },
+      C: { name: 'Spitting Snake', desc: 'Faster atk, +1 slow', attackSpeedMult: 0.85, special: { extraSlowStacks: 1 } },
       D: { name: 'Blight Chucker', desc: '+25% dmg, splash 2t', damageMult: 1.25, special: { splashRadius: 2, splashDamagePct: 0.4 } },
       E: { name: 'Toxic Chucker', desc: '+20% dmg, +1 burn', damageMult: 1.2, special: { extraBurnStacks: 1 } },
-      F: { name: 'Swift Chucker', desc: 'Much faster, +range', attackSpeedMult: 0.75, rangeMult: 1.15 },
-      G: { name: 'Pack Chucker', desc: '+25% dmg, splash 2.5t', damageMult: 1.25, special: { splashRadius: 2.5, splashDamagePct: 0.35 } },
+      F: { name: 'Venom Serpent', desc: 'Much faster, +range, +1 burn', attackSpeedMult: 0.75, rangeMult: 1.15, special: { extraBurnStacks: 1 } },
+      G: { name: 'Hydra Spit', desc: '+25% dmg, splash 2.5t, +1 slow', damageMult: 1.25, special: { splashRadius: 2.5, splashDamagePct: 0.35, extraSlowStacks: 1 } },
     },
     [BuildingType.CasterSpawner]: {
       B: { name: 'Elder Sage', desc: '+20% HP, +3 heal', hpMult: 1.2, special: { healBonus: 3 } },

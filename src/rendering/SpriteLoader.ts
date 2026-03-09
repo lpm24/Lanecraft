@@ -195,9 +195,15 @@ import dwarfetteL2Move from '../assets/images/CHARACTER MEGAPACK/CHARACTER MEGAP
 import dwarfetteL2Atk from '../assets/images/CHARACTER MEGAPACK/CHARACTER MEGAPACK/Dwarfette_LVL2/Dash_Full_14x1.png?url';
 import dwarfetteL4Move from '../assets/images/CHARACTER MEGAPACK/CHARACTER MEGAPACK/Dwarfette_LVL4/Move_28x1.png?url';
 import dwarfetteL4Atk from '../assets/images/CHARACTER MEGAPACK/CHARACTER MEGAPACK/Dwarfette_LVL4/Dash_16x1.png?url';
-// Minotaur (Wild melee C/F/G branch)
+// Minotaur (Wild melee D — tier 2, from Bear path)
 import minotaurWalk from '../assets/images/Tiny Swords (Enemy Pack)/Tiny Swords (Enemy Pack)/Enemy Pack/Minotaur/Minotaur_Walk.png?url';
 import minotaurAttack from '../assets/images/Tiny Swords (Enemy Pack)/Tiny Swords (Enemy Pack)/Enemy Pack/Minotaur/Minotaur_Attack.png?url';
+// Bear (Wild melee B branch)
+import bearRun from '../assets/images/Tiny Swords (Enemy Pack)/Tiny Swords (Enemy Pack)/Enemy Pack/Bear/Bear_Run.png?url';
+import bearAttack from '../assets/images/Tiny Swords (Enemy Pack)/Tiny Swords (Enemy Pack)/Enemy Pack/Bear/Bear_Attack.png?url';
+// Snake (Wild melee F + Wild ranged C branch)
+import snakeRun from '../assets/images/Tiny Swords (Enemy Pack)/Tiny Swords (Enemy Pack)/Enemy Pack/Snake/Snake_Run.png?url';
+import snakeAttack from '../assets/images/Tiny Swords (Enemy Pack)/Tiny Swords (Enemy Pack)/Enemy Pack/Snake/Snake_Attack.png?url';
 // FrogMonster (Deep melee C branch)
 import frogMonsterMove from '../assets/images/CHARACTER MEGAPACK/CHARACTER MEGAPACK/FrogMonster/Jump_Full_22x1.png?url';
 import frogMonsterAtk from '../assets/images/CHARACTER MEGAPACK/CHARACTER MEGAPACK/FrogMonster/Jump_14x1.png?url';
@@ -534,10 +540,13 @@ const UPGRADE_MOVE_SPRITES: Record<string, SpriteDef> = {
   [upgradeKey(Race.Oozlings, 'caster', 'E')]: { ...cmStrip(oozCasterCyan, 30 * 6, 40, 6, 0.93), scale: 0.8 },
   [upgradeKey(Race.Oozlings, 'caster', 'F')]: { ...cmStrip(oozCasterPurple, 30 * 6, 40, 6, 0.93), scale: 0.8 },
   [upgradeKey(Race.Oozlings, 'caster', 'G')]: { ...cmStrip(oozCasterPurple, 30 * 6, 40, 6, 0.93), scale: 0.8 },
-  // --- Wild melee: Spider → Minotaur branch (C/F/G) ---
-  [upgradeKey(Race.Wild, 'melee', 'C')]: tsSheet(minotaurWalk, 2560, 320),
-  [upgradeKey(Race.Wild, 'melee', 'F')]: tsSheet(minotaurWalk, 2560, 320),
-  [upgradeKey(Race.Wild, 'melee', 'G')]: tsSheet(minotaurWalk, 2560, 320),
+  // --- Wild melee: Spider → Bear (B) / Spider Brood (C) branches ---
+  [upgradeKey(Race.Wild, 'melee', 'B')]: tsSheet(bearRun, 1280, 256, 0.69),
+  // C = Spider Brood (no override, uses base spider)
+  [upgradeKey(Race.Wild, 'melee', 'D')]: { ...tsSheet(minotaurWalk, 2560, 320, 0.67), scale: 1.5 },
+  [upgradeKey(Race.Wild, 'melee', 'E')]: { ...tsSheet(bearRun, 1280, 256, 0.69), scale: 1.3 },
+  [upgradeKey(Race.Wild, 'melee', 'F')]: tsSheet(snakeRun, 1536, 192, 0.64),
+  // G = Spider Swarm (no override, uses base spider)
   // --- Deep melee: Turtle → Frog branch (C=FrogMonster, F/G=FrogBoss) ---
   [upgradeKey(Race.Deep, 'melee', 'C')]: cmStrip(frogMonsterMove, 1056, 48, 22),
   [upgradeKey(Race.Deep, 'melee', 'F')]: cmStrip(frogBossMove, 2552, 97, 22),
@@ -554,6 +563,10 @@ const UPGRADE_MOVE_SPRITES: Record<string, SpriteDef> = {
   [upgradeKey(Race.Tenders, 'melee', 'B')]: cmStrip(entL2Move, 828, 45, 12, 0.94),
   [upgradeKey(Race.Tenders, 'melee', 'D')]: cmStrip(entL3Move, 1548, 56, 18, 0.94),
   [upgradeKey(Race.Tenders, 'melee', 'E')]: cmStrip(entL4Move, 1416, 70, 24, 0.94),
+  // --- Wild ranged: Gnoll → Snake branch (C/F/G) ---
+  [upgradeKey(Race.Wild, 'ranged', 'C')]: tsSheet(snakeRun, 1536, 192, 0.64),
+  [upgradeKey(Race.Wild, 'ranged', 'F')]: tsSheet(snakeRun, 1536, 192, 0.64),
+  [upgradeKey(Race.Wild, 'ranged', 'G')]: tsSheet(snakeRun, 1536, 192, 0.64),
 };
 
 const UPGRADE_ATK_SPRITES: Record<string, SpriteDef> = {
@@ -584,10 +597,17 @@ const UPGRADE_ATK_SPRITES: Record<string, SpriteDef> = {
   [upgradeKey(Race.Horde, 'caster', 'E')]: { ...cmStrip(hordeCasterAtkBlue, 380, 26, 10), scale: 0.495 },
   [upgradeKey(Race.Horde, 'caster', 'F')]: { ...cmStrip(hordeCasterAtkRed, 380, 26, 10), scale: 0.495 },
   [upgradeKey(Race.Horde, 'caster', 'G')]: { ...cmStrip(hordeCasterAtkRed, 380, 26, 10), scale: 0.495 },
-  // --- Wild melee: Minotaur cleave attack ---
-  [upgradeKey(Race.Wild, 'melee', 'C')]: tsSheet(minotaurAttack, 3840, 320),
-  [upgradeKey(Race.Wild, 'melee', 'F')]: tsSheet(minotaurAttack, 3840, 320),
-  [upgradeKey(Race.Wild, 'melee', 'G')]: tsSheet(minotaurAttack, 3840, 320),
+  // --- Wild melee: Bear (B/E) / Minotaur (D) / Snake (F) attacks ---
+  [upgradeKey(Race.Wild, 'melee', 'B')]: tsSheet(bearAttack, 2304, 256, 0.69),
+  // C = Spider Brood (no override, uses base spider attack)
+  [upgradeKey(Race.Wild, 'melee', 'D')]: { ...tsSheet(minotaurAttack, 3840, 320, 0.67), scale: 1.5 },
+  [upgradeKey(Race.Wild, 'melee', 'E')]: { ...tsSheet(bearAttack, 2304, 256, 0.69), scale: 1.3 },
+  [upgradeKey(Race.Wild, 'melee', 'F')]: tsSheet(snakeAttack, 1152, 192, 0.64),
+  // G = Spider Swarm (no override, uses base spider attack)
+  // --- Wild ranged: Snake attack sprites (C/F/G) ---
+  [upgradeKey(Race.Wild, 'ranged', 'C')]: tsSheet(snakeAttack, 1152, 192, 0.64),
+  [upgradeKey(Race.Wild, 'ranged', 'F')]: tsSheet(snakeAttack, 1152, 192, 0.64),
+  [upgradeKey(Race.Wild, 'ranged', 'G')]: tsSheet(snakeAttack, 1152, 192, 0.64),
   // --- Deep melee: Frog jump attacks ---
   [upgradeKey(Race.Deep, 'melee', 'C')]: cmStrip(frogMonsterAtk, 672, 48, 14),
   [upgradeKey(Race.Deep, 'melee', 'F')]: cmStrip(frogBossAtk, 2552, 138, 22, 0.90),

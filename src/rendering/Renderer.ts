@@ -36,6 +36,7 @@ function quickChatStyle(message: string): { icon: string; color: string } {
   if (message === 'Attack Left') return { icon: '<', color: '#4fc3f7' };
   if (message === 'Attack Right') return { icon: '>', color: '#ff8a65' };
   if (message === 'Get Diamond') return { icon: 'D', color: '#ffe082' };
+  if (message === 'Nuking Now!') return { icon: 'N', color: '#ff1744' };
   return { icon: '!', color: '#ffcc80' };
 }
 

@@ -2,9 +2,19 @@ import { Scene, SceneManager } from './Scene';
 import { UIAssets } from '../rendering/UIAssets';
 import { SpriteLoader, drawSpriteFrame, drawGridFrame } from '../rendering/SpriteLoader';
 import { Race, BuildingType, StatusType, StatusEffect, TICK_RATE } from '../simulation/types';
-import { UNIT_STATS, RACE_COLORS } from '../simulation/data';
+import { UNIT_STATS, RACE_COLORS, UPGRADE_TREES } from '../simulation/data';
+import { getUnitUpgradeMultipliers } from '../simulation/GameState';
 import { PartyManager, PartyState, PartyPlayer } from '../network/PartyManager';
 import { isFirebaseConfigured, initFirebase } from '../network/FirebaseService';
+import { PlayerProfile, ALL_AVATARS } from '../profile/ProfileData';
+import { BotDifficultyLevel } from '../simulation/BotAI';
+
+const PARTY_DIFFICULTY_OPTIONS: { level: BotDifficultyLevel; label: string; color: string }[] = [
+  { level: BotDifficultyLevel.Easy, label: 'EASY', color: '#4caf50' },
+  { level: BotDifficultyLevel.Medium, label: 'MED', color: '#ffd740' },
+  { level: BotDifficultyLevel.Hard, label: 'HARD', color: '#ff9100' },
+  { level: BotDifficultyLevel.Nightmare, label: 'NITE', color: '#ff1744' },
+];
 
 // ─── Mini 1v1 simulation using real game stats ───
 
@@ -21,7 +31,9 @@ const ARENA_WIDTH = 20;
 interface DuelUnit {
   race: Race;
   category: 'melee' | 'ranged' | 'caster';
+  buildingType: BuildingType;
   name: string;
+  upgradeNode?: string; // e.g. 'B', 'D', 'G' — for sprite lookup
   x: number;
   hp: number;
   maxHp: number;
@@ -55,13 +67,36 @@ interface DuelProjectile {
   age: number; // seconds alive (for animation)
 }
 
-function createDuelUnit(race: Race, unitType: BuildingType, x: number, facingLeft: boolean, playerId: number): DuelUnit {
+// Tier 2 paths: A→B or A→C.  Tier 3 paths: A→B→D, A→B→E, A→C→F, A→C→G
+const TIER2_PATHS = [['A', 'B'], ['A', 'C']];
+const TIER3_PATHS = [['A', 'B', 'D'], ['A', 'B', 'E'], ['A', 'C', 'F'], ['A', 'C', 'G']];
+
+function createDuelUnit(race: Race, unitType: BuildingType, x: number, facingLeft: boolean, playerId: number, tier: 1 | 2 | 3 = 1): DuelUnit {
   const stats = UNIT_STATS[race][unitType]!;
+  let upgradePath = ['A'];
+  if (tier === 2) {
+    upgradePath = TIER2_PATHS[Math.floor(Math.random() * TIER2_PATHS.length)];
+  } else if (tier === 3) {
+    upgradePath = TIER3_PATHS[Math.floor(Math.random() * TIER3_PATHS.length)];
+  }
+  const upgrade = getUnitUpgradeMultipliers(upgradePath, race, unitType);
+  const upgradeNode = upgradePath[upgradePath.length - 1];
+
+  // Use upgrade name if available
+  const tree = UPGRADE_TREES[race]?.[unitType];
+  const nodeDef = upgradeNode !== 'A' && tree ? (tree as any)[upgradeNode] : undefined;
+  const name = nodeDef?.name ?? stats.name;
+
   return {
-    race, category: categoryOf(unitType), name: stats.name,
-    x, hp: stats.hp, maxHp: stats.hp,
-    damage: stats.damage, attackSpeed: stats.attackSpeed, attackTimer: stats.attackSpeed * 0.3,
-    moveSpeed: stats.moveSpeed, range: stats.range,
+    race, category: categoryOf(unitType), buildingType: unitType, name, upgradeNode: upgradeNode !== 'A' ? upgradeNode : undefined,
+    x,
+    hp: Math.max(1, Math.round(stats.hp * upgrade.hp)),
+    maxHp: Math.max(1, Math.round(stats.hp * upgrade.hp)),
+    damage: Math.max(1, Math.round(stats.damage * upgrade.damage)),
+    attackSpeed: Math.max(0.2, stats.attackSpeed * upgrade.attackSpeed),
+    attackTimer: stats.attackSpeed * upgrade.attackSpeed * 0.3,
+    moveSpeed: Math.max(0.5, stats.moveSpeed * upgrade.moveSpeed),
+    range: Math.max(1, stats.range * upgrade.range),
     facingLeft, statusEffects: [], shieldHp: 0, hitCount: 0, alive: true,
     playerId, statusTickAcc: 0, isAttacking: false, attackAnimTimer: 0,
   };
@@ -331,6 +366,17 @@ function tickDuelProjectiles(projectiles: DuelProjectile[], dtSec: number): bool
   return anyHit;
 }
 
+function findNearestEnemy(unit: DuelUnit, enemies: DuelUnit[]): DuelUnit | null {
+  let nearest: DuelUnit | null = null;
+  let minDist = Infinity;
+  for (const e of enemies) {
+    if (!e.alive) continue;
+    const d = Math.abs(e.x - unit.x);
+    if (d < minDist) { minDist = d; nearest = e; }
+  }
+  return nearest;
+}
+
 // ─── Minimal procedural sound effects for title screen ───
 
 class TitleSfx {
@@ -410,45 +456,50 @@ function eloKey(race: Race, category: 'melee' | 'ranged' | 'caster'): string {
   return `${race}:${category}`;
 }
 
-function loadAllElo(): Record<string, number> {
+export function loadAllElo(): Record<string, number> {
   try {
     const raw = localStorage.getItem(ELO_STORAGE_KEY);
     return raw ? JSON.parse(raw) : {};
   } catch { return {}; }
 }
 
-function saveAllElo(data: Record<string, number>): void {
+export function saveAllElo(data: Record<string, number>): void {
   try { localStorage.setItem(ELO_STORAGE_KEY, JSON.stringify(data)); } catch {}
 }
 
-function getElo(race: Race, category: 'melee' | 'ranged' | 'caster'): number {
+export function getElo(race: Race, category: 'melee' | 'ranged' | 'caster'): number {
   const data = loadAllElo();
   return data[eloKey(race, category)] ?? ELO_DEFAULT;
 }
 
-function updateElo(winner: DuelUnit | null, loser: DuelUnit | null, isDraw: boolean): void {
-  if (!winner && !loser) return;
+export { ELO_DEFAULT };
+
+function updateTeamElo(teamA: DuelUnit[], teamB: DuelUnit[], winningSide: 'a' | 'b' | 'draw'): void {
+  if (teamA.length === 0 || teamB.length === 0) return;
   const data = loadAllElo();
 
-  if (isDraw && winner && loser) {
-    // Both units get draw adjustment
-    const keyA = eloKey(winner.race, winner.category);
-    const keyB = eloKey(loser.race, loser.category);
-    const eloA = data[keyA] ?? ELO_DEFAULT;
-    const eloB = data[keyB] ?? ELO_DEFAULT;
-    const expectedA = 1 / (1 + Math.pow(10, (eloB - eloA) / 400));
-    const expectedB = 1 - expectedA;
-    data[keyA] = Math.round(eloA + ELO_K * (0.5 - expectedA));
-    data[keyB] = Math.round(eloB + ELO_K * (0.5 - expectedB));
-  } else if (winner && loser) {
-    const keyW = eloKey(winner.race, winner.category);
-    const keyL = eloKey(loser.race, loser.category);
-    const eloW = data[keyW] ?? ELO_DEFAULT;
-    const eloL = data[keyL] ?? ELO_DEFAULT;
-    const expectedW = 1 / (1 + Math.pow(10, (eloL - eloW) / 400));
-    const expectedL = 1 - expectedW;
-    data[keyW] = Math.round(eloW + ELO_K * (1 - expectedW));
-    data[keyL] = Math.round(eloL + ELO_K * (0 - expectedL));
+  const avgElo = (team: DuelUnit[]) => {
+    const sum = team.reduce((s, u) => s + (data[eloKey(u.race, u.category)] ?? ELO_DEFAULT), 0);
+    return sum / team.length;
+  };
+
+  const avgA = avgElo(teamA);
+  const avgB = avgElo(teamB);
+
+  for (const u of teamA) {
+    const key = eloKey(u.race, u.category);
+    const elo = data[key] ?? ELO_DEFAULT;
+    const expected = 1 / (1 + Math.pow(10, (avgB - elo) / 400));
+    const score = winningSide === 'a' ? 1 : winningSide === 'draw' ? 0.5 : 0;
+    data[key] = Math.round(elo + ELO_K * (score - expected));
+  }
+
+  for (const u of teamB) {
+    const key = eloKey(u.race, u.category);
+    const elo = data[key] ?? ELO_DEFAULT;
+    const expected = 1 / (1 + Math.pow(10, (avgA - elo) / 400));
+    const score = winningSide === 'b' ? 1 : winningSide === 'draw' ? 0.5 : 0;
+    data[key] = Math.round(elo + ELO_K * (score - expected));
   }
 
   saveAllElo(data);
@@ -511,20 +562,31 @@ export class TitleScene implements Scene {
   private touchHandler: ((e: TouchEvent) => void) | null = null;
   private keyHandler: ((e: KeyboardEvent) => void) | null = null;
 
-  // Player name
+  // Player name & profile
   private playerName = loadPlayerName();
   private diceBtnRect = { x: 0, y: 0, w: 0, h: 0 };
+  private profileBtnRect = { x: 0, y: 0, w: 0, h: 0 };
+  private resetEloBtnRect = { x: 0, y: 0, w: 0, h: 0 };
+  private teamSizeBtnRect = { x: 0, y: 0, w: 0, h: 0 };
+  private tierBtnRect = { x: 0, y: 0, w: 0, h: 0 };
+  profile: PlayerProfile | null = null;
 
   // Duel state
-  private blue: DuelUnit | null = null;
-  private red: DuelUnit | null = null;
+  private blueTeam: DuelUnit[] = [];
+  private bannerBlue: DuelUnit[] = []; // persists for VS banner between fights
+  private redTeam: DuelUnit[] = [];
+  private bannerRed: DuelUnit[] = []; // persists for VS banner between fights
   private projectiles: DuelProjectile[] = [];
   private waitTimer = 0;
   private waiting = true;
   private deathFade = 0;
-  private deadUnit: DuelUnit | null = null;
+  private deadUnits: DuelUnit[] = [];
   private winnerLeaving = false;
   private animTime = 0;
+
+  // Duel mode settings (persisted to localStorage)
+  private duelTeamSize: 1 | 2 | 3;
+  private duelTier: 1 | 2 | 3;
 
   // Win announcement
   private winText = '';
@@ -542,9 +604,12 @@ export class TitleScene implements Scene {
   private partyState: PartyState | null = null;
   private partyError: string = '';
   private partyErrorTimer = 0;
+  private matchmaking = false; // true while searching for a game
+  private matchmakingDots = 0;
   private joinCodeInput: string = '';
   private joinInputActive = false;
   private firebaseReady = false;
+  private partyDifficultyIndex = 1; // index into PARTY_DIFFICULTY_OPTIONS (default Medium)
   onPartyStart: ((party: PartyState, isHost: boolean) => void) | null = null;
 
   constructor(manager: SceneManager, canvas: HTMLCanvasElement, ui: UIAssets, sprites: SpriteLoader) {
@@ -552,14 +617,25 @@ export class TitleScene implements Scene {
     this.canvas = canvas;
     this.ui = ui;
     this.sprites = sprites;
+    // Load persisted duel settings
+    try {
+      const ts = localStorage.getItem('spawnwars.duelTeamSize');
+      this.duelTeamSize = (ts === '1' ? 1 : ts === '3' ? 3 : 2) as 1 | 2 | 3;
+      const tr = localStorage.getItem('spawnwars.duelTier');
+      this.duelTier = (tr === '2' ? 2 : tr === '3' ? 3 : 1) as 1 | 2 | 3;
+    } catch {
+      this.duelTeamSize = 1;
+      this.duelTier = 1;
+    }
   }
 
   enter(): void {
     this.pulseTime = 0;
     this.waiting = true;
     this.waitTimer = 0.5;
-    this.blue = null;
-    this.red = null;
+    this.blueTeam = [];
+    this.redTeam = [];
+    this.deadUnits = [];
     this.projectiles = [];
     this.winText = '';
     this.winTimer = 0;
@@ -568,6 +644,7 @@ export class TitleScene implements Scene {
     this.joinInputActive = false;
     this.partyError = '';
     this.partyStartFired = false;
+    this.matchmaking = false;
 
     // Listen for party state changes
     if (this.party) {
@@ -627,7 +704,21 @@ export class TitleScene implements Scene {
     this.partyState = s;
     if (s && s.status === 'starting' && this.onPartyStart && !this.partyStartFired) {
       this.partyStartFired = true;
+      this.matchmaking = false;
       this.onPartyStart(s, this.party?.isHost ?? true);
+    }
+    // Auto-start: when matchmaking and both players are present, host starts immediately
+    if (s && s.guest && this.matchmaking && this.party?.isHost && s.status === 'waiting') {
+      this.matchmaking = false;
+      this.party.startGame();
+    }
+    // If we joined via matchmaking as guest, just wait for host to start (clear matchmaking flag)
+    if (s && s.guest && this.matchmaking && !this.party?.isHost) {
+      this.matchmaking = false;
+    }
+    // Party destroyed while matchmaking
+    if (!s && this.matchmaking) {
+      this.matchmaking = false;
     }
   };
 
@@ -635,6 +726,7 @@ export class TitleScene implements Scene {
 
   private getButtonLayout(): {
     solo: { x: number; y: number; w: number; h: number };
+    findGame: { x: number; y: number; w: number; h: number };
     create: { x: number; y: number; w: number; h: number };
     join: { x: number; y: number; w: number; h: number };
     gallery: { x: number; y: number; w: number; h: number };
@@ -647,9 +739,10 @@ export class TitleScene implements Scene {
     const startY = h * 0.28;
     return {
       solo: { x: (w - btnW) / 2, y: startY, w: btnW, h: btnH },
-      create: { x: (w - btnW) / 2, y: startY + btnH + gap, w: btnW, h: btnH },
-      join: { x: (w - btnW) / 2, y: startY + (btnH + gap) * 2, w: btnW, h: btnH },
-      gallery: { x: (w - btnW) / 2, y: startY + (btnH + gap) * 3, w: btnW, h: btnH },
+      findGame: { x: (w - btnW) / 2, y: startY + btnH + gap, w: btnW, h: btnH },
+      create: { x: (w - btnW) / 2, y: startY + (btnH + gap) * 2, w: btnW, h: btnH },
+      join: { x: (w - btnW) / 2, y: startY + (btnH + gap) * 3, w: btnW, h: btnH },
+      gallery: { x: (w - btnW) / 2, y: startY + (btnH + gap) * 4, w: btnW, h: btnH },
     };
   }
 
@@ -660,17 +753,33 @@ export class TitleScene implements Scene {
     start: { x: number; y: number; w: number; h: number };
     leave: { x: number; y: number; w: number; h: number };
     code: { x: number; y: number; w: number; h: number };
+    diffBtns: { x: number; y: number; w: number; h: number }[];
   } {
     const w = this.canvas.width;
     const h = this.canvas.height;
-    const panelW = Math.min(w * 0.7, 440);
-    const panelH = Math.min(h * 0.42, 300);
+    const panelW = Math.min(w * 0.98, 616);
+    const panelH = Math.min(h * 0.588, 420);
     const px = (w - panelW) / 2;
     const py = h * 0.26;
     const slotW = 40;
     const slotH = 40;
     const slotY = py + panelH * 0.40;
     const halfW = panelW / 2;
+
+    // Difficulty buttons (host only, between slots and start button)
+    const dbtnW = panelW * 0.18;
+    const dbtnH = 22;
+    const dbtnGap = 4;
+    const dbtnTotalW = PARTY_DIFFICULTY_OPTIONS.length * dbtnW + (PARTY_DIFFICULTY_OPTIONS.length - 1) * dbtnGap;
+    const dbtnStartX = px + (panelW - dbtnTotalW) / 2;
+    const dbtnY = py + panelH * 0.76;
+    const diffBtns = PARTY_DIFFICULTY_OPTIONS.map((_, i) => ({
+      x: dbtnStartX + i * (dbtnW + dbtnGap),
+      y: dbtnY,
+      w: dbtnW,
+      h: dbtnH,
+    }));
+
     return {
       panel: { x: px, y: py, w: panelW, h: panelH },
       slot1Race: { x: px + halfW * 0.5 - slotW / 2, y: slotY, w: slotW, h: slotH },
@@ -678,6 +787,7 @@ export class TitleScene implements Scene {
       start: { x: px + panelW * 0.15, y: py + panelH - 56, w: panelW * 0.42, h: 44 },
       leave: { x: px + panelW * 0.60, y: py + panelH - 56, w: panelW * 0.28, h: 44 },
       code: { x: px + panelW * 0.25, y: py + 8, w: panelW * 0.5, h: 36 },
+      diffBtns,
     };
   }
 
@@ -686,6 +796,30 @@ export class TitleScene implements Scene {
   }
 
   private handleClick(cx: number, cy: number): void {
+    // Duel control buttons (always active)
+    if (this.hitRect(cx, cy, this.resetEloBtnRect)) {
+      saveAllElo({});
+      return;
+    }
+    if (this.hitRect(cx, cy, this.teamSizeBtnRect)) {
+      this.duelTeamSize = this.duelTeamSize === 1 ? 2 : this.duelTeamSize === 2 ? 3 : 1;
+      try { localStorage.setItem('spawnwars.duelTeamSize', String(this.duelTeamSize)); } catch {}
+      this.waiting = true;
+      this.waitTimer = 0.5;
+      this.blueTeam = [];
+      this.redTeam = [];
+      return;
+    }
+    if (this.hitRect(cx, cy, this.tierBtnRect)) {
+      this.duelTier = this.duelTier === 1 ? 2 : this.duelTier === 2 ? 3 : 1;
+      try { localStorage.setItem('spawnwars.duelTier', String(this.duelTier)); } catch {}
+      this.waiting = true;
+      this.waitTimer = 0.5;
+      this.blueTeam = [];
+      this.redTeam = [];
+      return;
+    }
+
     // If in a party, handle party UI
     if (this.partyState) {
       const pl = this.getPartyLayout();
@@ -695,6 +829,16 @@ export class TitleScene implements Scene {
       if (this.hitRect(cx, cy, mySlot)) {
         this.cycleRace();
         return;
+      }
+      // Difficulty buttons (host only)
+      if (isHost) {
+        for (let i = 0; i < pl.diffBtns.length; i++) {
+          if (this.hitRect(cx, cy, pl.diffBtns[i])) {
+            this.partyDifficultyIndex = i;
+            this.party?.updateDifficulty(PARTY_DIFFICULTY_OPTIONS[i].level);
+            return;
+          }
+        }
       }
       if (isHost && this.hitRect(cx, cy, pl.start) && this.partyState.guest) {
         this.party?.startGame();
@@ -727,16 +871,27 @@ export class TitleScene implements Scene {
       return;
     }
 
+    // Profile button
+    if (this.hitRect(cx, cy, this.profileBtnRect)) {
+      this.manager.switchTo('profile');
+      return;
+    }
+
     // Dice button — randomize name
     if (this.hitRect(cx, cy, this.diceBtnRect)) {
       this.playerName = randomName();
       savePlayerName(this.playerName);
+      if (this.party) this.party.localName = this.playerName;
       return;
     }
 
     const btns = this.getButtonLayout();
     if (this.hitRect(cx, cy, btns.solo)) {
       this.manager.switchTo('raceSelect');
+      return;
+    }
+    if (this.hitRect(cx, cy, btns.findGame)) {
+      this.doFindGame();
       return;
     }
     if (this.hitRect(cx, cy, btns.create)) {
@@ -782,9 +937,31 @@ export class TitleScene implements Scene {
     return this.firebaseInitPromise;
   }
 
+  private async doFindGame(): Promise<void> {
+    if (this.matchmaking) return;
+    this.matchmaking = true;
+    this.matchmakingDots = 0;
+    try {
+      await this.ensureFirebase();
+      this.party!.localName = this.playerName;
+      const joined = await this.party!.findAndJoinGame(Race.Crown);
+      if (!joined) {
+        // No open games — create one and wait
+        await this.party!.createParty(Race.Crown);
+      }
+      // Either joined or created — matchmaking stays true until party gets a guest or game starts
+      // If we joined someone's party, matchmaking ends when partyListener fires
+    } catch (e: any) {
+      console.error('[Party] Find game failed:', e);
+      this.showPartyError(e.message || 'Failed to find game');
+      this.matchmaking = false;
+    }
+  }
+
   private async doCreateParty(): Promise<void> {
     try {
       await this.ensureFirebase();
+      this.party!.localName = this.playerName;
       await this.party!.createParty(Race.Crown);
     } catch (e: any) {
       console.error('[Party] Create failed:', e);
@@ -796,6 +973,7 @@ export class TitleScene implements Scene {
     if (this.joinCodeInput.length < 4) return;
     try {
       await this.ensureFirebase();
+      this.party!.localName = this.playerName;
       await this.party!.joinParty(this.joinCodeInput, Race.Crown);
       this.joinInputActive = false;
       this.joinCodeInput = '';
@@ -821,17 +999,25 @@ export class TitleScene implements Scene {
   }
 
   private spawnDuel(): void {
-    const blueRace = ALL_RACES[Math.floor(Math.random() * ALL_RACES.length)];
-    const redRace = ALL_RACES[Math.floor(Math.random() * ALL_RACES.length)];
-    const blueType = UNIT_TYPES[Math.floor(Math.random() * UNIT_TYPES.length)];
-    const redType = UNIT_TYPES[Math.floor(Math.random() * UNIT_TYPES.length)];
+    this.blueTeam = [];
+    this.redTeam = [];
 
-    this.blue = createDuelUnit(blueRace, blueType, -2, false, 0);
-    this.red = createDuelUnit(redRace, redType, ARENA_WIDTH + 2, true, 2);
+    for (let i = 0; i < this.duelTeamSize; i++) {
+      const blueRace = ALL_RACES[Math.floor(Math.random() * ALL_RACES.length)];
+      const redRace = ALL_RACES[Math.floor(Math.random() * ALL_RACES.length)];
+      const blueType = UNIT_TYPES[Math.floor(Math.random() * UNIT_TYPES.length)];
+      const redType = UNIT_TYPES[Math.floor(Math.random() * UNIT_TYPES.length)];
+
+      this.blueTeam.push(createDuelUnit(blueRace, blueType, -2 - i * 2, false, 0, this.duelTier));
+      this.redTeam.push(createDuelUnit(redRace, redType, ARENA_WIDTH + 2 + i * 2, true, 2, this.duelTier));
+    }
+
+    this.bannerBlue = this.blueTeam;
+    this.bannerRed = this.redTeam;
     this.projectiles = [];
     this.waiting = false;
     this.winnerLeaving = false;
-    this.deadUnit = null;
+    this.deadUnits = [];
     this.deathFade = 0;
     this.winText = '';
     this.winTimer = 0;
@@ -858,100 +1044,120 @@ export class TitleScene implements Scene {
       return;
     }
 
-    const blue = this.blue!;
-    const red = this.red!;
+    const allUnits = [...this.blueTeam, ...this.redTeam];
 
     // Decay attack animation timers
-    if (blue.attackAnimTimer > 0) {
-      blue.attackAnimTimer -= dtSec;
-      if (blue.attackAnimTimer <= 0) blue.isAttacking = false;
-    }
-    if (red.attackAnimTimer > 0) {
-      red.attackAnimTimer -= dtSec;
-      if (red.attackAnimTimer <= 0) red.isAttacking = false;
+    for (const u of allUnits) {
+      if (u.attackAnimTimer > 0) {
+        u.attackAnimTimer -= dtSec;
+        if (u.attackAnimTimer <= 0) u.isAttacking = false;
+      }
     }
 
-    // Play fight start sound when units are close enough
-    if (!this.fightStartPlayed && blue.alive && red.alive) {
-      const dist = Math.abs(red.x - blue.x);
-      if (dist <= Math.max(blue.range, red.range) + 1) {
-        this.fightStartPlayed = true;
-        if (this.userInteracted) this.sfx.playFightStart();
+    // Play fight start sound when any pair is close enough
+    if (!this.fightStartPlayed) {
+      outer:
+      for (const b of this.blueTeam) {
+        if (!b.alive) continue;
+        for (const r of this.redTeam) {
+          if (!r.alive) continue;
+          const dist = Math.abs(r.x - b.x);
+          if (dist <= Math.max(b.range, r.range) + 1) {
+            this.fightStartPlayed = true;
+            if (this.userInteracted) this.sfx.playFightStart();
+            break outer;
+          }
+        }
       }
     }
 
     if (this.winnerLeaving) {
-      const winner = blue.alive ? blue : (red.alive ? red : null);
-      if (winner) {
-        const speed = getEffectiveSpeed(winner);
-        winner.x += winner.facingLeft ? -speed * dtSec : speed * dtSec;
+      // Move all alive units off screen
+      for (const u of allUnits) {
+        if (u.alive) {
+          const speed = getEffectiveSpeed(u);
+          u.x += u.facingLeft ? -speed * dtSec : speed * dtSec;
+        }
       }
 
       if (this.deathFade > 0) this.deathFade -= dtSec * 2;
-
-      // Tick remaining projectiles even during exit
       tickDuelProjectiles(this.projectiles, dtSec);
 
-      const done = !winner
-        ? this.deathFade <= 0
-        : (winner.x < -3 || winner.x > ARENA_WIDTH + 3);
+      const anyAlive = allUnits.some(u => u.alive);
+      const allOffScreen = !allUnits.some(u => u.alive && u.x > -3 && u.x < ARENA_WIDTH + 3);
+      const done = !anyAlive ? this.deathFade <= 0 : allOffScreen;
 
       if (done) {
         this.waiting = true;
         this.waitTimer = 3;
-        this.blue = null;
-        this.red = null;
+        this.blueTeam = [];
+        this.redTeam = [];
         this.projectiles = [];
       }
       return;
     }
 
-    // Both alive — run combat simulation
-    if (blue.alive && red.alive) {
-      const blueHpBefore = blue.hp;
-      const redHpBefore = red.hp;
+    // Run combat — each unit targets nearest enemy
+    const blueAlive = this.blueTeam.filter(u => u.alive);
+    const redAlive = this.redTeam.filter(u => u.alive);
 
-      tickDuelCombat(blue, red, dtSec, this.projectiles);
-      tickDuelCombat(red, blue, dtSec, this.projectiles);
+    if (blueAlive.length > 0 && redAlive.length > 0) {
+      // Record total HP for hit sounds
+      const blueHpBefore = blueAlive.reduce((s, u) => s + u.hp, 0);
+      const redHpBefore = redAlive.reduce((s, u) => s + u.hp, 0);
+
+      for (const u of blueAlive) {
+        const target = findNearestEnemy(u, redAlive);
+        if (target) tickDuelCombat(u, target, dtSec, this.projectiles);
+      }
+      for (const u of redAlive) {
+        const target = findNearestEnemy(u, blueAlive);
+        if (target) tickDuelCombat(u, target, dtSec, this.projectiles);
+      }
       const projHit = tickDuelProjectiles(this.projectiles, dtSec);
-      tickDuelStatusEffects(blue, dtSec);
-      tickDuelStatusEffects(red, dtSec);
+      for (const u of allUnits) {
+        if (u.alive) tickDuelStatusEffects(u, dtSec);
+      }
 
       // Play hit sounds
       if (this.userInteracted) {
-        if (red.hp < redHpBefore && red.alive) this.sfx.playHit();
-        else if (blue.hp < blueHpBefore && blue.alive) this.sfx.playHit();
+        const blueHpAfter = blueAlive.reduce((s, u) => s + u.hp, 0);
+        const redHpAfter = redAlive.reduce((s, u) => s + u.hp, 0);
+        if (redHpAfter < redHpBefore) this.sfx.playHit();
+        else if (blueHpAfter < blueHpBefore) this.sfx.playHit();
         else if (projHit) this.sfx.playHit();
       }
 
-      // Check deaths
-      if (!blue.alive || !red.alive) {
-        if (!blue.alive && !red.alive) {
-          updateElo(blue, red, true);
+      // Check team deaths
+      const blueStillAlive = this.blueTeam.filter(u => u.alive);
+      const redStillAlive = this.redTeam.filter(u => u.alive);
+
+      if (blueStillAlive.length === 0 || redStillAlive.length === 0) {
+        const blueDead = blueStillAlive.length === 0;
+        const redDead = redStillAlive.length === 0;
+
+        if (blueDead && redDead) {
+          updateTeamElo(this.blueTeam, this.redTeam, 'draw');
           this.winText = 'DRAW!';
           this.winColor = '#aaa';
-          this.winTimer = 2.5;
-          this.winScale = 0;
-          this.deadUnit = blue;
-          this.deathFade = 1;
-          this.winnerLeaving = true;
           if (this.userInteracted) this.sfx.playDraw();
+        } else if (redDead) {
+          updateTeamElo(this.blueTeam, this.redTeam, 'a');
+          this.winText = this.duelTeamSize === 1 ? `${this.blueTeam[0].name} WINS!` : 'BLUE WINS!';
+          this.winColor = '#4488ff';
+          if (this.userInteracted) { this.sfx.playKill(); this.sfx.playWin(); }
         } else {
-          const winner = blue.alive ? blue : red;
-          const loser = blue.alive ? red : blue;
-          updateElo(winner, loser, false);
-          this.winText = `${winner.name} WINS!`;
-          this.winColor = blue.alive ? '#4488ff' : '#ff4444';
-          this.winTimer = 2.5;
-          this.winScale = 0;
-          this.deadUnit = loser;
-          this.deathFade = 1;
-          this.winnerLeaving = true;
-          if (this.userInteracted) {
-            this.sfx.playKill();
-            this.sfx.playWin();
-          }
+          updateTeamElo(this.blueTeam, this.redTeam, 'b');
+          this.winText = this.duelTeamSize === 1 ? `${this.redTeam[0].name} WINS!` : 'RED WINS!';
+          this.winColor = '#ff4444';
+          if (this.userInteracted) { this.sfx.playKill(); this.sfx.playWin(); }
         }
+
+        this.winTimer = 2.5;
+        this.winScale = 0;
+        this.deadUnits = allUnits.filter(u => !u.alive);
+        this.deathFade = 1;
+        this.winnerLeaving = true;
       }
     }
   }
@@ -993,15 +1199,19 @@ export class TitleScene implements Scene {
     const unitBaseY = groundY;
     const frameTick = Math.floor(this.animTime * 7);
 
-    // Draw dead unit (fading) first, then living
-    if (this.deadUnit && this.deathFade > 0) {
+    // Draw dead units (fading) first, then living
+    if (this.deadUnits.length > 0 && this.deathFade > 0) {
       ctx.globalAlpha = Math.max(0, this.deathFade);
-      this.drawDuelUnit(ctx, this.deadUnit, unitSize, unitBaseY, frameTick, w);
+      for (const du of this.deadUnits) this.drawDuelUnit(ctx, du, unitSize, unitBaseY, frameTick, w);
       ctx.globalAlpha = 1;
     }
 
-    if (this.blue?.alive) this.drawDuelUnit(ctx, this.blue, unitSize, unitBaseY, frameTick, w);
-    if (this.red?.alive) this.drawDuelUnit(ctx, this.red, unitSize, unitBaseY, frameTick, w);
+    for (const u of this.blueTeam) {
+      if (u.alive) this.drawDuelUnit(ctx, u, unitSize, unitBaseY, frameTick, w);
+    }
+    for (const u of this.redTeam) {
+      if (u.alive) this.drawDuelUnit(ctx, u, unitSize, unitBaseY, frameTick, w);
+    }
 
     // Draw projectiles
     for (const p of this.projectiles) {
@@ -1015,67 +1225,103 @@ export class TitleScene implements Scene {
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, w, h);
 
-    // === VS Banner ===
-    if (this.blue && this.red) {
+    // === VS Banner (uses bannerBlue/bannerRed to persist between fights) ===
+    if (this.bannerBlue.length > 0 && this.bannerRed.length > 0) {
+      const teamSize = this.bannerBlue.length;
       const vsY = groundY + 4;
-      const vsH = Math.max(44, Math.min(h * 0.08, 56));
+      const lineH = teamSize === 1 ? 0 : Math.max(12, Math.min(h * 0.025, 16));
+      const vsH = Math.max(44, Math.min(h * 0.08, 56)) + lineH * (teamSize - 1);
       const vsW = Math.min(w * 0.85, 480);
       const vsX = (w - vsW) / 2;
 
       this.ui.drawWoodTable(ctx, vsX, vsY, vsW, vsH);
 
-      const fontSize = Math.max(11, Math.min(vsH * 0.32, 16));
+      const fontSize = Math.max(10, Math.min(vsH / (teamSize + 1) * 0.45, 14));
       ctx.textBaseline = 'middle';
-      const nameY = vsY + vsH * 0.35;
-      const eloLineY = vsY + vsH * 0.72;
 
-      // ELO lookup
-      const blueElo = getElo(this.blue.race, this.blue.category);
-      const redElo = getElo(this.red.race, this.red.category);
-      const blueFavored = blueElo > redElo;
-      const redFavored = redElo > blueElo;
+      for (let i = 0; i < teamSize; i++) {
+        const blue = this.bannerBlue[i];
+        const red = this.bannerRed[i];
+        const rowY = vsY + vsH * (0.22 + 0.56 * i / Math.max(1, teamSize));
 
-      // Blue name (left side)
-      const blueColor = RACE_COLORS[this.blue.race].primary;
-      ctx.font = `bold ${fontSize}px monospace`;
-      ctx.textAlign = 'right';
-      ctx.fillStyle = 'rgba(0,0,0,0.6)';
-      ctx.fillText(this.blue.name, w / 2 - fontSize * 1.2 + 1, nameY + 1);
-      ctx.fillStyle = blueColor;
-      ctx.fillText(this.blue.name, w / 2 - fontSize * 1.2, nameY);
+        const blueColor = RACE_COLORS[blue.race].primary;
+        ctx.font = `bold ${fontSize}px monospace`;
+        ctx.textAlign = 'right';
+        ctx.fillStyle = 'rgba(0,0,0,0.6)';
+        ctx.fillText(blue.name, w / 2 - fontSize * 1.2 + 1, rowY + 1);
+        ctx.fillStyle = blueColor;
+        ctx.fillText(blue.name, w / 2 - fontSize * 1.2, rowY);
 
-      // VS in the center
-      ctx.textAlign = 'center';
-      ctx.font = `bold ${Math.round(fontSize * 1.3)}px monospace`;
-      ctx.fillStyle = 'rgba(0,0,0,0.6)';
-      ctx.fillText('VS', w / 2 + 1, nameY + 1);
-      ctx.fillStyle = '#fff';
-      ctx.fillText('VS', w / 2, nameY);
+        if (i === 0) {
+          ctx.textAlign = 'center';
+          ctx.font = `bold ${Math.round(fontSize * 1.3)}px monospace`;
+          ctx.fillStyle = 'rgba(0,0,0,0.6)';
+          ctx.fillText('VS', w / 2 + 1, rowY + 1);
+          ctx.fillStyle = '#fff';
+          ctx.fillText('VS', w / 2, rowY);
+        }
 
-      // Red name (right side)
-      const redColor = RACE_COLORS[this.red.race].primary;
-      ctx.font = `bold ${fontSize}px monospace`;
-      ctx.textAlign = 'left';
-      ctx.fillStyle = 'rgba(0,0,0,0.6)';
-      ctx.fillText(this.red.name, w / 2 + fontSize * 1.2 + 1, nameY + 1);
-      ctx.fillStyle = redColor;
-      ctx.fillText(this.red.name, w / 2 + fontSize * 1.2, nameY);
+        const redColor = RACE_COLORS[red.race].primary;
+        ctx.font = `bold ${fontSize}px monospace`;
+        ctx.textAlign = 'left';
+        ctx.fillStyle = 'rgba(0,0,0,0.6)';
+        ctx.fillText(red.name, w / 2 + fontSize * 1.2 + 1, rowY + 1);
+        ctx.fillStyle = redColor;
+        ctx.fillText(red.name, w / 2 + fontSize * 1.2, rowY);
+      }
 
-      // ELO line
+      // Team avg ELO
+      const eloY = vsY + vsH * 0.85;
       const eloFontSize = Math.max(9, fontSize * 0.7);
       ctx.font = `${eloFontSize}px monospace`;
+      const blueAvgElo = Math.round(this.bannerBlue.reduce((s, u) => s + getElo(u.race, u.category), 0) / teamSize);
+      const redAvgElo = Math.round(this.bannerRed.reduce((s, u) => s + getElo(u.race, u.category), 0) / teamSize);
+      const blueFavored = blueAvgElo > redAvgElo;
+      const redFavored = redAvgElo > blueAvgElo;
+      const eloLabel = teamSize > 1 ? 'avg ' : '';
 
-      // Blue ELO (left)
       ctx.textAlign = 'right';
-      const blueEloText = `${blueFavored ? '\u2713 ' : ''}${blueElo}`;
       ctx.fillStyle = blueFavored ? '#ffe082' : 'rgba(255,255,255,0.6)';
-      ctx.fillText(blueEloText, w / 2 - fontSize * 1.2, eloLineY);
-
-      // Red ELO (right)
+      ctx.fillText(`${blueFavored ? '\u2713 ' : ''}${eloLabel}${blueAvgElo}`, w / 2 - fontSize * 1.2, eloY);
       ctx.textAlign = 'left';
-      const redEloText = `${redElo}${redFavored ? ' \u2713' : ''}`;
       ctx.fillStyle = redFavored ? '#ffe082' : 'rgba(255,255,255,0.6)';
-      ctx.fillText(redEloText, w / 2 + fontSize * 1.2, eloLineY);
+      ctx.fillText(`${eloLabel}${redAvgElo}${redFavored ? ' \u2713' : ''}`, w / 2 + fontSize * 1.2, eloY);
+
+      // === Duel control buttons ===
+      const ctrlY = vsY + vsH + 6;
+      const ctrlH = Math.max(20, Math.min(h * 0.035, 28));
+      const ctrlW = Math.max(56, Math.min(w * 0.14, 80));
+      const ctrlGap = 8;
+      const totalCtrlW = ctrlW * 3 + ctrlGap * 2;
+      const ctrlStartX = (w - totalCtrlW) / 2;
+      const ctrlFont = Math.max(8, Math.min(ctrlH * 0.42, 12));
+
+      this.resetEloBtnRect = { x: ctrlStartX, y: ctrlY, w: ctrlW, h: ctrlH };
+      ctx.fillStyle = 'rgba(0,0,0,0.5)';
+      ctx.beginPath(); ctx.roundRect(ctrlStartX, ctrlY, ctrlW, ctrlH, 4); ctx.fill();
+      ctx.strokeStyle = 'rgba(255,80,80,0.5)'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.roundRect(ctrlStartX, ctrlY, ctrlW, ctrlH, 4); ctx.stroke();
+      ctx.font = `bold ${ctrlFont}px monospace`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillStyle = '#ff8a80';
+      ctx.fillText('RESET', ctrlStartX + ctrlW / 2, ctrlY + ctrlH / 2);
+
+      const tsX = ctrlStartX + ctrlW + ctrlGap;
+      this.teamSizeBtnRect = { x: tsX, y: ctrlY, w: ctrlW, h: ctrlH };
+      ctx.fillStyle = 'rgba(0,0,0,0.5)';
+      ctx.beginPath(); ctx.roundRect(tsX, ctrlY, ctrlW, ctrlH, 4); ctx.fill();
+      ctx.strokeStyle = 'rgba(100,180,255,0.5)'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.roundRect(tsX, ctrlY, ctrlW, ctrlH, 4); ctx.stroke();
+      ctx.fillStyle = '#80d8ff';
+      ctx.fillText(`${this.duelTeamSize}v${this.duelTeamSize}`, tsX + ctrlW / 2, ctrlY + ctrlH / 2);
+
+      const trX = tsX + ctrlW + ctrlGap;
+      this.tierBtnRect = { x: trX, y: ctrlY, w: ctrlW, h: ctrlH };
+      ctx.fillStyle = 'rgba(0,0,0,0.5)';
+      ctx.beginPath(); ctx.roundRect(trX, ctrlY, ctrlW, ctrlH, 4); ctx.fill();
+      ctx.strokeStyle = 'rgba(255,215,0,0.5)'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.roundRect(trX, ctrlY, ctrlW, ctrlH, 4); ctx.stroke();
+      ctx.fillStyle = '#ffe082';
+      ctx.fillText(`TIER ${this.duelTier}`, trX + ctrlW / 2, ctrlY + ctrlH / 2);
     }
 
     // === Win announcement ===
@@ -1198,6 +1444,20 @@ export class TitleScene implements Scene {
     ctx.shadowBlur = 0;
     this.drawSwordLabel(ctx, btns.solo, 'PLAY SOLO', pulse);
 
+    // FIND GAME — red sword (pulsing when searching)
+    if (this.matchmaking) {
+      this.matchmakingDots = (this.matchmakingDots + 0.02) % 4;
+      const dots = '.'.repeat(Math.floor(this.matchmakingDots));
+      ctx.shadowColor = '#ff9800';
+      ctx.shadowBlur = 12 * (0.3 + 0.3 * Math.sin(this.pulseTime / 300));
+      this.ui.drawSword(ctx, btns.findGame.x, btns.findGame.y, btns.findGame.w, btns.findGame.h, 1);
+      ctx.shadowBlur = 0;
+      this.drawSwordLabel(ctx, btns.findGame, `SEARCHING${dots}`, 0.6 + 0.4 * Math.sin(this.pulseTime / 300));
+    } else {
+      this.ui.drawSword(ctx, btns.findGame.x, btns.findGame.y, btns.findGame.w, btns.findGame.h, 1);
+      this.drawSwordLabel(ctx, btns.findGame, 'FIND GAME', 1);
+    }
+
     // CREATE PARTY — yellow sword
     this.ui.drawSword(ctx, btns.create.x, btns.create.y, btns.create.w, btns.create.h, 2);
     this.drawSwordLabel(ctx, btns.create, 'CREATE PARTY', 1);
@@ -1235,28 +1495,73 @@ export class TitleScene implements Scene {
 
   private renderNameTag(ctx: CanvasRenderingContext2D, _w: number, _h: number): void {
     const fontSize = Math.max(12, Math.min(_w / 40, 16));
-    const diceSize = fontSize + 8;
-    ctx.font = `bold ${fontSize}px monospace`;
-    const tagX = 12;
-    const tagY = 10;
-    const nameW = ctx.measureText(this.playerName).width;
-    const totalW = diceSize + 6 + nameW;
+    const nameH = fontSize + 8;
+    const avatarSize = nameH * 2;   // profile button is 2x name height
+    const diceSize = nameH;
+    const gap = 6;
 
-    // Background pill for contrast
+    ctx.font = `bold ${fontSize}px monospace`;
+    const nameW = ctx.measureText(this.playerName).width;
+
+    // Positions — avatar on far left, then name pill to its right
+    const avatarX = 8;
+    const avatarY = 8;
+    const pillX = avatarX + avatarSize + gap;
+    const pillY = avatarY + (avatarSize - nameH) / 2;  // vertically center with avatar
+    const totalPillW = diceSize + 6 + nameW;
     const pillPad = 8;
+
+    // ── Profile avatar button (square) ──
+    this.profileBtnRect = { x: avatarX, y: avatarY, w: avatarSize, h: avatarSize };
+
     ctx.fillStyle = 'rgba(0,0,0,0.55)';
     ctx.beginPath();
-    ctx.roundRect(tagX - pillPad, tagY - pillPad, totalW + pillPad * 2, diceSize + pillPad * 2, diceSize / 2);
+    ctx.roundRect(avatarX, avatarY, avatarSize, avatarSize, 6);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,215,0,0.4)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.roundRect(avatarX, avatarY, avatarSize, avatarSize, 6);
+    ctx.stroke();
+
+    // Draw avatar sprite
+    if (this.profile) {
+      const avatarDef = ALL_AVATARS.find(a => a.id === this.profile!.avatarId);
+      if (avatarDef) {
+        const sprData = this.sprites.getUnitSprite(avatarDef.race, avatarDef.category, 0);
+        if (sprData) {
+          const [img, def] = sprData;
+          const tick = Math.floor(this.pulseTime / 50);
+          const ticksPerFrame = Math.max(1, Math.round(20 / def.cols));
+          const frame = Math.floor(tick / ticksPerFrame) % def.cols;
+          const aspect = def.frameW / def.frameH;
+          const sprInset = 4;
+          const sprSize = avatarSize - sprInset * 2;
+          const drawH = sprSize;
+          const drawW = drawH * aspect;
+          const gY = def.groundY ?? 0.71;
+          const feetY = avatarY + avatarSize - sprInset - 2;
+          const drawY = feetY - drawH * gY;
+          const drawX = avatarX + (avatarSize - drawW) / 2;
+          drawSpriteFrame(ctx, img, def, frame, drawX, drawY, drawW, drawH);
+        }
+      }
+    }
+
+    // ── Name pill background ──
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.beginPath();
+    ctx.roundRect(pillX - pillPad, pillY - pillPad, totalPillW + pillPad * 2, nameH + pillPad * 2, nameH / 2);
     ctx.fill();
     ctx.strokeStyle = 'rgba(255,215,0,0.3)';
     ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.roundRect(tagX - pillPad, tagY - pillPad, totalW + pillPad * 2, diceSize + pillPad * 2, diceSize / 2);
+    ctx.roundRect(pillX - pillPad, pillY - pillPad, totalPillW + pillPad * 2, nameH + pillPad * 2, nameH / 2);
     ctx.stroke();
 
-    // Dice button
-    const diceX = tagX;
-    const diceY = tagY;
+    // ── Dice button ──
+    const diceX = pillX;
+    const diceY = pillY;
     this.diceBtnRect = { x: diceX - 4, y: diceY - 4, w: diceSize + 8, h: diceSize + 8 };
 
     ctx.fillStyle = 'rgba(255,215,0,0.15)';
@@ -1275,18 +1580,18 @@ export class TitleScene implements Scene {
     const dotR = 2;
     const off = diceSize * 0.22;
     ctx.fillStyle = '#ffd700';
-    for (const [dx, dy] of [[-off, -off], [off, -off], [0, 0], [-off, off], [off, off]]) {
+    for (const [dx, dy] of [[-off, -off], [off, -off], [0, 0], [-off, off], [off, off]] as [number,number][]) {
       ctx.beginPath();
       ctx.arc(dcx + dx, dcy + dy, dotR, 0, Math.PI * 2);
       ctx.fill();
     }
 
-    // Player name
+    // ── Player name ──
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
     ctx.font = `bold ${fontSize}px monospace`;
     ctx.fillStyle = '#ffd700';
-    ctx.fillText(this.playerName, tagX + diceSize + 6, tagY + diceSize / 2);
+    ctx.fillText(this.playerName, pillX + diceSize + 6, pillY + nameH / 2);
     ctx.textBaseline = 'alphabetic';
   }
 
@@ -1376,8 +1681,60 @@ export class TitleScene implements Scene {
     ctx.lineTo(pl.panel.x + halfW, pl.panel.y + pl.panel.h * 0.75);
     ctx.stroke();
 
-    // START button (host only, enabled when 2 players)
+    // Difficulty selector (host sees buttons, guest sees label)
     const isHost = this.party?.isHost;
+    {
+      const diffY = pl.diffBtns[0].y;
+      const diffLabelSize = Math.max(7, fontSize * 0.65);
+      ctx.font = `${diffLabelSize}px monospace`;
+      ctx.textAlign = 'center';
+      ctx.fillStyle = 'rgba(255,255,255,0.45)';
+      ctx.fillText('DIFFICULTY', w / 2, diffY - 4);
+
+      // Read from party state if guest, local index if host
+      const activeIdx = isHost
+        ? this.partyDifficultyIndex
+        : PARTY_DIFFICULTY_OPTIONS.findIndex(d => d.level === (ps.difficulty ?? BotDifficultyLevel.Medium));
+      const resolvedIdx = activeIdx >= 0 ? activeIdx : 1;
+
+      for (let i = 0; i < PARTY_DIFFICULTY_OPTIONS.length; i++) {
+        const d = PARTY_DIFFICULTY_OPTIONS[i];
+        const b = pl.diffBtns[i];
+        const isSel = i === resolvedIdx;
+
+        ctx.fillStyle = isSel ? d.color : 'rgba(0,0,0,0.3)';
+        const r = 3;
+        ctx.beginPath();
+        ctx.moveTo(b.x + r, b.y);
+        ctx.lineTo(b.x + b.w - r, b.y);
+        ctx.arcTo(b.x + b.w, b.y, b.x + b.w, b.y + r, r);
+        ctx.lineTo(b.x + b.w, b.y + b.h - r);
+        ctx.arcTo(b.x + b.w, b.y + b.h, b.x + b.w - r, b.y + b.h, r);
+        ctx.lineTo(b.x + r, b.y + b.h);
+        ctx.arcTo(b.x, b.y + b.h, b.x, b.y + b.h - r, r);
+        ctx.lineTo(b.x, b.y + r);
+        ctx.arcTo(b.x, b.y, b.x + r, b.y, r);
+        ctx.closePath();
+        ctx.fill();
+
+        if (!isSel) {
+          ctx.strokeStyle = d.color;
+          ctx.lineWidth = 1;
+          ctx.stroke();
+        }
+
+        // Only host can click, dim for guest
+        if (!isHost && !isSel) ctx.globalAlpha = 0.4;
+        const lblSize = Math.max(7, Math.min(b.w / 5, 10));
+        ctx.font = `bold ${lblSize}px monospace`;
+        ctx.textAlign = 'center';
+        ctx.fillStyle = isSel ? '#000' : d.color;
+        ctx.fillText(d.label, b.x + b.w / 2, b.y + b.h / 2 + lblSize * 0.35);
+        ctx.globalAlpha = 1;
+      }
+    }
+
+    // START button (host only, enabled when 2 players)
     if (isHost) {
       const canStart = !!ps.guest;
       ctx.globalAlpha = canStart ? 1 : 0.4;
@@ -1515,7 +1872,7 @@ export class TitleScene implements Scene {
 
   private drawDuelUnit(ctx: CanvasRenderingContext2D, unit: DuelUnit, size: number, baseY: number, frameTick: number, screenW: number): void {
     const attacking = unit.isAttacking;
-    const spriteData = this.sprites.getUnitSprite(unit.race, unit.category, unit.playerId, attacking);
+    const spriteData = this.sprites.getUnitSprite(unit.race, unit.category, unit.playerId, attacking, unit.upgradeNode);
     if (!spriteData) return;
 
     const [img, def] = spriteData;

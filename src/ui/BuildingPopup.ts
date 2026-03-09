@@ -382,7 +382,7 @@ export class BuildingPopup {
 
     let drewSprite = false;
     if (category && sprites) {
-      const sprData = sprites.getUnitSprite(race, category, building.playerId);
+      const sprData = sprites.getUnitSprite(race, category, building.playerId, false, opt.choice);
       if (sprData) {
         const [img, def] = sprData;
         const frame = Math.floor(this.animTick / 8) % def.cols;

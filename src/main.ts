@@ -8,6 +8,9 @@ import { recordMatch } from './util/BalanceTracker';
 import { SpriteLoader } from './rendering/SpriteLoader';
 import { UIAssets } from './rendering/UIAssets';
 import { Race } from './simulation/types';
+import { BotDifficultyLevel } from './simulation/BotAI';
+import { ProfileScene } from './profile/ProfileScene';
+import { loadProfile, updateProfileFromMatch } from './profile/ProfileData';
 
 const canvas = document.getElementById('game') as HTMLCanvasElement;
 if (!canvas) throw new Error('Canvas element not found');
@@ -27,11 +30,15 @@ uiReady.then(() => {
 
   const manager = new SceneManager(canvas);
 
+  const profile = loadProfile();
   const titleScene = new TitleScene(manager, canvas, sharedUI, sharedSprites);
+  titleScene.profile = profile;
   const postMatchScene = new PostMatchScene(manager, canvas, sharedUI);
 
   const matchScene = new MatchScene(canvas, sharedUI, (game) => {
     recordMatch(game.state);
+    const newAch = updateProfileFromMatch(profile, game.state, game.playerSlot);
+    if (newAch.length > 0) console.log('[Profile] New achievements:', newAch);
     postMatchScene.setStats({ state: game.state, localPlayerId: game.playerSlot });
     // Clean up party data from Firebase when match ends
     if (titleScene.party) {
@@ -41,7 +48,7 @@ uiReady.then(() => {
   });
 
   const raceSelectScene = new RaceSelectScene(manager, canvas, sharedSprites, sharedUI, (result) => {
-    matchScene.setPlayerRace(result.playerRace);
+    matchScene.setPlayerRace(result.playerRace, result.botDifficulty);
     manager.switchTo('match');
   });
 
@@ -49,17 +56,20 @@ uiReady.then(() => {
   titleScene.onPartyStart = (party, isHost) => {
     const hostRace = party.host.race;
     const guestRace = party.guest?.race ?? Race.Crown;
-    matchScene.setPartyConfig(hostRace, guestRace, party.seed, party.code, isHost);
+    const difficulty = (party.difficulty as BotDifficultyLevel) ?? BotDifficultyLevel.Medium;
+    matchScene.setPartyConfig(hostRace, guestRace, party.seed, party.code, isHost, difficulty);
     manager.switchTo('match');
   };
 
   const galleryScene = new UnitGalleryScene(manager, canvas, sharedSprites, sharedUI);
+  const profileScene = new ProfileScene(manager, canvas, sharedUI, sharedSprites);
 
   manager.register('title', titleScene);
   manager.register('raceSelect', raceSelectScene);
   manager.register('match', matchScene);
   manager.register('postMatch', postMatchScene);
   manager.register('gallery', galleryScene);
+  manager.register('profile', profileScene);
 
   manager.start('title');
 

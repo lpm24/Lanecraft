@@ -1,6 +1,6 @@
 import { createInitialState, simulateTick } from '../simulation/GameState';
 import { GameCommand, Race, Team, TICK_RATE } from '../simulation/types';
-import { runAllBotAI, createBotContext } from '../simulation/BotAI';
+import { runAllBotAI, createBotContext, BotDifficultyLevel } from '../simulation/BotAI';
 
 // ==================== CONFIG ====================
 
@@ -35,6 +35,7 @@ interface MatchResult {
 
 function runHeadlessMatch(
   p0Race: Race, p1Race: Race, p2Race: Race, p3Race: Race,
+  difficulty: BotDifficultyLevel = BotDifficultyLevel.Medium,
 ): MatchResult {
   const state = createInitialState([
     { race: p0Race, isBot: true },
@@ -43,7 +44,7 @@ function runHeadlessMatch(
     { race: p3Race, isBot: true },
   ]);
 
-  const botCtx = createBotContext();
+  const botCtx = createBotContext(difficulty);
   const commands: GameCommand[] = [];
   const emit = (cmd: GameCommand) => commands.push(cmd);
 
@@ -481,6 +482,8 @@ function main(): void {
   const mixedMode = args.includes('--mixed');
   const raceFilterArg = args.find(a => a.startsWith('--race='));
   const raceFilter = raceFilterArg ? raceFilterArg.split('=')[1] as Race : undefined;
+  const diffArg = args.find(a => a.startsWith('--difficulty='));
+  const difficulty = (diffArg?.split('=')[1] as BotDifficultyLevel) ?? BotDifficultyLevel.Medium;
 
   // Validate race filter
   if (raceFilter && !ALL_RACES.includes(raceFilter)) {
@@ -510,7 +513,7 @@ function main(): void {
   console.log(`Running ${totalMatches} matches (${matchups.length} matchups x ${matchesPerMatchup} each)...`);
   console.log(`  Mode: ${modeName}`);
   if (raceFilter) console.log(`  Deep dive: ${raceFilter}`);
-  console.log(`  Options: --full (exhaustive), --mixed (mixed teams), --race=RaceName (deep dive), N (matches per matchup)`);
+  console.log(`  Options: --full, --mixed, --race=Name, --difficulty=easy|medium|hard|nightmare, N (matches/matchup)`);
 
   const results: MatchResult[] = [];
   let completed = 0;
@@ -518,7 +521,7 @@ function main(): void {
 
   for (const mu of matchups) {
     for (let n = 0; n < matchesPerMatchup; n++) {
-      const result = runHeadlessMatch(mu.bottom[0], mu.bottom[1], mu.top[0], mu.top[1]);
+      const result = runHeadlessMatch(mu.bottom[0], mu.bottom[1], mu.top[0], mu.top[1], difficulty);
       results.push(result);
       completed++;
       if (completed % 10 === 0 || completed === totalMatches) {
