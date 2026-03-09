@@ -190,6 +190,13 @@ export class Camera {
     };
   }
 
+  worldToScreen(worldX: number, worldY: number): { x: number; y: number } {
+    return {
+      x: (worldX - this.x) * this.zoom,
+      y: (worldY - this.y) * this.zoom,
+    };
+  }
+
   applyTransform(ctx: CanvasRenderingContext2D): void {
     ctx.setTransform(this.zoom, 0, 0, this.zoom, -this.x * this.zoom, -this.y * this.zoom);
   }

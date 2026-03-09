@@ -3,7 +3,7 @@
  * Pure rendering state — no simulation dependency. Driven by elapsed real time + match tick.
  */
 
-import { MAP_WIDTH, MAP_HEIGHT, TILE_SIZE, Race } from '../simulation/types';
+import { MAP_WIDTH, MAP_HEIGHT, TILE_SIZE, Race, CombatEvent } from '../simulation/types';
 
 const T = TILE_SIZE;
 
@@ -415,7 +415,7 @@ export class ProjectileTrails {
   private trails: TrailPoint[] = [];
 
   addPoint(x: number, y: number, color: string): void {
-    this.trails.push({ x: x * T, y: y * T, age: 0, color });
+    this.trails.push({ x: x * T + T / 2, y: y * T + T / 2, age: 0, color });
     if (this.trails.length > 500) this.trails.shift();
   }
 
@@ -505,6 +505,292 @@ export class HitFlashTracker {
     // Cleanup removed units
     for (const id of unitHps.keys()) {
       if (!currentUnits.find(u => u.id === id)) unitHps.delete(id);
+    }
+  }
+}
+
+// ─── Combat VFX (rings, arcs, lifesteal, heal sparkles) ─────
+
+interface RingEffect {
+  x: number; y: number;
+  maxRadius: number;
+  color: string;
+  age: number;
+  maxAge: number;
+}
+
+interface ArcEffect {
+  x1: number; y1: number;
+  x2: number; y2: number;
+  color: string;
+  age: number;
+  maxAge: number;
+}
+
+interface SparkleEffect {
+  x: number; y: number;
+  color: string;
+  age: number;
+  maxAge: number;
+  type: 'heal' | 'cleanse' | 'dodge' | 'revive' | 'knockback' | 'lifesteal';
+  // for lifesteal: target position
+  x2?: number; y2?: number;
+}
+
+export class CombatVFX {
+  private rings: RingEffect[] = [];
+  private arcs: ArcEffect[] = [];
+  private sparkles: SparkleEffect[] = [];
+
+  /** Feed in combat events from the simulation tick */
+  consume(events: CombatEvent[]): void {
+    for (const e of events) {
+      switch (e.type) {
+        case 'splash':
+          this.rings.push({
+            x: e.x * T, y: e.y * T,
+            maxRadius: (e.radius ?? 3) * T,
+            color: e.color, age: 0, maxAge: 0.4,
+          });
+          break;
+        case 'pulse':
+          this.rings.push({
+            x: e.x * T, y: e.y * T,
+            maxRadius: (e.radius ?? 6) * T,
+            color: e.color, age: 0, maxAge: 0.5,
+          });
+          break;
+        case 'chain':
+          this.arcs.push({
+            x1: e.x * T, y1: e.y * T,
+            x2: (e.x2 ?? e.x) * T, y2: (e.y2 ?? e.y) * T,
+            color: e.color, age: 0, maxAge: 0.3,
+          });
+          break;
+        case 'lifesteal':
+          this.sparkles.push({
+            x: e.x * T, y: e.y * T, color: e.color,
+            x2: (e.x2 ?? e.x) * T, y2: (e.y2 ?? e.y) * T,
+            age: 0, maxAge: 0.35, type: 'lifesteal',
+          });
+          break;
+        case 'heal':
+          this.sparkles.push({
+            x: e.x * T, y: e.y * T, color: e.color,
+            age: 0, maxAge: 0.5, type: 'heal',
+          });
+          break;
+        case 'dodge':
+          this.sparkles.push({
+            x: e.x * T, y: e.y * T, color: e.color,
+            age: 0, maxAge: 0.25, type: 'dodge',
+          });
+          break;
+        case 'revive':
+          this.rings.push({
+            x: e.x * T, y: e.y * T, maxRadius: T * 2.5,
+            color: e.color, age: 0, maxAge: 0.5,
+          });
+          this.sparkles.push({
+            x: e.x * T, y: e.y * T, color: e.color,
+            age: 0, maxAge: 0.5, type: 'revive',
+          });
+          break;
+        case 'cleanse':
+          this.sparkles.push({
+            x: e.x * T, y: e.y * T, color: e.color,
+            age: 0, maxAge: 0.4, type: 'cleanse',
+          });
+          break;
+        case 'knockback':
+          this.sparkles.push({
+            x: e.x * T, y: e.y * T, color: e.color,
+            age: 0, maxAge: 0.3, type: 'knockback',
+          });
+          break;
+      }
+    }
+  }
+
+  update(dt: number): void {
+    // Update rings
+    for (let i = this.rings.length - 1; i >= 0; i--) {
+      this.rings[i].age += dt;
+      if (this.rings[i].age >= this.rings[i].maxAge) this.rings.splice(i, 1);
+    }
+    // Update arcs
+    for (let i = this.arcs.length - 1; i >= 0; i--) {
+      this.arcs[i].age += dt;
+      if (this.arcs[i].age >= this.arcs[i].maxAge) this.arcs.splice(i, 1);
+    }
+    // Update sparkles
+    for (let i = this.sparkles.length - 1; i >= 0; i--) {
+      this.sparkles[i].age += dt;
+      if (this.sparkles[i].age >= this.sparkles[i].maxAge) this.sparkles.splice(i, 1);
+    }
+    // Cap
+    if (this.rings.length > 60) this.rings.length = 60;
+    if (this.arcs.length > 80) this.arcs.length = 80;
+    if (this.sparkles.length > 100) this.sparkles.length = 100;
+  }
+
+  draw(ctx: CanvasRenderingContext2D): void {
+    // Expanding rings (splash / pulse)
+    for (const r of this.rings) {
+      const t = r.age / r.maxAge;
+      const radius = r.maxRadius * t;
+      const alpha = (1 - t) * 0.6;
+      ctx.beginPath();
+      ctx.arc(r.x, r.y, radius, 0, Math.PI * 2);
+      ctx.strokeStyle = r.color;
+      ctx.lineWidth = Math.max(1, 2.5 * (1 - t));
+      ctx.globalAlpha = alpha;
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+
+    // Chain lightning arcs
+    for (const a of this.arcs) {
+      const t = a.age / a.maxAge;
+      const alpha = (1 - t) * 0.8;
+      ctx.globalAlpha = alpha;
+      ctx.strokeStyle = a.color;
+      ctx.lineWidth = Math.max(1, 3 * (1 - t));
+      // Jagged arc: 3 midpoints with random offset
+      const dx = a.x2 - a.x1, dy = a.y2 - a.y1;
+      const perpX = -dy * 0.15, perpY = dx * 0.15;
+      ctx.beginPath();
+      ctx.moveTo(a.x1, a.y1);
+      // Use deterministic "random" based on position
+      const s1 = Math.sin(a.x1 * 7 + a.age * 50) * 0.8;
+      const s2 = Math.sin(a.y1 * 11 + a.age * 70) * 0.8;
+      const s3 = Math.sin((a.x1 + a.y1) * 5 + a.age * 90) * 0.6;
+      ctx.lineTo(a.x1 + dx * 0.25 + perpX * s1, a.y1 + dy * 0.25 + perpY * s1);
+      ctx.lineTo(a.x1 + dx * 0.50 + perpX * s2, a.y1 + dy * 0.50 + perpY * s2);
+      ctx.lineTo(a.x1 + dx * 0.75 + perpX * s3, a.y1 + dy * 0.75 + perpY * s3);
+      ctx.lineTo(a.x2, a.y2);
+      ctx.stroke();
+      // Glow
+      ctx.lineWidth = Math.max(1, 6 * (1 - t));
+      ctx.globalAlpha = alpha * 0.3;
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+
+    // Sparkle effects
+    for (const s of this.sparkles) {
+      const t = s.age / s.maxAge;
+      const alpha = (1 - t);
+
+      switch (s.type) {
+        case 'heal': {
+          // Rising green crosses / sparkles
+          ctx.globalAlpha = alpha * 0.7;
+          ctx.fillStyle = s.color;
+          const rise = t * T * 1.5;
+          const sz = 3 * (1 - t * 0.5);
+          // Cross shape
+          ctx.fillRect(s.x - sz / 2, s.y - rise - sz * 1.5, sz, sz * 3);
+          ctx.fillRect(s.x - sz * 1.5, s.y - rise - sz / 2, sz * 3, sz);
+          ctx.globalAlpha = 1;
+          break;
+        }
+        case 'lifesteal': {
+          // Particles streaming from target to attacker
+          ctx.globalAlpha = alpha * 0.7;
+          ctx.fillStyle = s.color;
+          const x2 = s.x2 ?? s.x, y2 = s.y2 ?? s.y;
+          // 3 particles at different progress along the path
+          for (let i = 0; i < 3; i++) {
+            const p = (t + i * 0.15) % 1;
+            const px = s.x + (x2 - s.x) * p;
+            const py = s.y + (y2 - s.y) * p - Math.sin(p * Math.PI) * T * 0.5;
+            ctx.beginPath();
+            ctx.arc(px, py, 2 * (1 - p * 0.5), 0, Math.PI * 2);
+            ctx.fill();
+          }
+          ctx.globalAlpha = 1;
+          break;
+        }
+        case 'dodge': {
+          // Ghost afterimage: fading duplicate offset
+          ctx.globalAlpha = alpha * 0.4;
+          ctx.fillStyle = s.color;
+          const offset = t * T * 0.8;
+          // Two ghost circles offset left and right
+          ctx.beginPath();
+          ctx.arc(s.x - offset, s.y, 4 * (1 - t), 0, Math.PI * 2);
+          ctx.fill();
+          ctx.beginPath();
+          ctx.arc(s.x + offset, s.y, 3 * (1 - t), 0, Math.PI * 2);
+          ctx.fill();
+          ctx.globalAlpha = 1;
+          break;
+        }
+        case 'revive': {
+          // Bright flash + upward sparkles
+          ctx.globalAlpha = alpha * 0.8;
+          ctx.fillStyle = s.color;
+          // Flash circle
+          const flashR = T * (0.5 + t * 1.5);
+          ctx.beginPath();
+          ctx.arc(s.x, s.y, flashR, 0, Math.PI * 2);
+          ctx.globalAlpha = alpha * 0.3;
+          ctx.fill();
+          // Rising sparkle dots
+          ctx.globalAlpha = alpha * 0.8;
+          for (let i = 0; i < 5; i++) {
+            const angle = (i / 5) * Math.PI * 2 + t * 3;
+            const r = T * (0.5 + t);
+            const px = s.x + Math.cos(angle) * r;
+            const py = s.y + Math.sin(angle) * r - t * T;
+            ctx.beginPath();
+            ctx.arc(px, py, 2, 0, Math.PI * 2);
+            ctx.fill();
+          }
+          ctx.globalAlpha = 1;
+          break;
+        }
+        case 'cleanse': {
+          // Blue sparkle burst expanding outward
+          ctx.globalAlpha = alpha * 0.7;
+          ctx.fillStyle = s.color;
+          for (let i = 0; i < 6; i++) {
+            const angle = (i / 6) * Math.PI * 2;
+            const r = t * T * 1.2;
+            const px = s.x + Math.cos(angle) * r;
+            const py = s.y + Math.sin(angle) * r;
+            const sz = 2.5 * (1 - t);
+            // Diamond sparkle
+            ctx.beginPath();
+            ctx.moveTo(px, py - sz);
+            ctx.lineTo(px + sz * 0.6, py);
+            ctx.lineTo(px, py + sz);
+            ctx.lineTo(px - sz * 0.6, py);
+            ctx.closePath();
+            ctx.fill();
+          }
+          ctx.globalAlpha = 1;
+          break;
+        }
+        case 'knockback': {
+          // Impact starburst
+          ctx.globalAlpha = alpha * 0.7;
+          ctx.strokeStyle = s.color;
+          ctx.lineWidth = 2 * (1 - t);
+          for (let i = 0; i < 8; i++) {
+            const angle = (i / 8) * Math.PI * 2;
+            const innerR = t * T * 0.3;
+            const outerR = T * (0.3 + t * 0.8);
+            ctx.beginPath();
+            ctx.moveTo(s.x + Math.cos(angle) * innerR, s.y + Math.sin(angle) * innerR);
+            ctx.lineTo(s.x + Math.cos(angle) * outerR, s.y + Math.sin(angle) * outerR);
+            ctx.stroke();
+          }
+          ctx.globalAlpha = 1;
+          break;
+        }
+      }
     }
   }
 }

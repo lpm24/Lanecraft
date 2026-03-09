@@ -3,15 +3,14 @@ import { initializeApp, FirebaseApp } from 'firebase/app';
 import { getAuth, signInAnonymously, Auth, User, onAuthStateChanged } from 'firebase/auth';
 import { getDatabase, Database } from 'firebase/database';
 
-// TODO: Replace with your actual Firebase config
 const firebaseConfig = {
-  apiKey: '',
-  authDomain: '',
-  projectId: '',
-  databaseURL: '',
-  storageBucket: '',
-  messagingSenderId: '',
-  appId: '',
+  apiKey: 'AIzaSyADBuKcc80UoOv0Zr6I3ojHVgqopS7pRaM',
+  authDomain: 'spawnr-80dc1.firebaseapp.com',
+  databaseURL: 'https://spawnr-80dc1-default-rtdb.firebaseio.com',
+  projectId: 'spawnr-80dc1',
+  storageBucket: 'spawnr-80dc1.firebasestorage.app',
+  messagingSenderId: '257775204980',
+  appId: '1:257775204980:web:d46a06cbc4665b2ee4ef21',
 };
 
 let app: FirebaseApp | null = null;
@@ -46,7 +45,11 @@ export function initFirebase(): Promise<User> {
         currentUser = cred.user;
         resolve(cred.user);
       })
-      .catch(reject);
+      .catch((err) => {
+        console.error('[Firebase] Auth failed:', err.code, err.message);
+        initPromise = null; // allow retry
+        reject(err);
+      });
   });
 
   return initPromise;

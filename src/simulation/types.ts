@@ -268,6 +268,8 @@ export interface UnitState {
   hitCount: number;       // for Bastion knockback (every 3rd hit)
   shieldHp: number;       // absorb pool from Shield status
   category: 'melee' | 'ranged' | 'caster';
+  upgradeTier: number;                 // 0=base, 1=tier1, 2=tier2
+  upgradeNode: string;                 // terminal upgrade node key ('A','B','C','D','E','F','G')
   upgradeSpecial: Record<string, any>; // upgrade-granted special effects
   kills: number;          // individual kill count for war hero tracking
   lastDamagedByName: string; // name of last unit/source that dealt damage
@@ -393,6 +395,22 @@ export interface QuickChatState {
   maxAge: number;
 }
 
+// === Combat Visual Events (consumed by renderer) ===
+
+export type CombatEventType =
+  | 'splash' | 'pulse' | 'chain' | 'lifesteal'
+  | 'heal' | 'dodge' | 'revive' | 'cleanse' | 'knockback';
+
+export interface CombatEvent {
+  type: CombatEventType;
+  x: number;
+  y: number;
+  x2?: number;  // endpoint for chain arcs
+  y2?: number;
+  radius?: number; // for splash/pulse rings
+  color: string;
+}
+
 // === Sound Events ===
 
 export type SoundEventType =
@@ -429,8 +447,21 @@ export function createPlayerStats(): PlayerStats {
   };
 }
 
+// Mulberry32 seeded PRNG — deterministic, fast, 32-bit state
+export function createSeededRng(seed: number): () => number {
+  let s = seed | 0;
+  return () => {
+    s = (s + 0x6D2B79F5) | 0;
+    let t = Math.imul(s ^ (s >>> 15), 1 | s);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
 export interface GameState {
   tick: number;
+  rng: () => number;             // seeded PRNG — use instead of Math.random() in simulation
+  rngSeed: number;               // initial seed (for resync / debug)
   players: PlayerState[];
   buildings: BuildingState[];
   units: UnitState[];
@@ -450,6 +481,7 @@ export interface GameState {
   pings: PingState[];
   quickChats: QuickChatState[];
   soundEvents: SoundEvent[];
+  combatEvents: CombatEvent[];
   nextEntityId: number;
   playerStats: PlayerStats[];
   warHeroes: WarHero[];          // populated at match end — top unit per player

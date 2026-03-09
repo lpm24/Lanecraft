@@ -4,8 +4,8 @@ import { runAllBotAI, createBotContext } from '../simulation/BotAI';
 
 // ==================== CONFIG ====================
 
-const DEFAULT_MATCHES_PER_MATCHUP = 5;
-const MAX_MATCH_TICKS = 15 * 60 * TICK_RATE; // 15 min hard cap
+const DEFAULT_MATCHES_PER_MATCHUP = 3;
+const MAX_MATCH_TICKS = 8 * 60 * TICK_RATE; // 8 min hard cap
 const ALL_RACES = [Race.Crown, Race.Horde, Race.Goblins, Race.Oozlings, Race.Demon, Race.Deep, Race.Wild, Race.Geists, Race.Tenders];
 
 // ==================== TYPES ====================

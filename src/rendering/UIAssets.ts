@@ -86,7 +86,8 @@ export class UIAssets {
     return null;
   }
 
-  preload(): void {
+  /** Kick off loading all UI assets. Returns a promise that resolves when every image is ready. */
+  preload(): Promise<void> {
     const urls = [
       bannerPng, woodTablePng, woodTableSlotsPng, specialPaperPng,
       bigRibbonsPng, smallRibbonsPng, swordsPng,
@@ -95,7 +96,26 @@ export class UIAssets {
       bigBarBasePng, bigBarFillPng, waterBgPng,
       ...Object.values(ICON_URLS),
     ];
-    for (const url of urls) this.loadImage(url);
+    const promises = urls.map(url => {
+      if (this.cache.has(url)) return Promise.resolve();
+      return new Promise<void>((resolve) => {
+        if (this.loading.has(url)) {
+          // Already started — poll until done
+          const check = () => {
+            if (this.cache.has(url) || !this.loading.has(url)) resolve();
+            else setTimeout(check, 16);
+          };
+          check();
+          return;
+        }
+        this.loading.add(url);
+        const img = new Image();
+        img.src = url;
+        img.onload = () => { this.cache.set(url, img); this.loading.delete(url); resolve(); };
+        img.onerror = () => { this.loading.delete(url); resolve(); }; // resolve anyway so we don't block forever
+      });
+    });
+    return Promise.all(promises).then(() => {});
   }
 
   // =================================================================

@@ -1,15 +1,19 @@
-import { GameState, GameCommand, Race, HQ_HP } from '../simulation/types';
-import { createInitialState, simulateTick } from '../simulation/GameState';
+import { GameState, GameCommand, Race, Team, HQ_HP, createSeededRng } from '../simulation/types';
+import { createInitialState, simulateTick, computeStateHash } from '../simulation/GameState';
 import { GameLoop } from './GameLoop';
 import { Renderer } from '../rendering/Renderer';
 import { InputHandler } from '../ui/InputHandler';
 import { SoundManager } from '../audio/SoundManager';
 import { runAllBotAI, createBotContext, BotContext } from '../simulation/BotAI';
 import { UIAssets } from '../rendering/UIAssets';
+import { CommandSync, TICKS_PER_TURN } from '../network/CommandSync';
 
 export interface GamePartyOptions {
   player1Race: Race;
   player1Human: boolean;
+  seed: number;
+  partyCode?: string;       // set for networked multiplayer (enables CommandSync)
+  localPlayerId?: number;   // 0 = host, 1 = guest
 }
 
 export class Game {
@@ -24,16 +28,39 @@ export class Game {
 
   private botCtx: BotContext = createBotContext();
 
+  // Multiplayer state
+  private commandSync: CommandSync | null = null;
+  private localPlayerId = 0;
+  private isMultiplayer = false;
+  // Player commands collected during current turn, to be sent at next turn boundary
+  private localCommandBuffer: GameCommand[] = [];
+  // Pre-fetched turn commands: turnNumber → merged commands from both players
+  private turnCommands: Map<number, GameCommand[]> = new Map();
+  // Whether we're currently fetching commands for a turn
+  private fetchingTurn: number | null = null;
+  /** Set to true when state hash mismatch detected — can be read by UI for warnings. */
+  desyncDetected = false;
+  /** Set to true when the P2P peer disconnects mid-game. */
+  peerDisconnected = false;
+  /** How long (ms) we've been stalled waiting for the remote player's turn data. 0 = not stalled. */
+  waitingForAllyMs = 0;
+  private stallStartTime = 0;
+
+  /** Current round-trip latency in ms (0 for solo). */
+  get networkLatencyMs(): number { return this.commandSync?.latencyMs ?? 0; }
+
   constructor(canvas: HTMLCanvasElement, playerRace: Race = Race.Crown, ui?: UIAssets, partyOpts?: GamePartyOptions) {
     // Pick bot races: fill remaining slots from races other than player's
     const allRaces = [Race.Crown, Race.Horde, Race.Goblins, Race.Oozlings, Race.Demon, Race.Deep, Race.Wild, Race.Geists, Race.Tenders];
 
     if (partyOpts) {
       // 2-player party mode: P0 + P1 are humans, P2 + P3 are bots
+      // Use shared seed for deterministic bot race selection
+      const shuffleRng = createSeededRng(partyOpts.seed);
       const usedRaces = new Set([playerRace, partyOpts.player1Race]);
       const otherRaces = allRaces.filter(r => !usedRaces.has(r));
       for (let i = otherRaces.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
+        const j = Math.floor(shuffleRng() * (i + 1));
         [otherRaces[i], otherRaces[j]] = [otherRaces[j], otherRaces[i]];
       }
       this.state = createInitialState([
@@ -41,7 +68,7 @@ export class Game {
         { race: partyOpts.player1Race, isBot: !partyOpts.player1Human }, // P1 - human (guest) or bot
         { race: otherRaces[0], isBot: true },                        // P2 - bot enemy
         { race: otherRaces[1], isBot: true },                        // P3 - bot enemy
-      ]);
+      ], partyOpts.seed);
     } else {
       // Solo mode: P0 human, P1/P2/P3 bots
       const otherRaces = allRaces.filter(r => r !== playerRace);
@@ -57,7 +84,24 @@ export class Game {
       ]);
     }
 
+    // Set up multiplayer command sync if party code provided
+    if (partyOpts?.partyCode != null) {
+      this.isMultiplayer = true;
+      this.localPlayerId = partyOpts.localPlayerId ?? 0;
+      this.commandSync = new CommandSync(partyOpts.partyCode, this.localPlayerId);
+      this.commandSync.onDesync = (turn, local, remote) => {
+        console.error(`[DESYNC] turn ${turn}: local=${local.toString(16)} remote=${remote.toString(16)}`);
+        this.desyncDetected = true;
+      };
+      this.commandSync.onDisconnect = () => {
+        this.peerDisconnected = true;
+        console.warn('[Game] Peer disconnected');
+      };
+      this.commandSync.start();
+    }
+
     this.renderer = new Renderer(canvas, ui);
+    this.renderer.localPlayerId = this.localPlayerId;
     this.input = new InputHandler(this, canvas, this.renderer.camera, ui, this.renderer.sprites);
     this.sounds = new SoundManager();
 
@@ -69,8 +113,26 @@ export class Game {
     this.sounds.startMusic(playerRace);
   }
 
+  /** Which player slot the local user controls (0 = host/solo, 1 = guest). */
+  get playerSlot(): number { return this.localPlayerId; }
+
   start(): void {
-    this.loop.start();
+    if (this.isMultiplayer && this.commandSync) {
+      // Wait for P2P connection + handshake before starting game loop
+      this.commandSync.whenReady().then(() => {
+        console.log('[Game] P2P ready, starting game loop');
+        // Pre-seed turn 0 so the first tick doesn't stall
+        this.turnCommands.set(0, []);
+        this.loop.start();
+      }).catch((err) => {
+        console.error('[Game] P2P connection failed:', err);
+        this.peerDisconnected = true;
+        // Start loop anyway so the disconnect warning renders
+        this.loop.start();
+      });
+    } else {
+      this.loop.start();
+    }
   }
 
   stop(): void {
@@ -78,22 +140,156 @@ export class Game {
     this.sounds.stopMusic();
     this.input.destroy();
     this.renderer.camera.destroy();
+    if (this.commandSync) {
+      this.commandSync.stop();
+      this.commandSync = null;
+    }
   }
 
   sendCommand(cmd: GameCommand): void {
-    this.pendingCommands.push(cmd);
+    if (this.isMultiplayer) {
+      // Buffer player commands — will be sent at the next turn boundary
+      this.localCommandBuffer.push(cmd);
+    } else {
+      this.pendingCommands.push(cmd);
+    }
   }
 
-  private tick(): void {
+  /** Returns true if a tick was consumed, false if stalled (waiting for network). */
+  private tick(): boolean {
+    if (this.isMultiplayer) {
+      return this.tickMultiplayer();
+    } else {
+      this.tickLocal();
+      return true;
+    }
+  }
+
+  private tickLocal(): void {
     this.runBotAI();
     simulateTick(this.state, this.pendingCommands);
     this.pendingCommands = [];
+    this.postTick();
+  }
+
+  private tickMultiplayer(): boolean {
+    if (!this.commandSync) return true;
+
+    // If peer disconnected, keep ticking locally so game doesn't freeze
+    if (this.peerDisconnected) {
+      // Drain any buffered local commands since fetchTurn won't consume them
+      if (this.localCommandBuffer.length > 0) {
+        this.pendingCommands.push(...this.localCommandBuffer);
+        this.localCommandBuffer = [];
+      }
+      // Bot AI direct to pendingCommands (same as normal multiplayer tick)
+      runAllBotAI(this.state, this.botCtx, (cmd) => this.pendingCommands.push(cmd));
+      simulateTick(this.state, this.pendingCommands);
+      this.pendingCommands = [];
+      this.postTick();
+      return true;
+    }
+
+    const currentTick = this.state.tick;
+    const currentTurn = Math.floor(currentTick / TICKS_PER_TURN);
+    const isFirstTickOfTurn = currentTick % TICKS_PER_TURN === 0;
+
+    // At turn boundary: check if we have commands for this turn
+    if (isFirstTickOfTurn && !this.turnCommands.has(currentTurn)) {
+      // Stall — start fetching if not already
+      if (this.fetchingTurn !== currentTurn) {
+        this.fetchTurn(currentTurn);
+      }
+      // Track how long we've been stalled (stallStartTime=0 means first stall frame)
+      if (this.stallStartTime === 0) {
+        this.stallStartTime = Date.now();
+      }
+      this.waitingForAllyMs = Date.now() - this.stallStartTime;
+      return false; // Signal GameLoop to stop draining accumulator
+    }
+
+    // Clear stall indicator when we resume
+    if (this.waitingForAllyMs > 0) {
+      this.waitingForAllyMs = 0;
+      this.stallStartTime = 0;
+    }
+
+    // Execute this tick
+    const turnCmds = this.turnCommands.get(currentTurn) ?? [];
+
+    // Apply player commands only on first tick of turn
+    if (isFirstTickOfTurn) {
+      this.pendingCommands.push(...turnCmds);
+      // Eagerly subscribe to next turn's remote data NOW — gives ~200ms for it to arrive
+      // (we'll push OUR commands later on last tick, but remote data can arrive early)
+      const nextTurn = currentTurn + 1;
+      if (this.commandSync) {
+        this.commandSync.subscribeToTurn(nextTurn);
+      }
+    }
+
+    // Bot AI runs deterministically on both clients (same seeded RNG state)
+    // Pushed directly to pendingCommands, NOT through sendCommand/network
+    runAllBotAI(this.state, this.botCtx, (cmd) => this.pendingCommands.push(cmd));
+
+    simulateTick(this.state, this.pendingCommands);
+    this.pendingCommands = [];
+    this.postTick();
+
+    // On last tick of turn: push our commands and clean up
+    const isLastTickOfTurn = currentTick % TICKS_PER_TURN === TICKS_PER_TURN - 1;
+    if (isLastTickOfTurn) {
+      this.turnCommands.delete(currentTurn);
+      // Push local commands for next turn (remote subscription already active from first tick)
+      const nextTurn = currentTurn + 1;
+      if (!this.turnCommands.has(nextTurn) && this.fetchingTurn !== nextTurn) {
+        this.fetchTurn(nextTurn);
+      }
+    }
+    return true;
+  }
+
+  /** Push local commands and wait for both players' commands for a turn. */
+  private fetchTurn(turn: number): void {
+    if (!this.commandSync) return;
+    this.fetchingTurn = turn;
+
+    // Flush local command buffer — these are the player commands for this turn
+    const cmds = [...this.localCommandBuffer];
+    this.localCommandBuffer = [];
+
+    // Compute state hash at turn boundary for desync detection
+    let hash: number | undefined;
+    if (this.commandSync.shouldSendHash(turn)) {
+      hash = computeStateHash(this.state);
+    }
+
+    // Push local data (fire-and-forget write) and wait for remote in parallel
+    this.commandSync.pushTurn(turn, cmds, hash);
+    this.commandSync.waitForTurn(turn).then(({ commands, remoteHash }) => {
+      this.turnCommands.set(turn, commands);
+      this.fetchingTurn = null;
+
+      // Desync check: compare hashes if both sides sent one
+      if (hash !== undefined && remoteHash !== undefined && hash !== remoteHash) {
+        this.commandSync!.onDesync?.(turn, hash, remoteHash);
+      }
+    }).catch((err) => {
+      console.error('[CommandSync] fetch failed:', err);
+      this.fetchingTurn = null;
+      // On failure, set empty commands so game doesn't freeze forever
+      this.turnCommands.set(turn, []);
+    });
+  }
+
+  private postTick(): void {
     // Play sounds emitted during this tick
     for (const ev of this.state.soundEvents) {
       this.sounds.play(ev, this.renderer.camera, this.renderer.canvas);
     }
     // Evaluate music intensity
-    const ownHqHpRatio = this.state.hqHp[0] / HQ_HP; // team Bottom = human
+    const myTeam = this.state.players[this.localPlayerId]?.team ?? Team.Bottom;
+    const ownHqHpRatio = this.state.hqHp[myTeam] / HQ_HP;
     if (ownHqHpRatio < 0.3) {
       this.sounds.setIntensity(2);
     } else if (this.state.units.some(u => u.targetId !== null)) {
@@ -114,7 +310,7 @@ export class Game {
 
   private render(): void {
     this.renderer.camera.tick();
-    this.renderer.render(this.state);
+    this.renderer.render(this.state, this.isMultiplayer ? this.networkLatencyMs : undefined, this.desyncDetected, this.peerDisconnected, this.waitingForAllyMs);
     this.input.render(this.renderer);
   }
 

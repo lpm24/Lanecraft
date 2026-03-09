@@ -7,6 +7,8 @@ export interface PartyConfig {
   hostRace: Race;
   guestRace: Race;
   seed: number;
+  partyCode: string;
+  isHost: boolean;
 }
 
 export class MatchScene implements Scene {
@@ -29,8 +31,8 @@ export class MatchScene implements Scene {
     this.partyConfig = null; // solo mode
   }
 
-  setPartyConfig(hostRace: Race, guestRace: Race, seed: number): void {
-    this.partyConfig = { hostRace, guestRace, seed };
+  setPartyConfig(hostRace: Race, guestRace: Race, seed: number, partyCode: string, isHost: boolean): void {
+    this.partyConfig = { hostRace, guestRace, seed, partyCode, isHost };
   }
 
   enter(): void {
@@ -39,6 +41,9 @@ export class MatchScene implements Scene {
       this.game = new Game(this.canvas, this.partyConfig.hostRace, this.ui, {
         player1Race: this.partyConfig.guestRace,
         player1Human: true,
+        seed: this.partyConfig.seed,
+        partyCode: this.partyConfig.partyCode,
+        localPlayerId: this.partyConfig.isHost ? 0 : 1,
       });
     } else {
       // Solo mode (existing behavior)

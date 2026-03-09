@@ -9,7 +9,7 @@ import {
   LANE_PATHS, Vec2,
   GameCommand, BuildingType, BuildingState, ResourceType,
   HarvesterAssignment, HarvesterState, UnitState, WarHero,
-  StatusType, SoundEvent,
+  StatusType, SoundEvent, CombatEvent, createSeededRng,
 } from './types';
 import {
   SPAWN_INTERVAL_TICKS, UNIT_STATS, TOWER_STATS,
@@ -39,7 +39,7 @@ const INITIAL_RESOURCES: Record<Race, { gold: number; wood: number; stone: numbe
   [Race.Horde]:    { gold: 200, wood: 0,   stone: 25 },
   [Race.Goblins]:  { gold: 200, wood: 25,  stone: 0 },
   [Race.Oozlings]: { gold: 200, wood: 0,   stone: 25 },
-  [Race.Demon]:    { gold: 0,   wood: 50,  stone: 150 },
+  [Race.Demon]:    { gold: 0,   wood: 50,  stone: 100 },
   [Race.Deep]:     { gold: 50,  wood: 150, stone: 0 },
   [Race.Wild]:     { gold: 0,   wood: 150, stone: 50 },
   [Race.Geists]:   { gold: 50,  wood: 0,   stone: 150 },
@@ -222,25 +222,32 @@ function addFloatingText(state: GameState, x: number, y: number, text: string, c
 
 function addDeathParticles(state: GameState, x: number, y: number, color: string, count: number): void {
   for (let i = 0; i < count; i++) {
-    const angle = Math.random() * Math.PI * 2;
-    const speed = 0.5 + Math.random() * 2;
+    const angle = state.rng() * Math.PI * 2;
+    const speed = 0.5 + state.rng() * 2;
     state.particles.push({
       x, y,
       vx: Math.cos(angle) * speed,
       vy: Math.sin(angle) * speed,
       color,
       age: 0,
-      maxAge: TICK_RATE * (0.5 + Math.random() * 0.8),
-      size: 1 + Math.random() * 2,
+      maxAge: TICK_RATE * (0.5 + state.rng() * 0.8),
+      size: 1 + state.rng() * 2,
     });
   }
+}
+
+function addCombatEvent(state: GameState, evt: CombatEvent): void {
+  state.combatEvents.push(evt);
 }
 
 // === State Creation ===
 
 export function createInitialState(
-  players: { race: Race; isBot: boolean }[]
+  players: { race: Race; isBot: boolean }[],
+  seed?: number,
 ): GameState {
+  const rngSeed = seed ?? (Date.now() ^ (Math.random() * 0xffffffff));
+  const rng = createSeededRng(rngSeed);
   const playerStates: PlayerState[] = players.map((p, i) => ({
     id: i,
     team: i < 2 ? Team.Bottom : Team.Top,
@@ -266,6 +273,8 @@ export function createInitialState(
 
   const state: GameState = {
     tick: 0,
+    rng,
+    rngSeed,
     players: playerStates,
     buildings: [],
     units: [],
@@ -285,6 +294,7 @@ export function createInitialState(
     pings: [],
     quickChats: [],
     soundEvents: [],
+    combatEvents: [],
     nextEntityId: 1,
     playerStats: players.map(() => createPlayerStats()),
     warHeroes: [],
@@ -437,6 +447,7 @@ function buildDiamondCellMap(cells: GoldCell[]): Map<string, GoldCell> {
 
 export function simulateTick(state: GameState, commands: GameCommand[]): void {
   state.soundEvents = [];
+  state.combatEvents = [];
   for (const cmd of commands) processCommand(state, cmd);
 
   if (state.matchPhase === 'prematch') {
@@ -811,6 +822,8 @@ function tickSpawners(state: GameState): void {
           range: Math.max(1, stats.range * upgrade.range),
           targetId: null, lane: building.lane, pathProgress: -1, carryingDiamond: false,
           statusEffects: [], hitCount: 0, shieldHp: 0, category,
+          upgradeTier: building.upgradePath.length - 1,
+          upgradeNode: building.upgradePath[building.upgradePath.length - 1] ?? 'A',
           upgradeSpecial: upgrade.special, kills: 0, lastDamagedByName: '',
         });
         if (state.playerStats[building.playerId]) state.playerStats[building.playerId].unitsSpawned++;
@@ -994,8 +1007,9 @@ function applyKnockback(unit: UnitState, amount: number): void {
 function dealDamage(state: GameState, target: UnitState, amount: number, showFloat: boolean, sourcePlayerId?: number, sourceUnitId?: number): void {
   // Dodge check
   const dodge = target.upgradeSpecial?.dodgeChance ?? 0;
-  if (dodge > 0 && Math.random() < dodge) {
-    if (Math.random() < 0.3) addFloatingText(state, target.x, target.y, 'DODGE', '#ffffff');
+  if (dodge > 0 && state.rng() < dodge) {
+    if (state.rng() < 0.3) addFloatingText(state, target.x, target.y, 'DODGE', '#ffffff');
+    addCombatEvent(state, { type: 'dodge', x: target.x, y: target.y, color: '#ffffff' });
     return;
   }
   // Damage reduction
@@ -1015,7 +1029,7 @@ function dealDamage(state: GameState, target: UnitState, amount: number, showFlo
   }
   if (amount > 0) {
     target.hp -= amount;
-    if (showFloat && amount >= 10) addFloatingText(state, target.x, target.y, `-${amount}`, '#ff6666');
+    if (showFloat && amount >= 5) addFloatingText(state, target.x, target.y, `-${amount}`, '#ff6666');
     // Track damage stats
     if (sourcePlayerId !== undefined && state.playerStats[sourcePlayerId]) {
       state.playerStats[sourcePlayerId].totalDamageDealt += amount;
@@ -1058,14 +1072,18 @@ function applyCasterSupport(state: GameState, caster: UnitState, race: Race, sp:
     case Race.Crown: {
       // Shield allies (like old Bastion)
       const shieldCount = 2 + (sp?.shieldTargetBonus ?? 0);
-      const sorted = allies.slice().sort((a, b) =>
-        ((a.x - caster.x) ** 2 + (a.y - caster.y) ** 2) - ((b.x - caster.x) ** 2 + (b.y - caster.y) ** 2)
-      );
+      const sorted = allies.slice().sort((a, b) => {
+        const da = (a.x - caster.x) ** 2 + (a.y - caster.y) ** 2;
+        const db = (b.x - caster.x) ** 2 + (b.y - caster.y) ** 2;
+        return da !== db ? da - db : a.id - b.id;
+      });
       const absorbBonus = sp?.shieldAbsorbBonus ?? 0;
-      for (let i = 0; i < Math.min(shieldCount, sorted.length); i++) {
+      const crownShielded = Math.min(shieldCount, sorted.length);
+      for (let i = 0; i < crownShielded; i++) {
         applyStatus(sorted[i], StatusType.Shield, 1);
         if (absorbBonus > 0) sorted[i].shieldHp += absorbBonus;
       }
+      if (crownShielded > 0) addCombatEvent(state, { type: 'pulse', x: caster.x, y: caster.y, radius: supportRange, color: '#64b5f6' });
       break;
     }
     case Race.Horde: {
@@ -1078,6 +1096,7 @@ function applyCasterSupport(state: GameState, caster: UnitState, race: Race, sp:
           if (hordeHasteCount >= 5 + healBonus) break;
         }
       }
+      if (hordeHasteCount > 0) addCombatEvent(state, { type: 'pulse', x: caster.x, y: caster.y, radius: supportRange, color: '#ffab40' });
       break;
     }
     case Race.Oozlings: {
@@ -1090,6 +1109,7 @@ function applyCasterSupport(state: GameState, caster: UnitState, race: Race, sp:
           if (oozHasteCount >= 3 + healBonus) break;
         }
       }
+      if (oozHasteCount > 0) addCombatEvent(state, { type: 'pulse', x: caster.x, y: caster.y, radius: supportRange, color: '#76ff03' });
       break;
     }
     case Race.Goblins: {
@@ -1103,6 +1123,7 @@ function applyCasterSupport(state: GameState, caster: UnitState, race: Race, sp:
       }
       if (enemies.length > 0) {
         addFloatingText(state, caster.x, caster.y - 0.5, 'HEX', '#2e7d32');
+        addCombatEvent(state, { type: 'pulse', x: caster.x, y: caster.y, radius: supportRange, color: '#2e7d32' });
       }
       break;
     }
@@ -1120,6 +1141,7 @@ function applyCasterSupport(state: GameState, caster: UnitState, race: Race, sp:
           burn.stacks = Math.max(0, burn.stacks - (2 + healBonus));
           if (burn.stacks <= 0) a.statusEffects.splice(burnIdx, 1);
           addDeathParticles(state, a.x, a.y, '#1565c0', 1);
+          addCombatEvent(state, { type: 'cleanse', x: a.x, y: a.y, color: '#1565c0' });
           cleansed++;
         }
       }
@@ -1138,33 +1160,41 @@ function applyCasterSupport(state: GameState, caster: UnitState, race: Race, sp:
           if (hasteCount >= 3 + healBonus) break;
         }
       }
+      if (hasteCount > 0) addCombatEvent(state, { type: 'pulse', x: caster.x, y: caster.y, radius: supportRange, color: '#4caf50' });
       break;
     }
     case Race.Geists: {
       // Lifesteal heal: heal lowest-HP allies directly
       const healAmt = 2 + healBonus;
-      const wounded = allies.filter(a => a.hp < a.maxHp).sort((a, b) => (a.hp / a.maxHp) - (b.hp / b.maxHp));
+      const wounded = allies.filter(a => a.hp < a.maxHp).sort((a, b) => (a.hp / a.maxHp) - (b.hp / b.maxHp) || a.id - b.id);
       const count = Math.min(3, wounded.length);
       for (let i = 0; i < count; i++) {
         wounded[i].hp = Math.min(wounded[i].maxHp, wounded[i].hp + healAmt);
         addDeathParticles(state, wounded[i].x, wounded[i].y, '#546e7a', 1);
+        addCombatEvent(state, { type: 'heal', x: wounded[i].x, y: wounded[i].y, color: '#b39ddb' });
       }
       if (count > 0) {
         addFloatingText(state, caster.x, caster.y - 0.5, `+${healAmt}`, '#546e7a');
+        addCombatEvent(state, { type: 'pulse', x: caster.x, y: caster.y, radius: supportRange, color: '#b39ddb' });
       }
       break;
     }
     case Race.Tenders: {
       // Regen aura: heal nearby allies
       const healAmt = 3 + healBonus;
+      let healedAny = false;
+      let tendersHealVfx = 0;
       for (const a of allies) {
         if (a.hp < a.maxHp) {
           a.hp = Math.min(a.maxHp, a.hp + healAmt);
           addDeathParticles(state, a.x, a.y, '#33691e', 1);
+          if (tendersHealVfx < 4) { addCombatEvent(state, { type: 'heal', x: a.x, y: a.y, color: '#66bb6a' }); tendersHealVfx++; }
+          healedAny = true;
         }
       }
-      if (allies.some(a => a.hp < a.maxHp)) {
+      if (healedAny) {
         addFloatingText(state, caster.x, caster.y - 0.5, `+${healAmt}`, '#33691e');
+        addCombatEvent(state, { type: 'pulse', x: caster.x, y: caster.y, radius: supportRange, color: '#66bb6a' });
       }
       break;
     }
@@ -1186,9 +1216,17 @@ function applyOnHitEffects(state: GameState, attacker: UnitState, target: UnitSt
       if (isMelee) {
         attacker.hitCount++;
         const knockN = sp?.knockbackEveryN ?? 3;
-        if (knockN > 0 && attacker.hitCount % knockN === 0) applyKnockback(target, 0.02);
+        if (knockN > 0 && attacker.hitCount % knockN === 0) {
+          applyKnockback(target, 0.02);
+          addDeathParticles(state, target.x, target.y, '#ffab40', 3);
+          addCombatEvent(state, { type: 'knockback', x: target.x, y: target.y, color: '#ffab40' });
+          if (state.rng() < 0.3) addFloatingText(state, target.x, target.y - 0.3, 'PUSH', '#ffab40');
+        }
         const hordeSteal = Math.round(attacker.damage * 0.10);
-        if (hordeSteal > 0) attacker.hp = Math.min(attacker.maxHp, attacker.hp + hordeSteal);
+        if (hordeSteal > 0) {
+          attacker.hp = Math.min(attacker.maxHp, attacker.hp + hordeSteal);
+          addCombatEvent(state, { type: 'lifesteal', x: target.x, y: target.y, x2: attacker.x, y2: attacker.y, color: '#66bb6a' });
+        }
       }
       break;
     case Race.Goblins:
@@ -1201,7 +1239,7 @@ function applyOnHitEffects(state: GameState, attacker: UnitState, target: UnitSt
       // Globule: 15% chance haste on melee hit
       if (isMelee) {
         if (sp?.guaranteedHaste) applyStatus(attacker, StatusType.Haste, 1);
-        else if (Math.random() < 0.15) applyStatus(attacker, StatusType.Haste, 1);
+        else if (state.rng() < 0.15) applyStatus(attacker, StatusType.Haste, 1);
       }
       break;
     case Race.Demon:
@@ -1222,11 +1260,15 @@ function applyOnHitEffects(state: GameState, attacker: UnitState, target: UnitSt
       // Bone Knight: burn (soul drain) on melee hit + lifesteal 15%
       if (isMelee) {
         applyStatus(target, StatusType.Burn, 1 + (sp?.extraBurnStacks ?? 0));
-        attacker.hp = Math.min(attacker.maxHp, attacker.hp + Math.round(attacker.damage * 0.15));
+        const geistMeleeSteal = Math.round(attacker.damage * 0.15);
+        attacker.hp = Math.min(attacker.maxHp, attacker.hp + geistMeleeSteal);
+        if (geistMeleeSteal > 0) addCombatEvent(state, { type: 'lifesteal', x: target.x, y: target.y, x2: attacker.x, y2: attacker.y, color: '#b39ddb' });
       }
       // Wraith Bow: lifesteal 20% on ranged hit
       if (!isMelee && !isCaster) {
-        attacker.hp = Math.min(attacker.maxHp, attacker.hp + Math.round(attacker.damage * 0.2));
+        const geistRangedSteal = Math.round(attacker.damage * 0.2);
+        attacker.hp = Math.min(attacker.maxHp, attacker.hp + geistRangedSteal);
+        if (geistRangedSteal > 0) addCombatEvent(state, { type: 'lifesteal', x: target.x, y: target.y, x2: attacker.x, y2: attacker.y, color: '#b39ddb' });
       }
       break;
     case Race.Tenders:
@@ -1535,7 +1577,7 @@ function tickCombat(state: GameState): void {
               .filter(o => o.team !== unit.team && o.id !== target.id && o.hp > 0)
               .map(o => ({ u: o, d: Math.sqrt((o.x - unit.x) ** 2 + (o.y - unit.y) ** 2) }))
               .filter(e => e.d <= unit.range)
-              .sort((a, b) => a.d - b.d);
+              .sort((a, b) => a.d - b.d || a.u.id - b.u.id);
             for (let mi = 0; mi < Math.min(msCount, nearby.length); mi++) {
               state.projectiles.push({
                 id: genId(state), x: unit.x, y: unit.y,
@@ -1561,6 +1603,7 @@ function tickCombat(state: GameState): void {
               }
               if (!chainTarget) break;
               chained.push(chainTarget.id);
+              addCombatEvent(state, { type: 'chain', x: lastX, y: lastY, x2: chainTarget.x, y2: chainTarget.y, color: '#76ff03' });
               state.projectiles.push({
                 id: genId(state), x: lastX, y: lastY,
                 targetId: chainTarget.id, damage: Math.round(unit.damage * chainPct),
@@ -1572,8 +1615,57 @@ function tickCombat(state: GameState): void {
           }
         } else {
           // Melee: instant damage
-          dealDamage(state, target, unit.damage, unit.damage >= 10, unit.playerId, unit.id);
+          const sp = unit.upgradeSpecial;
+
+          // Hop attack: leap to target with AoE slow on landing
+          if (sp?.hopAttack) {
+            // Visually leap — snap position near target
+            const leapDx = target.x - unit.x;
+            const leapDy = target.y - unit.y;
+            const leapDist = Math.sqrt(leapDx * leapDx + leapDy * leapDy);
+            if (leapDist > 1.5) {
+              // Move to 1 tile from target
+              unit.x = target.x - leapDx / leapDist;
+              unit.y = target.y - leapDy / leapDist;
+            }
+            addCombatEvent(state, { type: 'pulse', x: unit.x, y: unit.y, radius: 3, color: '#2196f3' });
+            // AoE slow on landing
+            for (const nearby of state.units) {
+              if (nearby.team === unit.team || nearby.hp <= 0) continue;
+              const nd = Math.sqrt((nearby.x - unit.x) ** 2 + (nearby.y - unit.y) ** 2);
+              if (nd <= 3) {
+                applyStatus(nearby, StatusType.Slow, 1 + (sp?.extraSlowStacks ?? 0));
+              }
+            }
+          }
+
+          dealDamage(state, target, unit.damage, unit.damage >= 5, unit.playerId, unit.id);
           applyOnHitEffects(state, unit, target);
+
+          // Cleave: hit additional adjacent enemies
+          const cleaveN = sp?.cleaveTargets ?? 0;
+          if (cleaveN > 0) {
+            const cleaved: UnitState[] = [];
+            for (const o of state.units) {
+              if (o.team === unit.team || o.id === target.id || o.hp <= 0) continue;
+              const cd = Math.sqrt((o.x - unit.x) ** 2 + (o.y - unit.y) ** 2);
+              if (cd <= unit.range + 1.5) cleaved.push(o);
+            }
+            // Sort by distance for determinism
+            cleaved.sort((a, b) => {
+              const da = (a.x - unit.x) ** 2 + (a.y - unit.y) ** 2;
+              const db = (b.x - unit.x) ** 2 + (b.y - unit.y) ** 2;
+              return da - db || a.id - b.id;
+            });
+            for (let ci = 0; ci < Math.min(cleaveN, cleaved.length); ci++) {
+              const cleaveDmg = Math.round(unit.damage * 0.6);
+              dealDamage(state, cleaved[ci], cleaveDmg, cleaveDmg >= 5, unit.playerId, unit.id);
+              addCombatEvent(state, { type: 'chain', x: unit.x, y: unit.y, x2: cleaved[ci].x, y2: cleaved[ci].y, color: '#ff9800' });
+            }
+            if (cleaved.length > 0 && state.rng() < 0.3) {
+              addFloatingText(state, unit.x, unit.y - 0.3, 'CLEAVE', '#ff9800');
+            }
+          }
         }
 
         unit.attackTimer = Math.round(unit.attackSpeed * TICK_RATE);
@@ -1633,6 +1725,7 @@ function tickCombat(state: GameState): void {
       u.upgradeSpecial = { ...u.upgradeSpecial, reviveHpPct: 0 };
       addFloatingText(state, u.x, u.y, 'REVIVE', '#44ff44');
       addDeathParticles(state, u.x, u.y, '#44ff44', 3);
+      addCombatEvent(state, { type: 'revive', x: u.x, y: u.y, color: '#44ff44' });
       continue;
     }
     addDeathParticles(state, u.x, u.y, u.team === Team.Bottom ? '#4488ff' : '#ff4444', 5);
@@ -1822,6 +1915,12 @@ function tickProjectiles(state: GameState): void {
     const moveAmt = p.speed / TICK_RATE;
 
     if (dist <= moveAmt) {
+      // Visual-only projectile (0 damage) — just remove on arrival, no effects
+      if (p.damage <= 0) {
+        toRemove.add(p.id);
+        continue;
+      }
+
       // Hit! Apply damage through shield
       dealDamage(state, target, p.damage, true, p.sourcePlayerId, p.sourceUnitId);
       addDeathParticles(state, target.x, target.y, '#ffaa00', 2);
@@ -1838,6 +1937,7 @@ function tickProjectiles(state: GameState): void {
 
       // AOE damage
       if (p.aoeRadius > 0) {
+        addCombatEvent(state, { type: 'splash', x: target.x, y: target.y, radius: p.aoeRadius, color: '#ffaa00' });
         for (const u of state.units) {
           if (u.id === target.id || u.team === p.team) continue;
           const ad = Math.sqrt((u.x - target.x) ** 2 + (u.y - target.y) ** 2);
@@ -1907,6 +2007,10 @@ function tickStatusEffects(state: GameState): void {
         if (!blighted) {
           unit.hp = Math.min(unit.maxHp, unit.hp + regen);
           addDeathParticles(state, unit.x, unit.y, '#4caf50', 1);
+          // Throttle heal VFX to every 3 seconds to avoid sparkle spam
+          if (state.tick % (TICK_RATE * 3) === 0) {
+            addCombatEvent(state, { type: 'heal', x: unit.x, y: unit.y, color: '#4caf50' });
+          }
         }
       }
     }
@@ -1952,6 +2056,44 @@ function tickStatusEffects(state: GameState): void {
 
 // === Tower Race Specials ===
 
+/** Spawn a visual-only tower projectile (0 damage) so players see something fly from tower to target. */
+function towerVisualProjectile(state: GameState, building: BuildingState, target: UnitState): void {
+  state.projectiles.push({
+    id: genId(state), x: building.worldX + 0.5, y: building.worldY + 0.5,
+    targetId: target.id, damage: 0, speed: 12, aoeRadius: 0,
+    team: state.players[building.playerId].team,
+    sourcePlayerId: building.playerId,
+  });
+}
+
+/** Spawn a visual-only chain projectile from (sx,sy) to a target. */
+function towerChainProjectile(state: GameState, building: BuildingState, sx: number, sy: number, target: UnitState): void {
+  state.projectiles.push({
+    id: genId(state), x: sx, y: sy,
+    targetId: target.id, damage: 0, speed: 18, aoeRadius: 0,
+    team: state.players[building.playerId].team,
+    sourcePlayerId: building.playerId,
+  });
+}
+
+/** Expanding ring of particles from tower position — used for AoE tower visuals. */
+function towerAoePulse(state: GameState, tx: number, ty: number, color: string, range: number): void {
+  const count = 12;
+  for (let i = 0; i < count; i++) {
+    const angle = (i / count) * Math.PI * 2;
+    const speed = range * 0.8 + state.rng() * range * 0.4;
+    state.particles.push({
+      x: tx, y: ty,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      color,
+      age: 0,
+      maxAge: TICK_RATE * 0.5,
+      size: 2.5 + state.rng() * 1.5,
+    });
+  }
+}
+
 function applyTowerSpecial(state: GameState, building: BuildingState, race: Race, stats: { damage: number; range: number; attackSpeed: number }, sp: import('./data').UpgradeSpecial): void {
   const tx = building.worldX + 0.5;
   const ty = building.worldY + 0.5;
@@ -1969,6 +2111,7 @@ function applyTowerSpecial(state: GameState, building: BuildingState, race: Race
         if (d <= nearestDist) { nearest = u; nearestDist = d; }
       }
       if (nearest) {
+        towerVisualProjectile(state, building, nearest);
         dealDamage(state, nearest, stats.damage, false, building.playerId);
         addDeathParticles(state, nearest.x, nearest.y, '#ffd700', 2);
         building.actionTimer = Math.round(stats.attackSpeed * TICK_RATE);
@@ -1985,8 +2128,13 @@ function applyTowerSpecial(state: GameState, building: BuildingState, race: Race
         if (d <= nearestDist) { nearest = u; nearestDist = d; }
       }
       if (nearest) {
+        towerVisualProjectile(state, building, nearest);
         dealDamage(state, nearest, stats.damage, false, building.playerId);
-        if (Math.random() < 0.3) applyKnockback(nearest, 0.02);
+        if (state.rng() < 0.3) {
+          applyKnockback(nearest, 0.02);
+          addDeathParticles(state, nearest.x, nearest.y, '#ffab40', 3);
+          if (state.rng() < 0.3) addFloatingText(state, nearest.x, nearest.y - 0.3, 'PUSH', '#ffab40');
+        }
         addDeathParticles(state, nearest.x, nearest.y, '#c62828', 2);
         building.actionTimer = Math.round(stats.attackSpeed * TICK_RATE);
       }
@@ -2011,12 +2159,20 @@ function applyTowerSpecial(state: GameState, building: BuildingState, race: Race
         } else break;
       }
       const chainPct = sp.chainDamagePct ?? 0.6;
+      let chainX = tx, chainY = ty;
       for (let i = 0; i < targets.length; i++) {
         const dmg = i === 0 ? stats.damage : Math.round(stats.damage * chainPct);
         dealDamage(state, targets[i], dmg, true, building.playerId);
         addDeathParticles(state, targets[i].x, targets[i].y, '#00e5ff', 2);
+        // Chain projectile from previous position to this target
+        addCombatEvent(state, { type: 'chain', x: chainX, y: chainY, x2: targets[i].x, y2: targets[i].y, color: '#00e5ff' });
+        towerChainProjectile(state, building, chainX, chainY, targets[i]);
+        chainX = targets[i].x;
+        chainY = targets[i].y;
       }
-      if (targets.length > 0) building.actionTimer = Math.round(stats.attackSpeed * TICK_RATE);
+      if (targets.length > 0) {
+        building.actionTimer = Math.round(stats.attackSpeed * TICK_RATE);
+      }
       break;
     }
     case Race.Demon: {
@@ -2030,6 +2186,7 @@ function applyTowerSpecial(state: GameState, building: BuildingState, race: Race
         if (d <= nearestDist) { nearest = u; nearestDist = d; }
       }
       if (nearest) {
+        towerVisualProjectile(state, building, nearest);
         dealDamage(state, nearest, stats.damage, false, building.playerId);
         applyStatus(nearest, StatusType.Burn, burnStacks);
         addDeathParticles(state, nearest.x, nearest.y, '#ff3d00', 2);
@@ -2038,7 +2195,7 @@ function applyTowerSpecial(state: GameState, building: BuildingState, race: Race
       break;
     }
     case Race.Deep: {
-      // AoE slow: hit ALL enemies in range
+      // AoE slow: hit ALL enemies in range — ice pulse
       const slowStacks = 1 + (sp.extraSlowStacks ?? 0);
       let hit = false;
       for (const u of state.units) {
@@ -2047,14 +2204,18 @@ function applyTowerSpecial(state: GameState, building: BuildingState, race: Race
         if (d <= stats.range) {
           dealDamage(state, u, stats.damage, false, building.playerId);
           applyStatus(u, StatusType.Slow, slowStacks);
+          addDeathParticles(state, u.x, u.y, '#4fc3f7', 1);
           hit = true;
         }
       }
-      if (hit) building.actionTimer = Math.round(stats.attackSpeed * TICK_RATE);
+      if (hit) {
+        towerAoePulse(state, tx, ty, '#2196f3', stats.range);
+        building.actionTimer = Math.round(stats.attackSpeed * TICK_RATE);
+      }
       break;
     }
     case Race.Wild: {
-      // AoE poison: damage ALL enemies in range + burn
+      // AoE poison: damage ALL enemies in range + burn — toxic cloud
       const burnStacks = 1 + (sp.extraBurnStacks ?? 0);
       const slowStacks = sp.extraSlowStacks ?? 0;
       let hit = false;
@@ -2065,10 +2226,14 @@ function applyTowerSpecial(state: GameState, building: BuildingState, race: Race
           dealDamage(state, u, stats.damage, false, building.playerId);
           applyStatus(u, StatusType.Burn, burnStacks);
           if (slowStacks > 0) applyStatus(u, StatusType.Slow, slowStacks);
+          addDeathParticles(state, u.x, u.y, '#66bb6a', 1);
           hit = true;
         }
       }
-      if (hit) building.actionTimer = Math.round(stats.attackSpeed * TICK_RATE);
+      if (hit) {
+        towerAoePulse(state, tx, ty, '#4caf50', stats.range);
+        building.actionTimer = Math.round(stats.attackSpeed * TICK_RATE);
+      }
       break;
     }
     case Race.Geists: {
@@ -2082,6 +2247,7 @@ function applyTowerSpecial(state: GameState, building: BuildingState, race: Race
         if (d <= nearestDist) { nearest = u; nearestDist = d; }
       }
       if (nearest) {
+        towerVisualProjectile(state, building, nearest);
         dealDamage(state, nearest, stats.damage, false, building.playerId);
         applyStatus(nearest, StatusType.Burn, burnStacks);
         addDeathParticles(state, nearest.x, nearest.y, '#546e7a', 2);
@@ -2090,7 +2256,7 @@ function applyTowerSpecial(state: GameState, building: BuildingState, race: Race
       break;
     }
     case Race.Tenders: {
-      // Thorns aura: damage ALL enemies in range + slow
+      // Thorns aura: damage ALL enemies in range + slow — vine pulse
       const slowStacks = 1 + (sp.extraSlowStacks ?? 0);
       const burnStacks = sp.extraBurnStacks ?? 0;
       let hit = false;
@@ -2101,10 +2267,14 @@ function applyTowerSpecial(state: GameState, building: BuildingState, race: Race
           dealDamage(state, u, stats.damage, false, building.playerId);
           applyStatus(u, StatusType.Slow, slowStacks);
           if (burnStacks > 0) applyStatus(u, StatusType.Burn, burnStacks);
+          addDeathParticles(state, u.x, u.y, '#a5d6a7', 1);
           hit = true;
         }
       }
-      if (hit) building.actionTimer = Math.round(stats.attackSpeed * TICK_RATE);
+      if (hit) {
+        towerAoePulse(state, tx, ty, '#81c784', stats.range);
+        building.actionTimer = Math.round(stats.attackSpeed * TICK_RATE);
+      }
       break;
     }
     // Goblins: default single-target (handled in tickTowers normally via projectile)
@@ -2434,15 +2604,15 @@ function walkHome(state: GameState, h: HarvesterState, movePerTick: number): voi
     if (h.carryingResource === ResourceType.Gold) {
       player.gold += h.carryAmount;
       if (ps) ps.totalGoldEarned += h.carryAmount;
-      addFloatingText(state, h.x, h.y, `+${h.carryAmount}g`, '#ffd700');
+      if (state.tick % 2 === 0) addFloatingText(state, h.x, h.y, `+${h.carryAmount}g`, '#ffd700');
     } else if (h.carryingResource === ResourceType.Wood) {
       player.wood += h.carryAmount;
       if (ps) ps.totalWoodEarned += h.carryAmount;
-      addFloatingText(state, h.x, h.y, `+${h.carryAmount}w`, '#4caf50');
+      if (state.tick % 2 === 0) addFloatingText(state, h.x, h.y, `+${h.carryAmount}w`, '#8d6e63');
     } else if (h.carryingResource === ResourceType.Stone) {
       player.stone += h.carryAmount;
       if (ps) ps.totalStoneEarned += h.carryAmount;
-      addFloatingText(state, h.x, h.y, `+${h.carryAmount}m`, '#e57373');
+      if (state.tick % 2 === 0) addFloatingText(state, h.x, h.y, `+${h.carryAmount}s`, '#90a4ae');
     }
     h.carryingResource = null;
     h.carryAmount = 0;
@@ -2507,4 +2677,37 @@ function checkWinConditions(state: GameState): void {
     state.winner = Team.Bottom; state.winCondition = 'military'; state.matchPhase = 'ended';
     addSound(state, humanTeam === Team.Bottom ? 'match_end_win' : 'match_end_lose');
   }
+}
+
+// === Desync Detection ===
+
+/** Fast 32-bit hash of critical game state for desync detection. */
+export function computeStateHash(state: GameState): number {
+  let h = 0x811c9dc5; // FNV offset basis
+  const mix = (v: number) => { h ^= v; h = Math.imul(h, 0x01000193); };
+
+  mix(state.tick);
+  mix(state.hqHp[0] * 1000 | 0);
+  mix(state.hqHp[1] * 1000 | 0);
+  mix(state.units.length);
+  mix(state.buildings.length);
+  mix(state.projectiles.length);
+  mix(state.harvesters.length);
+
+  for (const p of state.players) {
+    mix(p.gold * 100 | 0);
+    mix(p.wood * 100 | 0);
+    mix(p.stone * 100 | 0);
+  }
+
+  // Sample unit positions (first 10 units for speed)
+  for (let i = 0; i < Math.min(state.units.length, 10); i++) {
+    const u = state.units[i];
+    mix(u.id);
+    mix(u.hp * 100 | 0);
+    mix(u.x * 100 | 0);
+    mix(u.y * 100 | 0);
+  }
+
+  return h >>> 0; // unsigned 32-bit
 }

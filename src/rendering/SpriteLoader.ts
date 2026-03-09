@@ -179,6 +179,70 @@ import tendersRangedAtk from '../assets/images/Tiny Swords (Enemy Pack)/Tiny Swo
 import tendersCasterAtk from '../assets/images/Tiny Swords (Enemy Pack)/Tiny Swords (Enemy Pack)/Enemy Pack/Panda/Panda_Attack.png?url';
 
 // ============================================================
+// UPGRADE PATH SPRITES
+// ============================================================
+// Mimic LVL1/2/4 (Geists melee C/F/G branch — off Skull)
+import mimicL1Move from '../assets/images/CHARACTER MEGAPACK/CHARACTER MEGAPACK/Mimic_LVL1/Move_14x1.png?url';
+import mimicL1Atk from '../assets/images/CHARACTER MEGAPACK/CHARACTER MEGAPACK/Mimic_LVL1/Dash_Full_14x1.png?url';
+import mimicL2Move from '../assets/images/CHARACTER MEGAPACK/CHARACTER MEGAPACK/Mimic_LVL2/Move_24x1.png?url';
+import mimicL2Atk from '../assets/images/CHARACTER MEGAPACK/CHARACTER MEGAPACK/Mimic_LVL2/Dash_Full_10x1.png?url';
+import mimicL4Move from '../assets/images/CHARACTER MEGAPACK/CHARACTER MEGAPACK/Mimic_LVL4/Move_16x1.png?url';
+import mimicL4Atk from '../assets/images/CHARACTER MEGAPACK/CHARACTER MEGAPACK/Mimic_LVL4/Dash_Full_14x1.png?url';
+// Dwarfette LVL1/2/4 (Crown ranged C/F/G branch)
+import dwarfetteL1Move from '../assets/images/CHARACTER MEGAPACK/CHARACTER MEGAPACK/Dwarfette_LVL1/Move_8x1.png?url';
+import dwarfetteL1Atk from '../assets/images/CHARACTER MEGAPACK/CHARACTER MEGAPACK/Dwarfette_LVL1/Dash_Full_8x1.png?url';
+import dwarfetteL2Move from '../assets/images/CHARACTER MEGAPACK/CHARACTER MEGAPACK/Dwarfette_LVL2/Move_10x1.png?url';
+import dwarfetteL2Atk from '../assets/images/CHARACTER MEGAPACK/CHARACTER MEGAPACK/Dwarfette_LVL2/Dash_Full_14x1.png?url';
+import dwarfetteL4Move from '../assets/images/CHARACTER MEGAPACK/CHARACTER MEGAPACK/Dwarfette_LVL4/Move_28x1.png?url';
+import dwarfetteL4Atk from '../assets/images/CHARACTER MEGAPACK/CHARACTER MEGAPACK/Dwarfette_LVL4/Dash_16x1.png?url';
+// Minotaur (Wild melee C/F/G branch)
+import minotaurWalk from '../assets/images/Tiny Swords (Enemy Pack)/Tiny Swords (Enemy Pack)/Enemy Pack/Minotaur/Minotaur_Walk.png?url';
+import minotaurAttack from '../assets/images/Tiny Swords (Enemy Pack)/Tiny Swords (Enemy Pack)/Enemy Pack/Minotaur/Minotaur_Attack.png?url';
+// FrogMonster (Deep melee C branch)
+import frogMonsterMove from '../assets/images/CHARACTER MEGAPACK/CHARACTER MEGAPACK/FrogMonster/Jump_Full_22x1.png?url';
+import frogMonsterAtk from '../assets/images/CHARACTER MEGAPACK/CHARACTER MEGAPACK/FrogMonster/Jump_14x1.png?url';
+// FrogBoss (Deep melee F/G branch)
+import frogBossMove from '../assets/images/CHARACTER MEGAPACK/CHARACTER MEGAPACK/FrogBoss/Move_Full_22x1.png?url';
+import frogBossAtk from '../assets/images/CHARACTER MEGAPACK/CHARACTER MEGAPACK/FrogBoss/Jump_ATK_22x1.png?url';
+// Mushroom (Tenders caster C/F/G branch)
+import mushroomMove from '../assets/images/CHARACTER MEGAPACK/CHARACTER MEGAPACK/Mushroom/Move_20x1.png?url';
+import mushroomAtk from '../assets/images/CHARACTER MEGAPACK/CHARACTER MEGAPACK/Mushroom/Spell_Loop_14x1.png?url';
+// Sorcerer LVL2/3/4 (Geists caster C/F/G branch)
+import sorcererL2Move from '../assets/images/CHARACTER MEGAPACK/CHARACTER MEGAPACK/Sorcerer_LVL2/Move_12x1.png?url';
+import sorcererL2Atk from '../assets/images/CHARACTER MEGAPACK/CHARACTER MEGAPACK/Sorcerer_LVL2/Dash_Full_10x1.png?url';
+import sorcererL3Move from '../assets/images/CHARACTER MEGAPACK/CHARACTER MEGAPACK/Sorcerer_LVL3/Move_12x1.png?url';
+import sorcererL3Atk from '../assets/images/CHARACTER MEGAPACK/CHARACTER MEGAPACK/Sorcerer_LVL3/Dash_Full_16x1.png?url';
+import sorcererL4Move from '../assets/images/CHARACTER MEGAPACK/CHARACTER MEGAPACK/Sorcerer_LVL4/Move_24x1.png?url';
+import sorcererL4Atk from '../assets/images/CHARACTER MEGAPACK/CHARACTER MEGAPACK/Sorcerer_LVL4/Dash_Full_10x1.png?url';
+// Ent LVL2/3/4 (Tenders melee B/D/E branch)
+import entL2Move from '../assets/images/CHARACTER MEGAPACK/CHARACTER MEGAPACK/Ent_LVL2/Move_12x1.png?url';
+import entL2Atk from '../assets/images/CHARACTER MEGAPACK/CHARACTER MEGAPACK/Ent_LVL2/Dash_Full_10x1.png?url';
+import entL3Move from '../assets/images/CHARACTER MEGAPACK/CHARACTER MEGAPACK/Ent_LVL3/Move_18x1.png?url';
+import entL3Atk from '../assets/images/CHARACTER MEGAPACK/CHARACTER MEGAPACK/Ent_LVL3/Dash_Full_8x1.png?url';
+import entL4Move from '../assets/images/CHARACTER MEGAPACK/CHARACTER MEGAPACK/Ent_LVL4/Move_24x1.png?url';
+import entL4Atk from '../assets/images/CHARACTER MEGAPACK/CHARACTER MEGAPACK/Ent_LVL4/Dash_Full_32x1.png?url';
+// Horde color variants: Blue Skinned (02), Red Skinned (03)
+import hordeMeleeBlue from '../assets/images/CHARACTER MEGAPACK/CHARACTER MEGAPACK/Orc_Barbare_02 (Blue Skinned)/Orc_Barbare_02_Move_5x1.png?url';
+import hordeMeleeAtkBlue from '../assets/images/CHARACTER MEGAPACK/CHARACTER MEGAPACK/Orc_Barbare_02 (Blue Skinned)/Orc_Barbare_02_ATK_Full_12x1.png?url';
+import hordeMeleeRed from '../assets/images/CHARACTER MEGAPACK/CHARACTER MEGAPACK/Orc_Barbare_03 (Red Skinned)/Orc_Barbare_03_Move_5x1.png?url';
+import hordeMeleeAtkRed from '../assets/images/CHARACTER MEGAPACK/CHARACTER MEGAPACK/Orc_Barbare_03 (Red Skinned)/Orc_Barbare_03_ATK_Full_12x1.png?url';
+import hordeRangedBlue from '../assets/images/CHARACTER MEGAPACK/CHARACTER MEGAPACK/Orc_Archer_02 (Blue Skinned)/Orc_Archer_02_Move_6x1.png?url';
+import hordeRangedAtkBlue from '../assets/images/CHARACTER MEGAPACK/CHARACTER MEGAPACK/Orc_Archer_02 (Blue Skinned)/Orc_Archer_02_ATK_Full_18x1.png?url';
+import hordeRangedRed from '../assets/images/CHARACTER MEGAPACK/CHARACTER MEGAPACK/Orc_Archer_03 (Red Skinned)/Orc_Archer_03_Move_6x1.png?url';
+import hordeRangedAtkRed from '../assets/images/CHARACTER MEGAPACK/CHARACTER MEGAPACK/Orc_Archer_03 (Red Skinned)/Orc_Archer_03_ATK_Full_18x1.png?url';
+import hordeCasterBlue from '../assets/images/CHARACTER MEGAPACK/CHARACTER MEGAPACK/Goblin_Barrel_02 (Blue Skinned)/Goblin_Barrel_02_Move_10x1.png?url';
+import hordeCasterAtkBlue from '../assets/images/CHARACTER MEGAPACK/CHARACTER MEGAPACK/Goblin_Barrel_02 (Blue Skinned)/Goblin_Barrel_02_ATK_Full_10x1.png?url';
+import hordeCasterRed from '../assets/images/CHARACTER MEGAPACK/CHARACTER MEGAPACK/Goblin_Barrel_03 (Red Skinned)/Goblin_Barrel_03_Move_10x1.png?url';
+import hordeCasterAtkRed from '../assets/images/CHARACTER MEGAPACK/CHARACTER MEGAPACK/Goblin_Barrel_03 (Red Skinned)/Goblin_Barrel_03_ATK_Full_10x1.png?url';
+// Oozlings color variants: Cyan (02), Purple (04), Red (07)
+import oozMeleeCyan from '../assets/images/SLIMES BLOBS TENTACLES/[CHARACTER PACK] SLIMES, BLOBS & TENTACLES/02_CYAN/Slime_Lvl01_Move_5x1.png?url';
+import oozRangedCyan from '../assets/images/SLIMES BLOBS TENTACLES/[CHARACTER PACK] SLIMES, BLOBS & TENTACLES/02_CYAN/Slime_Lvl04_Move_6x1.png?url';
+import oozCasterCyan from '../assets/images/SLIMES BLOBS TENTACLES/[CHARACTER PACK] SLIMES, BLOBS & TENTACLES/02_CYAN/Slime_Lvl06_Move_6x1.png?url';
+import oozMeleePurple from '../assets/images/SLIMES BLOBS TENTACLES/[CHARACTER PACK] SLIMES, BLOBS & TENTACLES/04_PURPLE/Slime_Lvl01_Move_5x1.png?url';
+import oozRangedPurple from '../assets/images/SLIMES BLOBS TENTACLES/[CHARACTER PACK] SLIMES, BLOBS & TENTACLES/04_PURPLE/Slime_Lvl04_Move_6x1.png?url';
+import oozCasterPurple from '../assets/images/SLIMES BLOBS TENTACLES/[CHARACTER PACK] SLIMES, BLOBS & TENTACLES/04_PURPLE/Slime_Lvl06_Move_6x1.png?url';
+
+// ============================================================
 // TERRAIN SPRITES (Tileset, Water, Decorations)
 // ============================================================
 import tilemapColor1 from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Terrain/Tileset/Tilemap_color1.png?url';
@@ -219,16 +283,26 @@ import uiIconMeat from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Fr
 // Arrows (Crown ranged — per team color)
 import arrowBlue from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Units/Blue Units/Archer/Arrow.png?url';
 import arrowRed from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Units/Red Units/Archer/Arrow.png?url';
-// Orbs (OVERBURN 32px short full — 6x5 grid, 288x240, 48x48 per frame)
-import orbYellow from '../assets/images/OVERBURN AssetPack/OVERBURN AssetPack/00 Yellow-Orange FX/FX_Fire00_Orb32px_Short_Full_6x5.png?url';
-import orbBlue from '../assets/images/OVERBURN AssetPack/OVERBURN AssetPack/01 Blue FX/FX_Fire01_Orb32px_Short_Full_6x5.png?url';
-import orbGreen from '../assets/images/OVERBURN AssetPack/OVERBURN AssetPack/02 Green FX/FX_Fire02_Orb32px_Short_Full_6x5.png?url';
-import orbPurple from '../assets/images/OVERBURN AssetPack/OVERBURN AssetPack/03 Purple FX/FX_Fire03_Orb32px_Short_Full_6x5.png?url';
-// Circles (OVERBURN 32px — 8x6 grid, 384x288, 48x48 per frame — for AoE/caster)
-import circleYellow from '../assets/images/OVERBURN AssetPack/OVERBURN AssetPack/00 Yellow-Orange FX/FX_Fire00_Circle32px_8x6.png?url';
-import circleBlue from '../assets/images/OVERBURN AssetPack/OVERBURN AssetPack/01 Blue FX/FX_Fire01_Circle32px_8x6.png?url';
-import circleGreen from '../assets/images/OVERBURN AssetPack/OVERBURN AssetPack/02 Green FX/FX_Fire02_Circle32px_8x6.png?url';
-import circlePurple from '../assets/images/OVERBURN AssetPack/OVERBURN AssetPack/03 Purple FX/FX_Fire03_Circle32px_8x6.png?url';
+// Orbs — small 32px (6x5 grid, 288x240, 48x48/frame) for Goblins & Oozlings
+import orbYellowSm from '../assets/images/OVERBURN AssetPack/OVERBURN AssetPack/00 Yellow-Orange FX/FX_Fire00_Orb32px_Short_Full_6x5.png?url';
+import orbBlueSm from '../assets/images/OVERBURN AssetPack/OVERBURN AssetPack/01 Blue FX/FX_Fire01_Orb32px_Short_Full_6x5.png?url';
+import orbGreenSm from '../assets/images/OVERBURN AssetPack/OVERBURN AssetPack/02 Green FX/FX_Fire02_Orb32px_Short_Full_6x5.png?url';
+import orbPurpleSm from '../assets/images/OVERBURN AssetPack/OVERBURN AssetPack/03 Purple FX/FX_Fire03_Orb32px_Short_Full_6x5.png?url';
+// Orbs — large 48px (6x5 grid, 432x360, 72x72/frame) for most races
+import orbYellowLg from '../assets/images/OVERBURN AssetPack/OVERBURN AssetPack/00 Yellow-Orange FX/FX_Fire00_Orb48px_Short_Full_6x5.png?url';
+import orbBlueLg from '../assets/images/OVERBURN AssetPack/OVERBURN AssetPack/01 Blue FX/FX_Fire01_Orb48px_Short_Full_6x5.png?url';
+import orbGreenLg from '../assets/images/OVERBURN AssetPack/OVERBURN AssetPack/02 Green FX/FX_Fire02_Orb48px_Short_Full_6x5.png?url';
+import orbPurpleLg from '../assets/images/OVERBURN AssetPack/OVERBURN AssetPack/03 Purple FX/FX_Fire03_Orb48px_Short_Full_6x5.png?url';
+// Circles — small 32px (8x6 grid, 384x288, 48x48/frame) for smaller caster projectiles
+import circleYellowSm from '../assets/images/OVERBURN AssetPack/OVERBURN AssetPack/00 Yellow-Orange FX/FX_Fire00_Circle32px_8x6.png?url';
+import circleBlueSm from '../assets/images/OVERBURN AssetPack/OVERBURN AssetPack/01 Blue FX/FX_Fire01_Circle32px_8x6.png?url';
+import circleGreenSm from '../assets/images/OVERBURN AssetPack/OVERBURN AssetPack/02 Green FX/FX_Fire02_Circle32px_8x6.png?url';
+import circlePurpleSm from '../assets/images/OVERBURN AssetPack/OVERBURN AssetPack/03 Purple FX/FX_Fire03_Circle32px_8x6.png?url';
+// Circles — large 64px (8x6 grid, 768x576, 96x96/frame) for dramatic caster AoE
+import circleYellowLg from '../assets/images/OVERBURN AssetPack/OVERBURN AssetPack/00 Yellow-Orange FX/FX_Fire00_Circle64px_8x6.png?url';
+import circleBlueLg from '../assets/images/OVERBURN AssetPack/OVERBURN AssetPack/01 Blue FX/FX_Fire01_Circle64px_8x6.png?url';
+import circleGreenLg from '../assets/images/OVERBURN AssetPack/OVERBURN AssetPack/02 Green FX/FX_Fire02_Circle64px_8x6.png?url';
+import circlePurpleLg from '../assets/images/OVERBURN AssetPack/OVERBURN AssetPack/03 Purple FX/FX_Fire03_Circle64px_8x6.png?url';
 
 // ============================================================
 // VFX SPRITES (OVERBURN + Tiny Swords Particle FX)
@@ -319,8 +393,8 @@ const RACE_UNIT_SPRITES: Record<Race, RaceUnitSprites> = {
   },
   [Race.Horde]: {
     melee:  cmStrip(hordeMelee, 57 * 5, 58, 5),
-    ranged: { ...cmStrip(hordeRanged, 74 * 6, 41, 6), scale: 1.4, heightScale: 0.8 },
-    caster: { ...cmStrip(hordeCaster, 38 * 10, 26, 10), scale: 0.55 },
+    ranged: { ...cmStrip(hordeRanged, 74 * 6, 41, 6), scale: 0.84, heightScale: 0.84 },
+    caster: { ...cmStrip(hordeCaster, 38 * 10, 26, 10), scale: 0.495 },
   },
   [Race.Goblins]: {
     melee:  tsSheet(goblinsMelee, 1536, 256, 0.67),
@@ -328,19 +402,19 @@ const RACE_UNIT_SPRITES: Record<Race, RaceUnitSprites> = {
     caster: tsSheet(goblinsCaster, 768, 192),
   },
   [Race.Oozlings]: {
-    melee:  cmStrip(oozlingsMelee, 30 * 5, 30, 5, 0.93),
-    ranged: cmStrip(oozlingsRanged, 40 * 6, 40, 6, 0.75),
-    caster: cmStrip(oozlingsCaster, 30 * 6, 40, 6, 0.93),
+    melee:  { ...cmStrip(oozlingsMelee, 30 * 5, 30, 5, 0.93), scale: 0.6 },
+    ranged: { ...cmStrip(oozlingsRanged, 40 * 6, 40, 6, 0.75), scale: 0.8 },
+    caster: { ...cmStrip(oozlingsCaster, 30 * 6, 40, 6, 0.93), scale: 0.8 },
   },
   [Race.Demon]: {
     melee:  cmStrip(demonMelee, 78 * 8, 54, 8, 0.76),
-    ranged: { ...cmStrip(demonRanged, 624, 30, 16), scale: 0.85 },
-    caster: cmStrip(demonCaster, 173 * 48, 156, 48, 0.86),
+    ranged: { ...cmStrip(demonRanged, 624, 30, 16), scale: 0.70 },
+    caster: { ...cmStrip(demonCaster, 173 * 48, 156, 48, 0.86), scale: 1.3 },
   },
   [Race.Deep]: {
-    melee:  { ...tsSheet(deepMelee, 2240, 320, 0.65), scale: 1.4 },
+    melee:  { ...tsSheet(deepMelee, 2240, 320, 0.65), scale: 1.68 },
     ranged: tsSheet(deepRanged, 1152, 192),
-    caster: tsSheet(deepCaster, 1152, 192),
+    caster: { ...tsSheet(deepCaster, 1152, 192), scale: 1.1 },
   },
   [Race.Wild]: {
     melee:  tsSheet(wildMelee, 960, 192),
@@ -368,8 +442,8 @@ const RACE_ATK_SPRITES: Record<Race, Partial<RaceUnitSprites>> = {
   },
   [Race.Horde]: {
     melee:  cmStrip(hordeMeleeAtk, 684, 58, 12),
-    ranged: { ...cmStrip(hordeRangedAtk, 1332, 41, 18), scale: 1.4, heightScale: 0.8 },
-    caster: { ...cmStrip(hordeCasterAtk, 380, 26, 10), scale: 0.55 },
+    ranged: { ...cmStrip(hordeRangedAtk, 1332, 41, 18), scale: 0.84, heightScale: 0.84 },
+    caster: { ...cmStrip(hordeCasterAtk, 380, 26, 10), scale: 0.495 },
   },
   [Race.Goblins]: {
     melee:  tsSheet(goblinsMeleeAtk, 2048, 256, 0.67),
@@ -379,13 +453,13 @@ const RACE_ATK_SPRITES: Record<Race, Partial<RaceUnitSprites>> = {
   [Race.Oozlings]: {}, // slimes use same animation for move/attack
   [Race.Demon]: {
     melee:  cmStrip(demonMeleeAtk, 3276, 54, 42, 0.76),
-    ranged: { ...cmStrip(demonRangedAtk, 858, 30, 22), scale: 0.85 },
-    caster: cmStrip(demonCasterAtk, 8304, 156, 48, 0.86),
+    ranged: { ...cmStrip(demonRangedAtk, 858, 30, 22), scale: 0.70 },
+    caster: { ...cmStrip(demonCasterAtk, 8304, 156, 48, 0.86), scale: 1.3 },
   },
   [Race.Deep]: {
-    melee:  { ...tsSheet(deepMeleeAtk, 3200, 320, 0.65), scale: 1.4 },
+    melee:  { ...tsSheet(deepMeleeAtk, 3200, 320, 0.65), scale: 1.68 },
     ranged: tsSheet(deepRangedAtk, 1536, 192),
-    caster: tsSheet(deepCasterAtk, 1152, 192),
+    caster: { ...tsSheet(deepCasterAtk, 1152, 192), scale: 1.1 },
   },
   [Race.Wild]: {
     melee:  tsSheet(wildMeleeAtk, 1536, 192),
@@ -401,6 +475,135 @@ const RACE_ATK_SPRITES: Record<Race, Partial<RaceUnitSprites>> = {
     ranged: tsSheet(tendersRangedAtk, 1344, 192, 0.66),
     caster: tsSheet(tendersCasterAtk, 3328, 256, 0.67),
   },
+};
+
+// ============================================================
+// UPGRADE PATH SPRITE OVERRIDES
+// ============================================================
+// Key format: "race:category:node" — only entries that change art are listed.
+// Missing entries fall back to base RACE_UNIT_SPRITES / RACE_ATK_SPRITES.
+
+function upgradeKey(race: Race, cat: UnitCategory, node: string): string {
+  return `${race}:${cat}:${node}`;
+}
+
+const UPGRADE_MOVE_SPRITES: Record<string, SpriteDef> = {
+  // --- Geists melee: Skull → Mimic branch (C/F/G) ---
+  [upgradeKey(Race.Geists, 'melee', 'C')]: cmStrip(mimicL1Move, 602, 32, 14),
+  [upgradeKey(Race.Geists, 'melee', 'F')]: cmStrip(mimicL2Move, 696, 38, 24),
+  [upgradeKey(Race.Geists, 'melee', 'G')]: cmStrip(mimicL4Move, 1200, 69, 16),
+  // --- Crown ranged: Archer → Dwarfette branch (C/F/G) ---
+  [upgradeKey(Race.Crown, 'ranged', 'C')]: cmStrip(dwarfetteL1Move, 368, 36, 8, 0.72),
+  [upgradeKey(Race.Crown, 'ranged', 'F')]: cmStrip(dwarfetteL2Move, 530, 35, 10, 0.89),
+  [upgradeKey(Race.Crown, 'ranged', 'G')]: cmStrip(dwarfetteL4Move, 1876, 52, 28, 0.94),
+  // --- Horde: Orc color variants (B=Blue, C=Red for melee/ranged/caster) ---
+  [upgradeKey(Race.Horde, 'melee', 'B')]: cmStrip(hordeMeleeBlue, 57 * 5, 58, 5),
+  [upgradeKey(Race.Horde, 'melee', 'C')]: cmStrip(hordeMeleeRed, 57 * 5, 58, 5),
+  [upgradeKey(Race.Horde, 'melee', 'D')]: cmStrip(hordeMeleeBlue, 57 * 5, 58, 5),
+  [upgradeKey(Race.Horde, 'melee', 'E')]: cmStrip(hordeMeleeBlue, 57 * 5, 58, 5),
+  [upgradeKey(Race.Horde, 'melee', 'F')]: cmStrip(hordeMeleeRed, 57 * 5, 58, 5),
+  [upgradeKey(Race.Horde, 'melee', 'G')]: cmStrip(hordeMeleeRed, 57 * 5, 58, 5),
+  [upgradeKey(Race.Horde, 'ranged', 'B')]: { ...cmStrip(hordeRangedBlue, 74 * 6, 41, 6), scale: 0.84, heightScale: 0.84 },
+  [upgradeKey(Race.Horde, 'ranged', 'C')]: { ...cmStrip(hordeRangedRed, 74 * 6, 41, 6), scale: 0.84, heightScale: 0.84 },
+  [upgradeKey(Race.Horde, 'ranged', 'D')]: { ...cmStrip(hordeRangedBlue, 74 * 6, 41, 6), scale: 0.84, heightScale: 0.84 },
+  [upgradeKey(Race.Horde, 'ranged', 'E')]: { ...cmStrip(hordeRangedBlue, 74 * 6, 41, 6), scale: 0.84, heightScale: 0.84 },
+  [upgradeKey(Race.Horde, 'ranged', 'F')]: { ...cmStrip(hordeRangedRed, 74 * 6, 41, 6), scale: 0.84, heightScale: 0.84 },
+  [upgradeKey(Race.Horde, 'ranged', 'G')]: { ...cmStrip(hordeRangedRed, 74 * 6, 41, 6), scale: 0.84, heightScale: 0.84 },
+  [upgradeKey(Race.Horde, 'caster', 'B')]: { ...cmStrip(hordeCasterBlue, 38 * 10, 26, 10), scale: 0.495 },
+  [upgradeKey(Race.Horde, 'caster', 'C')]: { ...cmStrip(hordeCasterRed, 38 * 10, 26, 10), scale: 0.495 },
+  [upgradeKey(Race.Horde, 'caster', 'D')]: { ...cmStrip(hordeCasterBlue, 38 * 10, 26, 10), scale: 0.495 },
+  [upgradeKey(Race.Horde, 'caster', 'E')]: { ...cmStrip(hordeCasterBlue, 38 * 10, 26, 10), scale: 0.495 },
+  [upgradeKey(Race.Horde, 'caster', 'F')]: { ...cmStrip(hordeCasterRed, 38 * 10, 26, 10), scale: 0.495 },
+  [upgradeKey(Race.Horde, 'caster', 'G')]: { ...cmStrip(hordeCasterRed, 38 * 10, 26, 10), scale: 0.495 },
+  // --- Oozlings: Slime color variants (B=Cyan, C=Purple for melee/ranged/caster, tier2 inherits) ---
+  [upgradeKey(Race.Oozlings, 'melee', 'B')]: { ...cmStrip(oozMeleeCyan, 30 * 5, 30, 5, 0.93), scale: 0.6 },
+  [upgradeKey(Race.Oozlings, 'melee', 'C')]: { ...cmStrip(oozMeleePurple, 30 * 5, 30, 5, 0.93), scale: 0.6 },
+  [upgradeKey(Race.Oozlings, 'melee', 'D')]: { ...cmStrip(oozMeleeCyan, 30 * 5, 30, 5, 0.93), scale: 0.6 },
+  [upgradeKey(Race.Oozlings, 'melee', 'E')]: { ...cmStrip(oozMeleeCyan, 30 * 5, 30, 5, 0.93), scale: 0.6 },
+  [upgradeKey(Race.Oozlings, 'melee', 'F')]: { ...cmStrip(oozMeleePurple, 30 * 5, 30, 5, 0.93), scale: 0.6 },
+  [upgradeKey(Race.Oozlings, 'melee', 'G')]: { ...cmStrip(oozMeleePurple, 30 * 5, 30, 5, 0.93), scale: 0.6 },
+  [upgradeKey(Race.Oozlings, 'ranged', 'B')]: { ...cmStrip(oozRangedCyan, 40 * 6, 40, 6, 0.75), scale: 0.8 },
+  [upgradeKey(Race.Oozlings, 'ranged', 'C')]: { ...cmStrip(oozRangedPurple, 40 * 6, 40, 6, 0.75), scale: 0.8 },
+  [upgradeKey(Race.Oozlings, 'ranged', 'D')]: { ...cmStrip(oozRangedCyan, 40 * 6, 40, 6, 0.75), scale: 0.8 },
+  [upgradeKey(Race.Oozlings, 'ranged', 'E')]: { ...cmStrip(oozRangedCyan, 40 * 6, 40, 6, 0.75), scale: 0.8 },
+  [upgradeKey(Race.Oozlings, 'ranged', 'F')]: { ...cmStrip(oozRangedPurple, 40 * 6, 40, 6, 0.75), scale: 0.8 },
+  [upgradeKey(Race.Oozlings, 'ranged', 'G')]: { ...cmStrip(oozRangedPurple, 40 * 6, 40, 6, 0.75), scale: 0.8 },
+  [upgradeKey(Race.Oozlings, 'caster', 'B')]: { ...cmStrip(oozCasterCyan, 30 * 6, 40, 6, 0.93), scale: 0.8 },
+  [upgradeKey(Race.Oozlings, 'caster', 'C')]: { ...cmStrip(oozCasterPurple, 30 * 6, 40, 6, 0.93), scale: 0.8 },
+  [upgradeKey(Race.Oozlings, 'caster', 'D')]: { ...cmStrip(oozCasterCyan, 30 * 6, 40, 6, 0.93), scale: 0.8 },
+  [upgradeKey(Race.Oozlings, 'caster', 'E')]: { ...cmStrip(oozCasterCyan, 30 * 6, 40, 6, 0.93), scale: 0.8 },
+  [upgradeKey(Race.Oozlings, 'caster', 'F')]: { ...cmStrip(oozCasterPurple, 30 * 6, 40, 6, 0.93), scale: 0.8 },
+  [upgradeKey(Race.Oozlings, 'caster', 'G')]: { ...cmStrip(oozCasterPurple, 30 * 6, 40, 6, 0.93), scale: 0.8 },
+  // --- Wild melee: Spider → Minotaur branch (C/F/G) ---
+  [upgradeKey(Race.Wild, 'melee', 'C')]: tsSheet(minotaurWalk, 2560, 320),
+  [upgradeKey(Race.Wild, 'melee', 'F')]: tsSheet(minotaurWalk, 2560, 320),
+  [upgradeKey(Race.Wild, 'melee', 'G')]: tsSheet(minotaurWalk, 2560, 320),
+  // --- Deep melee: Turtle → Frog branch (C=FrogMonster, F/G=FrogBoss) ---
+  [upgradeKey(Race.Deep, 'melee', 'C')]: cmStrip(frogMonsterMove, 1056, 48, 22),
+  [upgradeKey(Race.Deep, 'melee', 'F')]: cmStrip(frogBossMove, 2552, 97, 22),
+  [upgradeKey(Race.Deep, 'melee', 'G')]: cmStrip(frogBossMove, 2552, 97, 22),
+  // --- Tenders caster: Panda → Mushroom branch (C/F/G) ---
+  [upgradeKey(Race.Tenders, 'caster', 'C')]: cmStrip(mushroomMove, 800, 31, 20),
+  [upgradeKey(Race.Tenders, 'caster', 'F')]: cmStrip(mushroomMove, 800, 31, 20),
+  [upgradeKey(Race.Tenders, 'caster', 'G')]: cmStrip(mushroomMove, 800, 31, 20),
+  // --- Geists caster: Sorcerer LVL1 → LVL2/3/4 branch (C/F/G) ---
+  [upgradeKey(Race.Geists, 'caster', 'C')]: cmStrip(sorcererL2Move, 456, 28, 12, 0.69),
+  [upgradeKey(Race.Geists, 'caster', 'F')]: cmStrip(sorcererL3Move, 624, 44, 12, 0.69),
+  [upgradeKey(Race.Geists, 'caster', 'G')]: cmStrip(sorcererL4Move, 1488, 59, 24, 0.69),
+  // --- Tenders melee: Ent LVL1 → LVL2/3/4 branch (B/D/E) ---
+  [upgradeKey(Race.Tenders, 'melee', 'B')]: cmStrip(entL2Move, 828, 45, 12, 0.94),
+  [upgradeKey(Race.Tenders, 'melee', 'D')]: cmStrip(entL3Move, 1548, 56, 18, 0.94),
+  [upgradeKey(Race.Tenders, 'melee', 'E')]: cmStrip(entL4Move, 1416, 70, 24, 0.94),
+};
+
+const UPGRADE_ATK_SPRITES: Record<string, SpriteDef> = {
+  // --- Geists melee: Mimic dash attacks ---
+  [upgradeKey(Race.Geists, 'melee', 'C')]: cmStrip(mimicL1Atk, 602, 32, 14),
+  [upgradeKey(Race.Geists, 'melee', 'F')]: cmStrip(mimicL2Atk, 290, 38, 10),
+  [upgradeKey(Race.Geists, 'melee', 'G')]: cmStrip(mimicL4Atk, 1050, 69, 14),
+  // --- Crown ranged: Dwarfette dash attacks ---
+  [upgradeKey(Race.Crown, 'ranged', 'C')]: cmStrip(dwarfetteL1Atk, 368, 36, 8, 0.72),
+  [upgradeKey(Race.Crown, 'ranged', 'F')]: cmStrip(dwarfetteL2Atk, 742, 35, 14, 0.89),
+  [upgradeKey(Race.Crown, 'ranged', 'G')]: cmStrip(dwarfetteL4Atk, 1072, 52, 16, 0.94),
+  // --- Horde: Orc color variant attacks ---
+  [upgradeKey(Race.Horde, 'melee', 'B')]: cmStrip(hordeMeleeAtkBlue, 684, 58, 12),
+  [upgradeKey(Race.Horde, 'melee', 'C')]: cmStrip(hordeMeleeAtkRed, 684, 58, 12),
+  [upgradeKey(Race.Horde, 'melee', 'D')]: cmStrip(hordeMeleeAtkBlue, 684, 58, 12),
+  [upgradeKey(Race.Horde, 'melee', 'E')]: cmStrip(hordeMeleeAtkBlue, 684, 58, 12),
+  [upgradeKey(Race.Horde, 'melee', 'F')]: cmStrip(hordeMeleeAtkRed, 684, 58, 12),
+  [upgradeKey(Race.Horde, 'melee', 'G')]: cmStrip(hordeMeleeAtkRed, 684, 58, 12),
+  [upgradeKey(Race.Horde, 'ranged', 'B')]: { ...cmStrip(hordeRangedAtkBlue, 1332, 41, 18), scale: 0.84, heightScale: 0.84 },
+  [upgradeKey(Race.Horde, 'ranged', 'C')]: { ...cmStrip(hordeRangedAtkRed, 1332, 41, 18), scale: 0.84, heightScale: 0.84 },
+  [upgradeKey(Race.Horde, 'ranged', 'D')]: { ...cmStrip(hordeRangedAtkBlue, 1332, 41, 18), scale: 0.84, heightScale: 0.84 },
+  [upgradeKey(Race.Horde, 'ranged', 'E')]: { ...cmStrip(hordeRangedAtkBlue, 1332, 41, 18), scale: 0.84, heightScale: 0.84 },
+  [upgradeKey(Race.Horde, 'ranged', 'F')]: { ...cmStrip(hordeRangedAtkRed, 1332, 41, 18), scale: 0.84, heightScale: 0.84 },
+  [upgradeKey(Race.Horde, 'ranged', 'G')]: { ...cmStrip(hordeRangedAtkRed, 1332, 41, 18), scale: 0.84, heightScale: 0.84 },
+  [upgradeKey(Race.Horde, 'caster', 'B')]: { ...cmStrip(hordeCasterAtkBlue, 380, 26, 10), scale: 0.495 },
+  [upgradeKey(Race.Horde, 'caster', 'C')]: { ...cmStrip(hordeCasterAtkRed, 380, 26, 10), scale: 0.495 },
+  [upgradeKey(Race.Horde, 'caster', 'D')]: { ...cmStrip(hordeCasterAtkBlue, 380, 26, 10), scale: 0.495 },
+  [upgradeKey(Race.Horde, 'caster', 'E')]: { ...cmStrip(hordeCasterAtkBlue, 380, 26, 10), scale: 0.495 },
+  [upgradeKey(Race.Horde, 'caster', 'F')]: { ...cmStrip(hordeCasterAtkRed, 380, 26, 10), scale: 0.495 },
+  [upgradeKey(Race.Horde, 'caster', 'G')]: { ...cmStrip(hordeCasterAtkRed, 380, 26, 10), scale: 0.495 },
+  // --- Wild melee: Minotaur cleave attack ---
+  [upgradeKey(Race.Wild, 'melee', 'C')]: tsSheet(minotaurAttack, 3840, 320),
+  [upgradeKey(Race.Wild, 'melee', 'F')]: tsSheet(minotaurAttack, 3840, 320),
+  [upgradeKey(Race.Wild, 'melee', 'G')]: tsSheet(minotaurAttack, 3840, 320),
+  // --- Deep melee: Frog jump attacks ---
+  [upgradeKey(Race.Deep, 'melee', 'C')]: cmStrip(frogMonsterAtk, 672, 48, 14),
+  [upgradeKey(Race.Deep, 'melee', 'F')]: cmStrip(frogBossAtk, 2552, 138, 22, 0.90),
+  [upgradeKey(Race.Deep, 'melee', 'G')]: cmStrip(frogBossAtk, 2552, 138, 22, 0.90),
+  // --- Tenders caster: Mushroom spell loop ---
+  [upgradeKey(Race.Tenders, 'caster', 'C')]: cmStrip(mushroomAtk, 714, 40, 14),
+  [upgradeKey(Race.Tenders, 'caster', 'F')]: cmStrip(mushroomAtk, 714, 40, 14),
+  [upgradeKey(Race.Tenders, 'caster', 'G')]: cmStrip(mushroomAtk, 714, 40, 14),
+  // --- Geists caster: Sorcerer dash attacks ---
+  [upgradeKey(Race.Geists, 'caster', 'C')]: cmStrip(sorcererL2Atk, 380, 28, 10, 0.69),
+  [upgradeKey(Race.Geists, 'caster', 'F')]: cmStrip(sorcererL3Atk, 832, 44, 16, 0.69),
+  [upgradeKey(Race.Geists, 'caster', 'G')]: cmStrip(sorcererL4Atk, 620, 59, 10, 0.69),
+  // --- Tenders melee: Ent dash attacks ---
+  [upgradeKey(Race.Tenders, 'melee', 'B')]: cmStrip(entL2Atk, 690, 45, 10, 0.94),
+  [upgradeKey(Race.Tenders, 'melee', 'D')]: cmStrip(entL3Atk, 688, 56, 8, 0.94),
+  [upgradeKey(Race.Tenders, 'melee', 'E')]: cmStrip(entL4Atk, 1888, 70, 32, 0.94),
 };
 
 // Harvester (Pawn) — player colored, state-based animations
@@ -527,35 +730,57 @@ const ARROW_SPRITES: { [team: number]: SpriteDef } = {
   1: singleFrame(arrowRed, 64, 64),    // Team.Top (Red/Yellow)
 };
 
-// Orbs: 6x5 grid (288x240, 48x48/frame, 30 frames) — for ranged projectiles
-const ORB_SPRITES = {
-  yellow: gridSheet(orbYellow, 288, 240, 6, 5),
-  blue:   gridSheet(orbBlue, 288, 240, 6, 5),
-  green:  gridSheet(orbGreen, 288, 240, 6, 5),
-  purple: gridSheet(orbPurple, 288, 240, 6, 5),
+// Orbs — small 32px: 6x5 grid (288x240, 48x48/frame, 30 frames)
+const ORB_SM = {
+  yellow: gridSheet(orbYellowSm, 288, 240, 6, 5),
+  blue:   gridSheet(orbBlueSm, 288, 240, 6, 5),
+  green:  gridSheet(orbGreenSm, 288, 240, 6, 5),
+  purple: gridSheet(orbPurpleSm, 288, 240, 6, 5),
 };
 
-// Circles: 8x6 grid (384x288, 48x48/frame, 48 frames) — for caster AoE projectiles
-const CIRCLE_SPRITES = {
-  yellow: gridSheet(circleYellow, 384, 288, 8, 6),
-  blue:   gridSheet(circleBlue, 384, 288, 8, 6),
-  green:  gridSheet(circleGreen, 384, 288, 8, 6),
-  purple: gridSheet(circlePurple, 384, 288, 8, 6),
+// Orbs — large 48px: 6x5 grid (432x360, 72x72/frame, 30 frames)
+const ORB_LG = {
+  yellow: gridSheet(orbYellowLg, 432, 360, 6, 5),
+  blue:   gridSheet(orbBlueLg, 432, 360, 6, 5),
+  green:  gridSheet(orbGreenLg, 432, 360, 6, 5),
+  purple: gridSheet(orbPurpleLg, 432, 360, 6, 5),
+};
+
+// Circles — small 32px: 8x6 grid (384x288, 48x48/frame, 48 frames)
+const CIRCLE_SM = {
+  yellow: gridSheet(circleYellowSm, 384, 288, 8, 6),
+  blue:   gridSheet(circleBlueSm, 384, 288, 8, 6),
+  green:  gridSheet(circleGreenSm, 384, 288, 8, 6),
+  purple: gridSheet(circlePurpleSm, 384, 288, 8, 6),
+};
+
+// Circles — large 64px: 8x6 grid (768x576, 96x96/frame, 48 frames)
+const CIRCLE_LG = {
+  yellow: gridSheet(circleYellowLg, 768, 576, 8, 6),
+  blue:   gridSheet(circleBlueLg, 768, 576, 8, 6),
+  green:  gridSheet(circleGreenLg, 768, 576, 8, 6),
+  purple: gridSheet(circlePurpleLg, 768, 576, 8, 6),
 };
 
 type OrbColor = 'yellow' | 'blue' | 'green' | 'purple';
 
-// Race → orb color mapping for projectiles
-const RACE_ORB_COLOR: Record<Race, OrbColor> = {
-  [Race.Crown]:    'blue',
-  [Race.Horde]:    'yellow',
-  [Race.Goblins]:  'green',
-  [Race.Oozlings]: 'purple',
-  [Race.Demon]:    'yellow',
-  [Race.Deep]:     'blue',
-  [Race.Wild]:     'green',
-  [Race.Geists]:   'purple',
-  [Race.Tenders]:  'green',
+// Per-race projectile config: color + size variant
+interface RaceProjectileConfig {
+  color: OrbColor;
+  orbSize: 'sm' | 'lg';     // 32px vs 48px orbs
+  circleSize: 'sm' | 'lg';  // 32px vs 64px circles
+}
+
+const RACE_PROJECTILE: Record<Race, RaceProjectileConfig> = {
+  [Race.Crown]:    { color: 'blue',   orbSize: 'lg', circleSize: 'lg' },
+  [Race.Horde]:    { color: 'yellow', orbSize: 'lg', circleSize: 'lg' },
+  [Race.Goblins]:  { color: 'green',  orbSize: 'sm', circleSize: 'sm' },  // small units → small projectiles
+  [Race.Oozlings]: { color: 'purple', orbSize: 'sm', circleSize: 'sm' },  // swarm units → small projectiles
+  [Race.Demon]:    { color: 'yellow', orbSize: 'lg', circleSize: 'lg' },
+  [Race.Deep]:     { color: 'blue',   orbSize: 'lg', circleSize: 'lg' },
+  [Race.Wild]:     { color: 'green',  orbSize: 'lg', circleSize: 'lg' },
+  [Race.Geists]:   { color: 'purple', orbSize: 'lg', circleSize: 'lg' },
+  [Race.Tenders]:  { color: 'green',  orbSize: 'lg', circleSize: 'lg' },
 };
 
 // ============================================================
@@ -599,8 +824,27 @@ export class SpriteLoader {
 
   // --- Units ---
 
-  /** Returns [image, spriteDef] or null if not loaded yet */
-  getUnitSprite(race: Race, category: UnitCategory, playerId: number, attacking = false): [HTMLImageElement, SpriteDef] | null {
+  /** Returns [image, spriteDef] or null if not loaded yet.
+   *  upgradeNode: optional upgrade node key (e.g. 'C', 'F', 'G') to use upgrade-path art */
+  getUnitSprite(race: Race, category: UnitCategory, playerId: number, attacking = false, upgradeNode?: string): [HTMLImageElement, SpriteDef] | null {
+    // Check upgrade-path sprites first
+    if (upgradeNode) {
+      const key = upgradeKey(race, category, upgradeNode);
+      if (attacking) {
+        const atkDef = UPGRADE_ATK_SPRITES[key];
+        if (atkDef) {
+          const atkImg = this.loadImage(atkDef.url);
+          if (atkImg) return [atkImg, atkDef];
+        }
+      }
+      const moveDef = UPGRADE_MOVE_SPRITES[key];
+      if (moveDef) {
+        const moveImg = this.loadImage(moveDef.url);
+        if (moveImg) return [moveImg, moveDef];
+      }
+      // Fall through to base sprites if upgrade sprite not found
+    }
+
     // Try attack sprite first if attacking
     if (attacking) {
       const atkSprites = RACE_ATK_SPRITES[race];
@@ -676,18 +920,18 @@ export class SpriteLoader {
     return img ? [img, def] : null;
   }
 
-  /** Get orb sprite for a race's ranged projectiles */
+  /** Get orb sprite for a race's ranged projectiles (size based on race) */
   getOrbSprite(race: Race): [HTMLImageElement, GridSpriteDef] | null {
-    const color = RACE_ORB_COLOR[race];
-    const def = ORB_SPRITES[color];
+    const cfg = RACE_PROJECTILE[race];
+    const def = cfg.orbSize === 'lg' ? ORB_LG[cfg.color] : ORB_SM[cfg.color];
     const img = this.loadImage(def.url);
     return img ? [img, def] : null;
   }
 
-  /** Get circle sprite for a race's caster AoE projectiles */
+  /** Get circle sprite for a race's caster AoE projectiles (size based on race) */
   getCircleSprite(race: Race): [HTMLImageElement, GridSpriteDef] | null {
-    const color = RACE_ORB_COLOR[race];
-    const def = CIRCLE_SPRITES[color];
+    const cfg = RACE_PROJECTILE[race];
+    const def = cfg.circleSize === 'lg' ? CIRCLE_LG[cfg.color] : CIRCLE_SM[cfg.color];
     const img = this.loadImage(def.url);
     return img ? [img, def] : null;
   }
@@ -702,7 +946,8 @@ export class SpriteLoader {
 
   // --- Preload all sprites ---
 
-  preloadAll(): void {
+  /** Kick off loading all sprites. Returns a promise that resolves when every image is ready. */
+  preloadAll(): Promise<void> {
     const urls = new Set<string>();
 
     // Unit sprites (all races, all categories, all player variants)
@@ -727,6 +972,10 @@ export class SpriteLoader {
       }
     }
 
+    // Upgrade path sprites
+    for (const def of Object.values(UPGRADE_MOVE_SPRITES)) urls.add(def.url);
+    for (const def of Object.values(UPGRADE_ATK_SPRITES)) urls.add(def.url);
+
     // Harvester sprites (all players, all states)
     for (const set of Object.values(HARVESTER_SPRITES)) {
       for (const def of Object.values(set)) urls.add(def.url);
@@ -746,11 +995,32 @@ export class SpriteLoader {
 
     // Projectile sprites
     for (const def of Object.values(ARROW_SPRITES)) urls.add(def.url);
-    for (const def of Object.values(ORB_SPRITES)) urls.add(def.url);
-    for (const def of Object.values(CIRCLE_SPRITES)) urls.add(def.url);
+    for (const def of Object.values(ORB_SM)) urls.add(def.url);
+    for (const def of Object.values(ORB_LG)) urls.add(def.url);
+    for (const def of Object.values(CIRCLE_SM)) urls.add(def.url);
+    for (const def of Object.values(CIRCLE_LG)) urls.add(def.url);
 
-    // Kick off loading for all URLs
-    for (const url of urls) this.loadImage(url);
+    // Kick off loading for all URLs and collect promises
+    const promises: Promise<void>[] = [];
+    for (const url of urls) {
+      if (this.cache.has(url)) continue;
+      promises.push(new Promise<void>((resolve) => {
+        if (this.loading.has(url)) {
+          const check = () => {
+            if (this.cache.has(url) || !this.loading.has(url)) resolve();
+            else setTimeout(check, 16);
+          };
+          check();
+          return;
+        }
+        this.loading.add(url);
+        const img = new Image();
+        img.src = url;
+        img.onload = () => { this.cache.set(url, img); this.loading.delete(url); resolve(); };
+        img.onerror = () => { this.loading.delete(url); resolve(); };
+      }));
+    }
+    return Promise.all(promises).then(() => {});
   }
 }
 

@@ -17,7 +17,7 @@ import { RACE_COLORS, TOWER_STATS, PLAYER_COLORS } from '../simulation/data';
 import {
   getDayNight, DayNightState,
   ScreenShake, WeatherSystem, AmbientParticles,
-  ProjectileTrails, ConstructionAnims, HitFlashTracker, triggerHaptic,
+  ProjectileTrails, ConstructionAnims, HitFlashTracker, CombatVFX, triggerHaptic,
 } from './VisualEffects';
 
 const T = TILE_SIZE;
@@ -51,6 +51,8 @@ export class Renderer {
   camera: Camera;
   sprites: SpriteLoader;
   ui: UIAssets;
+  /** Which player slot the local user controls (0 = host/solo, 1 = guest). */
+  localPlayerId = 0;
   private terrainCache: HTMLCanvasElement | null = null;
   private waterCache: HTMLCanvasElement | null = null;
   private terrainReady = false;
@@ -59,10 +61,10 @@ export class Renderer {
   private prevX = new Map<number, number>();
   private facing = new Map<number, boolean>(); // true = face left
   // Death effects: client-side animated sprites at death locations
-  private deathEffects: { x: number; y: number; frame: number; maxFrames: number; size: number; type: 'dust' | 'explosion' }[] = [];
+  private deathEffects: { x: number; y: number; frame: number; maxFrames: number; size: number; type: 'dust' | 'explosion' | 'race_burst'; race?: Race }[] = [];
   // Track unit/building IDs from last frame to detect removals
   private lastUnitIds = new Set<number>();
-  private lastUnitPositions = new Map<number, { x: number; y: number; team: number }>();
+  private lastUnitPositions = new Map<number, { x: number; y: number; team: number; race?: Race }>();
   private lastBuildingIds = new Set<number>();
   private lastBuildingPositions = new Map<number, { x: number; y: number; hpPct: number }>();
 
@@ -74,6 +76,8 @@ export class Renderer {
   private projectileTrails = new ProjectileTrails();
   private constructionAnims = new ConstructionAnims();
   private hitFlash = new HitFlashTracker();
+  private combatVfx = new CombatVFX();
+  private lastConsumedTick = -1;
   private unitHpTracker = new Map<number, number>();
   private matchStartTime = Date.now();
   private lastFrameTime = Date.now();
@@ -83,6 +87,8 @@ export class Renderer {
   private smoothHp = new Map<number, number>();
   // Track previous nuke effect count to detect new nukes
   private lastNukeCount = 0;
+  // Track previous HQ HP values to detect destruction
+  private lastHqHp: [number, number] = [-1, -1];
 
   constructor(canvas: HTMLCanvasElement, ui?: UIAssets) {
     this.canvas = canvas;
@@ -112,7 +118,7 @@ export class Renderer {
     return this.facing.get(id) ?? defaultLeft;
   }
 
-  render(state: GameState): void {
+  render(state: GameState, networkLatencyMs?: number, desyncDetected?: boolean, peerDisconnected?: boolean, waitingForAllyMs?: number): void {
     const now = Date.now();
     const dt = Math.min((now - this.lastFrameTime) / 1000, 0.1);
     this.lastFrameTime = now;
@@ -130,6 +136,11 @@ export class Renderer {
     this.screenShake.update(dt);
     this.weather.update(dt, elapsedSec, this.dayNight.phase);
     this.projectileTrails.update(dt);
+    if (state.tick !== this.lastConsumedTick) {
+      this.combatVfx.consume(state.combatEvents);
+      this.lastConsumedTick = state.tick;
+    }
+    this.combatVfx.update(dt);
 
     // Detect nuke detonation for screen shake + haptic
     if (state.nukeEffects.length > this.lastNukeCount) {
@@ -137,6 +148,17 @@ export class Renderer {
       triggerHaptic(200, 1.0);
     }
     this.lastNukeCount = state.nukeEffects.length;
+
+    // Screen shake on HQ destroyed
+    if (this.lastHqHp[0] >= 0) {
+      for (let t = 0; t < 2; t++) {
+        if (this.lastHqHp[t] > 0 && state.hqHp[t] <= 0) {
+          this.screenShake.trigger(12, 1.0);
+          triggerHaptic(300, 1.0);
+        }
+      }
+    }
+    this.lastHqHp = [state.hqHp[0], state.hqHp[1]];
 
     // Gather combat zones for ambient particles
     const combatZones: { x: number; y: number }[] = [];
@@ -182,7 +204,9 @@ export class Renderer {
     this.drawDiamondObjective(ctx, state);
     this.drawNukeTelegraphs(ctx, state);
     this.drawPings(ctx, state);
+    this.drawTowerAttackLines(ctx, state);
     this.projectileTrails.draw(ctx);
+    this.combatVfx.draw(ctx);
     this.drawParticles(ctx, state);
     this.ambientParticles.draw(ctx);
     this.drawDeathEffects(ctx);
@@ -205,7 +229,7 @@ export class Renderer {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     // Weather screen overlay
     this.weather.drawOverlay(ctx, this.canvas.width, this.canvas.height);
-    this.drawHUD(ctx, state);
+    this.drawHUD(ctx, state, networkLatencyMs, desyncDetected, peerDisconnected, waitingForAllyMs);
     this.drawQuickChats(ctx, state);
     this.drawMinimap(ctx, state);
   }
@@ -905,7 +929,8 @@ export class Renderer {
     const px = pos.x * T, py = pos.y * T;
     const w = HQ_WIDTH * T, h = HQ_HEIGHT * T;
 
-    const hqPlayerId = team === Team.Bottom ? 0 : 2;
+    // Map team to a player on that team for sprite lookup
+    const hqPlayerId = state.players.find(p => p.team === team)?.id ?? (team === Team.Bottom ? 0 : 2);
     const sprite = this.sprites.getHQSprite(hqPlayerId);
     if (sprite) {
       const drawW = w + T * 2;
@@ -979,18 +1004,17 @@ export class Renderer {
         const drawX = px - drawW / 2;
         const drawY = py + half - drawH + 2; // anchor bottom to tile bottom
 
-        // Building shadow (day/night responsive)
+        // Building shadow (day/night responsive) — anchored at building base
         const bShadowLen = this.dayNight.shadowLength;
-        const bShadowX = Math.cos(this.dayNight.shadowAngle) * bShadowLen * 4;
-        const bShadowY = 2 + bShadowLen;
+        const bShadowX = Math.cos(this.dayNight.shadowAngle) * bShadowLen * 3;
         ctx.fillStyle = `rgba(0,0,0,${this.dayNight.brightness * 0.15})`;
         ctx.beginPath();
-        ctx.ellipse(px + bShadowX, py + half + bShadowY, drawW * 0.4, drawH * 0.08, 0, 0, Math.PI * 2);
+        ctx.ellipse(px + bShadowX, py + half + 1, drawW * 0.4, drawW * 0.1, 0, 0, Math.PI * 2);
         ctx.fill();
 
         ctx.drawImage(sprite, drawX, drawY, drawW, drawH);
 
-        // Tower range indicator
+        // Tower: range indicator + ranged unit sprite on top
         if (b.type === BuildingType.Tower) {
           const towerStats = TOWER_STATS[player.race];
           const towerUpgrade = getUnitUpgradeMultipliers(b.upgradePath, player.race, BuildingType.Tower);
@@ -1001,6 +1025,36 @@ export class Renderer {
           ctx.strokeStyle = `${rc.primary}33`;
           ctx.lineWidth = 1;
           ctx.stroke();
+
+          // Draw race's ranged unit on top of tower for identification
+          // Show attack animation while tower is on cooldown (just fired), idle otherwise
+          const towerFiring = b.actionTimer > 0;
+          const unitData = this.sprites.getUnitSprite(player.race, 'ranged', b.playerId, towerFiring);
+          if (unitData) {
+            const [unitImg, unitDef] = unitData;
+            const spriteScale = unitDef.scale ?? 1.0;
+            const unitSize = T * 1.5 * spriteScale;
+            const aspect = unitDef.frameW / unitDef.frameH;
+            const uW = unitSize * aspect;
+            const uH = unitSize * (unitDef.heightScale ?? 1.0);
+            const gY = unitDef.groundY ?? 0.71;
+            // Position unit's feet at ~40% down the tower sprite
+            const feetY = drawY + drawH * 0.4;
+            const unitX = px - uW / 2;
+            const unitY = feetY - uH * gY;
+            let frame: number;
+            if (towerFiring) {
+              // Play attack animation once through during cooldown
+              const cooldownTotal = Math.round(towerStats.attackSpeed * 20); // ticks
+              const elapsed = cooldownTotal - b.actionTimer;
+              const atkProgress = Math.min(1, elapsed / Math.max(1, unitDef.cols));
+              frame = Math.min(Math.floor(atkProgress * unitDef.cols), unitDef.cols - 1);
+            } else {
+              // Idle: hold frame 0
+              frame = 0;
+            }
+            drawSpriteFrame(ctx, unitImg, unitDef, frame, unitX, unitY, uW, uH);
+          }
         }
 
         // Harvester hut assignment icon overlay
@@ -1144,14 +1198,35 @@ export class Renderer {
   // === Projectiles ===
 
   private drawOneProjectile(ctx: CanvasRenderingContext2D, state: GameState, p: ProjectileState): void {
-    const px = p.x * T + T / 2, py = p.y * T + T / 2;
     const isBottom = p.team === Team.Bottom;
     const teamIdx = isBottom ? 0 : 1;
     const race = state.players[p.sourcePlayerId]?.race;
 
-    // Determine projectile type: caster AoE (speed 10), tower (speed 12), ranged (speed 15)
+    // Calculate Y offset based on source unit's sprite to fire from visual center
+    let pyOffset = T * 0.45; // default fallback
+    if (race && p.sourceUnitId != null) {
+      const srcUnit = state.units.find(u => u.id === p.sourceUnitId);
+      const cat = srcUnit?.category;
+      if (cat) {
+        const sprData = this.sprites.getUnitSprite(race, cat, p.sourcePlayerId, false, srcUnit?.upgradeNode);
+        if (sprData) {
+          const [, def] = sprData;
+          const scale = def.scale ?? 1.0;
+          const tier = srcUnit?.upgradeTier ?? 0;
+          const tierScale = 1.0 + tier * 0.15;
+          const drawH = T * 1.82 * scale * tierScale * (def.heightScale ?? 1.0);
+          const groundY = def.groundY ?? 0.71;
+          // feetY = T * 0.70, sprite top = feetY - drawH * groundY
+          // visual center = sprite top + drawH / 2 = feetY - drawH * groundY + drawH / 2
+          pyOffset = T * 0.70 - drawH * groundY + drawH * 0.5;
+        }
+      }
+    }
+    const px = p.x * T + T / 2, py = p.y * T + pyOffset;
+
+    // Determine projectile type: caster AoE (speed 10), tower (speed 12), chain (speed 18/20), ranged (speed 15)
     const isCasterProj = p.speed <= 10 && p.aoeRadius >= 3;
-    const isTowerProj = p.speed === 12;
+    const isTowerProj = p.speed === 12 || p.speed === 18;
     const isRangedProj = !isCasterProj && !isTowerProj;
 
     // Animation frame — loop through the bright middle portion of the lifecycle
@@ -1238,11 +1313,12 @@ export class Renderer {
       const race = state.players[u.playerId]?.race;
       const cat = u.category as 'melee' | 'ranged' | 'caster';
       const isAttacking = u.targetId !== null && u.attackTimer <= u.attackSpeed * 0.5;
-      const spriteData = race ? this.sprites.getUnitSprite(race, cat, u.playerId, isAttacking) : null;
+      const spriteData = race ? this.sprites.getUnitSprite(race, cat, u.playerId, isAttacking, u.upgradeNode) : null;
+      const tierScale = 1.0 + (u.upgradeTier ?? 0) * 0.15; // 1.0 / 1.15 / 1.3
       if (spriteData) {
         const [img, def] = spriteData;
         const spriteScale = def.scale ?? 1.0;
-        const baseH = T * 1.82 * spriteScale;
+        const baseH = T * 1.82 * spriteScale * tierScale;
         const aspect = def.frameW / def.frameH;
         const drawW = baseH * aspect;
         const drawH = baseH * (def.heightScale ?? 1.0);
@@ -1288,8 +1364,38 @@ export class Renderer {
           ctx.globalCompositeOperation = 'source-over';
           ctx.globalAlpha = 1;
         }
+        // Tier glow: subtle additive overlay for upgraded units
+        const tier = u.upgradeTier ?? 0;
+        if (tier >= 1) {
+          ctx.globalAlpha = 0.12 + tier * 0.06;
+          ctx.globalCompositeOperation = 'lighter';
+          if (faceLeft) {
+            ctx.save();
+            ctx.translate(cx, 0);
+            ctx.scale(-1, 1);
+            drawSpriteFrame(ctx, img, def, frame, -drawW / 2, drawY, drawW, drawH);
+            ctx.restore();
+          } else {
+            drawSpriteFrame(ctx, img, def, frame, cx - drawW / 2, drawY, drawW, drawH);
+          }
+          ctx.globalCompositeOperation = 'source-over';
+          ctx.globalAlpha = 1;
+        }
       } else {
-        this.drawUnitShape(ctx, px + T / 2, py + T / 2, r, race, u.category, u.team, playerColor);
+        // Procedural fallback: scale by tier
+        const scaledR = r * tierScale;
+        this.drawUnitShape(ctx, px + T / 2, py + T / 2, scaledR, race, u.category, u.team, playerColor);
+        // Tier ring for procedural units
+        const tier = u.upgradeTier ?? 0;
+        if (tier >= 1) {
+          ctx.strokeStyle = playerColor;
+          ctx.lineWidth = tier;
+          ctx.globalAlpha = 0.4;
+          ctx.beginPath();
+          ctx.arc(px + T / 2, py + T / 2, scaledR + 2, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.globalAlpha = 1;
+        }
       }
       // Lane indicator above head: < for left, > for right
       ctx.font = 'bold 8px monospace';
@@ -1896,6 +2002,25 @@ export class Renderer {
     ctx.textAlign = 'start';
   }
 
+  // === Tower Attack Lines ===
+
+  private drawTowerAttackLines(ctx: CanvasRenderingContext2D, state: GameState): void {
+    ctx.lineWidth = 0.5;
+    for (const p of state.projectiles) {
+      // Draw for tower projectiles (speed 12) and chain projectiles (speed 18)
+      if (p.speed !== 12 && p.speed !== 18) continue;
+      const target = state.units.find(u => u.id === p.targetId);
+      if (!target) continue;
+      const race = state.players[p.sourcePlayerId]?.race;
+      const color = race ? (RACE_COLORS[race]?.primary ?? '#fff') : '#fff';
+      ctx.strokeStyle = color + '30';
+      ctx.beginPath();
+      ctx.moveTo(p.x * T + T / 2, p.y * T + T / 2);
+      ctx.lineTo(target.x * T + T / 2, target.y * T + T / 2);
+      ctx.stroke();
+    }
+  }
+
   // === Nuke Telegraph ===
 
   private drawNukeTelegraphs(ctx: CanvasRenderingContext2D, state: GameState): void {
@@ -1937,7 +2062,7 @@ export class Renderer {
   }
 
   private drawPings(ctx: CanvasRenderingContext2D, state: GameState): void {
-    const localTeam = state.players[0]?.team ?? Team.Bottom;
+    const localTeam = state.players[this.localPlayerId]?.team ?? Team.Bottom;
     for (const p of state.pings) {
       if (p.team !== localTeam) continue;
       const progress = p.age / p.maxAge;
@@ -1986,18 +2111,47 @@ export class Renderer {
     for (let i = this.deathEffects.length - 1; i >= 0; i--) {
       const d = this.deathEffects[i];
       const progress = d.frame / d.maxFrames;
-      const fxKey = d.type === 'explosion' ? 'explosion' : 'dust';
-      const fxData = this.sprites.getFxSprite(fxKey);
-      if (fxData) {
-        const [img, def] = fxData;
-        const totalFrames = def.cols;
-        const sprFrame = Math.min(Math.floor(progress * totalFrames), totalFrames - 1);
-        const alpha = 1 - progress * 0.5;
-        ctx.globalAlpha = alpha;
-        const s = d.size;
-        drawSpriteFrame(ctx, img, def as SpriteDef, sprFrame, d.x * T - s / 2, d.y * T - s / 2, s, s);
-        ctx.globalAlpha = 1;
+
+      if (d.type === 'race_burst' && d.race != null) {
+        // Race-colored OVERBURN circle burst on unit death
+        const circData = this.sprites.getCircleSprite(d.race);
+        if (circData) {
+          const [img, def] = circData;
+          // Play through the circle animation (48 frames mapped to our maxFrames)
+          const sprFrame = Math.min(Math.floor(progress * def.totalFrames), def.totalFrames - 1);
+          const alpha = 1 - progress * 0.6;
+          const scale = 1 + progress * 0.5; // expand slightly
+          const s = d.size * scale;
+          ctx.globalAlpha = alpha;
+          drawGridFrame(ctx, img, def, sprFrame, d.x * T - s / 2, d.y * T - s / 2, s, s);
+          ctx.globalAlpha = 1;
+        } else {
+          // Fallback to dust if sprite not loaded
+          const fxData = this.sprites.getFxSprite('dust');
+          if (fxData) {
+            const [img, def] = fxData;
+            const sprFrame = Math.min(Math.floor(progress * def.cols), def.cols - 1);
+            ctx.globalAlpha = 1 - progress * 0.5;
+            drawSpriteFrame(ctx, img, def as SpriteDef, sprFrame, d.x * T - d.size / 2, d.y * T - d.size / 2, d.size, d.size);
+            ctx.globalAlpha = 1;
+          }
+        }
+      } else {
+        // Original explosion/dust effects for buildings
+        const fxKey = d.type === 'explosion' ? 'explosion' : 'dust';
+        const fxData = this.sprites.getFxSprite(fxKey);
+        if (fxData) {
+          const [img, def] = fxData;
+          const totalFrames = def.cols;
+          const sprFrame = Math.min(Math.floor(progress * totalFrames), totalFrames - 1);
+          const alpha = 1 - progress * 0.5;
+          ctx.globalAlpha = alpha;
+          const s = d.size;
+          drawSpriteFrame(ctx, img, def as SpriteDef, sprFrame, d.x * T - s / 2, d.y * T - s / 2, s, s);
+          ctx.globalAlpha = 1;
+        }
       }
+
       d.frame++;
       if (d.frame >= d.maxFrames) this.deathEffects.splice(i, 1);
     }
@@ -2008,13 +2162,16 @@ export class Renderer {
     const currentUnitIds = new Set<number>();
     for (const u of state.units) {
       currentUnitIds.add(u.id);
-      this.lastUnitPositions.set(u.id, { x: u.x, y: u.y, team: u.team });
+      this.lastUnitPositions.set(u.id, { x: u.x, y: u.y, team: u.team, race: state.players[u.playerId]?.race });
     }
     for (const id of this.lastUnitIds) {
       if (!currentUnitIds.has(id)) {
         const pos = this.lastUnitPositions.get(id);
         if (pos) {
-          this.deathEffects.push({ x: pos.x, y: pos.y, frame: 0, maxFrames: 12, size: T * 1.5, type: 'dust' });
+          this.deathEffects.push({
+            x: pos.x, y: pos.y, frame: 0, maxFrames: 14,
+            size: T * 1.8, type: 'race_burst', race: pos.race
+          });
         }
         this.lastUnitPositions.delete(id);
         this.prevX.delete(id);
@@ -2131,8 +2288,8 @@ export class Renderer {
 
   // === HUD ===
 
-  private drawHUD(ctx: CanvasRenderingContext2D, state: GameState): void {
-    const player = state.players[0];
+  private drawHUD(ctx: CanvasRenderingContext2D, state: GameState, networkLatencyMs?: number, desyncDetected?: boolean, peerDisconnected?: boolean, waitingForAllyMs?: number): void {
+    const player = state.players[this.localPlayerId];
     if (!player) return;
     const W = this.canvas.width;
     const compact = W < 600;  // mobile breakpoint
@@ -2150,7 +2307,7 @@ export class Renderer {
     }
 
     ctx.font = `bold ${fontSize}px monospace`;
-    const ps = state.playerStats?.[0];
+    const ps = state.playerStats?.[this.localPlayerId];
     const elapsed = Math.max(1, state.tick / 20);
 
     // Row 1: Resources + timer
@@ -2176,11 +2333,23 @@ export class Renderer {
     drawRes('wood', player.wood, '#4caf50', woodRate);
     drawRes('meat', player.stone, '#e57373', stoneRate);
 
-    // Timer — right-aligned
+    // Timer + ping — right-aligned, left of settings/info buttons (which are ~70px from right edge)
+    const hudRightEdge = networkLatencyMs !== undefined ? W - 80 : W - pad;
     const secs = Math.floor(state.tick / 20);
     const timerText = `${Math.floor(secs / 60)}:${(secs % 60).toString().padStart(2, '0')}`;
     ctx.fillStyle = '#888';
-    ctx.fillText(timerText, W - pad - ctx.measureText(timerText).width, y1 + fontSize * 0.35);
+    let timerX = hudRightEdge;
+    // Ping indicator (to the right of timer, left of buttons)
+    if (networkLatencyMs !== undefined) {
+      const latText = `${networkLatencyMs}ms`;
+      const latColor = networkLatencyMs < 80 ? '#4caf50' : networkLatencyMs < 200 ? '#ff9800' : '#f44336';
+      const latW = ctx.measureText(latText).width;
+      ctx.fillStyle = latColor;
+      ctx.fillText(latText, timerX - latW, y1 + fontSize * 0.35);
+      timerX -= latW + 8;
+      ctx.fillStyle = '#888';
+    }
+    ctx.fillText(timerText, timerX - ctx.measureText(timerText).width, y1 + fontSize * 0.35);
 
     // Row 2: HQ bars + diamond + units
     const y2 = compact ? 32 : 42;
@@ -2189,8 +2358,10 @@ export class Renderer {
     let x2 = pad;
 
     // HQ health bars
-    const btmHp = state.hqHp[Team.Bottom];
-    const topHp = state.hqHp[Team.Top];
+    const localTeamHud = player.team;
+    const enemyTeamHud = localTeamHud === Team.Bottom ? Team.Top : Team.Bottom;
+    const ourHp = state.hqHp[localTeamHud];
+    const enemyHp = state.hqHp[enemyTeamHud];
     const hqBarW = compact ? 40 : 60;
     const hqBarH = compact ? 8 : 12;
     const drawHQBar = (label: string, hp: number, _color: string) => {
@@ -2206,8 +2377,8 @@ export class Renderer {
       }
       x2 += hqBarW + 4;
     };
-    drawHQBar('US', btmHp, '#2979ff');
-    drawHQBar('EN', topHp, '#ff1744');
+    drawHQBar('US', ourHp, '#2979ff');
+    drawHQBar('EN', enemyHp, '#ff1744');
 
     // Diamond status
     const goldRemaining = state.diamondCells.reduce((s, c) => s + c.gold, 0);
@@ -2243,6 +2414,18 @@ export class Renderer {
       rx -= 8;
     }
 
+    // WC3-style network status panel
+    if (peerDisconnected) {
+      this.drawNetPanel(ctx, W, this.canvas.height, 'PLAYER DISCONNECTED', 'Game continues locally', -1, fontSize);
+    } else if (desyncDetected) {
+      this.drawNetPanel(ctx, W, this.canvas.height, 'DESYNC DETECTED', 'Game state mismatch', -1, fontSize);
+    } else if (waitingForAllyMs && waitingForAllyMs > 1500) {
+      // Only show after 1.5s — normal Firebase round-trips are ~200-500ms
+      const timeoutMs = 5000; // matches CommandSync waitForTurn timeout
+      const remaining = Math.max(0, Math.ceil((timeoutMs - waitingForAllyMs) / 1000));
+      this.drawNetPanel(ctx, W, this.canvas.height, 'WAITING FOR ALLY', `Dropping in ${remaining}s...`, waitingForAllyMs / timeoutMs, fontSize);
+    }
+
     // Prematch
     if (state.matchPhase === 'prematch') {
       const pmFont = compact ? 22 : 32;
@@ -2254,21 +2437,83 @@ export class Renderer {
     // Win
     if (state.matchPhase === 'ended' && state.winner !== null) {
       const winFont = compact ? 20 : 36;
+      const localTeamWin = player.team;
+      const won = state.winner === localTeamWin;
       ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
       ctx.fillRect(0, this.canvas.height / 2 - 40, W, 80);
-      ctx.fillStyle = state.winner === Team.Bottom ? '#2979ff' : '#ff1744';
+      ctx.fillStyle = won ? '#4caf50' : '#f44336';
       ctx.font = `bold ${winFont}px monospace`; ctx.textAlign = 'center';
-      const winText = compact
-        ? `${state.winner === Team.Bottom ? 'BTM' : 'TOP'} WINS!`
-        : `${state.winner === Team.Bottom ? 'BOTTOM' : 'TOP'} TEAM WINS! (${state.winCondition})`;
+      const winText = won
+        ? (compact ? 'VICTORY!' : `VICTORY! (${state.winCondition})`)
+        : (compact ? 'DEFEAT!' : `DEFEAT! (${state.winCondition})`);
       ctx.fillText(winText, W / 2, this.canvas.height / 2 + 12);
       ctx.textAlign = 'start';
     }
   }
 
+  /** WC3-style network status drop panel with countdown bar. progress < 0 = no bar. */
+  private drawNetPanel(ctx: CanvasRenderingContext2D, W: number, H: number, title: string, subtitle: string, progress: number, fontSize: number): void {
+    const panelW = Math.min(320, W * 0.6);
+    const panelH = progress >= 0 ? 72 : 56;
+    const px = (W - panelW) / 2;
+    const py = H * 0.12;
+
+    // Dark semi-transparent background
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
+    ctx.beginPath();
+    const r = 6;
+    ctx.moveTo(px + r, py);
+    ctx.lineTo(px + panelW - r, py);
+    ctx.quadraticCurveTo(px + panelW, py, px + panelW, py + r);
+    ctx.lineTo(px + panelW, py + panelH - r);
+    ctx.quadraticCurveTo(px + panelW, py + panelH, px + panelW - r, py + panelH);
+    ctx.lineTo(px + r, py + panelH);
+    ctx.quadraticCurveTo(px, py + panelH, px, py + panelH - r);
+    ctx.lineTo(px, py + r);
+    ctx.quadraticCurveTo(px, py, px + r, py);
+    ctx.fill();
+
+    // Border
+    ctx.strokeStyle = 'rgba(255, 160, 0, 0.6)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // Title
+    ctx.font = `bold ${fontSize}px monospace`;
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#ff9800';
+    ctx.fillText(title, W / 2, py + 22);
+
+    // Subtitle
+    ctx.font = `${fontSize - 2}px monospace`;
+    ctx.fillStyle = '#ccc';
+    ctx.fillText(subtitle, W / 2, py + 40);
+
+    // Countdown bar
+    if (progress >= 0) {
+      const barX = px + 16;
+      const barW = panelW - 32;
+      const barH = 10;
+      const barY = py + 52;
+      const fill = Math.min(1, progress);
+
+      // Bar background
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
+      ctx.fillRect(barX, barY, barW, barH);
+
+      // Bar fill (green → yellow → red as it fills up)
+      const g = Math.round(255 * (1 - fill));
+      const rr = Math.round(255 * Math.min(1, fill * 2));
+      ctx.fillStyle = `rgb(${rr}, ${g}, 0)`;
+      ctx.fillRect(barX, barY, barW * fill, barH);
+    }
+
+    ctx.textAlign = 'start';
+  }
+
   private drawQuickChats(ctx: CanvasRenderingContext2D, state: GameState): void {
     if (state.quickChats.length === 0) return;
-    const localTeam = state.players[0]?.team ?? Team.Bottom;
+    const localTeam = state.players[this.localPlayerId]?.team ?? Team.Bottom;
     const visibleChats = state.quickChats.filter(c => c.team === localTeam);
     if (visibleChats.length === 0) return;
     const compact = this.canvas.width < 600;
@@ -2390,7 +2635,7 @@ export class Renderer {
     }
 
     // Team-visible ping markers
-    const localTeam = state.players[0]?.team ?? Team.Bottom;
+    const localTeam = state.players[this.localPlayerId]?.team ?? Team.Bottom;
     for (const p of state.pings) {
       if (p.team !== localTeam) continue;
       const pp = p.age / p.maxAge;

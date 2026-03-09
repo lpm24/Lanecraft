@@ -109,69 +109,77 @@ export class PostMatchScene implements Scene {
     const { state, localPlayerId } = this.stats;
     const localTeam = state.players[localPlayerId].team;
     const won = state.winner === localTeam;
-    const fontSize = Math.max(11, Math.min(w / 35, 20));
+    const fontSize = Math.max(14, Math.min(w / 28, 24));
 
     // VICTORY / DEFEAT banner
-    const headerBannerW = Math.min(w * 0.7, 500);
-    const headerBannerH = Math.min(80, h * 0.1);
+    const headerBannerW = Math.min(w * 0.75, 540);
+    const headerBannerH = Math.min(90, h * 0.1);
     const headerBannerX = (w - headerBannerW) / 2;
     const headerBannerY = h * 0.02;
     this.ui.drawBigRibbon(ctx, headerBannerX, headerBannerY, headerBannerW, headerBannerH, won ? 0 : 1);
 
     ctx.font = `bold ${fontSize * 2.2}px monospace`;
     ctx.textAlign = 'center';
-    if (won) {
-      ctx.fillStyle = '#fff';
-      ctx.fillText('VICTORY', w / 2, headerBannerY + headerBannerH * 0.62);
-    } else {
-      ctx.fillStyle = '#fff';
-      ctx.fillText('DEFEAT', w / 2, headerBannerY + headerBannerH * 0.62);
-    }
+    ctx.fillStyle = '#fff';
+    ctx.fillText(won ? 'VICTORY' : 'DEFEAT', w / 2, headerBannerY + headerBannerH * 0.62);
 
     // Win condition + match time
-    ctx.font = `${fontSize}px monospace`;
+    ctx.font = `bold ${fontSize}px monospace`;
     ctx.fillStyle = '#ddd';
     const condText = state.winCondition === 'military' ? 'HQ Destroyed'
       : state.winCondition === 'diamond' ? 'Diamond Delivered'
       : state.winCondition === 'timeout' ? 'Time Expired' : '';
     const totalSec = Math.floor(state.tick / 20);
-    ctx.fillText(`${condText}  -  ${Math.floor(totalSec / 60)}:${(totalSec % 60).toString().padStart(2, '0')}`, w / 2, headerBannerY + headerBannerH + 20);
+    ctx.fillText(`${condText}  -  ${Math.floor(totalSec / 60)}:${(totalSec % 60).toString().padStart(2, '0')}`, w / 2, headerBannerY + headerBannerH + 24);
 
-    // Stats table panel - Banner 9-slice
-    const panelW = Math.min(w * 0.92, 1040);
+    // Stats table panel - Banner 9-slice with generous padding
+    const panelW = Math.min(w * 0.94, 1060);
     const panelH = h * 0.82;
     const panelX = (w - panelW) / 2;
-    const panelY = headerBannerY + headerBannerH + 32;
+    const panelY = headerBannerY + headerBannerH + 38;
     this.ui.drawBanner(ctx, panelX, panelY, panelW, panelH);
 
+    // Inner content area (inset from Banner 9-slice borders)
+    const pad = panelW * 0.06;
+    const innerL = panelX + pad;
+    const innerR = panelX + panelW - pad;
+    const innerW = innerR - innerL;
+
     // Player stats table
-    const tableY = panelY + 40;
-    const rowH = fontSize * 1.9;
-    const colX = [panelX + panelW * 0.04, panelX + panelW * 0.22, panelX + panelW * 0.36,
-                  panelX + panelW * 0.48, panelX + panelW * 0.58, panelX + panelW * 0.70,
-                  panelX + panelW * 0.82, panelX + panelW * 0.94];
+    const tableY = panelY + 48;
+    const rowH = fontSize * 2.0;
+    // Columns positioned relative to inner area
+    const colX = [
+      innerL,                    // PLAYER (left-aligned)
+      innerL + innerW * 0.28,   // gold
+      innerL + innerW * 0.40,   // wood
+      innerL + innerW * 0.52,   // stone
+      innerL + innerW * 0.64,   // spawned
+      innerL + innerW * 0.76,   // killed
+      innerL + innerW * 0.92,   // damage
+    ];
 
     // Header row with icons
-    ctx.font = `bold ${fontSize * 0.7}px monospace`;
+    ctx.font = `bold ${fontSize * 0.75}px monospace`;
     ctx.fillStyle = '#3e2c1a';
     ctx.textAlign = 'left';
     ctx.fillText('PLAYER', colX[0], tableY);
     ctx.textAlign = 'right';
-    const hdrIconSz = fontSize * 0.8;
-    this.ui.drawIcon(ctx, 'gold', colX[2] - hdrIconSz, tableY - hdrIconSz + 2, hdrIconSz);
-    this.ui.drawIcon(ctx, 'wood', colX[3] - hdrIconSz, tableY - hdrIconSz + 2, hdrIconSz);
-    this.ui.drawIcon(ctx, 'meat', colX[4] - hdrIconSz, tableY - hdrIconSz + 2, hdrIconSz);
-    this.ui.drawIcon(ctx, 'sword', colX[5] - hdrIconSz, tableY - hdrIconSz + 2, hdrIconSz);
+    const hdrIconSz = fontSize * 0.9;
+    this.ui.drawIcon(ctx, 'gold', colX[1] - hdrIconSz, tableY - hdrIconSz + 2, hdrIconSz);
+    this.ui.drawIcon(ctx, 'wood', colX[2] - hdrIconSz, tableY - hdrIconSz + 2, hdrIconSz);
+    this.ui.drawIcon(ctx, 'meat', colX[3] - hdrIconSz, tableY - hdrIconSz + 2, hdrIconSz);
+    this.ui.drawIcon(ctx, 'sword', colX[4] - hdrIconSz, tableY - hdrIconSz + 2, hdrIconSz);
     ctx.fillStyle = '#3e2c1a';
-    ctx.fillText('KILLED', colX[6], tableY);
-    ctx.fillText('DAMAGE', colX[7], tableY);
+    ctx.fillText('KILLED', colX[5], tableY);
+    ctx.fillText('DMG', colX[6], tableY);
 
     // Header separator line
     ctx.strokeStyle = 'rgba(62,44,26,0.3)';
     ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.moveTo(colX[0] - 6, tableY + 6);
-    ctx.lineTo(colX[0] - 6 + panelW * 0.92, tableY + 6);
+    ctx.moveTo(innerL, tableY + 8);
+    ctx.lineTo(innerR, tableY + 8);
     ctx.stroke();
 
     const pStats = state.playerStats ?? [];
@@ -181,80 +189,82 @@ export class PostMatchScene implements Scene {
       const y = tableY + (i + 1) * rowH;
       const rowTop = y - rowH * 0.65;
 
-      // Alternating row backgrounds for readability
+      // Alternating row backgrounds
       if (i % 2 === 0) {
         ctx.fillStyle = 'rgba(62,44,26,0.08)';
-        ctx.fillRect(colX[0] - 6, rowTop, panelW * 0.92, rowH);
+        ctx.fillRect(innerL, rowTop, innerW, rowH);
       }
       // Highlight local player row
       if (i === localPlayerId) {
         ctx.fillStyle = 'rgba(41,121,255,0.15)';
-        ctx.fillRect(colX[0] - 6, rowTop, panelW * 0.92, rowH);
+        ctx.fillRect(innerL, rowTop, innerW, rowH);
       }
 
       const teamStr = p.team === Team.Bottom ? 'BTM' : 'TOP';
       const raceStr = p.race.charAt(0).toUpperCase() + p.race.slice(1);
       ctx.font = `bold ${fontSize * 0.8}px monospace`;
       ctx.textAlign = 'left';
-      // Use darker player colors for parchment background
       const pc = PLAYER_COLORS[i];
       ctx.fillStyle = this.darkenColor(pc, 0.6);
       ctx.fillText(`P${i + 1} ${teamStr} ${raceStr}`, colX[0], y);
 
-      ctx.font = `${fontSize * 0.75}px monospace`;
+      ctx.font = `${fontSize * 0.8}px monospace`;
       ctx.fillStyle = '#2a1e10';
       ctx.textAlign = 'right';
-      ctx.fillText(`${ps?.totalGoldEarned ?? 0}`, colX[2], y);
-      ctx.fillText(`${ps?.totalWoodEarned ?? 0}`, colX[3], y);
-      ctx.fillText(`${ps?.totalStoneEarned ?? 0}`, colX[4], y);
-      ctx.fillText(`${ps?.unitsSpawned ?? 0}`, colX[5], y);
-      ctx.fillText(`${ps?.unitsLost ?? 0}`, colX[6], y);
-      ctx.font = `bold ${fontSize * 0.75}px monospace`;
-      ctx.fillText(`${ps?.totalDamageDealt ?? 0}`, colX[7], y);
+      ctx.fillText(`${ps?.totalGoldEarned ?? 0}`, colX[1], y);
+      ctx.fillText(`${ps?.totalWoodEarned ?? 0}`, colX[2], y);
+      ctx.fillText(`${ps?.totalStoneEarned ?? 0}`, colX[3], y);
+      ctx.fillText(`${ps?.unitsSpawned ?? 0}`, colX[4], y);
+      ctx.fillText(`${ps?.unitsLost ?? 0}`, colX[5], y);
+      ctx.font = `bold ${fontSize * 0.8}px monospace`;
+      ctx.fillText(`${ps?.totalDamageDealt ?? 0}`, colX[6], y);
     }
 
     // HQ HP with bar sprites
     const hqY = tableY + (state.players.length + 1.5) * rowH;
-    ctx.font = `bold ${fontSize * 0.85}px monospace`;
+    ctx.font = `bold ${fontSize}px monospace`;
     ctx.textAlign = 'center';
     ctx.fillStyle = '#3e2c1a';
     ctx.fillText('HQ Health', w / 2, hqY);
 
-    const barW = Math.min(120, panelW * 0.15);
-    const barH = 16;
-    const barGap = 40;
-    this.ui.drawBar(ctx, w / 2 - barW - barGap, hqY + 6, barW, barH, state.hqHp[0] / 1000);
+    const barW = Math.min(140, panelW * 0.18);
+    const barH = 18;
+    const barGap = 30;
+    const ourHp = state.hqHp[localTeam];
+    const enemyTeam = localTeam === Team.Bottom ? Team.Top : Team.Bottom;
+    const enemyHp = state.hqHp[enemyTeam];
+    this.ui.drawBar(ctx, w / 2 - barW - barGap, hqY + 8, barW, barH, ourHp / 1000);
     ctx.fillStyle = '#1a4a8a';
-    ctx.font = `bold ${fontSize * 0.7}px monospace`;
-    ctx.fillText(`BTM ${state.hqHp[0]}`, w / 2 - barW / 2 - barGap, hqY + 30);
-    this.ui.drawBar(ctx, w / 2 + barGap, hqY + 6, barW, barH, state.hqHp[1] / 1000);
+    ctx.font = `bold ${fontSize * 0.8}px monospace`;
+    ctx.fillText(`US ${ourHp}`, w / 2 - barW / 2 - barGap, hqY + 34);
+    this.ui.drawBar(ctx, w / 2 + barGap, hqY + 8, barW, barH, enemyHp / 1000);
     ctx.fillStyle = '#a01020';
-    ctx.fillText(`TOP ${state.hqHp[1]}`, w / 2 + barW / 2 + barGap, hqY + 30);
+    ctx.fillText(`ENEMY ${enemyHp}`, w / 2 + barW / 2 + barGap, hqY + 34);
 
     // Awards
     const awards = this.computeAwards(pStats);
     const awardY = hqY + rowH * 2.2;
-    const awardRibW = Math.min(300, panelW * 0.5);
+    const awardRibW = Math.min(340, panelW * 0.55);
     const awardRibH = fontSize * 1.6;
     this.ui.drawSmallRibbon(ctx, (w - awardRibW) / 2, awardY - awardRibH * 0.7, awardRibW, awardRibH, 2);
-    ctx.font = `bold ${fontSize * 0.85}px monospace`;
+    ctx.font = `bold ${fontSize}px monospace`;
     ctx.fillStyle = '#3e2c1a';
     ctx.fillText('AWARDS', w / 2, awardY);
-    ctx.font = `bold ${fontSize * 0.75}px monospace`;
+    ctx.font = `bold ${fontSize * 0.8}px monospace`;
     for (let i = 0; i < awards.length; i++) {
       const a = awards[i];
       ctx.fillStyle = this.darkenColor(PLAYER_COLORS[a.playerId], 0.6);
-      ctx.fillText(`${a.label}: P${a.playerId + 1} (${a.value})`, w / 2, awardY + (i + 1) * rowH * 0.75);
+      ctx.fillText(`${a.label}: P${a.playerId + 1} (${a.value})`, w / 2, awardY + (i + 1) * rowH * 0.8);
     }
 
     // War Hero
-    const heroY = awardY + (awards.length + 1.5) * rowH * 0.75;
+    const heroY = awardY + (awards.length + 1.5) * rowH * 0.8;
     this.drawWarHero(ctx, state, w, heroY, fontSize);
 
     // Continue button - Sword
     const btn = this.getButtonRect();
     this.ui.drawSword(ctx, btn.x, btn.y, btn.w, btn.h, 0);
-    ctx.font = 'bold 18px monospace';
+    ctx.font = `bold ${Math.max(20, fontSize)}px monospace`;
     ctx.textAlign = 'center';
     const btnTextX = btn.x + btn.w * 0.52;
     ctx.fillStyle = 'rgba(0,0,0,0.5)';

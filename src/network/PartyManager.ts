@@ -42,6 +42,9 @@ export class PartyManager {
   private _state: PartyState | null = null;
   private listeners: Set<PartyListener> = new Set();
   private _localName: string;
+  /** Explicitly tracks whether this client created or joined the party.
+   *  UID-based detection fails when two tabs share the same anonymous auth. */
+  private _isHost = false;
 
   constructor() {
     this._localName = this.loadName();
@@ -49,21 +52,19 @@ export class PartyManager {
 
   get state(): PartyState | null { return this._state; }
   get code(): string | null { return this.partyCode; }
-  get isHost(): boolean {
-    try { return this._state?.hostUid === getUserId(); }
-    catch { return false; }
-  }
+  get isHost(): boolean { return this._isHost; }
   get localName(): string { return this._localName; }
+
+  /** Which Firebase slot this client owns: 'host' or 'guest'. */
+  get localSlot(): 'host' | 'guest' { return this._isHost ? 'host' : 'guest'; }
 
   set localName(name: string) {
     this._localName = name;
     try { localStorage.setItem('spawnwars.playerName', name); } catch {}
     // Push name update if in a party
     if (this._state && this.partyCode) {
-      const uid = getUserId();
-      const slot = this._state.hostUid === uid ? 'host' : 'guest';
       const db = getDb();
-      set(ref(db, `parties/${this.partyCode}/${slot}/name`), name);
+      set(ref(db, `parties/${this.partyCode}/${this.localSlot}/name`), name);
     }
   }
 
@@ -112,6 +113,7 @@ export class PartyManager {
     // Clean up party if host disconnects
     onDisconnect(ref(db, `parties/${code}`)).remove();
 
+    this._isHost = true;
     this.partyCode = code;
     this.subscribeToParty(code);
     return code;
@@ -136,6 +138,7 @@ export class PartyManager {
     // Clean up guest slot if guest disconnects
     onDisconnect(ref(db, `parties/${code}/guest`)).remove();
 
+    this._isHost = false;
     this.partyCode = code;
     this.subscribeToParty(code);
   }
@@ -150,10 +153,9 @@ export class PartyManager {
 
     const db = getDb();
     const code = this.partyCode;
-    const uid = getUserId();
 
     try {
-      if (this._state?.hostUid === uid) {
+      if (this._isHost) {
         // Host leaves → destroy party
         await remove(ref(db, `parties/${code}`));
       } else {
@@ -166,15 +168,14 @@ export class PartyManager {
 
     this.partyCode = null;
     this._state = null;
+    this._isHost = false;
     this.notify();
   }
 
   async updateRace(race: Race): Promise<void> {
     if (!this.partyCode || !this._state) return;
     const db = getDb();
-    const uid = getUserId();
-    const slot = this._state.hostUid === uid ? 'host' : 'guest';
-    await set(ref(db, `parties/${this.partyCode}/${slot}/race`), race);
+    await set(ref(db, `parties/${this.partyCode}/${this.localSlot}/race`), race);
   }
 
   async startGame(): Promise<void> {

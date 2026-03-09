@@ -29,78 +29,158 @@ interface RaceProfile {
   pushThreshold: number;
 }
 
+// ======================================================================
+// RACE STRATEGY ANALYSIS (DPS/cost, economy, optimal openers):
+//
+// CROWN (Gold economy, 200g start, 20g/s passive)
+//   Expensive units (131g melee). Shield support is power spike.
+//   Strategy: Econ-first, get 2 huts, then melee+caster. Shields win fights.
+//   Don't rush — units too expensive. Invest in upgrades mid-game.
+//   Diamond: YES (gold harvesters can pivot to center easily)
+//
+// HORDE (Gold+Stone, 200g/25s start, 20g/2s passive)
+//   Best DPS/cost in game (Brute 12dps @ 60 total cost = 0.20 dps/$).
+//   Strategy: Rush 2 melee immediately (20g+40s each), overwhelm early.
+//   Minimal econ — just 1 hut, spend everything on melee pressure.
+//   Diamond: YES (gold harvesters natural)
+//
+// GOBLINS (Gold+Wood, 200g/25w start, 20g/2w passive)
+//   Cheap everything (46g melee, 53g ranged). Fast units (5.0 move).
+//   Strategy: Spam buildings fast — 2 melee + 1 ranged before first hut.
+//   Flood with quantity. Poison stacks from volume.
+//   Diamond: YES (gold-based economy)
+//
+// OOZLINGS (Gold+Stone, 200g/25s start, 20g/2s passive)
+//   Melee spawns 2 at 60g (0.33 dps/cost!). Pure swarm.
+//   Strategy: Rush 3 melee spawners for 6 units/wave. Huts later.
+//   Overwhelm with bodies, bloater caster for AOE support.
+//   Diamond: SKIP until late (stone-needy, harvesters better on resources)
+//
+// DEMON (Stone+Wood, 0g/50w/150s start, 2w/20s passive)
+//   Glass cannon: 15.6 dps melee @ 46 cost. Burns everything.
+//   Strategy: Rush melee (14w+32s, very cheap with stone start).
+//   Build 2 melee + 1 ranged fast, hut after. Pure aggression.
+//   Diamond: SKIP (no gold economy, harvesters wasted on center gold)
+//
+// DEEP (Wood+Gold, 50g/150w start, 2g/20w passive)
+//   Tankiest units (226hp melee) but slow (2.5 move). Wood-rich.
+//   Strategy: Ranged first (30g+55w, affordable). Econ-heavy — 3 huts.
+//   Build tower early for defense while economy ramps. Slow push late.
+//   Diamond: SKIP (gold-poor, harvesters should gather wood)
+//
+// WILD (Wood+Stone, 0g/150w/50s start, 20w/2s passive)
+//   Poison + aggression. Ranged decent (7dps @ 53 cost). No gold.
+//   Strategy: Melee + ranged early (both cheap in wood). 2 huts.
+//   Push early while poison stacks. Caster for AOE poison mid.
+//   Diamond: SKIP (no gold economy)
+//
+// GEISTS (Stone+Gold, 50g/0w/150s start, 2g/20s passive)
+//   Undying melee (125hp + lifesteal). Stone-heavy costs.
+//   Strategy: Rush melee (20g+35s, cheap). Lifesteal = sustain.
+//   2 melee early, 1 hut, ranged mid. Grind enemies down.
+//   Diamond: SKIP until late (stone economy, center gives gold)
+//
+// TENDERS (Wood+Gold, 50g/150w start, 2g/20w passive)
+//   Tanky healers (120hp melee + regen). Expensive (75 total melee).
+//   Strategy: Econ-first — 2 huts then melee. Sustain = win long fights.
+//   Push aggressively once army built. Regen means attrition favors you.
+//   Diamond: SKIP (wood-based, gold-poor)
+// ======================================================================
+
+// Whether a race should send harvesters to mine diamond center
+const RACE_LIKES_DIAMOND: Record<Race, boolean> = {
+  [Race.Crown]: true,     // gold-based, diamond center = more gold
+  [Race.Horde]: true,     // gold-based
+  [Race.Goblins]: true,   // gold-based
+  [Race.Oozlings]: false, // needs stone more than center gold
+  [Race.Demon]: false,    // no gold economy at all
+  [Race.Deep]: false,     // wood-primary, gold is secondary
+  [Race.Wild]: false,     // no gold economy
+  [Race.Geists]: false,   // stone-primary, gold is secondary
+  [Race.Tenders]: false,  // wood-primary, gold is secondary
+};
+
 const RACE_PROFILES: Record<Race, RaceProfile> = {
+  // CROWN: Econ-first, shields are the power spike. Expensive so invest in upgrades.
   [Race.Crown]: {
-    earlyMelee: 1, earlyRanged: 1, earlyHuts: 2, earlyTowers: 0,
-    midMelee: 2, midRanged: 2, midCasters: 1, midTowers: 1, midHuts: 3,
+    earlyMelee: 1, earlyRanged: 0, earlyHuts: 2, earlyTowers: 0,
+    midMelee: 2, midRanged: 1, midCasters: 2, midTowers: 1, midHuts: 4,
     lateTowers: 2, alleyTowers: 2,
     meleeUpgradeBias: 'B', rangedUpgradeBias: 'C', casterUpgradeBias: 'B', towerUpgradeBias: 'C',
-    vsSwarmExtraCasters: 1, vsTankExtraRanged: 1, vsGlassCannonExtraMelee: 0,
-    maxHuts: 4, pushThreshold: 1.4,
-  },
-  [Race.Horde]: {
-    earlyMelee: 2, earlyRanged: 0, earlyHuts: 2, earlyTowers: 0,
-    midMelee: 3, midRanged: 1, midCasters: 1, midTowers: 2, midHuts: 3,
-    lateTowers: 2, alleyTowers: 3,
-    meleeUpgradeBias: 'B', rangedUpgradeBias: 'C', casterUpgradeBias: 'C', towerUpgradeBias: 'B',
     vsSwarmExtraCasters: 1, vsTankExtraRanged: 1, vsGlassCannonExtraMelee: 1,
-    maxHuts: 4, pushThreshold: 1.2,
+    maxHuts: 5, pushThreshold: 1.3,
   },
+  // HORDE: All-in rush. Brute is best DPS/cost in game. Minimal econ, max pressure.
+  [Race.Horde]: {
+    earlyMelee: 2, earlyRanged: 0, earlyHuts: 1, earlyTowers: 0,
+    midMelee: 3, midRanged: 1, midCasters: 1, midTowers: 1, midHuts: 2,
+    lateTowers: 2, alleyTowers: 2,
+    meleeUpgradeBias: 'B', rangedUpgradeBias: 'C', casterUpgradeBias: 'C', towerUpgradeBias: 'B',
+    vsSwarmExtraCasters: 1, vsTankExtraRanged: 1, vsGlassCannonExtraMelee: 0,
+    maxHuts: 3, pushThreshold: 1.0,
+  },
+  // GOBLINS: Spam cheap buildings. Flood with quantity, poison from volume.
   [Race.Goblins]: {
-    earlyMelee: 1, earlyRanged: 1, earlyHuts: 2, earlyTowers: 0,
-    midMelee: 2, midRanged: 3, midCasters: 1, midTowers: 0, midHuts: 3,
+    earlyMelee: 2, earlyRanged: 1, earlyHuts: 1, earlyTowers: 0,
+    midMelee: 3, midRanged: 3, midCasters: 1, midTowers: 0, midHuts: 3,
     lateTowers: 1, alleyTowers: 2,
     meleeUpgradeBias: 'C', rangedUpgradeBias: 'C', casterUpgradeBias: 'C', towerUpgradeBias: 'C',
     vsSwarmExtraCasters: 0, vsTankExtraRanged: 1, vsGlassCannonExtraMelee: 1,
-    maxHuts: 4, pushThreshold: 1.1,
+    maxHuts: 4, pushThreshold: 1.0,
   },
+  // OOZLINGS: Rush 3 melee for 6 units/wave. Pure swarm, huts later.
   [Race.Oozlings]: {
-    earlyMelee: 2, earlyRanged: 1, earlyHuts: 1, earlyTowers: 0,
+    earlyMelee: 3, earlyRanged: 0, earlyHuts: 1, earlyTowers: 0,
     midMelee: 3, midRanged: 2, midCasters: 1, midTowers: 0, midHuts: 2,
     lateTowers: 1, alleyTowers: 2,
     meleeUpgradeBias: 'C', rangedUpgradeBias: 'C', casterUpgradeBias: 'C', towerUpgradeBias: 'C',
-    vsSwarmExtraCasters: 0, vsTankExtraRanged: 1, vsGlassCannonExtraMelee: 1,
-    maxHuts: 3, pushThreshold: 1.0,
+    vsSwarmExtraCasters: 0, vsTankExtraRanged: 1, vsGlassCannonExtraMelee: 0,
+    maxHuts: 3, pushThreshold: 0.9,
   },
+  // DEMON: Glass cannon rush. 2 melee + 1 ranged fast, burn everything down.
   [Race.Demon]: {
-    earlyMelee: 1, earlyRanged: 0, earlyHuts: 1, earlyTowers: 0,
-    midMelee: 2, midRanged: 1, midCasters: 2, midTowers: 1, midHuts: 3,
+    earlyMelee: 2, earlyRanged: 1, earlyHuts: 1, earlyTowers: 0,
+    midMelee: 2, midRanged: 2, midCasters: 1, midTowers: 1, midHuts: 2,
     lateTowers: 1, alleyTowers: 2,
     meleeUpgradeBias: 'C', rangedUpgradeBias: 'B', casterUpgradeBias: 'B', towerUpgradeBias: 'B',
-    vsSwarmExtraCasters: 1, vsTankExtraRanged: 0, vsGlassCannonExtraMelee: 1,
-    maxHuts: 3, pushThreshold: 1.2,
+    vsSwarmExtraCasters: 1, vsTankExtraRanged: 1, vsGlassCannonExtraMelee: 0,
+    maxHuts: 3, pushThreshold: 1.0,
   },
+  // DEEP: Econ-heavy, tower defense, slow push. Ranged first (wood-affordable).
   [Race.Deep]: {
-    earlyMelee: 1, earlyRanged: 0, earlyHuts: 2, earlyTowers: 1,
-    midMelee: 2, midRanged: 1, midCasters: 1, midTowers: 2, midHuts: 4,
-    lateTowers: 2, alleyTowers: 3,
+    earlyMelee: 0, earlyRanged: 1, earlyHuts: 2, earlyTowers: 1,
+    midMelee: 1, midRanged: 2, midCasters: 1, midTowers: 2, midHuts: 4,
+    lateTowers: 3, alleyTowers: 3,
     meleeUpgradeBias: 'B', rangedUpgradeBias: 'C', casterUpgradeBias: 'C', towerUpgradeBias: 'C',
     vsSwarmExtraCasters: 1, vsTankExtraRanged: 1, vsGlassCannonExtraMelee: 0,
-    maxHuts: 5, pushThreshold: 1.2,
+    maxHuts: 5, pushThreshold: 1.1,
   },
+  // WILD: Aggressive poison. Push early while stacks accumulate. Caster mid.
   [Race.Wild]: {
-    earlyMelee: 1, earlyRanged: 1, earlyHuts: 2, earlyTowers: 0,
-    midMelee: 2, midRanged: 2, midCasters: 1, midTowers: 1, midHuts: 3,
+    earlyMelee: 1, earlyRanged: 1, earlyHuts: 1, earlyTowers: 0,
+    midMelee: 2, midRanged: 2, midCasters: 2, midTowers: 1, midHuts: 3,
     lateTowers: 2, alleyTowers: 2,
     meleeUpgradeBias: 'C', rangedUpgradeBias: 'B', casterUpgradeBias: 'C', towerUpgradeBias: 'C',
     vsSwarmExtraCasters: 1, vsTankExtraRanged: 0, vsGlassCannonExtraMelee: 1,
-    maxHuts: 4, pushThreshold: 1.2,
+    maxHuts: 3, pushThreshold: 1.1,
   },
+  // GEISTS: Rush cheap melee (lifesteal = sustain). Grind enemies down.
   [Race.Geists]: {
-    earlyMelee: 2, earlyRanged: 0, earlyHuts: 2, earlyTowers: 0,
+    earlyMelee: 2, earlyRanged: 0, earlyHuts: 1, earlyTowers: 0,
     midMelee: 3, midRanged: 1, midCasters: 1, midTowers: 1, midHuts: 3,
     lateTowers: 2, alleyTowers: 2,
     meleeUpgradeBias: 'B', rangedUpgradeBias: 'B', casterUpgradeBias: 'B', towerUpgradeBias: 'B',
-    vsSwarmExtraCasters: 1, vsTankExtraRanged: 0, vsGlassCannonExtraMelee: 0,
-    maxHuts: 4, pushThreshold: 1.3,
-  },
-  [Race.Tenders]: {
-    earlyMelee: 2, earlyRanged: 0, earlyHuts: 2, earlyTowers: 0,
-    midMelee: 2, midRanged: 1, midCasters: 1, midTowers: 1, midHuts: 3,
-    lateTowers: 2, alleyTowers: 3,
-    meleeUpgradeBias: 'B', rangedUpgradeBias: 'C', casterUpgradeBias: 'C', towerUpgradeBias: 'C',
     vsSwarmExtraCasters: 1, vsTankExtraRanged: 1, vsGlassCannonExtraMelee: 0,
-    maxHuts: 4, pushThreshold: 1.3,
+    maxHuts: 3, pushThreshold: 1.1,
+  },
+  // TENDERS: Econ-first, tanky regen army. Push aggressively once built — sustain wins.
+  [Race.Tenders]: {
+    earlyMelee: 1, earlyRanged: 0, earlyHuts: 2, earlyTowers: 0,
+    midMelee: 2, midRanged: 1, midCasters: 2, midTowers: 1, midHuts: 4,
+    lateTowers: 2, alleyTowers: 3,
+    meleeUpgradeBias: 'B', rangedUpgradeBias: 'C', casterUpgradeBias: 'B', towerUpgradeBias: 'C',
+    vsSwarmExtraCasters: 1, vsTankExtraRanged: 1, vsGlassCannonExtraMelee: 0,
+    maxHuts: 5, pushThreshold: 1.0,
   },
 };
 
@@ -227,7 +307,7 @@ function runSingleBotAI(state: GameState, ctx: BotContext, playerId: number, emi
     let built = false;
     if (totalSpawners === 0 && gameMinutes > 0.3) {
       // Emergency: no spawners, build whatever we can afford
-      built = botBuildAffordable(state, playerId, [BuildingType.MeleeSpawner, BuildingType.RangedSpawner], myBuildings, emit);
+      built = botBuildAffordable(state, playerId, [BuildingType.MeleeSpawner, BuildingType.RangedSpawner, BuildingType.CasterSpawner], myBuildings, emit);
     } else if (hutCount === 0 && gameMinutes > 0.3 && botCanAffordHut(state, playerId, hutCount)) {
       emit({ type: 'build_hut', playerId }); built = true;
     } else {
@@ -256,9 +336,11 @@ function runSingleBotAI(state: GameState, ctx: BotContext, playerId: number, emi
     ctx.lastHarvesterTick[playerId] = state.tick;
   }
 
-  // 5. Nuke — check every second
+  // 5. Nuke — check every second. Aggressive races nuke earlier to snowball.
   if (state.tick % 20 === playerId * 5) {
-    const nukeMinTime = myHqHp < HQ_HP * 0.5 ? 0.8 : 1.5;
+    const isAggressive = player.race === Race.Horde || player.race === Race.Demon ||
+      player.race === Race.Goblins || player.race === Race.Oozlings;
+    const nukeMinTime = myHqHp < HQ_HP * 0.5 ? 0.5 : isAggressive ? 1.0 : 1.5;
     if (player.nukeAvailable && gameMinutes > nukeMinTime) {
       botFireNuke(state, playerId, myTeam, myHqHp, emit);
     }
@@ -318,16 +400,18 @@ function botDoBuildOrder(
 
   if (gameMinutes < 1.5) {
     // Early game: get spawners online fast, be flexible about order
+    const totalSpawners = meleeCount + rangedCount + casterCount;
     if (meleeCount < profile.earlyMelee && tryBuild(BuildingType.MeleeSpawner)) return true;
     if (rangedCount < profile.earlyRanged && tryBuild(BuildingType.RangedSpawner)) return true;
     // Interleave huts with spawners for early economy
-    if (hutCount < Math.min(profile.earlyHuts, 1 + meleeCount + rangedCount) && tryHut()) return true;
+    if (hutCount < Math.min(profile.earlyHuts, 1 + totalSpawners) && tryHut()) return true;
     if (hutCount < profile.earlyHuts && tryHut()) return true;
     if (towerCount < profile.earlyTowers && tryBuild(BuildingType.Tower)) return true;
-    // If we can't afford our preferred early build, try anything useful
-    if (meleeCount + rangedCount === 0) {
-      if (tryBuild(BuildingType.MeleeSpawner)) return true;
+    // If we can't afford our preferred early build, try ANY spawner we can afford
+    if (totalSpawners < 2) {
       if (tryBuild(BuildingType.RangedSpawner)) return true;
+      if (tryBuild(BuildingType.CasterSpawner)) return true;
+      if (tryBuild(BuildingType.MeleeSpawner)) return true;
     }
     return false;
   }
@@ -344,9 +428,16 @@ function botDoBuildOrder(
       [BuildingType.CasterSpawner, casterCount, midCasterTarget],
     ];
     // Sort by deficit (most needed first)
-    needs.sort((a, b) => (b[2] - b[1]) - (a[2] - a[1]));
+    needs.sort((a, b) => (b[2] - b[1]) - (a[2] - a[1]) || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
     for (const [type, count, target] of needs) {
       if (count < target && tryBuild(type)) return true;
+    }
+    // If we need spawners but can't afford the preferred type, try any spawner
+    const totalSpawnersNow = meleeCount + rangedCount + casterCount;
+    if (totalSpawnersNow < 2) {
+      for (const [type, ,] of needs) {
+        if (tryBuild(type)) return true;
+      }
     }
 
     if (hutCount < profile.midHuts && hutCount < profile.maxHuts && tryHut()) return true;
@@ -394,7 +485,7 @@ function botDoBuildOrder(
 }
 
 function botPlaceBuilding(
-  _state: GameState, playerId: number, type: BuildingType,
+  state: GameState, playerId: number, type: BuildingType,
   myBuildings: GameState['buildings'], emit: Emit,
 ): void {
   const occupied = new Set(
@@ -412,11 +503,11 @@ function botPlaceBuilding(
   if (type === BuildingType.Tower) {
     // Towers in center for coverage
     const centerX = Math.floor(BUILD_GRID_COLS / 2);
-    freeSlots.sort((a, b) => Math.abs(a.gx - centerX) - Math.abs(b.gx - centerX));
+    freeSlots.sort((a, b) => Math.abs(a.gx - centerX) - Math.abs(b.gx - centerX) || a.gy - b.gy);
     slot = freeSlots[0];
   } else {
     // Spawners: spread across grid for resilience
-    slot = freeSlots[Math.floor(Math.random() * freeSlots.length)];
+    slot = freeSlots[Math.floor(state.rng() * freeSlots.length)];
   }
   emit({ type: 'place_building', playerId, buildingType: type, gridX: slot.gx, gridY: slot.gy });
 }
@@ -436,8 +527,8 @@ function botPlaceAlleyTower(state: GameState, playerId: number, emit: Emit): boo
   if (freeSlots.length === 0) return false;
   // Place near lane paths (center columns) for maximum coverage
   const centerX = Math.floor(SHARED_ALLEY_COLS / 2);
-  freeSlots.sort((a, b) => Math.abs(a.gx - centerX) - Math.abs(b.gx - centerX));
-  const idx = Math.min(Math.floor(Math.random() * 3), freeSlots.length - 1);
+  freeSlots.sort((a, b) => Math.abs(a.gx - centerX) - Math.abs(b.gx - centerX) || a.gy - b.gy);
+  const idx = Math.min(Math.floor(state.rng() * 3), freeSlots.length - 1);
   const slot = freeSlots[idx];
   emit({ type: 'place_building', playerId, buildingType: BuildingType.Tower, gridX: slot.gx, gridY: slot.gy, gridType: 'alley' });
   return true;
@@ -486,7 +577,7 @@ function botUpgradeBuildings(
     const resAfter = (player.gold - cost.gold) + (player.wood - cost.wood) + (player.stone - cost.stone);
     if (gameMinutes < 3 && resAfter < 30 && spawnerCount < 3) continue;
 
-    const choice = botPickUpgrade(b, profile, race, enemyRaces);
+    const choice = botPickUpgrade(state, b, profile, race, enemyRaces);
     emit({ type: 'purchase_upgrade', playerId, buildingId: b.id, choice });
     return true;
   }
@@ -494,10 +585,10 @@ function botUpgradeBuildings(
 }
 
 function botPickUpgrade(
-  building: GameState['buildings'][0], profile: RaceProfile, race: Race,
+  state: GameState, building: GameState['buildings'][0], profile: RaceProfile, race: Race,
   enemyRaces: Race[],
 ): string {
-  const deviate = Math.random() < 0.1;
+  const deviate = state.rng() < 0.1;
   const vsTank = enemyHasArchetype(enemyRaces, TANK_RACES);
   const vsSwarm = enemyHasArchetype(enemyRaces, SWARM_RACES);
 
@@ -636,6 +727,16 @@ function botEvaluateLanes(
     }
   }
 
+  // STALL-BREAKER: after 7 min, both teammates commit to same lane to force a win
+  if (targetLane === null && gameMinutes > 7) {
+    const enemyHqHp = state.hqHp[botEnemyTeam(playerId)];
+    if (enemyHqHp > HQ_HP * 0.3) {
+      // Pick the lane with less enemy resistance
+      const commitLane = enemyLeftStr <= enemyRightStr ? Lane.Left : Lane.Right;
+      if (currentLane !== commitLane) targetLane = commitLane;
+    }
+  }
+
   if (targetLane !== null && targetLane !== currentLane) {
     emit({ type: 'toggle_all_lanes', playerId, lane: targetLane });
     ctx.currentLane[playerId] = targetLane;
@@ -657,21 +758,26 @@ function botManageHarvesters(
   const goldCellsRemaining = state.diamondCells.filter(c => c.gold > 0).length;
   const goldMostlyMined = goldCellsRemaining < state.diamondCells.length * 0.3;
 
+  // Determine primary/secondary resource based on actual building costs
   const race = player.race;
-  let primaryRes: HarvesterAssignment;
-  let secondaryRes: HarvesterAssignment;
-  switch (race) {
-    case Race.Crown:    primaryRes = HarvesterAssignment.BaseGold; secondaryRes = HarvesterAssignment.Wood; break;
-    case Race.Horde:    primaryRes = HarvesterAssignment.BaseGold; secondaryRes = HarvesterAssignment.Stone; break;
-    case Race.Goblins:  primaryRes = HarvesterAssignment.BaseGold; secondaryRes = HarvesterAssignment.Wood; break;
-    case Race.Oozlings: primaryRes = HarvesterAssignment.BaseGold; secondaryRes = HarvesterAssignment.Stone; break;
-    case Race.Demon:    primaryRes = HarvesterAssignment.Stone;    secondaryRes = HarvesterAssignment.Wood; break;
-    case Race.Deep:     primaryRes = HarvesterAssignment.Wood;     secondaryRes = HarvesterAssignment.BaseGold; break;
-    case Race.Wild:     primaryRes = HarvesterAssignment.Wood;     secondaryRes = HarvesterAssignment.Stone; break;
-    case Race.Geists:   primaryRes = HarvesterAssignment.Stone;    secondaryRes = HarvesterAssignment.BaseGold; break;
-    case Race.Tenders:  primaryRes = HarvesterAssignment.Wood;     secondaryRes = HarvesterAssignment.BaseGold; break;
-    default:            primaryRes = HarvesterAssignment.BaseGold; secondaryRes = HarvesterAssignment.Wood; break;
+  const costs = RACE_BUILDING_COSTS[race];
+  let totalGoldNeed = 0, totalWoodNeed = 0, totalStoneNeed = 0;
+  for (const type of [BuildingType.MeleeSpawner, BuildingType.RangedSpawner, BuildingType.CasterSpawner, BuildingType.Tower]) {
+    const c = costs[type];
+    totalGoldNeed += c.gold;
+    totalWoodNeed += c.wood;
+    totalStoneNeed += c.stone;
   }
+  // Rank resources by total need across building types
+  const resNeeds: [HarvesterAssignment, number][] = [
+    [HarvesterAssignment.BaseGold, totalGoldNeed],
+    [HarvesterAssignment.Wood, totalWoodNeed],
+    [HarvesterAssignment.Stone, totalStoneNeed],
+  ];
+  resNeeds.sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+  // Primary = most needed, secondary = second most needed (skip zero-need resources)
+  const primaryRes = resNeeds[0][1] > 0 ? resNeeds[0][0] : HarvesterAssignment.BaseGold;
+  const secondaryRes = resNeeds[1][1] > 0 ? resNeeds[1][0] : resNeeds[0][0];
 
   const resOf = (a: HarvesterAssignment): number => {
     if (a === HarvesterAssignment.BaseGold || a === HarvesterAssignment.Center) return player.gold;
@@ -700,8 +806,9 @@ function botManageHarvesters(
       if (secondaryStarved || secondaryOverflow) desired = primaryRes;
       else desired = secondaryRes;
     } else if (i === 3) {
-      // Fourth: balance or diamond
-      if (gameMinutes > 3 && !diamondExposed) {
+      // Fourth: balance or diamond (only if race wants diamond)
+      const likesDiamond = RACE_LIKES_DIAMOND[race];
+      if (likesDiamond && gameMinutes > 3 && !diamondExposed) {
         desired = HarvesterAssignment.Center;
       } else if (primaryAmt <= secondaryAmt) {
         desired = primaryRes;
@@ -709,10 +816,11 @@ function botManageHarvesters(
         desired = secondaryRes;
       }
     } else {
-      // Fifth+: diamond focus
-      if (diamondExposed || gameMinutes > 4) {
+      // Fifth+: diamond focus (only if race likes diamond, otherwise alternate resources)
+      const likesDiamond = RACE_LIKES_DIAMOND[race];
+      if (likesDiamond && (diamondExposed || gameMinutes > 4)) {
         desired = HarvesterAssignment.Center;
-      } else if (goldMostlyMined) {
+      } else if (goldMostlyMined || !likesDiamond) {
         desired = i % 2 === 0 ? primaryRes : secondaryRes;
       } else {
         desired = HarvesterAssignment.Center;
@@ -823,14 +931,14 @@ function botQuickChat(
 ): void {
   const lastChat = ctx.lastChatTick[playerId] ?? 0;
   if (state.tick - lastChat < 600) return;
-  if (Math.random() > 0.2) return;
+  if (state.rng() > 0.2) return;
 
   let message: string | null = null;
   if (myHqHp < HQ_HP * 0.5) {
     message = 'Defend';
   } else if (state.diamond.exposed && state.diamond.state === 'exposed' && gameMinutes > 3) {
     message = 'Get Diamond';
-  } else if (Math.random() < 0.3) {
+  } else if (state.rng() < 0.3) {
     const mySpawners = state.buildings.filter(b =>
       b.playerId === playerId &&
       b.type !== BuildingType.Tower &&

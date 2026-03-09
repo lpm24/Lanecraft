@@ -6,24 +6,17 @@ import {
   HarvesterAssignment, Team, ZONES, MAP_WIDTH, MAP_HEIGHT, Race, UnitState, HUT_GRID_COLS,
 } from '../simulation/types';
 import { getBuildGridOrigin, getTeamAlleyOrigin, getHutGridOrigin } from '../simulation/GameState';
-import { UPGRADE_TREES, RACE_BUILDING_COSTS, RACE_UPGRADE_COSTS, UNIT_STATS, TOWER_STATS, RACE_COLORS } from '../simulation/data';
+import { RACE_BUILDING_COSTS, UNIT_STATS, TOWER_STATS, RACE_COLORS } from '../simulation/data';
 import { TICK_RATE } from '../simulation/types';
 import { UIAssets } from '../rendering/UIAssets';
 import { SpriteLoader, drawSpriteFrame } from '../rendering/SpriteLoader';
+import { BuildingPopup } from './BuildingPopup';
 
 interface BuildTrayItem {
   type: BuildingType;
   label: string;
   key: string;
 }
-
-interface UpgradeOption {
-  choice: string;
-  cost: { gold: number; wood: number; stone: number };
-  name?: string;
-  desc?: string;
-}
-
 
 const BUILD_TRAY: BuildTrayItem[] = [
   { type: BuildingType.MeleeSpawner, label: 'Melee', key: '1' },
@@ -77,8 +70,6 @@ export class InputHandler {
   private mobileHintVisible = false;
   private settingsOpen = false;
   private activeTouchPointers = new Set<number>();
-  private lastSpawnerClickId: number | null = null;
-  private lastSpawnerClickAt = 0;
   private laneToggleMode: 'double' | 'single' = 'double';
   private radialArmMs = 320;
   private radialSize = 74;
@@ -95,6 +86,7 @@ export class InputHandler {
   private currentRenderer: Renderer | null = null;
   private ui: UIAssets;
   private sprites: SpriteLoader | null = null;
+  private buildingPopup = new BuildingPopup();
   private trayTick = 0;
 
   constructor(game: Game, canvas: HTMLCanvasElement, camera: Camera, ui?: UIAssets, sprites?: SpriteLoader) {
@@ -108,6 +100,11 @@ export class InputHandler {
     this.loadSettings();
     this.initMobileHint();
   }
+
+  /** Local player's slot index (0 = host/solo, 1 = guest). */
+  private get pid(): number { return this.game.playerSlot; }
+  /** Local player's team. */
+  private get myTeam(): Team { return this.game.state.players[this.pid]?.team ?? Team.Bottom; }
 
   destroy(): void {
     this.abortController.abort();
@@ -194,7 +191,7 @@ export class InputHandler {
       }
       // Nuke mode
       if (e.key === 'n' || e.key === 'N') {
-        if (this.game.state.players[0]?.nukeAvailable) {
+        if (this.game.state.players[this.pid]?.nukeAvailable) {
           this.nukeTargeting = !this.nukeTargeting;
           this.selectedBuilding = null;
         }
@@ -224,7 +221,7 @@ export class InputHandler {
       if (e.key === 'p' || e.key === 'P') {
         const wx = this.camera.x + this.canvas.width / (2 * this.camera.zoom);
         const wy = this.camera.y + this.canvas.height / (2 * this.camera.zoom);
-        this.game.sendCommand({ type: 'ping', playerId: 0, x: wx / TILE_SIZE, y: wy / TILE_SIZE });
+        this.game.sendCommand({ type: 'ping', playerId: this.pid, x: wx / TILE_SIZE, y: wy / TILE_SIZE });
         return;
       }
       if (e.key === 'k' || e.key === 'K') {
@@ -258,6 +255,7 @@ export class InputHandler {
         return;
       }
       if (e.key === 'Escape') {
+        if (this.buildingPopup.isOpen()) { this.buildingPopup.close(); return; }
         if (this.showTutorial) { this.showTutorial = false; return; }
         this.quickChatRadialActive = false;
         this.quickChatRadialCenter = null;
@@ -267,9 +265,9 @@ export class InputHandler {
         this.selectedUnitId = null;
       }
       if (e.key === 'l' || e.key === 'L') {
-        const myBuildings = this.game.state.buildings.filter(b => b.playerId === 0);
+        const myBuildings = this.game.state.buildings.filter(b => b.playerId === this.pid);
         const currentLane = myBuildings.length > 0 ? myBuildings[0].lane : Lane.Left;
-        this.game.sendCommand({ type: 'toggle_all_lanes', playerId: 0, lane: currentLane === Lane.Left ? Lane.Right : Lane.Left });
+        this.game.sendCommand({ type: 'toggle_all_lanes', playerId: this.pid, lane: currentLane === Lane.Left ? Lane.Right : Lane.Left });
       }
     }, sig);
     window.addEventListener('keyup', (e) => {
@@ -293,7 +291,7 @@ export class InputHandler {
       this.hoveredUnitId = null;
       if (this.selectedBuilding !== null) {
         const world = this.eventToWorld(e);
-        this.hoveredGridSlot = this.worldToGridSlot(0, world.x, world.y);
+        this.hoveredGridSlot = this.worldToGridSlot(this.pid, world.x, world.y);
       } else {
         this.hoveredGridSlot = null;
         const world = this.eventToWorld(e);
@@ -310,7 +308,7 @@ export class InputHandler {
           const tileX = Math.floor(wx);
           const tileY = Math.floor(wy);
           const building = this.game.state.buildings.find(b =>
-            b.playerId === 0 && b.worldX === tileX && b.worldY === tileY
+            b.playerId === this.pid && b.worldX === tileX && b.worldY === tileY
           );
           if (building) {
             this.hoveredBuildingId = building.id;
@@ -352,11 +350,11 @@ export class InputHandler {
       if (this.nukeTargeting) {
         const world = this.eventToWorld(e);
         const tileY = world.y / TILE_SIZE;
-        const team = this.game.state.players[0]?.team ?? Team.Bottom;
+        const team = this.game.state.players[this.pid]?.team ?? Team.Bottom;
         const inRange = team === Team.Bottom ? tileY >= ZONES.MID.start : tileY <= ZONES.MID.end;
         if (!inRange) return; // click in enemy zone — ignore
         this.game.sendCommand({
-          type: 'fire_nuke', playerId: 0,
+          type: 'fire_nuke', playerId: this.pid,
           x: world.x / TILE_SIZE, y: tileY,
         });
         this.nukeTargeting = false;
@@ -370,7 +368,7 @@ export class InputHandler {
 
       // Miner hut: click anywhere on map to confirm auto-placement
       if (this.selectedBuilding === BuildingType.HarvesterHut) {
-        this.game.sendCommand({ type: 'build_hut', playerId: 0 });
+        this.game.sendCommand({ type: 'build_hut', playerId: this.pid });
         if (!e.shiftKey) {
           this.selectedBuilding = null;
         }
@@ -378,10 +376,10 @@ export class InputHandler {
       }
 
       const world = this.eventToWorld(e);
-      const slot = this.worldToGridSlot(0, world.x, world.y);
+      const slot = this.worldToGridSlot(this.pid, world.x, world.y);
       if (slot) {
         this.game.sendCommand({
-          type: 'place_building', playerId: 0,
+          type: 'place_building', playerId: this.pid,
           buildingType: this.selectedBuilding, gridX: slot.gx, gridY: slot.gy,
           ...(slot.isAlley ? { gridType: 'alley' as const } : {}),
         });
@@ -412,10 +410,10 @@ export class InputHandler {
       const tileX = Math.floor(world.x / TILE_SIZE);
       const tileY = Math.floor(world.y / TILE_SIZE);
       const building = this.game.state.buildings.find(b =>
-        b.playerId === 0 && b.worldX === tileX && b.worldY === tileY
+        b.playerId === this.pid && b.worldX === tileX && b.worldY === tileY
       );
       if (building) {
-        this.game.sendCommand({ type: 'sell_building', playerId: 0, buildingId: building.id });
+        this.game.sendCommand({ type: 'sell_building', playerId: this.pid, buildingId: building.id });
       }
     }, sig);
 
@@ -424,7 +422,7 @@ export class InputHandler {
       e.preventDefault();
       const world = this.eventToWorld(e as unknown as MouseEvent);
       this.game.sendCommand({
-        type: 'ping', playerId: 0,
+        type: 'ping', playerId: this.pid,
         x: world.x / TILE_SIZE, y: world.y / TILE_SIZE,
       });
     }, sig);
@@ -508,13 +506,13 @@ export class InputHandler {
   /** Pan camera to the build area for a given building type */
   private panToBuildArea(type: BuildingType): void {
     if (type === BuildingType.Tower) {
-      const team = this.game.state.players[0]?.team ?? Team.Bottom;
+      const team = this.game.state.players[this.pid]?.team ?? Team.Bottom;
       const alley = getTeamAlleyOrigin(team);
       const cx = (alley.x + SHARED_ALLEY_COLS / 2) * TILE_SIZE;
       const cy = (alley.y + SHARED_ALLEY_ROWS / 2) * TILE_SIZE;
       this.camera.panTo(cx, cy, 1.8);
     } else {
-      const origin = getBuildGridOrigin(0);
+      const origin = getBuildGridOrigin(this.pid);
       const cx = (origin.x + BUILD_GRID_COLS / 2) * TILE_SIZE;
       const cy = (origin.y + BUILD_GRID_ROWS / 2) * TILE_SIZE;
       this.camera.panTo(cx, cy, 1.8);
@@ -523,7 +521,7 @@ export class InputHandler {
 
   /** Pan camera to the harvester hut area */
   private panToHutArea(): void {
-    const origin = getHutGridOrigin(0);
+    const origin = getHutGridOrigin(this.pid);
     const cx = (origin.x + HUT_GRID_COLS / 2) * TILE_SIZE;
     const cy = (origin.y + 0.5) * TILE_SIZE;
     this.camera.panTo(cx, cy, 1.8);
@@ -555,10 +553,13 @@ export class InputHandler {
     const tileX = Math.floor(world.x / TILE_SIZE);
     const tileY = Math.floor(world.y / TILE_SIZE);
     const building = this.game.state.buildings.find(b =>
-      b.playerId === 0 && b.worldX === tileX && b.worldY === tileY
+      b.playerId === this.pid && b.worldX === tileX && b.worldY === tileY
     );
     if (!building) {
-      // Try selecting a unit
+      // Click outside building: close popup if open, try selecting a unit
+      if (this.buildingPopup.isOpen()) {
+        this.buildingPopup.close();
+      }
       const wx = world.x / TILE_SIZE;
       const wy = world.y / TILE_SIZE;
       const unit = this.findUnitNear(wx, wy, 1.2);
@@ -575,49 +576,15 @@ export class InputHandler {
         const curIdx = ASSIGNMENT_CYCLE.indexOf(h.assignment);
         const nextAssignment = ASSIGNMENT_CYCLE[(curIdx + 1) % ASSIGNMENT_CYCLE.length];
         this.game.sendCommand({
-          type: 'set_hut_assignment', playerId: 0,
+          type: 'set_hut_assignment', playerId: this.pid,
           hutId: building.id, assignment: nextAssignment,
         });
       }
       return;
     }
 
-    if (e.shiftKey) {
-      const choice = this.getUpgradeChoice(building, false);
-      if (choice) {
-        this.game.sendCommand({
-          type: 'purchase_upgrade', playerId: 0, buildingId: building.id, choice,
-        });
-        return;
-      }
-    }
-
-    // Click-safe lane toggle: single or double mode.
-    if (building.type !== BuildingType.Tower) {
-      if (this.laneToggleMode === 'single') {
-        const nextLane = building.lane === Lane.Left ? Lane.Right : Lane.Left;
-        this.game.sendCommand({
-          type: 'toggle_lane', playerId: 0, buildingId: building.id,
-          lane: nextLane,
-        });
-        this.laneToast = { text: `Lane switched to ${nextLane}`, until: Date.now() + 900 };
-        return;
-      }
-      const now = Date.now();
-      const isDoubleClick = this.lastSpawnerClickId === building.id && (now - this.lastSpawnerClickAt) <= 350;
-      this.lastSpawnerClickId = building.id;
-      this.lastSpawnerClickAt = now;
-      if (isDoubleClick) {
-        const nextLane = building.lane === Lane.Left ? Lane.Right : Lane.Left;
-        this.game.sendCommand({
-          type: 'toggle_lane', playerId: 0, buildingId: building.id,
-          lane: nextLane,
-        });
-        this.laneToast = { text: `Lane switched to ${nextLane}`, until: now + 900 };
-      } else {
-        this.laneToast = { text: 'Selected. Tap again quickly to switch lane.', until: now + 1000 };
-      }
-    }
+    // Open building popup for spawners and towers
+    this.buildingPopup.open(building.id);
   }
 
   private getUpgradeChoice(building: { type: BuildingType; upgradePath: string[] }, alternate: boolean): string | null {
@@ -635,12 +602,12 @@ export class InputHandler {
   private tryUpgradeHovered(alternate: boolean): void {
     const panelBuilding = this.getPanelBuilding();
     const building = panelBuilding ?? (this.hoveredBuildingId === null ? null :
-      this.game.state.buildings.find(b => b.id === this.hoveredBuildingId && b.playerId === 0) ?? null);
+      this.game.state.buildings.find(b => b.id === this.hoveredBuildingId && b.playerId === this.pid) ?? null);
     if (!building) return;
     const choice = this.getUpgradeChoice(building, alternate);
     if (!choice) return;
     this.game.sendCommand({
-      type: 'purchase_upgrade', playerId: 0, buildingId: building.id, choice,
+      type: 'purchase_upgrade', playerId: this.pid, buildingId: building.id, choice,
     });
   }
 
@@ -664,7 +631,7 @@ export class InputHandler {
     this.quickChatCooldownUntil = now + 1200;
     this.quickChatFeedback(true);
     this.quickChatToast = { text: `Sent: ${message}`, until: now + 700 };
-    this.game.sendCommand({ type: 'quick_chat', playerId: 0, message });
+    this.game.sendCommand({ type: 'quick_chat', playerId: this.pid, message });
     return true;
   }
 
@@ -907,12 +874,12 @@ export class InputHandler {
 
   private getHoveredOwnedBuilding() {
     if (this.hoveredBuildingId === null) return null;
-    return this.game.state.buildings.find(b => b.id === this.hoveredBuildingId && b.playerId === 0) ?? null;
+    return this.game.state.buildings.find(b => b.id === this.hoveredBuildingId && b.playerId === this.pid) ?? null;
   }
 
   private getSelectedOwnedBuilding() {
     if (this.selectedBuildingId === null) return null;
-    const found = this.game.state.buildings.find(b => b.id === this.selectedBuildingId && b.playerId === 0) ?? null;
+    const found = this.game.state.buildings.find(b => b.id === this.selectedBuildingId && b.playerId === this.pid) ?? null;
     if (!found) this.selectedBuildingId = null;
     return found;
   }
@@ -921,36 +888,44 @@ export class InputHandler {
     return this.getSelectedOwnedBuilding() ?? this.getHoveredOwnedBuilding();
   }
 
-  private getUpgradeOptions(building: { type: BuildingType; upgradePath: string[]; playerId: number }): UpgradeOption[] {
-    if (building.type === BuildingType.HarvesterHut) return [];
-    const race = this.game.state.players[building.playerId]?.race;
-    const tree = race ? UPGRADE_TREES[race]?.[building.type] : undefined;
-    const lookup = (choice: string, cost: { gold: number; wood: number; stone: number }): UpgradeOption => {
-      const def = tree?.[choice as keyof typeof tree];
-      return { choice, cost, name: def?.name, desc: def?.desc };
-    };
-    const raceCosts = RACE_UPGRADE_COSTS[race];
-    if (building.upgradePath.length === 1 && building.upgradePath[0] === 'A') {
-      return [lookup('B', raceCosts.tier1), lookup('C', raceCosts.tier1)];
-    }
-    if (building.upgradePath.length === 2) {
-      if (building.upgradePath[1] === 'B') {
-        return [lookup('D', raceCosts.tier2), lookup('E', raceCosts.tier2)];
-      }
-      if (building.upgradePath[1] === 'C') {
-        return [lookup('F', raceCosts.tier2), lookup('G', raceCosts.tier2)];
-      }
-    }
-    return [];
-  }
-
   // Returns true if click was consumed by a UI panel
   private handleUIClick(e: MouseEvent): boolean {
-    const { W, milH, milY, milW } = this.getTrayLayout();
+    const { milH, milY, milW } = this.getTrayLayout();
     const rect = this.canvas.getBoundingClientRect();
+    const popupCx = e.clientX - rect.left;
+    const popupCy = e.clientY - rect.top;
+
+    // Building popup takes priority
+    if (this.buildingPopup.isOpen()) {
+      const result = this.buildingPopup.handleClick(popupCx, popupCy);
+      if (result) {
+        const bId = this.buildingPopup.getBuildingId();
+        if (bId !== null) {
+          if (result.action === 'upgrade') {
+            this.game.sendCommand({ type: 'purchase_upgrade', playerId: this.pid, buildingId: bId, choice: result.choice });
+          } else if (result.action === 'sell') {
+            this.game.sendCommand({ type: 'sell_building', playerId: this.pid, buildingId: bId });
+            this.buildingPopup.close();
+          } else if (result.action === 'toggle_lane') {
+            const b = this.game.state.buildings.find(b => b.id === bId);
+            if (b) {
+              const nextLane = b.lane === Lane.Left ? Lane.Right : Lane.Left;
+              this.game.sendCommand({ type: 'toggle_lane', playerId: this.pid, buildingId: bId, lane: nextLane });
+            }
+          } else if (result.action === 'close') {
+            this.buildingPopup.close();
+          }
+        }
+        return true;
+      }
+      // Click inside popup but not on a button
+      if (this.buildingPopup.containsPoint(popupCx, popupCy)) return true;
+      // Click outside popup — close it
+      this.buildingPopup.close();
+    }
     const cx = e.clientX - rect.left;
     const cy = e.clientY - rect.top;
-    const player = this.game.state.players[0];
+    const player = this.game.state.players[this.pid];
 
     // Compact utility buttons above tray (mobile-friendly)
     const util = this.getUtilityLayout(milY);
@@ -958,7 +933,7 @@ export class InputHandler {
       if (cx >= util.pingX && cx < util.pingX + util.utilW) {
         const wx = this.camera.x + this.canvas.width / (2 * this.camera.zoom);
         const wy = this.camera.y + this.canvas.height / (2 * this.camera.zoom);
-        this.game.sendCommand({ type: 'ping', playerId: 0, x: wx / TILE_SIZE, y: wy / TILE_SIZE });
+        this.game.sendCommand({ type: 'ping', playerId: this.pid, x: wx / TILE_SIZE, y: wy / TILE_SIZE });
         return true;
       }
       if (cx >= util.chatX && cx < util.chatX + util.utilW) {
@@ -1030,27 +1005,6 @@ export class InputHandler {
           this.resetUiDefaults();
         }
         return true;
-      }
-    }
-
-    // Upgrade panel (selected building first, hover fallback)
-    const panelBuilding = this.getPanelBuilding();
-    if (panelBuilding) {
-      const options = this.getUpgradeOptions(panelBuilding);
-      if (options.length > 0) {
-        const panelW = 220;
-        const panelX = W - panelW - 12;
-        const panelY = milY - 60;
-        if (cy >= panelY && cy < panelY + 48 && cx >= panelX && cx < panelX + panelW) {
-          const halfW = Math.floor((panelW - 6) / 2);
-          const left = { x: panelX + 2, w: halfW, opt: options[0] };
-          const right = { x: panelX + 4 + halfW, w: halfW, opt: options[1] };
-          const slot = cx < right.x ? left : right;
-          this.game.sendCommand({
-            type: 'purchase_upgrade', playerId: 0, buildingId: panelBuilding.id, choice: slot.opt.choice,
-          });
-          return true;
-        }
       }
     }
 
@@ -1162,7 +1116,7 @@ export class InputHandler {
 
   private drawBuildTray(ctx: CanvasRenderingContext2D): void {
     const { W, milH, milY, milW } = this.getTrayLayout();
-    const player = this.game.state.players[0];
+    const player = this.game.state.players[this.pid];
     const quickChatCdMs = Math.max(0, this.quickChatCooldownUntil - Date.now());
 
     // Build tray background - WoodTable 9-slice
@@ -1309,7 +1263,7 @@ export class InputHandler {
 
     // === Miner button (col 0) ===
     const myHuts = this.game.state.buildings.filter(
-      b => b.playerId === 0 && b.type === BuildingType.HarvesterHut
+      b => b.playerId === this.pid && b.type === BuildingType.HarvesterHut
     );
     const hutBase = RACE_BUILDING_COSTS[player.race][BuildingType.HarvesterHut];
     const hutMult = Math.pow(1.35, Math.max(0, myHuts.length - 1));
@@ -1502,51 +1456,10 @@ export class InputHandler {
       ctx.fillText('Reset Defaults', sx + 16, sy + 210);
     }
 
-    const panelBuilding = this.getPanelBuilding();
-    if (panelBuilding) {
-      const options = this.getUpgradeOptions(panelBuilding);
-      if (options.length > 0) {
-        const panelW = 260;
-        const panelX = W - panelW - 12;
-        const panelH = 64;
-        const panelY = milY - panelH - 12;
-        ctx.fillStyle = 'rgba(0,0,0,0.85)';
-        ctx.fillRect(panelX, panelY, panelW, panelH);
-        ctx.strokeStyle = '#2979ff';
-        ctx.lineWidth = 1;
-        ctx.strokeRect(panelX, panelY, panelW, panelH);
-
-        const drawUpgradeBtn = (x: number, w: number, opt: UpgradeOption) => {
-          const canAfford = player.gold >= opt.cost.gold && player.wood >= opt.cost.wood && player.stone >= opt.cost.stone;
-          ctx.fillStyle = canAfford ? 'rgba(41,121,255,0.22)' : 'rgba(80,80,80,0.25)';
-          ctx.fillRect(x, panelY + 2, w, panelH - 4);
-          ctx.strokeStyle = canAfford ? '#64b5f6' : '#555';
-          ctx.strokeRect(x, panelY + 2, w, panelH - 4);
-          ctx.textAlign = 'center';
-          ctx.fillStyle = canAfford ? '#bbdefb' : '#777';
-          ctx.font = 'bold 11px monospace';
-          ctx.fillText(opt.name ?? opt.choice, x + w / 2, panelY + 16);
-          ctx.fillStyle = canAfford ? '#aaa' : '#555';
-          ctx.font = '9px monospace';
-          ctx.fillText(opt.desc ?? '', x + w / 2, panelY + 30);
-          ctx.fillStyle = canAfford ? '#ffd700' : '#666';
-          ctx.font = '10px monospace';
-          ctx.fillText(`${opt.cost.gold}g ${opt.cost.wood}w ${opt.cost.stone}m`, x + w / 2, panelY + 44);
-          ctx.fillStyle = canAfford ? '#64b5f6' : '#555';
-          ctx.font = '9px monospace';
-          ctx.fillText(`[${opt.choice === options[0].choice ? 'U' : 'I'}]`, x + w / 2, panelY + 56);
-        };
-
-        const halfW = Math.floor((panelW - 6) / 2);
-        drawUpgradeBtn(panelX + 2, halfW, options[0]);
-        drawUpgradeBtn(panelX + 4 + halfW, halfW, options[1]);
-
-        ctx.fillStyle = '#9bb7ff';
-        ctx.font = '11px monospace';
-        ctx.textAlign = 'left';
-        const selected = this.getSelectedOwnedBuilding();
-        ctx.fillText(selected ? 'Selected building upgrades' : 'Hovered building upgrades', panelX + 6, panelY - 4);
-      }
+    // Building popup (in-world)
+    if (this.buildingPopup.isOpen()) {
+      this.buildingPopup.draw(ctx, this.camera, this.game.state, this.ui,
+        W, this.canvas.height, player.gold, player.wood, player.stone, this.sprites);
     }
 
     ctx.textAlign = 'start';
@@ -1580,7 +1493,7 @@ export class InputHandler {
       const player = this.game.state.players[u.playerId];
       const race = player?.race;
       const raceColor = race ? (RACE_COLORS[race]?.primary ?? '#fff') : '#fff';
-      const teamLabel = u.team === Team.Bottom ? 'Ally' : 'Enemy';
+      const teamLabel = u.team === this.myTeam ? 'Ally' : 'Enemy';
 
       const lines: string[] = [];
       lines.push(`${u.type}`);
@@ -1682,7 +1595,7 @@ export class InputHandler {
   }
 
   private getUnitTooltip(u: UnitState): string {
-    const teamLabel = u.team === Team.Bottom ? 'Ally' : 'Enemy';
+    const teamLabel = u.team === this.myTeam ? 'Ally' : 'Enemy';
     let tip = `${u.type} (${teamLabel} ${u.category})  HP: ${u.hp}/${u.maxHp}`;
     if (u.shieldHp > 0) tip += ` +${u.shieldHp} shield`;
     return tip;
@@ -1955,15 +1868,15 @@ export class InputHandler {
     const cam = renderer.camera;
     const isTower = this.selectedBuilding === BuildingType.Tower;
     const isHut = this.selectedBuilding === BuildingType.HarvesterHut;
-    const myTeam = Team.Bottom;
+    const myTeam = this.myTeam;
 
     ctx.save();
     cam.applyTransform(ctx);
 
     // Highlight hut grid for miner
     if (isHut) {
-      const origin = getHutGridOrigin(0);
-      const myHuts = this.game.state.buildings.filter(b => b.playerId === 0 && b.type === BuildingType.HarvesterHut);
+      const origin = getHutGridOrigin(this.pid);
+      const myHuts = this.game.state.buildings.filter(b => b.playerId === this.pid && b.type === BuildingType.HarvesterHut);
       const occupiedSlots = new Set(myHuts.map(b => b.gridX));
       // Show next auto-placement slot with a bright highlight
       const CENTER_OUT = [4, 5, 3, 6, 2, 7, 1, 8, 0, 9];
@@ -1993,13 +1906,13 @@ export class InputHandler {
 
     // Highlight military grid slots (for non-tower, non-hut types)
     if (!isTower && !isHut) {
-      const origin = getBuildGridOrigin(0);
+      const origin = getBuildGridOrigin(this.pid);
       for (let gy = 0; gy < BUILD_GRID_ROWS; gy++) {
         for (let gx = 0; gx < BUILD_GRID_COLS; gx++) {
           const wx = (origin.x + gx) * TILE_SIZE;
           const wy = (origin.y + gy) * TILE_SIZE;
           const occupied = this.game.state.buildings.some(
-            b => b.buildGrid === 'military' && b.gridX === gx && b.gridY === gy && b.playerId === 0
+            b => b.buildGrid === 'military' && b.gridX === gx && b.gridY === gy && b.playerId === this.pid
           );
           ctx.fillStyle = occupied ? 'rgba(255, 60, 60, 0.15)' : 'rgba(60, 255, 60, 0.15)';
           ctx.fillRect(wx, wy, TILE_SIZE, TILE_SIZE);
@@ -2039,7 +1952,7 @@ export class InputHandler {
 
   private drawBuildTooltip(ctx: CanvasRenderingContext2D, _renderer: Renderer): void {
     if (!this.selectedBuilding) return;
-    const player = this.game.state.players[0];
+    const player = this.game.state.players[this.pid];
     const race = player.race;
     const type = this.selectedBuilding;
 
@@ -2124,16 +2037,16 @@ export class InputHandler {
     if (!this.hoveredGridSlot) return;
     const slot = this.hoveredGridSlot;
 
-    const origin = slot.isAlley ? getTeamAlleyOrigin(Team.Bottom) : getBuildGridOrigin(0);
+    const origin = slot.isAlley ? getTeamAlleyOrigin(this.myTeam) : getBuildGridOrigin(this.pid);
     const worldX = (origin.x + slot.gx) * TILE_SIZE;
     const worldY = (origin.y + slot.gy) * TILE_SIZE;
 
     const grid = slot.isAlley ? 'alley' : 'military';
-    const myTeam = Team.Bottom;
+    const myTeam = this.myTeam;
     const occupied = this.game.state.buildings.some(
       b => {
         if (b.buildGrid !== grid || b.gridX !== slot.gx || b.gridY !== slot.gy) return false;
-        if (!slot.isAlley) return b.playerId === 0;
+        if (!slot.isAlley) return b.playerId === this.pid;
         const buildingTeam = b.playerId < 2 ? Team.Bottom : Team.Top;
         return buildingTeam === myTeam;
       }
@@ -2152,7 +2065,7 @@ export class InputHandler {
 
   private drawNukeOverlay(ctx: CanvasRenderingContext2D): void {
     const cam = this.camera;
-    const team = this.game.state.players[0]?.team ?? Team.Bottom;
+    const team = this.game.state.players[this.pid]?.team ?? Team.Bottom;
 
     // Draw red blocked zone over enemy half (can't nuke there)
     const forbiddenMinY = team === Team.Bottom ? 0 : ZONES.MID.end;

@@ -463,6 +463,44 @@ const RACE_LABELS: Record<Race, string> = {
   [Race.Wild]: 'WILD', [Race.Geists]: 'GEISTS', [Race.Tenders]: 'TENDERS',
 };
 
+// ─── Random name generator ───
+const NAME_PRE = [
+  'Swift','Bold','Iron','Dark','Grim','Red','Brave','Fell','Storm','Ash',
+  'Dire','Wild','Pale','Dread','Cold','Keen','Lone','Mad','Old','Sly',
+  'Tall','Wry','Stark','Void','Grey','Dusk','Dawn','Frost','Flame','Stone',
+  'Thorn','Shade','Ghost','Blood','War','Sky','Sea','Rust','Bone','Grit',
+  'Hex','Doom','Foul','Bleak','Gilt','Numb','Rot','Fey','Brisk','Woe',
+  'Gloom','Soot','Moss','Brine','Slag','Char','Murk','Haze','Mire','Smog',
+  'Dust','Vex','Jinx','Gale','Pyre','Bile','Scorn','Wilt','Ruin','Blight',
+  'Sleet','Barb','Crag','Gorge','Marsh','Ember','Chill','Blaze','Wisp','Lurk',
+  'Gaunt','Brute','Crook','Rogue','Fiend','Wraith','Snarl','Dour','Blunt','Coil',
+  'Crude','Scrap','Crux','Sleek','Bliss','Vigor','Noble','Sage','Grand','Prime',
+];
+const NAME_SUF = [
+  'Wolf','Blade','Fang','Hawk','Thorn','Raven','Viper','Bear','Fox','Crow',
+  'Skull','Horn','Shard','Bane','Drake','Helm','Root','Wyrm','Claw','Axe',
+  'Pike','Mace','Bow','Warg','Orc','Fist','Maw','Spine','Tooth','Hide',
+  'Bone','Eye','Tail','Wing','Scale','Hoof','Pelt','Tusk','Fin','Snout',
+  'Beak','Talon','Barb','Sting','Coil','Gut','Mane','Brood','Husk','Shell',
+  'Reef','Knot','Burr','Gnarl','Stump','Slab','Flint','Ore','Silt','Peat',
+  'Grub','Mite','Newt','Shrew','Toad','Wasp','Moth','Slug','Wren','Lark',
+  'Asp','Lynx','Ram','Boar','Stag','Hart','Bull','Hound','Crane','Eel',
+  'Carp','Squid','Shark','Crow','Rook','Jay','Finch','Dove','Owl','Bat',
+  'Rat','Stoat','Otter','Mink','Yak','Ibex','Goat','Lamb','Colt','Foal',
+];
+function randomName(): string {
+  const pre = NAME_PRE[Math.floor(Math.random() * NAME_PRE.length)];
+  const suf = NAME_SUF[Math.floor(Math.random() * NAME_SUF.length)];
+  return `${pre}${suf}`;
+}
+function loadPlayerName(): string {
+  try { return localStorage.getItem('spawnwars_name') || randomName(); }
+  catch { return randomName(); }
+}
+function savePlayerName(name: string): void {
+  try { localStorage.setItem('spawnwars_name', name); } catch {}
+}
+
 export class TitleScene implements Scene {
   private manager: SceneManager;
   private canvas: HTMLCanvasElement;
@@ -472,6 +510,10 @@ export class TitleScene implements Scene {
   private clickHandler: ((e: MouseEvent) => void) | null = null;
   private touchHandler: ((e: TouchEvent) => void) | null = null;
   private keyHandler: ((e: KeyboardEvent) => void) | null = null;
+
+  // Player name
+  private playerName = loadPlayerName();
+  private diceBtnRect = { x: 0, y: 0, w: 0, h: 0 };
 
   // Duel state
   private blue: DuelUnit | null = null;
@@ -503,7 +545,7 @@ export class TitleScene implements Scene {
   private joinCodeInput: string = '';
   private joinInputActive = false;
   private firebaseReady = false;
-  onPartyStart: ((party: PartyState) => void) | null = null;
+  onPartyStart: ((party: PartyState, isHost: boolean) => void) | null = null;
 
   constructor(manager: SceneManager, canvas: HTMLCanvasElement, ui: UIAssets, sprites: SpriteLoader) {
     this.manager = manager;
@@ -525,6 +567,7 @@ export class TitleScene implements Scene {
     this.joinCodeInput = '';
     this.joinInputActive = false;
     this.partyError = '';
+    this.partyStartFired = false;
 
     // Listen for party state changes
     if (this.party) {
@@ -579,10 +622,12 @@ export class TitleScene implements Scene {
     }
   }
 
+  private partyStartFired = false;
   private partyListener = (s: PartyState | null) => {
     this.partyState = s;
-    if (s && s.status === 'starting' && this.onPartyStart) {
-      this.onPartyStart(s);
+    if (s && s.status === 'starting' && this.onPartyStart && !this.partyStartFired) {
+      this.partyStartFired = true;
+      this.onPartyStart(s, this.party?.isHost ?? true);
     }
   };
 
@@ -592,6 +637,7 @@ export class TitleScene implements Scene {
     solo: { x: number; y: number; w: number; h: number };
     create: { x: number; y: number; w: number; h: number };
     join: { x: number; y: number; w: number; h: number };
+    gallery: { x: number; y: number; w: number; h: number };
   } {
     const w = this.canvas.width;
     const h = this.canvas.height;
@@ -603,6 +649,7 @@ export class TitleScene implements Scene {
       solo: { x: (w - btnW) / 2, y: startY, w: btnW, h: btnH },
       create: { x: (w - btnW) / 2, y: startY + btnH + gap, w: btnW, h: btnH },
       join: { x: (w - btnW) / 2, y: startY + (btnH + gap) * 2, w: btnW, h: btnH },
+      gallery: { x: (w - btnW) / 2, y: startY + (btnH + gap) * 3, w: btnW, h: btnH },
     };
   }
 
@@ -680,6 +727,13 @@ export class TitleScene implements Scene {
       return;
     }
 
+    // Dice button — randomize name
+    if (this.hitRect(cx, cy, this.diceBtnRect)) {
+      this.playerName = randomName();
+      savePlayerName(this.playerName);
+      return;
+    }
+
     const btns = this.getButtonLayout();
     if (this.hitRect(cx, cy, btns.solo)) {
       this.manager.switchTo('raceSelect');
@@ -687,6 +741,10 @@ export class TitleScene implements Scene {
     }
     if (this.hitRect(cx, cy, btns.create)) {
       this.doCreateParty();
+      return;
+    }
+    if (this.hitRect(cx, cy, btns.gallery)) {
+      this.manager.switchTo('gallery');
       return;
     }
     if (this.hitRect(cx, cy, btns.join)) {
@@ -715,7 +773,10 @@ export class TitleScene implements Scene {
       this.firebaseInitPromise = null;
     }).catch((err) => {
       this.firebaseInitPromise = null;
-      this.showPartyError(err.message || 'Firebase error');
+      console.error('[Firebase] Init failed:', err.code || '', err.message || err);
+      this.showPartyError(err.code === 'auth/admin-restricted-operation'
+        ? 'Enable Anonymous Auth in Firebase Console'
+        : (err.message || 'Firebase error'));
       throw err;
     });
     return this.firebaseInitPromise;
@@ -726,6 +787,7 @@ export class TitleScene implements Scene {
       await this.ensureFirebase();
       await this.party!.createParty(Race.Crown);
     } catch (e: any) {
+      console.error('[Party] Create failed:', e);
       this.showPartyError(e.message || 'Failed to create party');
     }
   }
@@ -738,6 +800,7 @@ export class TitleScene implements Scene {
       this.joinInputActive = false;
       this.joinCodeInput = '';
     } catch (e: any) {
+      console.error('[Party] Join failed:', e);
       this.showPartyError(e.message || 'Failed to join');
     }
   }
@@ -1111,6 +1174,9 @@ export class TitleScene implements Scene {
       ctx.globalAlpha = 1;
     }
 
+    // Player name + dice button
+    this.renderNameTag(ctx, w, h);
+
     // Version
     ctx.textAlign = 'center';
     ctx.textBaseline = 'alphabetic';
@@ -1139,6 +1205,10 @@ export class TitleScene implements Scene {
     // JOIN PARTY — purple sword
     this.ui.drawSword(ctx, btns.join.x, btns.join.y, btns.join.w, btns.join.h, 3);
     this.drawSwordLabel(ctx, btns.join, 'JOIN PARTY', 1);
+
+    // UNIT GALLERY — dark sword
+    this.ui.drawSword(ctx, btns.gallery.x, btns.gallery.y, btns.gallery.w, btns.gallery.h, 4);
+    this.drawSwordLabel(ctx, btns.gallery, 'UNIT GALLERY', 1);
   }
 
   private drawSwordLabel(
@@ -1159,6 +1229,65 @@ export class TitleScene implements Scene {
     ctx.fillStyle = '#fff';
     ctx.fillText(text, tx, ty);
     ctx.globalAlpha = 1;
+  }
+
+  // ─── Render: Player name tag ───
+
+  private renderNameTag(ctx: CanvasRenderingContext2D, _w: number, _h: number): void {
+    const fontSize = Math.max(12, Math.min(_w / 40, 16));
+    const diceSize = fontSize + 8;
+    ctx.font = `bold ${fontSize}px monospace`;
+    const tagX = 12;
+    const tagY = 10;
+    const nameW = ctx.measureText(this.playerName).width;
+    const totalW = diceSize + 6 + nameW;
+
+    // Background pill for contrast
+    const pillPad = 8;
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.beginPath();
+    ctx.roundRect(tagX - pillPad, tagY - pillPad, totalW + pillPad * 2, diceSize + pillPad * 2, diceSize / 2);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,215,0,0.3)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.roundRect(tagX - pillPad, tagY - pillPad, totalW + pillPad * 2, diceSize + pillPad * 2, diceSize / 2);
+    ctx.stroke();
+
+    // Dice button
+    const diceX = tagX;
+    const diceY = tagY;
+    this.diceBtnRect = { x: diceX - 4, y: diceY - 4, w: diceSize + 8, h: diceSize + 8 };
+
+    ctx.fillStyle = 'rgba(255,215,0,0.15)';
+    ctx.beginPath();
+    ctx.roundRect(diceX, diceY, diceSize, diceSize, 4);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,215,0,0.5)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.roundRect(diceX, diceY, diceSize, diceSize, 4);
+    ctx.stroke();
+
+    // Dice dots (⚄ pattern — 5 dots)
+    const dcx = diceX + diceSize / 2;
+    const dcy = diceY + diceSize / 2;
+    const dotR = 2;
+    const off = diceSize * 0.22;
+    ctx.fillStyle = '#ffd700';
+    for (const [dx, dy] of [[-off, -off], [off, -off], [0, 0], [-off, off], [off, off]]) {
+      ctx.beginPath();
+      ctx.arc(dcx + dx, dcy + dy, dotR, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Player name
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.font = `bold ${fontSize}px monospace`;
+    ctx.fillStyle = '#ffd700';
+    ctx.fillText(this.playerName, tagX + diceSize + 6, tagY + diceSize / 2);
+    ctx.textBaseline = 'alphabetic';
   }
 
   // ─── Render: Join code input ───
