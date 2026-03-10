@@ -1,29 +1,22 @@
 {
   "rules": {
-    // Deny everything by default
     ".read": false,
     ".write": false,
 
     "parties": {
-      // Allow querying parties by status (for matchmaking)
       ".indexOn": ["status"],
-
-      // Allow listing parties for findAndJoinGame query
       ".read": "auth != null",
 
       "$code": {
-        // Anyone authenticated can read a specific party
         ".read": "auth != null",
 
-        // Allow creation: authenticated user, party must not already exist
-        // Allow full delete by the host only
+        // Allow creation (party doesn't exist yet) or full delete by host
         ".write": "auth != null && (
           (!data.exists() && newData.exists()) ||
           (data.exists() && data.child('hostUid').val() === auth.uid && !newData.exists())
         )",
 
-        // Validate overall party structure
-        ".validate": "newData.hasChildren(['code', 'hostUid', 'host', 'status', 'seed'])",
+        ".validate": "newData.hasChildren(['code', 'hostUid', 'players', 'maxSlots', 'mapId', 'status', 'seed'])",
 
         "code": {
           ".validate": "newData.isString() && newData.val().length >= 4 && newData.val().length <= 6"
@@ -34,8 +27,15 @@
         "seed": {
           ".validate": "newData.isNumber()"
         },
+        "maxSlots": {
+          ".write": "auth != null && data.parent().child('hostUid').val() === auth.uid",
+          ".validate": "newData.isNumber() && newData.val() >= 2 && newData.val() <= 6"
+        },
+        "mapId": {
+          ".write": "auth != null && data.parent().child('hostUid').val() === auth.uid",
+          ".validate": "newData.isString() && newData.val().length <= 20"
+        },
         "status": {
-          // Only host can change status
           ".write": "auth != null && data.parent().child('hostUid').val() === auth.uid",
           ".validate": "newData.isString() && (
             newData.val() === 'waiting' ||
@@ -45,65 +45,49 @@
           )"
         },
         "difficulty": {
-          // Only host can set difficulty
           ".write": "auth != null && data.parent().child('hostUid').val() === auth.uid",
           ".validate": "newData.isString() && newData.val().length <= 20"
         },
-        "host": {
-          // Only host can update their own data
-          ".write": "auth != null && (
-            data.parent().child('hostUid').val() === auth.uid ||
-            !data.parent().exists()
-          )",
-          ".validate": "newData.hasChildren(['uid', 'name', 'race'])",
-          "uid": { ".validate": "newData.isString() && newData.val().length <= 128" },
-          "name": { ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 30" },
-          "race": { ".validate": "newData.isString() && newData.val().length <= 20" }
-        },
-        "guest": {
-          // Guest can write their own slot (set or remove)
-          // Host can also remove guest (when destroying party)
-          ".write": "auth != null && (
-            !data.exists() ||
-            data.child('uid').val() === auth.uid ||
-            data.parent().child('hostUid').val() === auth.uid
-          )",
-          ".validate": "newData.hasChildren(['uid', 'name', 'race'])",
-          "uid": { ".validate": "newData.isString() && newData.val().length <= 128" },
-          "name": { ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 30" },
-          "race": { ".validate": "newData.isString() && newData.val().length <= 20" }
+        "players": {
+          "$slot": {
+            // Player can write their own slot, or host can write any slot
+            // Slot 0 is always the host
+            ".write": "auth != null && (
+              !data.exists() ||
+              data.child('uid').val() === auth.uid ||
+              data.parent().parent().child('hostUid').val() === auth.uid
+            )",
+            ".validate": "newData.hasChildren(['uid', 'name', 'race'])",
+            "uid": { ".validate": "newData.isString() && newData.val().length <= 128" },
+            "name": { ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 30" },
+            "race": { ".validate": "newData.isString() && newData.val().length <= 20" }
+          }
         }
       }
     },
 
     "games": {
       "$code": {
-        // Anyone authenticated who knows the code can read game data
-        // The 5-char party code acts as a shared secret
         ".read": "auth != null",
-
-        // Allow deleting the entire game node (cleanup after match)
-        // Creation/updates are handled by child rules
         ".write": "auth != null && !newData.exists()",
 
         "ready": {
           "$slot": {
-            ".write": "auth != null && ($slot === '0' || $slot === '1')",
+            ".write": "auth != null",
             ".validate": "newData.isBoolean()"
           }
         },
         "turns": {
           "$turn": {
             "$slot": {
-              ".write": "auth != null && ($slot === '0' || $slot === '1')",
-              // Limit turn data size: cmds array + hash + turn number
+              ".write": "auth != null",
               ".validate": "newData.hasChild('t') && newData.child('t').isNumber()"
             }
           }
         },
         "ping": {
           "$slot": {
-            ".write": "auth != null && ($slot === '0' || $slot === '1')",
+            ".write": "auth != null",
             ".validate": "newData.isNumber()"
           }
         }
