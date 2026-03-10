@@ -77,7 +77,7 @@ export const BOT_DIFFICULTY_PRESETS: Record<BotDifficultyLevel, BotDifficulty> =
     maxSpawners: 5,           // moderate cap: 5 spawners
     maxHuts: 4,               // moderate cap: 4 huts
   },
-  // Hard: higher caps, fast builds, no upgrades, nukes
+  // Hard: moderate caps, fast builds, no upgrades, nukes
   [BotDifficultyLevel.Hard]: {
     buildSpeed: 25,           // 1.25 seconds between builds
     upgradeSpeed: 999999,     // no upgrades — pure army advantage
@@ -90,24 +90,24 @@ export const BOT_DIFFICULTY_PRESETS: Record<BotDifficultyLevel, BotDifficulty> =
     useSmartUpgrades: false,
     useNightmareProfiles: false,
     mistakeRate: 0,
-    maxSpawners: 8,           // high cap: 8 spawners
-    maxHuts: 6,               // high cap: 6 huts
+    maxSpawners: 6,           // high cap: 6 spawners
+    maxHuts: 5,               // high cap: 5 huts
   },
-  // Nightmare: unlimited, fastest builds, optimized profiles, upgrades as polish
+  // Nightmare: unlimited, fastest builds, massive economy, no upgrades
   [BotDifficultyLevel.Nightmare]: {
-    buildSpeed: 15,           // 0.75 seconds between builds
-    upgradeSpeed: 60,         // upgrades only after huge army (threshold 8)
-    upgradeThreshold: 8,      // 8 spawners before any upgrades
+    buildSpeed: 10,           // 0.5 seconds between builds — relentless
+    upgradeSpeed: 999999,     // no upgrades — pure army mass
+    upgradeThreshold: 99,
     nukeMinTime: 1.0,
     laneIQ: 'threat',
     counterBuild: false,
     useValueFunction: false,
     useDynamicShift: false,
     useSmartUpgrades: false,
-    useNightmareProfiles: true,
+    useNightmareProfiles: false,  // standard profiles — nightmare profiles hurt in testing
     mistakeRate: 0,
     maxSpawners: 99,          // unlimited
-    maxHuts: 99,              // unlimited
+    maxHuts: 8,               // more huts = economy advantage over hard
   },
 };
 

@@ -74,6 +74,7 @@ uiReady.then(() => {
     }
     matchScene.setPartyConfig({
       humanPlayers,
+      slotBots: party.bots,
       localSlot,
       seed: party.seed,
       partyCode: party.code,

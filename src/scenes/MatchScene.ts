@@ -8,6 +8,8 @@ import { DUEL_MAP } from '../simulation/maps';
 export interface PartyConfig {
   /** All human players: slot index → race */
   humanPlayers: { slot: number; race: Race }[];
+  /** Per-slot bot difficulty overrides */
+  slotBots?: { [slot: string]: string };
   localSlot: number;
   seed: number;
   partyCode: string;
@@ -48,6 +50,7 @@ export class MatchScene implements Scene {
       const pc = this.partyConfig;
       this.game = new Game(this.canvas, pc.humanPlayers[0]?.race ?? Race.Crown, this.ui, {
         humanPlayers: pc.humanPlayers,
+        slotBots: pc.slotBots,
         localPlayerId: pc.localSlot,
         seed: pc.seed,
         partyCode: pc.partyCode,

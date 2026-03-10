@@ -8,6 +8,7 @@ import { PartyManager, PartyState, PartyPlayer, getPartyPlayerCount } from '../n
 import { isFirebaseConfigured, initFirebase } from '../network/FirebaseService';
 import { PlayerProfile, ALL_AVATARS } from '../profile/ProfileData';
 import { BotDifficultyLevel } from '../simulation/BotAI';
+import { getMapById } from '../simulation/maps';
 
 const PARTY_DIFFICULTY_OPTIONS: { level: BotDifficultyLevel; label: string; color: string }[] = [
   { level: BotDifficultyLevel.Easy, label: 'EASY', color: '#4caf50' },
@@ -610,6 +611,17 @@ export class TitleScene implements Scene {
   private joinInputActive = false;
   private firebaseReady = false;
   private partyDifficultyIndex = 1; // index into PARTY_DIFFICULTY_OPTIONS (default Medium)
+  // Drag-and-drop state for party slot rearrangement
+  private dragSlot = -1;  // which slot is being dragged (-1 = none)
+  private dragX = 0;
+  private dragY = 0;
+  private dragStartX = 0;
+  private dragStartY = 0;
+  private isDragging = false;
+  private dragJustEnded = false; // suppress click after drag
+  private mouseDownHandler: ((e: MouseEvent) => void) | null = null;
+  private mouseMoveHandler: ((e: MouseEvent) => void) | null = null;
+  private mouseUpHandler: ((e: MouseEvent) => void) | null = null;
   onPartyStart: ((party: PartyState, localSlot: number) => void) | null = null;
 
   constructor(manager: SceneManager, canvas: HTMLCanvasElement, ui: UIAssets, sprites: SpriteLoader) {
@@ -655,6 +667,7 @@ export class TitleScene implements Scene {
     const interactHandler = () => { this.userInteracted = true; };
     this.clickHandler = (e: MouseEvent) => {
       interactHandler();
+      if (this.dragJustEnded) { this.dragJustEnded = false; return; }
       const rect = this.canvas.getBoundingClientRect();
       const cx = e.clientX - rect.left;
       const cy = e.clientY - rect.top;
@@ -685,15 +698,87 @@ export class TitleScene implements Scene {
     this.canvas.addEventListener('click', this.clickHandler);
     this.canvas.addEventListener('touchstart', this.touchHandler);
     window.addEventListener('keydown', this.keyHandler);
+
+    // Drag-and-drop handlers for party slot rearrangement
+    this.mouseDownHandler = (e: MouseEvent) => {
+      if (!this.partyState || !this.party?.isHost) return;
+      const rect = this.canvas.getBoundingClientRect();
+      const cx = e.clientX - rect.left;
+      const cy = e.clientY - rect.top;
+      const pl = this.getPartyLayout();
+      // Check if mousedown is on a filled player slot
+      for (let i = 0; i < (this.partyState.maxSlots ?? 4); i++) {
+        const sr = pl.slotRects[i];
+        // Use a larger hit area for drag initiation
+        const pad = 15;
+        if (cx >= sr.x - pad && cx <= sr.x + sr.w + pad && cy >= sr.y - pad && cy <= sr.y + sr.h + pad) {
+          const hasPlayer = !!this.partyState.players[String(i)];
+          if (hasPlayer) {
+            this.dragSlot = i;
+            this.dragStartX = cx;
+            this.dragStartY = cy;
+            this.dragX = cx;
+            this.dragY = cy;
+            this.isDragging = false;
+          }
+          break;
+        }
+      }
+    };
+    this.mouseMoveHandler = (e: MouseEvent) => {
+      if (this.dragSlot < 0) return;
+      const rect = this.canvas.getBoundingClientRect();
+      this.dragX = e.clientX - rect.left;
+      this.dragY = e.clientY - rect.top;
+      // Start drag after moving 8px to distinguish from click
+      if (!this.isDragging) {
+        const dx = this.dragX - this.dragStartX;
+        const dy = this.dragY - this.dragStartY;
+        if (dx * dx + dy * dy > 64) this.isDragging = true;
+      }
+    };
+    this.mouseUpHandler = (e: MouseEvent) => {
+      if (this.dragSlot < 0 || !this.isDragging || !this.partyState || !this.party) {
+        this.dragSlot = -1;
+        this.isDragging = false;
+        return;
+      }
+      this.dragJustEnded = true; // suppress the click event that follows mouseup
+      const rect = this.canvas.getBoundingClientRect();
+      const cx = e.clientX - rect.left;
+      const cy = e.clientY - rect.top;
+      const pl = this.getPartyLayout();
+      // Find drop target slot
+      for (let i = 0; i < (this.partyState.maxSlots ?? 4); i++) {
+        if (i === this.dragSlot) continue;
+        const sr = pl.slotRects[i];
+        const pad = 15;
+        if (cx >= sr.x - pad && cx <= sr.x + sr.w + pad && cy >= sr.y - pad && cy <= sr.y + sr.h + pad) {
+          this.party.swapSlots(this.dragSlot, i);
+          break;
+        }
+      }
+      this.dragSlot = -1;
+      this.isDragging = false;
+    };
+    this.canvas.addEventListener('mousedown', this.mouseDownHandler);
+    this.canvas.addEventListener('mousemove', this.mouseMoveHandler);
+    this.canvas.addEventListener('mouseup', this.mouseUpHandler);
   }
 
   exit(): void {
     if (this.clickHandler) this.canvas.removeEventListener('click', this.clickHandler);
     if (this.touchHandler) this.canvas.removeEventListener('touchstart', this.touchHandler);
     if (this.keyHandler) window.removeEventListener('keydown', this.keyHandler);
+    if (this.mouseDownHandler) this.canvas.removeEventListener('mousedown', this.mouseDownHandler);
+    if (this.mouseMoveHandler) this.canvas.removeEventListener('mousemove', this.mouseMoveHandler);
+    if (this.mouseUpHandler) this.canvas.removeEventListener('mouseup', this.mouseUpHandler);
     this.clickHandler = null;
     this.touchHandler = null;
     this.keyHandler = null;
+    this.mouseDownHandler = null;
+    this.mouseMoveHandler = null;
+    this.mouseUpHandler = null;
     if (this.party) {
       this.party.removeListener(this.partyListener);
     }
@@ -843,12 +928,32 @@ export class TitleScene implements Scene {
     // If in a party, handle party UI
     if (this.partyState) {
       const pl = this.getPartyLayout();
+      const ps = this.partyState;
       const isHost = this.party?.isHost;
       const localSlot = this.party?.localSlotIndex ?? 0;
       // Click own slot's race icon to cycle
       if (pl.slotRects[localSlot] && this.hitRect(cx, cy, pl.slotRects[localSlot])) {
         this.cycleRace();
         return;
+      }
+      // Host clicking non-local slots: cycle bot difficulty (Empty→Easy→Med→Hard→Nightmare→Empty)
+      if (isHost) {
+        for (let i = 0; i < (ps.maxSlots ?? 4); i++) {
+          if (i === localSlot) continue;
+          if (pl.slotRects[i] && this.hitRect(cx, cy, pl.slotRects[i])) {
+            const hasPlayer = !!ps.players[String(i)];
+            if (!hasPlayer) {
+              // Cycle bot difficulty for this slot
+              const currentBot = ps.bots?.[String(i)] ?? null;
+              const cycle: (string | null)[] = [null, BotDifficultyLevel.Easy, BotDifficultyLevel.Medium, BotDifficultyLevel.Hard, BotDifficultyLevel.Nightmare];
+              const curIdx = currentBot ? cycle.indexOf(currentBot) : 0;
+              const nextIdx = (curIdx + 1) % cycle.length;
+              this.party?.setSlotBot(i, cycle[nextIdx]);
+            }
+            // Don't kick human players — just ignore click on their slot
+            return;
+          }
+        }
       }
       // Map toggle (host only)
       if (isHost && this.hitRect(cx, cy, pl.mapToggle)) {
@@ -1716,36 +1821,140 @@ export class TitleScene implements Scene {
       }
     }
 
-    // Player slots
+    // Team color backgrounds behind slot groups
     const colW = pl.panel.w / maxSlots;
     const localSlot = this.party?.localSlotIndex ?? 0;
+    const mapDef = getMapById(ps.mapId ?? 'duel');
+    const playersPerTeam = mapDef.playersPerTeam;
+    const teamColors = ['rgba(50,100,220,0.12)', 'rgba(220,50,50,0.12)'];
+    const teamBorderColors = ['rgba(80,140,255,0.35)', 'rgba(255,80,80,0.35)'];
+    const teamLabels = ['TEAM 1', 'TEAM 2'];
+    const slotAreaTop = pl.panel.y + pl.panel.h * 0.26;
+    const slotAreaBot = pl.panel.y + pl.panel.h * 0.73;
+
+    // Draw team background regions
+    for (let t = 0; t < 2; t++) {
+      const startSlot = t * playersPerTeam;
+      const endSlot = startSlot + playersPerTeam;
+      const x0 = pl.panel.x + colW * startSlot + 2;
+      const x1 = pl.panel.x + colW * endSlot - 2;
+      const r = 6;
+      ctx.fillStyle = teamColors[t];
+      ctx.beginPath();
+      ctx.moveTo(x0 + r, slotAreaTop); ctx.lineTo(x1 - r, slotAreaTop);
+      ctx.arcTo(x1, slotAreaTop, x1, slotAreaTop + r, r);
+      ctx.lineTo(x1, slotAreaBot - r);
+      ctx.arcTo(x1, slotAreaBot, x1 - r, slotAreaBot, r);
+      ctx.lineTo(x0 + r, slotAreaBot);
+      ctx.arcTo(x0, slotAreaBot, x0, slotAreaBot - r, r);
+      ctx.lineTo(x0, slotAreaTop + r);
+      ctx.arcTo(x0, slotAreaTop, x0 + r, slotAreaTop, r);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = teamBorderColors[t];
+      ctx.lineWidth = 1;
+      ctx.stroke();
+
+      // Team label at top of region
+      const teamLabelSize = Math.max(7, fontSize * 0.6);
+      ctx.font = `bold ${teamLabelSize}px monospace`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      ctx.fillStyle = teamBorderColors[t];
+      ctx.fillText(teamLabels[t], (x0 + x1) / 2, slotAreaTop + 3);
+    }
+
+    // Team divider (thicker line between teams)
+    const divX = pl.panel.x + colW * playersPerTeam;
+    ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(divX, slotAreaTop);
+    ctx.lineTo(divX, slotAreaBot);
+    ctx.stroke();
+
     for (let i = 0; i < maxSlots; i++) {
       const player = ps.players[String(i)];
       const slotRect = pl.slotRects[i];
+      const botDiff = ps.bots?.[String(i)] ?? null;
+
+      // Dim slot if being dragged
+      if (this.isDragging && this.dragSlot === i) ctx.globalAlpha = 0.3;
+
       if (player) {
         const isSlotHost = i === 0;
-        this.renderPlayerSlot(ctx, pl.panel.x + colW * i, pl.panel.y + pl.panel.h * 0.30, colW, player, isSlotHost, slotRect, i === localSlot);
+        this.renderPlayerSlot(ctx, pl.panel.x + colW * i, pl.panel.y + pl.panel.h * 0.30, colW, player, isSlotHost, slotRect, i === localSlot, i);
+      } else if (botDiff) {
+        // Bot slot — show difficulty with color
+        const slotCx = pl.panel.x + colW * i + colW / 2;
+        const slotY = pl.panel.y + pl.panel.h * 0.38;
+        const diffOpt = PARTY_DIFFICULTY_OPTIONS.find(d => d.level === botDiff);
+        const diffLabel = diffOpt?.label ?? botDiff.toUpperCase();
+        const diffColor = diffOpt?.color ?? '#aaa';
+
+        // Bot icon (gear-like indicator)
+        ctx.font = `bold ${Math.max(12, fontSize * 1.2)}px monospace`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = diffColor;
+        ctx.fillText('BOT', slotCx, slotY);
+
+        ctx.font = `bold ${Math.max(8, fontSize * 0.8)}px monospace`;
+        ctx.fillStyle = diffColor;
+        ctx.fillText(diffLabel, slotCx, slotY + fontSize * 1.3);
+
+        if (isHost) {
+          ctx.font = `${Math.max(7, fontSize * 0.55)}px monospace`;
+          ctx.fillStyle = 'rgba(255,255,255,0.35)';
+          ctx.fillText('click to change', slotCx, slotY + fontSize * 2.3);
+        }
       } else {
-        // Empty slot
+        // Empty slot (no bot, no player)
         const slotCx = pl.panel.x + colW * i + colW / 2;
         const slotY = pl.panel.y + pl.panel.h * 0.38;
         ctx.font = `bold ${Math.max(8, fontSize * 0.8)}px monospace`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillStyle = 'rgba(255,255,255,0.25)';
-        ctx.fillText('Empty', slotCx, slotY);
-        ctx.font = `${Math.max(7, fontSize * 0.6)}px monospace`;
-        ctx.fillText('(Bot)', slotCx, slotY + fontSize * 1.2);
+        ctx.fillStyle = 'rgba(255,255,255,0.2)';
+        ctx.fillText('EMPTY', slotCx, slotY);
+        if (isHost) {
+          ctx.font = `${Math.max(7, fontSize * 0.55)}px monospace`;
+          ctx.fillStyle = 'rgba(255,255,255,0.3)';
+          ctx.fillText('click to add bot', slotCx, slotY + fontSize * 1.3);
+        }
       }
 
-      // Divider lines between slots
-      if (i > 0) {
-        ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+      if (this.isDragging && this.dragSlot === i) ctx.globalAlpha = 1;
+
+      // Divider lines between slots within same team
+      if (i > 0 && i !== playersPerTeam) {
+        ctx.strokeStyle = 'rgba(255,255,255,0.08)';
         ctx.lineWidth = 1;
         ctx.beginPath();
-        ctx.moveTo(pl.panel.x + colW * i, pl.panel.y + pl.panel.h * 0.28);
-        ctx.lineTo(pl.panel.x + colW * i, pl.panel.y + pl.panel.h * 0.75);
+        ctx.moveTo(pl.panel.x + colW * i, slotAreaTop + 14);
+        ctx.lineTo(pl.panel.x + colW * i, slotAreaBot - 4);
         ctx.stroke();
+      }
+    }
+
+    // Drag ghost: render dragged player at cursor position
+    if (this.isDragging && this.dragSlot >= 0) {
+      const dragPlayer = ps.players[String(this.dragSlot)];
+      if (dragPlayer) {
+        ctx.globalAlpha = 0.7;
+        const ghostSize = 40;
+        const spriteData = this.sprites.getUnitSprite(dragPlayer.race, 'melee', this.dragSlot < playersPerTeam ? 0 : 1);
+        if (spriteData) {
+          const [img, def] = spriteData;
+          const frame = Math.floor(this.animTime * 5) % def.cols;
+          const gY = def.groundY ?? 0.71;
+          drawSpriteFrame(ctx, img, def, frame, this.dragX - ghostSize / 2, this.dragY - ghostSize * gY, ghostSize, ghostSize);
+        }
+        ctx.font = `bold ${Math.max(8, fontSize * 0.7)}px monospace`;
+        ctx.textAlign = 'center';
+        ctx.fillStyle = '#fff';
+        ctx.fillText(dragPlayer.name, this.dragX, this.dragY + ghostSize * 0.4);
+        ctx.globalAlpha = 1;
       }
     }
 
@@ -1838,12 +2047,13 @@ export class TitleScene implements Scene {
     player: PartyPlayer, isHost: boolean,
     raceRect: { x: number; y: number; w: number; h: number },
     isLocal = false,
+    slotIndex = 0,
   ): void {
     const cx = x + slotW / 2;
     const fontSize = Math.max(10, Math.min(slotW / 10, 14));
 
-    // Race icon (unit sprite as avatar)
-    const spriteData = this.sprites.getUnitSprite(player.race, 'melee', isHost ? 0 : 1);
+    // Race icon — use slot index for sprite color variant (team 0 = pid 0, team 1 = pid 1+)
+    const spriteData = this.sprites.getUnitSprite(player.race, 'melee', slotIndex);
     if (spriteData) {
       const [img, def] = spriteData;
       const iconSize = raceRect.w;

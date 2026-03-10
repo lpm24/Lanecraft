@@ -20,11 +20,12 @@ export interface PartyState {
   code: string;
   hostUid: string;
   players: { [slot: string]: PartyPlayer }; // keyed by slot index
+  bots?: { [slot: string]: string };  // per-slot bot difficulty (BotDifficultyLevel), absent = empty
   maxSlots: number;  // max human players (from mapDef.maxPlayers)
   mapId: string;     // map selection (host controls)
   status: 'waiting' | 'starting' | 'in_game' | 'ended';
   seed: number;
-  difficulty?: string; // BotDifficultyLevel value, set by host
+  difficulty?: string; // global fallback BotDifficultyLevel, set by host
 }
 
 /** Helper to get the ordered list of occupied player slots. */
@@ -232,14 +233,57 @@ export class PartyManager {
     const maxSlots = mapId === 'skirmish' ? 6 : 4;
     await set(ref(db, `parties/${this.partyCode}/mapId`), mapId);
     await set(ref(db, `parties/${this.partyCode}/maxSlots`), maxSlots);
-    // If shrinking, remove excess players
+    // If shrinking, remove excess players and bots
     if (maxSlots < this._state.maxSlots) {
       for (let i = maxSlots; i < this._state.maxSlots; i++) {
         if (this._state.players[String(i)]) {
           await remove(ref(db, `parties/${this.partyCode}/players/${i}`));
         }
+        if (this._state.bots?.[String(i)]) {
+          await remove(ref(db, `parties/${this.partyCode}/bots/${i}`));
+        }
       }
     }
+  }
+
+  /** Set or clear a bot in a specific slot (host only). Pass null to clear. */
+  async setSlotBot(slot: number, difficulty: string | null): Promise<void> {
+    if (!this.partyCode || !this._state || !this._isHost) return;
+    // Don't overwrite a human player
+    if (this._state.players[String(slot)]) return;
+    const db = getDb();
+    if (difficulty) {
+      await set(ref(db, `parties/${this.partyCode}/bots/${slot}`), difficulty);
+    } else {
+      await remove(ref(db, `parties/${this.partyCode}/bots/${slot}`));
+    }
+  }
+
+  /** Swap two slots (host only). Moves humans and/or bots between positions. */
+  async swapSlots(slotA: number, slotB: number): Promise<void> {
+    if (!this.partyCode || !this._state || !this._isHost) return;
+    if (slotA === slotB) return;
+    const db = getDb();
+    const ps = this._state;
+    const playerA = ps.players[String(slotA)] ?? null;
+    const playerB = ps.players[String(slotB)] ?? null;
+    const botA = ps.bots?.[String(slotA)] ?? null;
+    const botB = ps.bots?.[String(slotB)] ?? null;
+
+    // Build update object for atomic write
+    const updates: { [path: string]: unknown } = {};
+    const base = `parties/${this.partyCode}`;
+
+    // Swap players
+    updates[`${base}/players/${slotA}`] = playerB;
+    updates[`${base}/players/${slotB}`] = playerA;
+    // Swap bots
+    updates[`${base}/bots/${slotA}`] = botB;
+    updates[`${base}/bots/${slotB}`] = botA;
+
+    // Use update() for atomic multi-path write
+    const { update } = await import('firebase/database');
+    await update(ref(db), updates);
   }
 
   async startGame(): Promise<void> {

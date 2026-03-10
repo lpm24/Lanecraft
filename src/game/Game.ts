@@ -5,7 +5,7 @@ import { GameLoop } from './GameLoop';
 import { Renderer } from '../rendering/Renderer';
 import { InputHandler } from '../ui/InputHandler';
 import { SoundManager } from '../audio/SoundManager';
-import { runAllBotAI, createBotContext, BotContext, BotDifficultyLevel } from '../simulation/BotAI';
+import { runAllBotAI, createBotContext, BotContext, BotDifficultyLevel, BOT_DIFFICULTY_PRESETS } from '../simulation/BotAI';
 import { UIAssets } from '../rendering/UIAssets';
 import { CommandSync, TICKS_PER_TURN } from '../network/CommandSync';
 
@@ -13,6 +13,8 @@ export interface GamePartyOptions {
   /** All human players in slot order: { slotIndex, race }.
    *  Slots not listed here become bots. */
   humanPlayers: { slot: number; race: Race }[];
+  /** Per-slot bot difficulty overrides. Slot → BotDifficultyLevel. */
+  slotBots?: { [slot: string]: string };
   localPlayerId: number;     // this client's slot index
   seed: number;
   partyCode?: string;        // set for networked multiplayer (enables CommandSync)
@@ -96,8 +98,14 @@ export class Game {
       this.state = createInitialState(players, undefined, mapDef);
     }
 
-    // Set up bot difficulty
+    // Set up bot difficulty (global default + per-slot overrides)
     this.botCtx = createBotContext(partyOpts?.botDifficulty ?? soloDifficulty ?? BotDifficultyLevel.Medium);
+    if (partyOpts?.slotBots) {
+      for (const [slot, diff] of Object.entries(partyOpts.slotBots)) {
+        const preset = BOT_DIFFICULTY_PRESETS[diff as BotDifficultyLevel];
+        if (preset) this.botCtx.difficulty[Number(slot)] = preset;
+      }
+    }
 
     // Set up multiplayer command sync if party code provided
     if (partyOpts?.partyCode != null) {
