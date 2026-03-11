@@ -1359,13 +1359,13 @@ export class Renderer {
           }
         }
 
-        // Harvester hut assignment icon overlay
+        // Harvester hut assignment icon overlay — top-right of building
         if (b.type === BuildingType.HarvesterHut) {
           const harv = state.harvesters.find(h => h.hutId === b.id);
           if (harv) {
             const iconSz = Math.max(8, half * 0.9);
-            const iconX = px - iconSz / 2;
-            const iconY2 = py + half + 2;
+            const iconX = px + half - iconSz * 0.2;
+            const iconY2 = py - half - iconSz * 0.6;
             if (harv.assignment === 'center') {
               const diamondSprite = this.sprites.getResourceSprite('goldResource');
               const dSz = iconSz * 1.8;
@@ -1426,8 +1426,8 @@ export class Renderer {
             const harv = state.harvesters.find(h => h.hutId === b.id);
             if (harv) {
               const iconSz = Math.max(8, half * 0.9);
-              const iconX = px - iconSz / 2;
-              const iconY2 = py - iconSz / 2;
+              const iconX = px + half - iconSz * 0.2;
+              const iconY2 = py - half - iconSz * 0.6;
               if (harv.assignment === 'center') {
                 const diamondSprite = this.sprites.getResourceSprite('goldResource');
                 if (diamondSprite) ctx.drawImage(diamondSprite[0], iconX, iconY2, iconSz, iconSz);
