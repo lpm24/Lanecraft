@@ -40,3 +40,42 @@ jobs:
 
       - uses: actions/deploy-pages@v4
         id: deployment
+
+      - name: Discord deploy notification
+        if: success()
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          # Gather recent commits since last deploy (up to 10)
+          COMMITS=$(git log --oneline -10 --no-decorate)
+          REPO="${{ github.repository }}"
+          SHA="${{ github.sha }}"
+          SHORT_SHA="${SHA:0:7}"
+          AUTHOR="${{ github.actor }}"
+          URL="${{ steps.deployment.outputs.page_url }}"
+
+          # Build markdown commit list
+          COMMIT_LIST=""
+          while IFS= read -r line; do
+            HASH=$(echo "$line" | cut -d' ' -f1)
+            MSG=$(echo "$line" | cut -d' ' -f2-)
+            COMMIT_LIST="$COMMIT_LIST\n• [\`$HASH\`](https://github.com/$REPO/commit/$HASH) $MSG"
+          done <<< "$COMMITS"
+
+          # Send to Discord
+          PAYLOAD=$(jq -n \
+            --arg title "🚀 Spawn Wars Deployed" \
+            --arg desc "**Recent changes:**\n$COMMIT_LIST" \
+            --arg url "$URL" \
+            --arg footer "Deployed by $AUTHOR • $SHORT_SHA" \
+            '{
+              embeds: [{
+                title: $title,
+                description: $desc,
+                url: $url,
+                color: 5763719,
+                footer: { text: $footer }
+              }]
+            }')
+
+          curl -s -H "Content-Type: application/json" -d "$PAYLOAD" "$DISCORD_WEBHOOK"
