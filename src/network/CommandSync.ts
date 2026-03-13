@@ -339,13 +339,36 @@ export class CommandSync {
   /** Called when a remote player's leave signal is detected. */
   onPlayerLeft: ((slotId: number) => void) | null = null;
 
+  /** Remove a slot from the required human slots (player left → becomes bot).
+   *  This must be called so CommandSync stops waiting for that slot's turn data. */
+  removeHumanSlot(slotId: number): void {
+    const idx = this.allHumanSlots.indexOf(slotId);
+    if (idx !== -1) this.allHumanSlots.splice(idx, 1);
+    this.remoteSlotIds = this.allHumanSlots.filter(id => id !== this.localSlotId);
+    // Resolve any pending turns that are now complete with the reduced player set
+    for (const [turn, resolver] of this.resolvers) {
+      if (this.isTurnComplete(turn)) {
+        this.resolvers.delete(turn);
+        resolver();
+      }
+    }
+  }
+
+  /** Slots that have been flagged as left but not yet processed by the game. */
+  leftSlotQueue: number[] = [];
+
   /** Start listening for leave signals from remote players. */
   listenForLeaves(): void {
     const db = getDb();
     for (const remoteId of this.remoteSlotIds) {
       const unsub = onValue(ref(db, `games/${this.partyCode}/left/${remoteId}`), (snap) => {
         if (snap.val() === true) {
-          this.onPlayerLeft?.(remoteId);
+          // Queue the leave — Game will drain this at a deterministic turn boundary
+          if (!this.leftSlotQueue.includes(remoteId)) {
+            this.leftSlotQueue.push(remoteId);
+          }
+          // Remove from required slots so we don't stall waiting for their data
+          this.removeHumanSlot(remoteId);
         }
       });
       this.unsubs.push(unsub);

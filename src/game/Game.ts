@@ -1,5 +1,5 @@
-import { GameState, GameCommand, Race, Team, MapDef, HQ_HP, createSeededRng } from '../simulation/types';
-import { createInitialState, simulateTick, computeStateHash } from '../simulation/GameState';
+import { GameState, GameCommand, Race, Team, MapDef, HQ_HP, TILE_SIZE, createSeededRng } from '../simulation/types';
+import { createInitialState, simulateTick, computeStateHash, getHQPosition } from '../simulation/GameState';
 import { DUEL_MAP } from '../simulation/maps';
 import { GameLoop } from './GameLoop';
 import { Renderer } from '../rendering/Renderer';
@@ -154,9 +154,8 @@ export class Game {
         this.peerDisconnected = true;
         console.warn('[Game] Peer disconnected');
       };
-      this.commandSync.onPlayerLeft = (slotId: number) => {
-        this.convertPlayerToBot(slotId);
-      };
+      // Player leave is handled deterministically at turn boundaries via leftSlotQueue
+      this.commandSync.onPlayerLeft = null;
       this.commandSync.start();
       this.commandSync.listenForLeaves();
     }
@@ -169,6 +168,13 @@ export class Game {
     this.input = new InputHandler(this, canvas, this.renderer.camera, ui, this.renderer.sprites);
     this.input.onQuitGame = () => this.handleQuitGame();
     this.sounds = new SoundManager();
+
+    // Center camera on local player's HQ at game start
+    const localTeam = this.state.players[this.localPlayerId]?.team ?? Team.Bottom;
+    const hqPos = getHQPosition(localTeam, mapDef);
+    const T = TILE_SIZE;
+    this.renderer.camera.x = hqPos.x * T - canvas.clientWidth / (2 * this.renderer.camera.zoom) + 4 * T;
+    this.renderer.camera.y = hqPos.y * T - canvas.clientHeight / (2 * this.renderer.camera.zoom) + 3 * T;
 
     this.loop = new GameLoop(
       () => this.tick(),
@@ -341,6 +347,13 @@ export class Game {
     // Apply player commands only on first tick of turn
     if (isFirstTickOfTurn) {
       this.pendingCommands.push(...turnCmds);
+      // Drain leave queue deterministically at turn boundary (both clients are synced here)
+      if (this.commandSync && this.commandSync.leftSlotQueue.length > 0) {
+        for (const slotId of this.commandSync.leftSlotQueue) {
+          this.convertPlayerToBot(slotId);
+        }
+        this.commandSync.leftSlotQueue = [];
+      }
       // Eagerly subscribe to next turns' remote data NOW — gives ~200-400ms for it to arrive
       // (we'll push OUR commands later on last tick, but remote data can arrive early)
       if (this.commandSync) {
