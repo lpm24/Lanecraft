@@ -341,11 +341,11 @@ export class Game {
     // Apply player commands only on first tick of turn
     if (isFirstTickOfTurn) {
       this.pendingCommands.push(...turnCmds);
-      // Eagerly subscribe to next turn's remote data NOW — gives ~200ms for it to arrive
+      // Eagerly subscribe to next turns' remote data NOW — gives ~200-400ms for it to arrive
       // (we'll push OUR commands later on last tick, but remote data can arrive early)
-      const nextTurn = currentTurn + 1;
       if (this.commandSync) {
-        this.commandSync.subscribeToTurn(nextTurn);
+        this.commandSync.subscribeToTurn(currentTurn + 1);
+        this.commandSync.subscribeToTurn(currentTurn + 2);
       }
     }
 

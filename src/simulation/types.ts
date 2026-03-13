@@ -550,6 +550,7 @@ export interface GameState {
   diamond: DiamondState;
   diamondCells: GoldCell[]; // the mineable gold cells forming the obstacle
   hqHp: number[];               // indexed by team (0, 1); length matches mapDef.teams.length
+  hqAttackTimer: number[];      // per-team HQ attack cooldown (ticks remaining)
   winner: Team | null;
   winCondition: 'military' | 'diamond' | 'timeout' | null;
   matchPhase: 'prematch' | 'playing' | 'ended';

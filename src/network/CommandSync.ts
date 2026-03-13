@@ -182,46 +182,45 @@ export class CommandSync {
   }
 
   /** Subscribe to all remote players' data for a specific turn.
+   *  Uses a single listener on the turn node to receive all players' data at once.
    *  Safe to call multiple times — deduplicates automatically. */
   subscribeToTurn(turn: number): void {
     if (this.subscribedTurns.has(turn)) return;
     this.subscribedTurns.add(turn);
 
     const db = getDb();
+    const turnRef = `games/${this.partyCode}/turns/${turn}`;
 
-    for (const remoteId of this.remoteSlotIds) {
-      const turnRef = `games/${this.partyCode}/turns/${turn}/${remoteId}`;
+    // Single listener for the entire turn node — receives all players' data
+    const unsub = onValue(ref(db, turnRef), (snap) => {
+      const val = snap.val() as Record<string, TurnData> | null;
+      if (!val) return;
 
-      const unsub = onValue(ref(db, turnRef), (snap) => {
-        const data = snap.val() as TurnData | null;
-        if (!data) return;
+      // Buffer all remote turn data from this snapshot
+      let turnMap = this.turnBuffer.get(turn);
+      if (!turnMap) {
+        turnMap = new Map();
+        this.turnBuffer.set(turn, turnMap);
+      }
 
-        // Buffer the remote turn data
-        let turnMap = this.turnBuffer.get(turn);
-        if (!turnMap) {
-          turnMap = new Map();
-          this.turnBuffer.set(turn, turnMap);
+      for (const remoteId of this.remoteSlotIds) {
+        const data = val[String(remoteId)];
+        if (data) turnMap.set(remoteId, data);
+      }
+
+      // Check if all players (including local) have submitted
+      if (this.isTurnComplete(turn)) {
+        const resolver = this.resolvers.get(turn);
+        if (resolver) {
+          this.resolvers.delete(turn);
+          resolver();
         }
-        turnMap.set(remoteId, data);
-
-        // Check if all players (including local) have submitted
-        if (this.isTurnComplete(turn)) {
-          const resolver = this.resolvers.get(turn);
-          if (resolver) {
-            this.resolvers.delete(turn);
-            resolver();
-          }
-        }
-
-        // Unsubscribe from this specific remote+turn combo
+        // All data received — unsubscribe from this turn
         unsub();
         this.unsubs = this.unsubs.filter(u => u !== unsub);
-      });
-      this.unsubs.push(unsub);
-    }
-
-    // Clean up the subscribedTurns tracking when all remotes resolve
-    // (handled implicitly — we check isTurnComplete)
+      }
+    });
+    this.unsubs.push(unsub);
   }
 
   /** Check if all human players have submitted data for this turn. */

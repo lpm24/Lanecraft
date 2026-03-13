@@ -17,6 +17,7 @@ import {
   HARVESTER_MOVE_SPEED, MINE_TIME_BASE_TICKS, MINE_TIME_DIAMOND_TICKS,
   HARVESTER_RESPAWN_TICKS, HARVESTER_MIN_SEPARATION,
   UPGRADE_TREES, UpgradeNodeDef, RACE_UPGRADE_COSTS, getBuildingCost,
+  getRaceUsedResources,
 } from './data';
 
 function genId(state: GameState): number { return state.nextEntityId++; }
@@ -51,17 +52,15 @@ const INITIAL_RESOURCES: Record<Race, { gold: number; wood: number; stone: numbe
   [Race.Tenders]:  { gold: 50,  wood: 150, stone: 0 },
 };
 
-const PRIMARY_RESOURCE: Record<Race, HarvesterAssignment> = {
-  [Race.Crown]:    HarvesterAssignment.BaseGold,
-  [Race.Horde]:    HarvesterAssignment.BaseGold,
-  [Race.Goblins]:  HarvesterAssignment.BaseGold,
-  [Race.Oozlings]: HarvesterAssignment.BaseGold,
-  [Race.Demon]:    HarvesterAssignment.Stone,
-  [Race.Deep]:     HarvesterAssignment.Wood,
-  [Race.Wild]:     HarvesterAssignment.Wood,
-  [Race.Geists]:   HarvesterAssignment.Stone,
-  [Race.Tenders]:  HarvesterAssignment.Wood,
-};
+/** Return the default harvester assignment for a race based on its actual resource usage. */
+function getDefaultHarvesterAssignment(race: Race): HarvesterAssignment {
+  const used = getRaceUsedResources(race);
+  // Prefer gold > wood > stone (first resource the race actually uses)
+  if (used.gold) return HarvesterAssignment.BaseGold;
+  if (used.wood) return HarvesterAssignment.Wood;
+  if (used.stone) return HarvesterAssignment.Stone;
+  return HarvesterAssignment.BaseGold; // fallback (shouldn't happen)
+}
 
 type UpgradeChoice = 'B' | 'C' | 'D' | 'E' | 'F' | 'G';
 
@@ -300,6 +299,7 @@ export function createInitialState(
     diamond,
     diamondCells: generateDiamondCells(map),
     hqHp: map.teams.map(() => HQ_HP),
+    hqAttackTimer: map.teams.map(() => 0),
     winner: null,
     winCondition: null,
     matchPhase: 'prematch',
@@ -337,7 +337,7 @@ export function createInitialState(
     };
     state.buildings.push(building);
     // Assign starter harvester to the race's primary resource
-    const startAssignment = PRIMARY_RESOURCE[p.race];
+    const startAssignment = getDefaultHarvesterAssignment(p.race);
     state.harvesters.push({
       id: genId(state), hutId: building.id, playerId: i, team: p.team,
       x: world.x, y: world.y, hp: 30, maxHp: 30, damage: 0,
@@ -2075,12 +2075,15 @@ function tickHQDefense(state: GameState): void {
   const HQ_COOLDOWN_TICKS = Math.round(1.2 * TICK_RATE);
 
   for (const team of [Team.Bottom, Team.Top]) {
-    if ((state.tick + team * Math.floor(HQ_COOLDOWN_TICKS / 2)) % HQ_COOLDOWN_TICKS !== 0) continue;
+    state.hqAttackTimer[team]--;
+    if (state.hqAttackTimer[team] > 0) continue;
+
     const enemyTeam = team === Team.Bottom ? Team.Top : Team.Bottom;
     const hq = getHQPosition(team, state.mapDef);
     const hx = hq.x + HQ_WIDTH / 2;
     const hy = hq.y + HQ_HEIGHT / 2;
 
+    // Find closest enemy unit in range
     let closest: UnitState | null = null;
     let closestDist = Infinity;
     for (const u of state.units) {
@@ -2093,12 +2096,22 @@ function tickHQDefense(state: GameState): void {
     }
 
     if (closest) {
-      dealDamage(state, closest, HQ_DAMAGE, true);
-      addDeathParticles(state, closest.x, closest.y, '#ffdd88', 2);
+      // Fire a projectile from the HQ at the target
+      state.projectiles.push({
+        id: genId(state),
+        x: hx, y: hy,
+        targetId: closest.id,
+        damage: HQ_DAMAGE,
+        speed: 10,
+        aoeRadius: 0,
+        team,
+        sourcePlayerId: -1, // HQ has no specific player owner
+      });
+      state.hqAttackTimer[team] = HQ_COOLDOWN_TICKS;
       continue;
     }
 
-    // If no enemy units are nearby, HQ can still defend against harvesters.
+    // If no enemy units are nearby, HQ can still defend against harvesters (direct damage).
     let closestHarv: HarvesterState | null = null;
     let closestHarvDist = Infinity;
     for (const h of state.harvesters) {
@@ -2117,6 +2130,7 @@ function tickHQDefense(state: GameState): void {
       addDeathParticles(state, closestHarv.x, closestHarv.y, '#ffaa00', 4);
       killHarvester(state, closestHarv);
     }
+    state.hqAttackTimer[team] = HQ_COOLDOWN_TICKS;
   }
 }
 
