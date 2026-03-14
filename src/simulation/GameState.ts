@@ -18,7 +18,7 @@ import {
   HARVESTER_MOVE_SPEED, MINE_TIME_BASE_TICKS, MINE_TIME_DIAMOND_TICKS,
   HARVESTER_RESPAWN_TICKS, HARVESTER_MIN_SEPARATION,
   UPGRADE_TREES, UpgradeNodeDef, RACE_UPGRADE_COSTS, getBuildingCost,
-  getRaceUsedResources,
+  getRaceUsedResources, getNodeUpgradeCost,
 } from './data';
 
 function genId(state: GameState): number { return state.nextEntityId++; }
@@ -95,10 +95,12 @@ function isValidUpgradeChoice(path: string[], choice: string): choice is Upgrade
   return false;
 }
 
-function getUpgradeCost(path: string[], race: Race): { gold: number; wood: number; stone: number } | null {
-  const costs = RACE_UPGRADE_COSTS[race];
-  if (path.length === 1) return costs.tier1;
-  if (path.length === 2) return costs.tier2;
+function getUpgradeCost(path: string[], race: Race, buildingType?: BuildingType, choice?: string): { gold: number; wood: number; stone: number } | null {
+  if (path.length === 1 || path.length === 2) {
+    if (buildingType != null) return getNodeUpgradeCost(race, buildingType, path.length, choice);
+    const costs = RACE_UPGRADE_COSTS[race];
+    return path.length === 1 ? costs.tier1 : costs.tier2;
+  }
   return null;
 }
 
@@ -689,7 +691,7 @@ function purchaseUpgrade(state: GameState, cmd: Extract<GameCommand, { type: 'pu
   if (!isValidUpgradeChoice(building.upgradePath, cmd.choice)) return;
 
   const player = state.players[cmd.playerId];
-  const cost = getUpgradeCost(building.upgradePath, player.race);
+  const cost = getUpgradeCost(building.upgradePath, player.race, building.type, cmd.choice);
   if (!cost) return;
   if (player.gold < cost.gold || player.wood < cost.wood || player.stone < cost.stone) return;
 
@@ -794,18 +796,15 @@ function sellBuilding(state: GameState, cmd: Extract<GameCommand, { type: 'sell_
   const player = state.players[cmd.playerId];
   const cost = getBuildingCost(player.race, building.type);
 
-  // Calculate total invested: base cost + upgrade costs
+  // Calculate total invested: base cost + upgrade costs (respecting per-node overrides)
   let totalGold = cost.gold, totalWood = cost.wood, totalStone = cost.stone;
-  const upgradeCosts = RACE_UPGRADE_COSTS[player.race];
   if (building.upgradePath.length >= 2) {
-    totalGold += upgradeCosts.tier1.gold;
-    totalWood += upgradeCosts.tier1.wood;
-    totalStone += upgradeCosts.tier1.stone;
+    const t1Cost = getUpgradeCost(['A'], player.race, building.type, building.upgradePath[1]);
+    if (t1Cost) { totalGold += t1Cost.gold; totalWood += t1Cost.wood; totalStone += t1Cost.stone; }
   }
   if (building.upgradePath.length >= 3) {
-    totalGold += upgradeCosts.tier2.gold;
-    totalWood += upgradeCosts.tier2.wood;
-    totalStone += upgradeCosts.tier2.stone;
+    const t2Cost = getUpgradeCost(['A', building.upgradePath[1]], player.race, building.type, building.upgradePath[2]);
+    if (t2Cost) { totalGold += t2Cost.gold; totalWood += t2Cost.wood; totalStone += t2Cost.stone; }
   }
 
   // Refund 50% of total invested resources

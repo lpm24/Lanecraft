@@ -6,7 +6,7 @@ import { DUEL_MAP, SKIRMISH_MAP, WARZONE_MAP } from '../simulation/maps';
 // ==================== CONFIG ====================
 
 const DEFAULT_MATCHES_PER_MATCHUP = 3;
-const MAX_MATCH_TICKS = 8 * 60 * TICK_RATE; // 8 min hard cap
+const MAX_MATCH_TICKS = 15 * 60 * TICK_RATE; // 15 min game-time cap
 const ALL_RACES = [Race.Crown, Race.Horde, Race.Goblins, Race.Oozlings, Race.Demon, Race.Deep, Race.Wild, Race.Geists, Race.Tenders];
 
 // Map presets: maps + how many active players per team

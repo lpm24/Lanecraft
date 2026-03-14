@@ -2,7 +2,7 @@ import { Camera } from '../rendering/Camera';
 import { UIAssets } from '../rendering/UIAssets';
 import { SpriteLoader, drawSpriteFrame, getSpriteFrame } from '../rendering/SpriteLoader';
 import { GameState, BuildingType, BuildingState, TILE_SIZE, Race } from '../simulation/types';
-import { UPGRADE_TREES, RACE_UPGRADE_COSTS, UNIT_STATS, TOWER_STATS, getBuildingCost, type UpgradeNodeDef } from '../simulation/data';
+import { UPGRADE_TREES, UNIT_STATS, TOWER_STATS, getBuildingCost, getNodeUpgradeCost, type UpgradeNodeDef } from '../simulation/data';
 import { getUnitUpgradeMultipliers } from '../simulation/GameState';
 
 export interface UpgradeOption {
@@ -642,17 +642,17 @@ export class BuildingPopup {
   private getUpgradeOptions(building: BuildingState, race: Race): UpgradeOption[] {
     if (building.type === BuildingType.HarvesterHut) return [];
     const tree = UPGRADE_TREES[race]?.[building.type];
-    const raceCosts = RACE_UPGRADE_COSTS[race];
-    const lookup = (choice: string, cost: { gold: number; wood: number; stone: number }): UpgradeOption => {
+    const lookup = (choice: string): UpgradeOption => {
+      const cost = getNodeUpgradeCost(race, building.type, building.upgradePath.length, choice);
       const def = tree?.[choice as keyof typeof tree];
       return { choice, cost, name: def?.name, desc: def?.desc };
     };
     if (building.upgradePath.length === 1 && building.upgradePath[0] === 'A') {
-      return [lookup('B', raceCosts.tier1), lookup('C', raceCosts.tier1)];
+      return [lookup('B'), lookup('C')];
     }
     if (building.upgradePath.length === 2) {
-      if (building.upgradePath[1] === 'B') return [lookup('D', raceCosts.tier2), lookup('E', raceCosts.tier2)];
-      if (building.upgradePath[1] === 'C') return [lookup('F', raceCosts.tier2), lookup('G', raceCosts.tier2)];
+      if (building.upgradePath[1] === 'B') return [lookup('D'), lookup('E')];
+      if (building.upgradePath[1] === 'C') return [lookup('F'), lookup('G')];
     }
     return [];
   }

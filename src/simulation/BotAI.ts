@@ -2,7 +2,7 @@ import {
   GameState, GameCommand, Race, BuildingType, Lane, Team, HQ_WIDTH, HQ_HEIGHT,
   HarvesterAssignment, HQ_HP, MapDef, TICK_RATE,
 } from './types';
-import { RACE_BUILDING_COSTS, RACE_UPGRADE_COSTS, UPGRADE_TREES, UpgradeNodeDef, UNIT_STATS, SPAWN_INTERVAL_TICKS, TOWER_STATS } from './data';
+import { RACE_BUILDING_COSTS, UPGRADE_TREES, UpgradeNodeDef, UNIT_STATS, SPAWN_INTERVAL_TICKS, TOWER_STATS, getNodeUpgradeCost } from './data';
 import { getHQPosition, getUnitUpgradeMultipliers } from './GameState';
 
 // --- Bot Difficulty System ---
@@ -41,6 +41,8 @@ export interface BotDifficulty {
   maxSpawners: number;
   /** Max harvester huts the bot will build. 99 = unlimited */
   maxHuts: number;
+  /** If true, bot holds nuke until enemies are pushing near its HQ */
+  nukeDefensiveOnly: boolean;
 }
 
 export const BOT_DIFFICULTY_PRESETS: Record<BotDifficultyLevel, BotDifficulty> = {
@@ -59,6 +61,7 @@ export const BOT_DIFFICULTY_PRESETS: Record<BotDifficultyLevel, BotDifficulty> =
     mistakeRate: 0.10,
     maxSpawners: 3,           // hard cap: only 3 spawners total
     maxHuts: 2,               // hard cap: only 2 huts
+    nukeDefensiveOnly: false,
   },
   // Medium: moderate caps, moderate speed, no upgrades
   [BotDifficultyLevel.Medium]: {
@@ -75,6 +78,7 @@ export const BOT_DIFFICULTY_PRESETS: Record<BotDifficultyLevel, BotDifficulty> =
     mistakeRate: 0.03,
     maxSpawners: 5,           // moderate cap: 5 spawners
     maxHuts: 4,               // moderate cap: 4 huts
+    nukeDefensiveOnly: false,
   },
   // Hard: moderate caps, fast builds, upgrades after 6 spawners, nukes
   [BotDifficultyLevel.Hard]: {
@@ -91,6 +95,7 @@ export const BOT_DIFFICULTY_PRESETS: Record<BotDifficultyLevel, BotDifficulty> =
     mistakeRate: 0,
     maxSpawners: 7,           // high cap: 7 spawners
     maxHuts: 6,               // high cap: 6 huts
+    nukeDefensiveOnly: false,
   },
   // Nightmare: unlimited, fastest builds, upgrades after 6 spawners
   [BotDifficultyLevel.Nightmare]: {
@@ -107,6 +112,7 @@ export const BOT_DIFFICULTY_PRESETS: Record<BotDifficultyLevel, BotDifficulty> =
     mistakeRate: 0,
     maxSpawners: 99,          // unlimited
     maxHuts: 8,               // more huts = economy advantage over hard
+    nukeDefensiveOnly: true,  // hold nuke until enemies push near HQ
   },
 };
 
@@ -816,8 +822,6 @@ function botPlanResources(
   const player = state.players[playerId];
   const race = player.race;
   const costs = RACE_BUILDING_COSTS[race];
-  const upgCosts = RACE_UPGRADE_COSTS[race];
-
   const meleeCount = myBuildings.filter(b => b.type === BuildingType.MeleeSpawner).length;
   const rangedCount = myBuildings.filter(b => b.type === BuildingType.RangedSpawner).length;
   const casterCount = myBuildings.filter(b => b.type === BuildingType.CasterSpawner).length;
@@ -869,8 +873,8 @@ function botPlanResources(
   const upgradeable = myBuildings
     .filter(b => b.type !== BuildingType.HarvesterHut && b.upgradePath.length > 0 && b.upgradePath.length < 3);
   for (let i = 0; i < Math.min(2, upgradeable.length); i++) {
-    const tier = upgradeable[i].upgradePath.length === 1 ? upgCosts.tier1 : upgCosts.tier2;
-    list.push(tier);
+    const b = upgradeable[i];
+    list.push(getNodeUpgradeCost(race, b.type, b.upgradePath.length));
   }
 
   // Tower if strategy calls for it
@@ -1306,15 +1310,14 @@ function estimateUpgradeValue(
 ): { value: number; choice: string } {
   const player = state.players[playerId];
   const race = player.race;
-  const raceCosts = RACE_UPGRADE_COSTS[race];
-  const tier = building.upgradePath.length === 1 ? raceCosts.tier1 : raceCosts.tier2;
+  const choice = botPickUpgrade(state, ctx, building, profile, race, enemyRaces, diff);
+  const tier = getNodeUpgradeCost(race, building.type, building.upgradePath.length, choice);
   const totalCost = resourceBundleTotal(tier);
   if (totalCost <= 0) return { value: 0, choice: 'B' };
   if (player.gold < tier.gold || player.wood < tier.wood || player.stone < tier.stone) {
-    return { value: 0, choice: 'B' };
+    return { value: 0, choice };
   }
 
-  const choice = botPickUpgrade(state, ctx, building, profile, race, enemyRaces, diff);
   const tree = UPGRADE_TREES[race]?.[building.type];
   if (!tree) return { value: 0, choice };
   const nodeDef = tree[choice as keyof typeof tree] as UpgradeNodeDef | undefined;
@@ -1675,7 +1678,21 @@ function runSingleBotAI(state: GameState, ctx: BotContext, playerId: number, emi
   // 5. Nuke — telegraph with "Nuking Now!" then fire after a half-beat
   if (state.tick % 20 === 0) {
     const nukeMinTime = myHqHp < HQ_HP * 0.5 ? Math.min(0.5, diff.nukeMinTime) : diff.nukeMinTime;
-    if (player.nukeAvailable && gameMinutes > nukeMinTime) {
+    // Defensive-only bots hold nuke until enemies are pushing near their HQ
+    let nukeAllowed = true;
+    if (diff.nukeDefensiveOnly && myHqHp >= HQ_HP * 0.6) {
+      const hq = getHQPosition(myTeam, state.mapDef);
+      const hqCX = hq.x + HQ_WIDTH / 2;
+      const hqCY = hq.y + HQ_HEIGHT / 2;
+      const pushRadius = 28;
+      const pushRadiusSq = pushRadius * pushRadius;
+      const enemyTeam = botEnemyTeam(playerId, state);
+      const enemiesNearHQ = state.units.filter(u =>
+        u.team === enemyTeam && (u.x - hqCX) ** 2 + (u.y - hqCY) ** 2 <= pushRadiusSq
+      ).length;
+      nukeAllowed = enemiesNearHQ >= 3;
+    }
+    if (nukeAllowed && player.nukeAvailable && gameMinutes > nukeMinTime) {
       botNukeWithTelegraph(state, ctx, playerId, myTeam, myHqHp, emit);
     } else {
       // Clear stale intent if nuke is no longer available
@@ -1762,8 +1779,7 @@ function botValueBasedBuild(
       .filter(b => b.type !== BuildingType.HarvesterHut && b.upgradePath.length > 0 && b.upgradePath.length < 3);
     for (const b of upgradeable) {
       const choice = botPickUpgrade(state, ctx, b, profile, race, enemyRaces, diff);
-      const raceCosts = RACE_UPGRADE_COSTS[race];
-      const tier = b.upgradePath.length === 1 ? raceCosts.tier1 : raceCosts.tier2;
+      const tier = getNodeUpgradeCost(race, b.type, b.upgradePath.length, choice);
       const canAfford = player.gold >= tier.gold && player.wood >= tier.wood && player.stone >= tier.stone;
 
       // Compute value even if can't afford (for save-for comparison)
@@ -2165,15 +2181,13 @@ function botUpgradeBuildings(
     .reduce((best, type) => Math.max(best, estimateSpawnerValue(state, ctx, playerId, type)), 0);
 
   for (const b of upgradeable) {
-    const raceCosts = RACE_UPGRADE_COSTS[player.race];
-    const cost = b.upgradePath.length === 1 ? raceCosts.tier1 : raceCosts.tier2;
+    const uv = estimateUpgradeValue(state, ctx, playerId, b, profile, enemyRaces, diff);
+    const cost = getNodeUpgradeCost(player.race, b.type, b.upgradePath.length, uv.choice);
     if (player.gold < cost.gold || player.wood < cost.wood || player.stone < cost.stone) continue;
 
     // Don't spend all resources on upgrades if we need buildings
     const resAfter = (player.gold - cost.gold) + (player.wood - cost.wood) + (player.stone - cost.stone);
     if (gameMinutes < 3 && resAfter < 30 && spawnerCount < 3) continue;
-
-    const uv = estimateUpgradeValue(state, ctx, playerId, b, profile, enemyRaces, diff);
     if (uv.value <= 0) continue;
 
     // Intelligence-driven: prioritize upgrading the most effective unit type
