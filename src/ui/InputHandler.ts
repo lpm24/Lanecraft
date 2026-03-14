@@ -801,14 +801,35 @@ export class InputHandler {
     }
   }
 
+  private _safeBottomProbe: HTMLDivElement | null = null;
+
+  /** Measure bottom safe area inset for phones with rounded corners. */
+  private getSafeBottom(): number {
+    // Create a probe element once — CSS env() can only be read from actual elements
+    if (!this._safeBottomProbe) {
+      const probe = document.createElement('div');
+      probe.style.cssText = 'position:fixed;bottom:0;left:0;width:0;padding-bottom:env(safe-area-inset-bottom,0px);pointer-events:none;visibility:hidden';
+      document.body.appendChild(probe);
+      this._safeBottomProbe = probe;
+    }
+    const measured = this._safeBottomProbe.offsetHeight;
+    if (measured > 0) return measured;
+    // Fallback: on portrait mobile, add padding for rounded corners
+    const W = this.canvas.clientWidth;
+    const H = this.canvas.clientHeight;
+    const isPortraitMobile = W < 500 && H > W;
+    return isPortraitMobile ? 16 : 0;
+  }
+
   private getTrayLayout() {
     const W = this.canvas.clientWidth;
     const H = this.canvas.clientHeight;
+    const safeBottom = this.getSafeBottom();
     const milH = 68;
-    const milY = H - milH;
+    const milY = H - milH - safeBottom;
     // Miner button + 4 military + nuke = 6 buttons total
     const milW = W / 6;
-    return { W, H, milH, milY, milW };
+    return { W, H, milH, milY, milW, safeBottom };
   }
 
   private processQueuedQuickChat(): void {
@@ -962,6 +983,9 @@ export class InputHandler {
       }
     }
 
+    // Consume taps in safe area bar below tray (rounded phone corners)
+    if (cy >= milY + milH) return true;
+
     if (cy >= milY && cy < milY + milH) {
       const colIdx = Math.floor(cx / milW);
       if (colIdx === 0) {
@@ -1065,9 +1089,15 @@ export class InputHandler {
   }
 
   private drawBuildTray(ctx: CanvasRenderingContext2D): void {
-    const { W, milH, milY, milW } = this.getTrayLayout();
+    const { W, milH, milY, milW, safeBottom } = this.getTrayLayout();
     const player = this.game.state.players[this.pid];
     const quickChatCdMs = Math.max(0, this.quickChatCooldownUntil - Date.now());
+
+    // Safe area bar below tray for rounded phone corners
+    if (safeBottom > 0) {
+      ctx.fillStyle = '#1a1008';
+      ctx.fillRect(0, milY + milH, W, safeBottom);
+    }
 
     // Build tray background - WoodTable 9-slice
     if (!this.ui.drawWoodTable(ctx, 0, milY, W, milH)) {

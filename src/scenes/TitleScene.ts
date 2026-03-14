@@ -706,6 +706,8 @@ export class TitleScene implements Scene {
   private resetEloBtnRect = { x: 0, y: 0, w: 0, h: 0 };
   private teamSizeBtnRect = { x: 0, y: 0, w: 0, h: 0 };
   private tierBtnRect = { x: 0, y: 0, w: 0, h: 0 };
+  private raceLockBtnRect = { x: 0, y: 0, w: 0, h: 0 };
+  private typeFilterBtnRect = { x: 0, y: 0, w: 0, h: 0 };
   profile: PlayerProfile | null = null;
 
   // Duel state
@@ -724,6 +726,9 @@ export class TitleScene implements Scene {
   // Duel mode settings (persisted to localStorage)
   private duelTeamSize: 1 | 2 | 3;
   private duelTier: 1 | 2 | 3;
+  private duelRaceLocked = true;
+  private duelTypeFilter: 'Any' | 'Melee' | 'Ranged' | 'Caster' = 'Any';
+  private resetEloConfirm = false; // true = waiting for second click to confirm
 
   // Win announcement
   private winText = '';
@@ -749,6 +754,7 @@ export class TitleScene implements Scene {
   private copyFeedbackTimer = 0;
   private matchmaking = false; // true while searching for a game
   private matchmakingDots = 0;
+  private matchmakingTimeout: ReturnType<typeof setTimeout> | null = null;
   private connecting = false; // true while Firebase is initializing (custom game / find game)
   private joinCodeInput: string = '';
   private joinInputActive = false;
@@ -781,9 +787,15 @@ export class TitleScene implements Scene {
       this.duelTeamSize = (ts === '1' ? 1 : ts === '3' ? 3 : 2) as 1 | 2 | 3;
       const tr = localStorage.getItem('spawnwars.duelTier');
       this.duelTier = (tr === '2' ? 2 : tr === '3' ? 3 : 1) as 1 | 2 | 3;
+      const rl = localStorage.getItem('spawnwars.duelRaceLocked');
+      this.duelRaceLocked = rl === 'false' ? false : true; // default true
+      const tf = localStorage.getItem('spawnwars.duelTypeFilter');
+      this.duelTypeFilter = (tf === 'Melee' || tf === 'Ranged' || tf === 'Caster') ? tf : 'Any';
     } catch {
       this.duelTeamSize = 1;
       this.duelTier = 1;
+      this.duelRaceLocked = true;
+      this.duelTypeFilter = 'Any';
     }
   }
 
@@ -1034,6 +1046,7 @@ export class TitleScene implements Scene {
     this.audioSettingsUnsub?.();
     this.audioSettingsUnsub = null;
     this.menuMusic.dispose();
+    this.clearMatchmakingTimeout();
     if (this.party) {
       this.party.removeListener(this.partyListener);
     }
@@ -1042,23 +1055,40 @@ export class TitleScene implements Scene {
   private partyStartFired = false;
   private partyListener = (s: PartyState | null) => {
     this.partyState = s;
+    // Persist party config so custom game remembers mode/bots
+    if (s && s.status === 'waiting' && this.party?.isHost) {
+      const localSlot = this.party.localSlotIndex ?? 0;
+      const mapDef = getMapById(s.mapId ?? 'duel');
+      saveLocalSetup({
+        mapId: s.mapId ?? 'duel',
+        maxSlots: s.maxSlots ?? mapDef.maxPlayers,
+        bots: s.bots ? { ...s.bots } : {},
+        playerSlot: localSlot,
+        playerRace: s.players[String(localSlot)]?.race ?? 'random',
+        teamSize: s.teamSize ?? mapDef.playersPerTeam,
+      });
+    }
     if (s && s.status === 'starting' && this.onPartyStart && !this.partyStartFired) {
       this.partyStartFired = true;
       this.matchmaking = false;
+      this.clearMatchmakingTimeout();
       this.onPartyStart(s, this.party?.localSlotIndex ?? 0);
     }
     // Auto-start: when matchmaking and 2+ players present, host starts immediately
     if (s && getPartyPlayerCount(s) >= 2 && this.matchmaking && this.party?.isHost && s.status === 'waiting') {
       this.matchmaking = false;
+      this.clearMatchmakingTimeout();
       this.party.startGame();
     }
     // If we joined via matchmaking as guest, just wait for host to start (clear matchmaking flag)
     if (s && getPartyPlayerCount(s) >= 2 && this.matchmaking && !this.party?.isHost) {
       this.matchmaking = false;
+      this.clearMatchmakingTimeout();
     }
     // Party destroyed while matchmaking
     if (!s && this.matchmaking) {
       this.matchmaking = false;
+      this.clearMatchmakingTimeout();
     }
   };
 
@@ -1199,6 +1229,10 @@ export class TitleScene implements Scene {
   }
 
   private handleClick(cx: number, cy: number): void {
+    // Cancel reset ELO confirm if clicking anything other than the reset button
+    if (this.resetEloConfirm && !this.hitRect(cx, cy, this.resetEloBtnRect)) {
+      this.resetEloConfirm = false;
+    }
     const settingsLayout = getSettingsOverlayLayout(this.canvas.clientWidth, this.canvas.clientHeight);
     if (hitOverlayRect(cx, cy, settingsLayout.button)) {
       this.settingsOpen = !this.settingsOpen;
@@ -1223,9 +1257,17 @@ export class TitleScene implements Scene {
 
     // Duel control buttons (always active)
     if (this.hitRect(cx, cy, this.resetEloBtnRect)) {
-      saveAllElo({});
+      if (this.resetEloConfirm) {
+        saveAllElo({});
+        this.resetEloConfirm = false;
+      } else {
+        this.resetEloConfirm = true;
+      }
       return;
     }
+    // Any other duel button click cancels the reset confirm
+    const hitAnyDuelBtn = this.hitRect(cx, cy, this.teamSizeBtnRect) || this.hitRect(cx, cy, this.tierBtnRect) || this.hitRect(cx, cy, this.raceLockBtnRect) || this.hitRect(cx, cy, this.typeFilterBtnRect);
+    if (hitAnyDuelBtn) this.resetEloConfirm = false;
     if (this.hitRect(cx, cy, this.teamSizeBtnRect)) {
       this.duelTeamSize = this.duelTeamSize === 1 ? 2 : this.duelTeamSize === 2 ? 3 : 1;
       try { localStorage.setItem('spawnwars.duelTeamSize', String(this.duelTeamSize)); } catch {}
@@ -1238,6 +1280,26 @@ export class TitleScene implements Scene {
     if (this.hitRect(cx, cy, this.tierBtnRect)) {
       this.duelTier = this.duelTier === 1 ? 2 : this.duelTier === 2 ? 3 : 1;
       try { localStorage.setItem('spawnwars.duelTier', String(this.duelTier)); } catch {}
+      this.waiting = true;
+      this.waitTimer = 0.5;
+      this.blueTeam = [];
+      this.redTeam = [];
+      return;
+    }
+    if (this.hitRect(cx, cy, this.raceLockBtnRect)) {
+      this.duelRaceLocked = !this.duelRaceLocked;
+      try { localStorage.setItem('spawnwars.duelRaceLocked', String(this.duelRaceLocked)); } catch {}
+      this.waiting = true;
+      this.waitTimer = 0.5;
+      this.blueTeam = [];
+      this.redTeam = [];
+      return;
+    }
+    if (this.hitRect(cx, cy, this.typeFilterBtnRect)) {
+      const cycle: Array<'Any' | 'Melee' | 'Ranged' | 'Caster'> = ['Any', 'Melee', 'Ranged', 'Caster'];
+      const idx = cycle.indexOf(this.duelTypeFilter);
+      this.duelTypeFilter = cycle[(idx + 1) % cycle.length];
+      try { localStorage.setItem('spawnwars.duelTypeFilter', this.duelTypeFilter); } catch {}
       this.waiting = true;
       this.waitTimer = 0.5;
       this.blueTeam = [];
@@ -1451,6 +1513,13 @@ export class TitleScene implements Scene {
     this.connecting = true;
     this.matchmaking = true;
     this.matchmakingDots = 0;
+    // Timeout: if no game starts within 60s, cancel and let the user know
+    this.clearMatchmakingTimeout();
+    this.matchmakingTimeout = setTimeout(() => {
+      if (!this.matchmaking) return;
+      this.cancelMatchmaking();
+      this.showPartyError('No players found — try again');
+    }, 60_000);
     try {
       await this.ensureFirebase();
       this.party!.localName = this.playerName;
@@ -1466,6 +1535,7 @@ export class TitleScene implements Scene {
       console.error('[Party] Find game failed:', e);
       this.showPartyError(e.message || 'Failed to find game');
       this.matchmaking = false;
+      this.clearMatchmakingTimeout();
     } finally {
       this.connecting = false;
     }
@@ -1473,9 +1543,17 @@ export class TitleScene implements Scene {
 
   private cancelMatchmaking(): void {
     this.matchmaking = false;
+    this.clearMatchmakingTimeout();
     // Leave the background party we created while searching
     if (this.party && this.partyState) {
       this.party.leaveParty();
+    }
+  }
+
+  private clearMatchmakingTimeout(): void {
+    if (this.matchmakingTimeout) {
+      clearTimeout(this.matchmakingTimeout);
+      this.matchmakingTimeout = null;
     }
   }
 
@@ -1490,7 +1568,24 @@ export class TitleScene implements Scene {
     try {
       await this.ensureFirebase();
       this.party!.localName = this.playerName;
-      await this.party!.createParty(this.getLastPartyRace());
+      // Restore saved custom game settings (mode/map)
+      const saved = loadLocalSetup();
+      const mapId = saved?.mapId ?? 'duel';
+      const teamSize = saved?.teamSize ?? 1;
+      await this.party!.createParty(this.getLastPartyRace(), mapId);
+      // Restore team size if different from map default
+      if (teamSize !== getMapById(mapId).playersPerTeam) {
+        await this.party!.updateTeamSize(teamSize);
+      }
+      // Restore saved bots
+      if (saved?.bots) {
+        for (const [slot, difficulty] of Object.entries(saved.bots)) {
+          const slotNum = Number(slot);
+          if (slotNum !== (saved.playerSlot ?? 0)) {
+            await this.party!.setSlotBot(slotNum, difficulty);
+          }
+        }
+      }
     } catch (e: any) {
       console.error('[Party] Create failed:', e);
       // Fall back to local setup if Firebase isn't available
@@ -1672,16 +1767,26 @@ export class TitleScene implements Scene {
     this.bannerBlue = [];
     this.bannerRed = [];
 
+    // Determine allowed unit types based on type filter
+    const allowedTypes = this.duelTypeFilter === 'Melee' ? [BuildingType.MeleeSpawner]
+      : this.duelTypeFilter === 'Ranged' ? [BuildingType.RangedSpawner]
+      : this.duelTypeFilter === 'Caster' ? [BuildingType.CasterSpawner]
+      : UNIT_TYPES;
+
+    // Pick team-wide race if race-locked
+    const blueTeamRace = this.duelRaceLocked ? ALL_RACES[Math.floor(Math.random() * ALL_RACES.length)] : null;
+    const redTeamRace = this.duelRaceLocked ? ALL_RACES[Math.floor(Math.random() * ALL_RACES.length)] : null;
+
     for (let i = 0; i < this.duelTeamSize; i++) {
-      const blueRace = ALL_RACES[Math.floor(Math.random() * ALL_RACES.length)];
-      const blueType = UNIT_TYPES[Math.floor(Math.random() * UNIT_TYPES.length)];
+      const blueRace = blueTeamRace ?? ALL_RACES[Math.floor(Math.random() * ALL_RACES.length)];
+      const blueType = allowedTypes[Math.floor(Math.random() * allowedTypes.length)];
       // Ensure red side differs from blue (re-roll if same race+type)
-      let redRace = ALL_RACES[Math.floor(Math.random() * ALL_RACES.length)];
-      let redType = UNIT_TYPES[Math.floor(Math.random() * UNIT_TYPES.length)];
+      let redRace = redTeamRace ?? ALL_RACES[Math.floor(Math.random() * ALL_RACES.length)];
+      let redType = allowedTypes[Math.floor(Math.random() * allowedTypes.length)];
       let rerolls = 0;
       while (redRace === blueRace && redType === blueType && rerolls < 10) {
-        redRace = ALL_RACES[Math.floor(Math.random() * ALL_RACES.length)];
-        redType = UNIT_TYPES[Math.floor(Math.random() * UNIT_TYPES.length)];
+        if (!redTeamRace) redRace = ALL_RACES[Math.floor(Math.random() * ALL_RACES.length)];
+        redType = allowedTypes[Math.floor(Math.random() * allowedTypes.length)];
         rerolls++;
       }
 
@@ -1830,12 +1935,16 @@ export class TitleScene implements Scene {
           if (this.userInteracted) this.sfx.playDraw();
         } else if (redDead) {
           updateTeamElo(this.blueTeam, this.redTeam, 'a');
-          this.winText = this.duelTeamSize === 1 ? `${this.blueTeam[0].name} WINS!` : 'BLUE WINS!';
+          const blueRaceName = this.bannerBlue[0].race.charAt(0).toUpperCase() + this.bannerBlue[0].race.slice(1);
+          this.winText = this.duelTeamSize === 1 ? `${this.blueTeam[0].name} WINS!`
+            : this.duelRaceLocked ? `${blueRaceName} WINS!` : 'BLUE WINS!';
           this.winColor = '#4488ff';
           if (this.userInteracted) { this.sfx.playKill(); this.sfx.playWin(); }
         } else {
           updateTeamElo(this.blueTeam, this.redTeam, 'b');
-          this.winText = this.duelTeamSize === 1 ? `${this.redTeam[0].name} WINS!` : 'RED WINS!';
+          const redRaceName = this.bannerRed[0].race.charAt(0).toUpperCase() + this.bannerRed[0].race.slice(1);
+          this.winText = this.duelTeamSize === 1 ? `${this.redTeam[0].name} WINS!`
+            : this.duelRaceLocked ? `${redRaceName} WINS!` : 'RED WINS!';
           this.winColor = '#ff4444';
           if (this.userInteracted) { this.sfx.playKill(); this.sfx.playWin(); }
         }
@@ -1992,36 +2101,49 @@ export class TitleScene implements Scene {
       const ctrlH = Math.max(20, Math.min(h * 0.035, 28));
       const ctrlW = Math.max(56, Math.min(w * 0.14, 80));
       const ctrlGap = 8;
-      const totalCtrlW = ctrlW * 3 + ctrlGap * 2;
+      const totalCtrlW = ctrlW * 5 + ctrlGap * 4;
       const ctrlStartX = (w - totalCtrlW) / 2;
       const ctrlFont = Math.max(8, Math.min(ctrlH * 0.42, 12));
 
+      const drawCtrlBtn = (x: number, label: string, strokeColor: string, textColor: string) => {
+        ctx.fillStyle = 'rgba(0,0,0,0.5)';
+        ctx.beginPath(); ctx.roundRect(x, ctrlY, ctrlW, ctrlH, 4); ctx.fill();
+        ctx.strokeStyle = strokeColor; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.roundRect(x, ctrlY, ctrlW, ctrlH, 4); ctx.stroke();
+        ctx.font = `bold ${ctrlFont}px monospace`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillStyle = textColor;
+        ctx.fillText(label, x + ctrlW / 2, ctrlY + ctrlH / 2);
+      };
+
       this.resetEloBtnRect = { x: ctrlStartX, y: ctrlY, w: ctrlW, h: ctrlH };
-      ctx.fillStyle = 'rgba(0,0,0,0.5)';
-      ctx.beginPath(); ctx.roundRect(ctrlStartX, ctrlY, ctrlW, ctrlH, 4); ctx.fill();
-      ctx.strokeStyle = 'rgba(255,80,80,0.5)'; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.roundRect(ctrlStartX, ctrlY, ctrlW, ctrlH, 4); ctx.stroke();
-      ctx.font = `bold ${ctrlFont}px monospace`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.fillStyle = '#ff8a80';
-      ctx.fillText('RESET', ctrlStartX + ctrlW / 2, ctrlY + ctrlH / 2);
+      const resetLabel = this.resetEloConfirm ? 'SURE?' : 'RESET';
+      const resetStroke = this.resetEloConfirm ? 'rgba(255,40,40,0.8)' : 'rgba(255,80,80,0.5)';
+      const resetText = this.resetEloConfirm ? '#ff4444' : '#ff8a80';
+      drawCtrlBtn(ctrlStartX, resetLabel, resetStroke, resetText);
 
       const tsX = ctrlStartX + ctrlW + ctrlGap;
       this.teamSizeBtnRect = { x: tsX, y: ctrlY, w: ctrlW, h: ctrlH };
-      ctx.fillStyle = 'rgba(0,0,0,0.5)';
-      ctx.beginPath(); ctx.roundRect(tsX, ctrlY, ctrlW, ctrlH, 4); ctx.fill();
-      ctx.strokeStyle = 'rgba(100,180,255,0.5)'; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.roundRect(tsX, ctrlY, ctrlW, ctrlH, 4); ctx.stroke();
-      ctx.fillStyle = '#80d8ff';
-      ctx.fillText(`${this.duelTeamSize}v${this.duelTeamSize}`, tsX + ctrlW / 2, ctrlY + ctrlH / 2);
+      drawCtrlBtn(tsX, `${this.duelTeamSize}v${this.duelTeamSize}`, 'rgba(100,180,255,0.5)', '#80d8ff');
 
       const trX = tsX + ctrlW + ctrlGap;
       this.tierBtnRect = { x: trX, y: ctrlY, w: ctrlW, h: ctrlH };
-      ctx.fillStyle = 'rgba(0,0,0,0.5)';
-      ctx.beginPath(); ctx.roundRect(trX, ctrlY, ctrlW, ctrlH, 4); ctx.fill();
-      ctx.strokeStyle = 'rgba(255,215,0,0.5)'; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.roundRect(trX, ctrlY, ctrlW, ctrlH, 4); ctx.stroke();
-      ctx.fillStyle = '#ffe082';
-      ctx.fillText(`TIER ${this.duelTier}`, trX + ctrlW / 2, ctrlY + ctrlH / 2);
+      drawCtrlBtn(trX, `TIER ${this.duelTier}`, 'rgba(255,215,0,0.5)', '#ffe082');
+
+      const rlX = trX + ctrlW + ctrlGap;
+      this.raceLockBtnRect = { x: rlX, y: ctrlY, w: ctrlW, h: ctrlH };
+      const rlOn = this.duelRaceLocked;
+      drawCtrlBtn(rlX, rlOn ? 'LOCKED' : 'MIXED', rlOn ? 'rgba(180,130,255,0.5)' : 'rgba(120,120,120,0.5)', rlOn ? '#ce93d8' : '#999');
+
+      const tfX = rlX + ctrlW + ctrlGap;
+      this.typeFilterBtnRect = { x: tfX, y: ctrlY, w: ctrlW, h: ctrlH };
+      const tfColors: Record<string, [string, string]> = {
+        'Any': ['rgba(120,120,120,0.5)', '#999'],
+        'Melee': ['rgba(255,120,80,0.5)', '#ff8a65'],
+        'Ranged': ['rgba(80,200,120,0.5)', '#81c784'],
+        'Caster': ['rgba(100,140,255,0.5)', '#90caf9'],
+      };
+      const [tfStroke, tfText] = tfColors[this.duelTypeFilter];
+      drawCtrlBtn(tfX, this.duelTypeFilter.toUpperCase(), tfStroke, tfText);
     }
 
     // === Win announcement ===

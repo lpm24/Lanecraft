@@ -2,7 +2,7 @@ import { Camera } from './Camera';
 import { SpriteLoader, drawSpriteFrame, drawGridFrame, getSpriteFrame, type SpriteDef, type GridSpriteDef } from './SpriteLoader';
 import { UIAssets } from './UIAssets';
 import {
-  GameState, Team, MAP_WIDTH, MAP_HEIGHT, TILE_SIZE,
+  GameState, Team, MAP_WIDTH, MAP_HEIGHT, TILE_SIZE, TICK_RATE,
   ZONES,
   HQ_WIDTH, HQ_HEIGHT, HQ_HP,
   BuildingType, Lane, Vec2,
@@ -1744,7 +1744,12 @@ export class Renderer {
       // Try sprite first, fall back to procedural shapes
       const race = state.players[u.playerId]?.race;
       const cat = u.category as 'melee' | 'ranged' | 'caster';
-      const isAttacking = u.targetId !== null && u.attackTimer <= u.attackSpeed * 0.5;
+      const attackCooldownTicks = Math.round(u.attackSpeed * TICK_RATE);
+      const justFired = u.attackTimer > attackCooldownTicks * 0.5;
+      const isAttacking = u.targetId !== null && justFired;
+      // Ranged/caster on cooldown but past attack anim window — idle, don't walk
+      const isRangedOnCooldown = u.targetId !== null && u.attackTimer > 0 && !justFired
+        && (cat === 'ranged' || cat === 'caster');
       const spriteData = race ? this.sprites.getUnitSprite(race, cat, u.playerId, isAttacking, u.upgradeNode) : null;
       const tierScale = u.isChampion ? 3.0 : 1.0 + (u.upgradeTier ?? 0) * 0.15; // champions are 3x size
       if (spriteData) {
@@ -1758,7 +1763,7 @@ export class Renderer {
         const idleWhileAttacking = isAttacking && (cat === 'ranged' || cat === 'caster')
           && race != null && !this.sprites.hasAttackSprite(race, cat, u.upgradeNode);
         // Normalize animation: ~1 cycle per second (20 ticks) regardless of frame count
-        const frame = idleWhileAttacking ? 0 : getSpriteFrame(state.tick, def);
+        const frame = (idleWhileAttacking || isRangedOnCooldown) ? 0 : getSpriteFrame(state.tick, def);
         // Anchor feet at consistent ground level
         const feetY = py + T * 0.70;
         const drawY = feetY - drawH * (def.groundY ?? 0.71);

@@ -319,15 +319,19 @@ export class BuildingPopup {
     }
 
     // === Pointer triangle from popup to building ===
-    const triX = Math.max(px + 12, Math.min(px + popupW - 12, screen.x));
-    const triY = py + popupH;
-    ctx.fillStyle = 'rgba(60,40,20,0.85)';
-    ctx.beginPath();
-    ctx.moveTo(triX - 10, triY);
-    ctx.lineTo(triX + 10, triY);
-    ctx.lineTo(screen.x, Math.min(triY + 16, screen.y));
-    ctx.closePath();
-    ctx.fill();
+    // Only draw when building is below the popup (normal case)
+    if (screen.y > py + popupH - 4) {
+      const triX = Math.max(px + 12, Math.min(px + popupW - 12, screen.x));
+      const triY = py + popupH;
+      const tipY = Math.min(triY + 16, screen.y);
+      ctx.fillStyle = 'rgba(60,40,20,0.85)';
+      ctx.beginPath();
+      ctx.moveTo(triX - 10, triY);
+      ctx.lineTo(triX + 10, triY);
+      ctx.lineTo(screen.x, tipY);
+      ctx.closePath();
+      ctx.fill();
+    }
 
     ctx.restore();
   }
@@ -391,11 +395,17 @@ export class BuildingPopup {
       if (sprData) {
         const [img, def] = sprData;
         const frame = getSpriteFrame(Math.floor(this.animTick / 3), def);
+        const spriteScale = def.scale ?? 1.0;
         const aspect = def.frameW / def.frameH;
-        const dh = spriteSize * tierScale;
-        const dw = dh * aspect;
-        const drawX = sprX + (spriteSize - dw) / 2;
-        const drawY = sprY + (spriteSize - dh);
+        const dh = spriteSize * spriteScale * tierScale * (def.heightScale ?? 1.0);
+        const dw = spriteSize * spriteScale * tierScale * aspect;
+        // Anchor horizontally using anchorX (0=left, 0.5=center, 1=right)
+        const ax = def.anchorX ?? 0.5;
+        const spriteCenterX = sprX + spriteSize / 2;
+        const drawX = spriteCenterX - dw * ax;
+        // Ground using groundY — feet sit at bottom of sprite area
+        const feetY = sprY + spriteSize;
+        const drawY = feetY - dh * (def.groundY ?? 0.71);
         drawSpriteFrame(ctx, img, def, frame, drawX, drawY, dw, dh);
         if (nextTier >= 1) {
           ctx.globalCompositeOperation = 'lighter';

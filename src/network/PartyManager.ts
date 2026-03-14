@@ -28,6 +28,7 @@ export interface PartyState {
   seed: number;
   difficulty?: string; // global fallback BotDifficultyLevel, set by host
   teamSize?: number;   // players per team (1 = 1v1, 2 = 2v2, etc). Default = map's playersPerTeam.
+  createdAt?: number;  // Date.now() when party was created — used to skip stale parties
 }
 
 /** Helper to get the ordered list of occupied player slots. */
@@ -156,6 +157,7 @@ export class PartyManager {
       mapId,
       status: 'waiting',
       seed: Math.floor(Math.random() * 2147483647),
+      createdAt: Date.now(),
     };
 
     await set(ref(db, `parties/${code}`), party);
@@ -389,17 +391,20 @@ export class PartyManager {
 
     if (!snap.exists()) return false;
 
-    // Collect all candidate parties (has empty slots, not ours)
+    // Collect all candidate parties (has empty slots, not ours, not stale)
+    const now = Date.now();
+    const STALE_MS = 3 * 60 * 1000; // 3 minutes — skip parties older than this
     const candidates: string[] = [];
     snap.forEach((child) => {
       const data = child.val() as PartyState;
-      if (data.hostUid !== uid && child.key) {
-        // Check if there's an empty active slot
-        const active = getActiveSlots(data);
-        const occupiedActive = active.filter(s => !!data.players[String(s)]).length;
-        if (occupiedActive < active.length) {
-          candidates.push(child.key);
-        }
+      if (data.hostUid === uid || !child.key) return;
+      // Skip stale parties (host likely disconnected without cleanup)
+      if (data.createdAt && now - data.createdAt > STALE_MS) return;
+      // Check if there's an empty active slot
+      const active = getActiveSlots(data);
+      const occupiedActive = active.filter(s => !!data.players[String(s)]).length;
+      if (occupiedActive < active.length) {
+        candidates.push(child.key);
       }
     });
 

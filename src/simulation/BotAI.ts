@@ -511,16 +511,17 @@ function createBotIntelligence(enemyRaces: Race[]): BotIntelligence {
 }
 
 // --- Passive income rates per race (per second) ---
+// MUST match PASSIVE_INCOME in GameState.ts
 const PASSIVE_RATES: Record<Race, { gold: number; wood: number; stone: number }> = {
-  [Race.Crown]:    { gold: 1,   wood: 0.1, stone: 0 },
-  [Race.Horde]:    { gold: 1,   wood: 0,   stone: 0.1 },
-  [Race.Goblins]:  { gold: 1,   wood: 0.1, stone: 0 },
-  [Race.Oozlings]: { gold: 1,   wood: 0,   stone: 0.1 },
-  [Race.Demon]:    { gold: 0,   wood: 0.1, stone: 1 },
-  [Race.Deep]:     { gold: 0.1, wood: 1,   stone: 0 },
-  [Race.Wild]:     { gold: 0,   wood: 1,   stone: 0.1 },
-  [Race.Geists]:   { gold: 0.1, wood: 0,   stone: 1 },
-  [Race.Tenders]:  { gold: 0.1, wood: 1,   stone: 0 },
+  [Race.Crown]:    { gold: 2,   wood: 0.5, stone: 0 },
+  [Race.Horde]:    { gold: 2,   wood: 0,   stone: 0.5 },
+  [Race.Goblins]:  { gold: 2,   wood: 0.5, stone: 0 },
+  [Race.Oozlings]: { gold: 2,   wood: 0,   stone: 0.5 },
+  [Race.Demon]:    { gold: 0,   wood: 0.5, stone: 1 },
+  [Race.Deep]:     { gold: 1,   wood: 1,   stone: 0 },
+  [Race.Wild]:     { gold: 0,   wood: 1,   stone: 0.5 },
+  [Race.Geists]:   { gold: 1,   wood: 0,   stone: 1 },
+  [Race.Tenders]:  { gold: 1,   wood: 1,   stone: 0 },
 };
 
 // --- Race threat classifications ---
@@ -806,6 +807,38 @@ function botUpdateIntelligence(
     // Even: build economy for advantage
     const greedyRaces = new Set([Race.Deep, Race.Tenders, Race.Crown]);
     intel.strategy = greedyRaces.has(race) ? 'greed' : 'balanced';
+  }
+
+  // --- Dynamic threat re-assessment based on actual enemy composition ---
+  // Override race-based threats with real battlefield data when we have enough info
+  if (enemyUnitTotal >= 5) {
+    const threats = intel.threats;
+    // Detect actual swarm: many low-tier units (high count, low avg upgrade)
+    const actualSwarm = enemyUnitTotal > 15 || (intel.enemyQuantityVsQuality < 0.6);
+    // Detect actual tank: enemy melee-heavy with high HP units
+    const actualTank = intel.enemyMeleeRatio > 0.5 && enemyPerf.melee.avgHpPct > 0.6;
+    // Detect actual burst: enemy ranged/caster heavy
+    const actualBurst = intel.enemyRangedRatio + intel.enemyCasterRatio > 0.65;
+
+    if (actualSwarm && !threats.hasSwarm) {
+      threats.hasSwarm = true;
+      threats.wantAoE = true;
+    }
+    if (actualTank && !threats.hasTanks) {
+      threats.hasTanks = true;
+      threats.wantDPS = true;
+      threats.wantRange = true;
+    }
+    if (actualBurst && !threats.hasBurst) {
+      threats.hasBurst = true;
+      threats.wantTank = true;
+      threats.wantShields = true;
+    }
+
+    // Re-evaluate primary threat based on what's actually dominating
+    if (actualSwarm && intel.armyAdvantage < 0.8) threats.primaryThreat = 'swarm';
+    else if (actualBurst && intel.armyAdvantage < 0.8) threats.primaryThreat = 'burst';
+    else if (actualTank && intel.armyAdvantage < 0.8) threats.primaryThreat = 'tank';
   }
 
   intel.lastAnalysisTick = state.tick;
@@ -1284,11 +1317,17 @@ function estimateSpawnerValue(
   const diff = ctx.difficulty[playerId] ?? ctx.defaultDifficulty;
   const intel = ctx.intelligence[playerId];
 
-  // Nightmare: use throughput-based valuation
+  // Nightmare: use throughput-based valuation with resource bottleneck awareness
   let value: number;
   if (diff.useValueFunction) {
     const throughput = getSpawnerThroughput(race, type);
     value = throughput / totalCost;
+    // Penalize spawners that bottleneck on scarce resources
+    const plan = intel?.resourcePlan;
+    if (plan) {
+      const waitTime = timeToAfford(state.players[playerId], cost, plan);
+      if (waitTime > 8) value *= 0.85; // long wait = resource mismatch
+    }
   } else {
     value = getSpawnerPower(race, type) / totalCost;
   }
@@ -1338,7 +1377,14 @@ function estimateUpgradeValue(
     const spikeBonus = detectPowerSpike(race, building.type, choice, threats);
     const matchupBonus = scoreUpgradeNode(race, building.type, choice, threats) / 40;
 
-    value = (throughputDelta * (1 + spikeBonus + matchupBonus)) / totalCost;
+    // Count how many buildings of this type share the upgrade (upgrades apply to the spawner type)
+    const sameTypeCount = state.buildings.filter(
+      b => b.playerId === player.id && b.type === building.type
+    ).length;
+    // More buildings of same type = upgrade benefits more production
+    const volumeBonus = Math.max(1, sameTypeCount * 0.6);
+
+    value = (throughputDelta * (1 + spikeBonus + matchupBonus) * volumeBonus) / totalCost;
   } else {
     // Stat-based (non-nightmare or towers)
     const hpGain = (nodeDef.hpMult ?? 1) - 1;
@@ -1403,16 +1449,18 @@ function shouldBuildHutNow(
   state: GameState, ctx: BotContext, playerId: number, profile: RaceProfile,
   hutCount: number, gameMinutes: number,
 ): boolean {
-  if (hutCount >= profile.maxHuts) return false;
+  // Nightmare bots use difficulty maxHuts (higher cap); others use profile cap
+  const diff = ctx.difficulty[playerId] ?? ctx.defaultDifficulty;
+  const hutCap = diff.useValueFunction ? diff.maxHuts : profile.maxHuts;
+  if (hutCount >= hutCap) return false;
 
   const intel = ctx.intelligence[playerId];
-  const diff = ctx.difficulty[playerId] ?? ctx.defaultDifficulty;
   const armyAdvantage = intel?.armyAdvantage ?? 1;
   const myHqHp = state.hqHp[botTeam(playerId, state)];
   const canAfford = botCanAffordHut(state, playerId, hutCount);
 
   // Dynamic max huts: adjust based on game state
-  const dynamicMax = computeDynamicHutTarget(intel, gameMinutes, profile, hutCount, armyAdvantage);
+  const dynamicMax = computeDynamicHutTarget(intel, gameMinutes, profile, hutCount, armyAdvantage, diff);
   if (hutCount >= dynamicMax) return false;
 
   // Can't afford — return false (save-for logic handles this at the build level)
@@ -1434,13 +1482,15 @@ function shouldBuildHutNow(
     if (gameMinutes < 1.5) return payback <= 45;
     if (gameMinutes < 2.5) return payback <= 55;
     // When winning: expand economy for snowball
-    if (armyAdvantage > 1.3 && payback <= 90) return true;
+    if (armyAdvantage > 1.3 && payback <= 100) return true;
     // When even: invest if payback is reasonable
     if (gameMinutes < 5) return payback <= 70 && armyAdvantage >= 0.85;
-    // Greed strategy or resource-starved
+    // Greed strategy or resource-starved — keep investing in economy
     if ((intel?.strategy === 'greed' || bottleneckWait > 15) && payback <= 85 && armyAdvantage >= 0.85) return true;
-    if (gameMinutes > 7) return false;
-    return payback <= 60 && armyAdvantage >= 1.0;
+    // Late game: still invest if payback is reasonable (no hard cutoff for nightmare)
+    if (gameMinutes < 10) return payback <= 60 && armyAdvantage >= 0.9;
+    // Very late game: only if payback is quick and we're not losing
+    return payback <= 45 && armyAdvantage >= 0.95;
   }
 
   // Non-nightmare logic (unchanged)
@@ -1455,16 +1505,20 @@ function shouldBuildHutNow(
 function computeDynamicHutTarget(
   intel: BotIntelligence | undefined, gameMinutes: number,
   profile: RaceProfile, hutCount: number, armyAdvantage: number,
+  diff?: BotDifficulty,
 ): number {
-  let target = profile.maxHuts;
+  const isNightmare = diff?.useValueFunction ?? false;
+  let target = isNightmare ? (diff?.maxHuts ?? profile.maxHuts) : profile.maxHuts;
   // When losing badly: freeze hut building
   if (armyAdvantage < 0.65 && gameMinutes > 2) target = Math.min(target, hutCount);
   // When winning big: allow one extra hut for snowball
-  if (armyAdvantage > 1.4) target = Math.min(target + 1, 8);
-  // Very late game: stop expanding economy
-  if (gameMinutes > 7) target = Math.min(target, hutCount);
+  if (armyAdvantage > 1.4) target = Math.min(target + 1, 10);
+  // Very late game: non-nightmare stops expanding; nightmare only slows down
+  if (gameMinutes > 7 && !isNightmare) target = Math.min(target, hutCount);
   // Turtle strategy: allow more econ
-  if (intel?.strategy === 'turtle' && armyAdvantage >= 0.8) target = Math.min(target + 1, 8);
+  if (intel?.strategy === 'turtle' && armyAdvantage >= 0.8) target = Math.min(target + 1, 10);
+  // Greed strategy (nightmare): allow full econ investment
+  if (isNightmare && intel?.strategy === 'greed') target = Math.min(target + 1, 10);
   return target;
 }
 
@@ -1794,7 +1848,14 @@ function botValueBasedBuild(
         const threats = intel?.threats ?? assessThreatProfile(enemyRaces);
         const spikeBonus = detectPowerSpike(race, b.type, choice, threats);
         const matchupBonus = scoreUpgradeNode(race, b.type, choice, threats) / 40;
-        uv = (throughputDelta * (1 + spikeBonus + matchupBonus)) / totalCost;
+
+        // Volume bonus: more buildings of this type = upgrade benefits more production
+        const sameTypeCount = state.buildings.filter(
+          sb => sb.playerId === playerId && sb.type === b.type
+        ).length;
+        const volumeBonus = Math.max(1, sameTypeCount * 0.6);
+
+        uv = (throughputDelta * (1 + spikeBonus + matchupBonus) * volumeBonus) / totalCost;
 
         // Boost for effective category
         const cat = buildingCategory(b.type);
@@ -1818,7 +1879,8 @@ function botValueBasedBuild(
   }
 
   // --- Hut option ---
-  if (hutCount < profile.maxHuts && hutCount < diff.maxHuts) {
+  const hutCap = diff.useValueFunction ? diff.maxHuts : profile.maxHuts;
+  if (hutCount < hutCap) {
     const shouldBuild = shouldBuildHutNow(state, ctx, playerId, profile, hutCount, gameMinutes);
     if (shouldBuild) {
       const payback = estimateHutPaybackSeconds(state, ctx, playerId, hutCount);
@@ -1894,12 +1956,12 @@ function botValueBasedBuild(
   // If a much better option is almost affordable, save for it
   if (bestUnaffordable && bestAffordable) {
     const valueRatio = bestUnaffordable.value / Math.max(0.001, bestAffordable.value);
-    // Save if: unaffordable is 60%+ better AND we can afford it within 12 seconds
-    if (valueRatio > 1.6 && bestUnaffordable.waitSecs <= 12) {
+    // Save if: unaffordable is 80%+ better AND we can afford it within 6 seconds
+    if (valueRatio > 1.8 && bestUnaffordable.waitSecs <= 6) {
       return false; // skip building — save resources
     }
-    // Also save if: upgrade is 40%+ better AND almost ready (< 6 seconds)
-    if (bestUnaffordable.action === 'upgrade' && valueRatio > 1.4 && bestUnaffordable.waitSecs <= 6) {
+    // Also save if: upgrade is 50%+ better AND almost ready (< 4 seconds)
+    if (bestUnaffordable.action === 'upgrade' && valueRatio > 1.5 && bestUnaffordable.waitSecs <= 4) {
       return false;
     }
   }
