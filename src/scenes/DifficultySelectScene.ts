@@ -3,6 +3,7 @@ import { UIAssets } from '../rendering/UIAssets';
 import { BotDifficultyLevel } from '../simulation/BotAI';
 import { type MapDef } from '../simulation/types';
 import { DUEL_MAP, SKIRMISH_MAP, WARZONE_MAP } from '../simulation/maps';
+import { getSafeTop } from '../ui/SafeArea';
 
 interface DifficultyOption {
   level: BotDifficultyLevel;
@@ -206,7 +207,7 @@ export class DifficultySelectScene implements Scene {
     const startX = (w - totalW) / 2;
 
     // Position halfway between ribbon bottom and difficulty cards top
-    const ribbonBottom = (compact ? 48 : 58) + 8;
+    const ribbonBottom = (compact ? 48 : 58) + 8 + getSafeTop();
     const cardH = compact ? 38 : 48;
     const cardGap = compact ? 4 : 8;
     const totalCardsH = DIFFICULTIES.length * cardH + (DIFFICULTIES.length - 1) * cardGap;
@@ -309,7 +310,7 @@ export class DifficultySelectScene implements Scene {
     const ribbonW = Math.min(w * 0.7, 500);
     const ribbonH = Math.min(52, h * 0.07);
     const ribbonX = (w - ribbonW) / 2;
-    const ribbonY = 8;
+    const ribbonY = 8 + getSafeTop();
     this.ui.drawBigRibbon(ctx, ribbonX, ribbonY, ribbonW, ribbonH, 0);
 
     const titleSize = Math.max(13, Math.min(ribbonH * 0.4, 20));

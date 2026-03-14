@@ -1,6 +1,6 @@
 import {
   GameState, PlayerState, DiamondState, Team, Race, Lane, MapDef, createPlayerStats,
-  MAP_WIDTH, MAP_HEIGHT, HQ_HP, HQ_WIDTH, HQ_HEIGHT,
+  MAP_WIDTH, MAP_HEIGHT, HQ_HP, HQ_WIDTH, HQ_HEIGHT, NUKE_RADIUS,
   BUILD_GRID_COLS, BUILD_GRID_ROWS, ZONES, TICK_RATE,
   DIAMOND_CENTER_X, DIAMOND_CENTER_Y, DIAMOND_HALF_W, DIAMOND_HALF_H,
   WOOD_NODE_X, STONE_NODE_X,
@@ -19,11 +19,12 @@ import {
   HARVESTER_RESPAWN_TICKS, HARVESTER_MIN_SEPARATION,
   UPGRADE_TREES, UpgradeNodeDef, RACE_UPGRADE_COSTS, getBuildingCost,
   getRaceUsedResources, getNodeUpgradeCost,
+  HUT_COST_SCALE, GOLD_YIELD_PER_TRIP, WOOD_YIELD_PER_TRIP, STONE_YIELD_PER_TRIP,
 } from './data';
 
 function genId(state: GameState): number { return state.nextEntityId++; }
 const SELL_COOLDOWN_TICKS = 5 * TICK_RATE;
-const WOOD_CARRY_PER_TRIP = 10;
+const WOOD_CARRY_PER_TRIP = WOOD_YIELD_PER_TRIP;
 const WOOD_DROP_BATCHES = 1;
 const WOOD_PICKUP_RADIUS = 2.35;
 const WOOD_PILE_SPREAD_RADIUS = 2.0;
@@ -38,7 +39,7 @@ const CHAMPION_RANGE = 1.5;
 const CHAMPION_SCALE_PER_DELIVERY = 0.15; // each subsequent delivery makes champion 15% stronger
 
 // Passive income per second per race: +1 of primary resource, +0.1 of secondary
-const PASSIVE_INCOME: Record<Race, { gold: number; wood: number; stone: number }> = {
+export const PASSIVE_INCOME: Record<Race, { gold: number; wood: number; stone: number }> = {
   [Race.Crown]:    { gold: 2,   wood: 0.5, stone: 0 },    // gold primary, wood secondary
   [Race.Horde]:    { gold: 2,   wood: 0,   stone: 0.5 },  // gold primary, stone secondary
   [Race.Goblins]:  { gold: 2,   wood: 0.5, stone: 0 },    // gold primary, wood secondary
@@ -846,7 +847,7 @@ function buildHut(state: GameState, cmd: Extract<GameCommand, { type: 'build_hut
   const myHuts = state.buildings.filter(b => b.playerId === cmd.playerId && b.type === BuildingType.HarvesterHut);
   if (myHuts.length >= state.mapDef.hutGridCols * state.mapDef.hutGridRows) return;
   const hutRes = getBuildingCost(player.race, BuildingType.HarvesterHut);
-  const mult = Math.pow(1.35, Math.max(0, myHuts.length - 1));
+  const mult = Math.pow(HUT_COST_SCALE, Math.max(0, myHuts.length - 1));
   const goldCost = Math.floor(hutRes.gold * mult);
   const woodCost = Math.floor(hutRes.wood * mult);
   const stoneCost = Math.floor(hutRes.stone * mult);
@@ -930,7 +931,7 @@ function fireNuke(state: GameState, cmd: Extract<GameCommand, { type: 'fire_nuke
   // Radius intentionally set to 16 for large-teamfight impact.
   state.nukeTelegraphs.push({
     x: cmd.x, y: cmd.y,
-    radius: 16,
+    radius: NUKE_RADIUS,
     playerId: cmd.playerId,
     timer: Math.round(1.25 * TICK_RATE),
   });
@@ -3012,7 +3013,7 @@ function tickHarvesters(state: GameState, cellMap: Map<string, GoldCell>): void 
       if (h.miningTimer <= 0) {
         switch (h.assignment) {
           case HarvesterAssignment.BaseGold:
-            h.carryingResource = ResourceType.Gold; h.carryAmount = 5; break;
+            h.carryingResource = ResourceType.Gold; h.carryAmount = GOLD_YIELD_PER_TRIP; break;
           case HarvesterAssignment.Wood: {
             const missingWood = Math.max(0, h.woodCarryTarget - h.queuedWoodAmount);
             h.queuedWoodAmount += collectWoodPiles(state, baseTarget.x, baseTarget.y, missingWood);
@@ -3024,7 +3025,7 @@ function tickHarvesters(state: GameState, cellMap: Map<string, GoldCell>): void 
             break;
           }
           case HarvesterAssignment.Stone:
-            h.carryingResource = ResourceType.Stone; h.carryAmount = 10; break;
+            h.carryingResource = ResourceType.Stone; h.carryAmount = STONE_YIELD_PER_TRIP; break;
         }
         h.state = h.carryAmount > 0 ? 'walking_home' : 'walking_to_node';
       }
@@ -3103,58 +3104,36 @@ function tickCenterHarvester(state: GameState, h: HarvesterState, movePerTick: n
     return;
   }
 
-  if (h.state === 'mining' && h.targetCellIdx >= 0) {
-    const cell = state.diamondCells[h.targetCellIdx];
-    if (cell && cell.gold > 0) {
+  // Diamond not yet exposed — mine base gold (closest gold mine) instead of
+  // wandering into the diamond cell field. Once exposed, the block above handles it.
+  {
+    const baseGold = getResourceNodePosition(
+      { ...h, assignment: HarvesterAssignment.BaseGold } as HarvesterState,
+      state.mapDef,
+    );
+    const target = findOpenMiningSpot(state, h, baseGold);
+    if (h.state === 'mining') {
       h.miningTimer--;
       if (h.miningTimer <= 0) {
-        const mined = Math.min(GOLD_PER_CELL, cell.gold);
-        cell.gold -= mined;
         h.carryingResource = ResourceType.Gold;
-        h.carryAmount = mined;
-        h.targetCellIdx = -1;
+        h.carryAmount = GOLD_YIELD_PER_TRIP;
         h.state = 'walking_home';
       }
       return;
+    }
+    if (h.state === 'walking_home') {
+      walkHome(state, h, movePerTick);
+      return;
+    }
+    const dx = target.x - h.x, dy = target.y - h.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist < 1) {
+      h.state = 'mining';
+      h.miningTimer = MINE_TIME_BASE_TICKS;
     } else {
-      h.targetCellIdx = -1;
       h.state = 'walking_to_node';
+      moveWithSlide(h, target.x, target.y, movePerTick, state.diamondCells, state.mapDef);
     }
-  }
-
-  // Validate existing locked target (may have been mined by another harvester)
-  if (h.targetCellIdx >= 0) {
-    const tc = state.diamondCells[h.targetCellIdx];
-    if (!tc || tc.gold <= 0) h.targetCellIdx = -1;
-  }
-
-  // Pick new target only when needed — collect teammate claims for spreading
-  if (h.targetCellIdx < 0) {
-    const claimed = new Set<number>();
-    for (const oh of state.harvesters) {
-      if (oh.id !== h.id && oh.assignment === HarvesterAssignment.Center &&
-          oh.state !== 'dead' && oh.targetCellIdx >= 0) {
-        claimed.add(oh.targetCellIdx);
-      }
-    }
-    h.targetCellIdx = findBestCellToMine(state.diamondCells, cellMap, h.x, h.y, claimed);
-  }
-
-  if (h.targetCellIdx < 0) {
-    h.state = 'walking_to_node';
-    return;
-  }
-
-  const cell = state.diamondCells[h.targetCellIdx];
-  const dx = cell.tileX - h.x, dy = cell.tileY - h.y;
-  const dist = Math.sqrt(dx * dx + dy * dy);
-
-  if (dist < 1.5) {
-    h.state = 'mining';
-    h.miningTimer = MINE_TIME_BASE_TICKS;
-  } else {
-    h.state = 'walking_to_node';
-    moveWithSlide(h, cell.tileX, cell.tileY, movePerTick, [], state.mapDef);
   }
 }
 

@@ -1,9 +1,9 @@
 import {
   GameState, GameCommand, Race, BuildingType, Lane, Team, HQ_WIDTH, HQ_HEIGHT,
-  HarvesterAssignment, HQ_HP, MapDef, TICK_RATE,
+  HarvesterAssignment, HQ_HP, MapDef, TICK_RATE, NUKE_RADIUS,
 } from './types';
-import { RACE_BUILDING_COSTS, UPGRADE_TREES, UpgradeNodeDef, UNIT_STATS, SPAWN_INTERVAL_TICKS, TOWER_STATS, getNodeUpgradeCost } from './data';
-import { getHQPosition, getUnitUpgradeMultipliers } from './GameState';
+import { RACE_BUILDING_COSTS, UPGRADE_TREES, UpgradeNodeDef, UNIT_STATS, SPAWN_INTERVAL_TICKS, TOWER_STATS, getNodeUpgradeCost, HUT_COST_SCALE, GOLD_YIELD_PER_TRIP, WOOD_YIELD_PER_TRIP, STONE_YIELD_PER_TRIP } from './data';
+import { getHQPosition, getUnitUpgradeMultipliers, PASSIVE_INCOME } from './GameState';
 
 // --- Bot Difficulty System ---
 
@@ -510,19 +510,8 @@ function createBotIntelligence(enemyRaces: Race[]): BotIntelligence {
   };
 }
 
-// --- Passive income rates per race (per second) ---
-// MUST match PASSIVE_INCOME in GameState.ts
-const PASSIVE_RATES: Record<Race, { gold: number; wood: number; stone: number }> = {
-  [Race.Crown]:    { gold: 2,   wood: 0.5, stone: 0 },
-  [Race.Horde]:    { gold: 2,   wood: 0,   stone: 0.5 },
-  [Race.Goblins]:  { gold: 2,   wood: 0.5, stone: 0 },
-  [Race.Oozlings]: { gold: 2,   wood: 0,   stone: 0.5 },
-  [Race.Demon]:    { gold: 0,   wood: 0.5, stone: 1 },
-  [Race.Deep]:     { gold: 1,   wood: 1,   stone: 0 },
-  [Race.Wild]:     { gold: 0,   wood: 1,   stone: 0.5 },
-  [Race.Geists]:   { gold: 1,   wood: 0,   stone: 1 },
-  [Race.Tenders]:  { gold: 1,   wood: 1,   stone: 0 },
-};
+// Passive income rates — imported from GameState.ts (single source of truth)
+const PASSIVE_RATES = PASSIVE_INCOME;
 
 // --- Race threat classifications ---
 const RACE_TRAITS: Record<Race, { archetype: string[]; appliesBurn: boolean; appliesSlow: boolean }> = {
@@ -532,7 +521,7 @@ const RACE_TRAITS: Record<Race, { archetype: string[]; appliesBurn: boolean; app
   [Race.Oozlings]: { archetype: ['swarm'],            appliesBurn: false, appliesSlow: false },
   [Race.Demon]:    { archetype: ['burst', 'burn'],    appliesBurn: true,  appliesSlow: false },
   [Race.Deep]:     { archetype: ['tank', 'control'],  appliesBurn: false, appliesSlow: true },
-  [Race.Wild]:     { archetype: ['burn', 'burst'],    appliesBurn: true,  appliesSlow: true },
+  [Race.Wild]:     { archetype: ['burn', 'burst'],    appliesBurn: true,  appliesSlow: false },
   [Race.Geists]:   { archetype: ['sustain'],          appliesBurn: true,  appliesSlow: false },
   [Race.Tenders]:  { archetype: ['sustain', 'tank'],  appliesBurn: false, appliesSlow: true },
 };
@@ -893,7 +882,7 @@ function botPlanResources(
   if (rangedCount < rangedTarget) list.push(costs[BuildingType.RangedSpawner]);
   if (casterCount < casterTarget) list.push(costs[BuildingType.CasterSpawner]);
   if (hutCount < hutTarget && hutCount < profile.maxHuts) {
-    const mult = Math.pow(1.35, Math.max(0, hutCount));
+    const mult = Math.pow(HUT_COST_SCALE, Math.max(0, hutCount - 1));
     const hutCost = costs[BuildingType.HarvesterHut];
     list.push({
       gold: Math.floor(hutCost.gold * mult),
@@ -931,7 +920,10 @@ function botPlanResources(
 
   // --- Estimate income ---
   const passive = PASSIVE_RATES[race];
-  const HARVESTER_RATE = 1.6; // ~8 resources per trip, ~5s round trip
+  // Harvester rates: yield / estimated round-trip time (~8.5s for nearby nodes)
+  const GOLD_HARVEST_RATE = GOLD_YIELD_PER_TRIP / 8.5;   // ~0.59/sec
+  const WOOD_HARVEST_RATE = WOOD_YIELD_PER_TRIP / 8.5;   // ~1.18/sec
+  const STONE_HARVEST_RATE = STONE_YIELD_PER_TRIP / 8.5;  // ~1.18/sec
   const harvesters = state.harvesters.filter(h => h.playerId === playerId);
   let goldH = 0, woodH = 0, stoneH = 0;
   for (const h of harvesters) {
@@ -940,9 +932,9 @@ function botPlanResources(
     else stoneH++;
   }
 
-  const goldIncome = passive.gold + goldH * HARVESTER_RATE;
-  const woodIncome = passive.wood + woodH * HARVESTER_RATE;
-  const stoneIncome = passive.stone + stoneH * HARVESTER_RATE;
+  const goldIncome = passive.gold + goldH * GOLD_HARVEST_RATE;
+  const woodIncome = passive.wood + woodH * WOOD_HARVEST_RATE;
+  const stoneIncome = passive.stone + stoneH * STONE_HARVEST_RATE;
 
   // Time to afford each resource
   const goldSecs = goldIncome > 0.01 ? goldNeeded / goldIncome : (goldNeeded > 0 ? 999 : 0);
@@ -1150,7 +1142,7 @@ function botCanAfford(state: GameState, playerId: number, type: BuildingType): b
 function botCanAffordHut(state: GameState, playerId: number, hutCount: number): boolean {
   const player = state.players[playerId];
   const hutRes = RACE_BUILDING_COSTS[player.race][BuildingType.HarvesterHut];
-  const mult = Math.pow(1.35, Math.max(0, hutCount - 1));
+  const mult = Math.pow(HUT_COST_SCALE, Math.max(0, hutCount - 1));
   return player.gold >= Math.floor(hutRes.gold * mult)
     && player.wood >= Math.floor(hutRes.wood * mult)
     && player.stone >= Math.floor(hutRes.stone * mult);
@@ -1417,7 +1409,7 @@ function estimateHutPaybackSeconds(
 ): number {
   const race = state.players[playerId].race;
   const hutBase = RACE_BUILDING_COSTS[race][BuildingType.HarvesterHut];
-  const mult = Math.pow(1.35, Math.max(0, hutCount - 1));
+  const mult = Math.pow(HUT_COST_SCALE, Math.max(0, hutCount - 1));
   const totalCost = Math.floor(hutBase.gold * mult) + Math.floor(hutBase.wood * mult) + Math.floor(hutBase.stone * mult);
   if (totalCost <= 0) return 999;
 
@@ -1431,9 +1423,9 @@ function estimateHutPaybackSeconds(
     else stoneH++;
   }
 
-  const goldIncome = plan?.goldIncome ?? (passive.gold + goldH * 1.6);
-  const woodIncome = plan?.woodIncome ?? (passive.wood + woodH * 1.6);
-  const stoneIncome = plan?.stoneIncome ?? (passive.stone + stoneH * 1.6);
+  const goldIncome = plan?.goldIncome ?? (passive.gold + goldH * (GOLD_YIELD_PER_TRIP / 8.5));
+  const woodIncome = plan?.woodIncome ?? (passive.wood + woodH * (WOOD_YIELD_PER_TRIP / 8.5));
+  const stoneIncome = plan?.stoneIncome ?? (passive.stone + stoneH * (STONE_YIELD_PER_TRIP / 8.5));
 
   const costTime = Math.max(
     hutBase.gold > 0 ? Math.floor(hutBase.gold * mult) / Math.max(0.1, goldIncome) : 0,
@@ -1441,7 +1433,9 @@ function estimateHutPaybackSeconds(
     hutBase.stone > 0 ? Math.floor(hutBase.stone * mult) / Math.max(0.1, stoneIncome) : 0
   );
 
-  const directPayback = totalCost / 1.6;
+  // Avg harvester income: weighted by resource types the race uses
+  const avgHarvestRate = (GOLD_YIELD_PER_TRIP + WOOD_YIELD_PER_TRIP + STONE_YIELD_PER_TRIP) / 3 / 8.5;
+  const directPayback = totalCost / avgHarvestRate;
   return Math.max(directPayback, costTime * 1.2);
 }
 
@@ -1574,7 +1568,7 @@ function evaluateBestNukePlan(
 
   if (targets.length < 3) return null;
 
-  const radius = 16;
+  const radius = NUKE_RADIUS;
   const radiusSq = radius * radius;
   let best: NukeStrikePlan | null = null;
 
@@ -1889,12 +1883,12 @@ function botValueBasedBuild(
       const timeHorizon = Math.max(60, 300 - gameMinutes * 30);
       const avgSpawnerCost = spawnerTypes.reduce((sum, t) => sum + resourceBundleTotal(costs[t]), 0) / 3;
       const avgThroughput = spawnerTypes.reduce((sum, t) => sum + getSpawnerThroughput(race, t), 0) / 3;
-      const additionalIncome = 1.6; // resources per second per harvester
+      const additionalIncome = (GOLD_YIELD_PER_TRIP + WOOD_YIELD_PER_TRIP + STONE_YIELD_PER_TRIP) / 3 / 8.5;
       const enabledThroughput = avgSpawnerCost > 0
         ? (additionalIncome * timeHorizon / avgSpawnerCost) * avgThroughput
         : 0;
       const hutBase = costs[BuildingType.HarvesterHut];
-      const mult = Math.pow(1.35, Math.max(0, hutCount - 1));
+      const mult = Math.pow(HUT_COST_SCALE, Math.max(0, hutCount - 1));
       const hutTotalCost = Math.floor(hutBase.gold * mult) + Math.floor(hutBase.wood * mult) + Math.floor(hutBase.stone * mult);
       let hv = hutTotalCost > 0 ? enabledThroughput / hutTotalCost : 0;
       // Scale down if payback is long

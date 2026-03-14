@@ -3,6 +3,7 @@ import { GameState, Team, PlayerStats } from '../simulation/types';
 import { PLAYER_COLORS, RACE_COLORS } from '../simulation/data';
 import { UIAssets, IconName } from '../rendering/UIAssets';
 import { SpriteLoader, getSpriteFrame } from '../rendering/SpriteLoader';
+import { getSafeTop } from '../ui/SafeArea';
 
 export interface MatchStats {
   state: GameState;
@@ -127,7 +128,7 @@ export class PostMatchScene implements Scene {
     const headerBannerW = Math.min(w * 0.75, 540);
     const headerBannerH = Math.min(90, h * 0.1);
     const headerBannerX = (w - headerBannerW) / 2;
-    const headerBannerY = h * 0.02;
+    const headerBannerY = h * 0.02 + getSafeTop();
     this.ui.drawBigRibbon(ctx, headerBannerX, headerBannerY, headerBannerW, headerBannerH, won ? 0 : 1);
 
     ctx.font = `bold ${fontSize * 2.2}px monospace`;

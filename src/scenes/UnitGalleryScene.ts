@@ -6,6 +6,7 @@ import { loadProfile, checkNonMatchAchievement, ACHIEVEMENTS } from '../profile/
 import { UNIT_STATS, RACE_COLORS, UPGRADE_TREES, UpgradeNodeDef } from '../simulation/data';
 import { getUnitUpgradeMultipliers } from '../simulation/GameState';
 import { getElo, ELO_DEFAULT } from './TitleScene';
+import { getSafeTop } from '../ui/SafeArea';
 
 const T = TILE_SIZE;
 
@@ -127,7 +128,7 @@ export class UnitGalleryScene implements Scene {
 
   private handleClick(cx: number, cy: number): void {
     // Back button
-    if (cy < 36 && cx < 100) {
+    if (cy < 36 + getSafeTop() && cy > getSafeTop() && cx < 100) {
       this.manager.switchTo('title');
       return;
     }
@@ -154,7 +155,7 @@ export class UnitGalleryScene implements Scene {
     // Gaps: after A (index 0) and after C (index 2)
     const totalW = tabW * 7 + gap * 2;
     const startX = (W - totalW) / 2;
-    const tabY = 30;
+    const tabY = 30 + getSafeTop();
     const tabH = 28;
     return TAB_PATHS.map((_, i) => {
       let x = startX + i * tabW;
@@ -181,7 +182,7 @@ export class UnitGalleryScene implements Scene {
 
     // Layout constants — responsive to screen width
     const rowH = 110;
-    const headerH = 98;
+    const headerH = 98 + getSafeTop();
     const labelPad = 14; // left margin for race label (overlaps first unit column)
     const colMargin = 20; // margin on each side of the 3 columns
     const unitSpacing = Math.min(160, Math.max(100, Math.floor((W - colMargin * 2) / 3)));
@@ -337,16 +338,17 @@ export class UnitGalleryScene implements Scene {
     ctx.fillRect(0, 0, W, headerH);
 
     // Back button
+    const st = getSafeTop();
     ctx.fillStyle = '#4fc3f7';
     ctx.font = 'bold 14px monospace';
     ctx.textAlign = 'left';
-    ctx.fillText('< BACK', 14, 18);
+    ctx.fillText('< BACK', 14, 18 + st);
 
     // Title
     ctx.fillStyle = '#e0e0e0';
     ctx.font = 'bold 18px monospace';
     ctx.textAlign = 'center';
-    ctx.fillText('UNIT GALLERY', W / 2, 18);
+    ctx.fillText('UNIT GALLERY', W / 2, 18 + st);
 
     // Tab bar — rarity colors: A=common, B/C=rare blue, D/E/F/G=epic purple
     const tabLayout = this.getTabLayout();
@@ -390,7 +392,7 @@ export class UnitGalleryScene implements Scene {
     ctx.fillStyle = '#aaa';
     ctx.font = '11px monospace';
     ctx.textAlign = 'center';
-    ctx.fillText(tab.desc + `  [path: ${tab.path.join('\u2192')}]`, W / 2, 72);
+    ctx.fillText(tab.desc + `  [path: ${tab.path.join('\u2192')}]`, W / 2, 72 + st);
 
     // Column headers — same layout as unit columns
     ctx.font = 'bold 12px monospace';

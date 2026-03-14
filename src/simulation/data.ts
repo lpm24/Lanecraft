@@ -132,9 +132,15 @@ export function getRaceUsedResources(race: Race): { gold: boolean; wood: boolean
 }
 
 // Escalating hut cost
+export const HUT_COST_SCALE = 1.35;
 export function HARVESTER_HUT_COST(hutIndex: number): number {
-  return Math.floor(50 * Math.pow(1.35, hutIndex));
+  return Math.floor(50 * Math.pow(HUT_COST_SCALE, hutIndex));
 }
+
+// Harvester yields per trip (must match GameState.ts tickHarvesters)
+export const GOLD_YIELD_PER_TRIP = 5;
+export const WOOD_YIELD_PER_TRIP = 10;
+export const STONE_YIELD_PER_TRIP = 10;
 
 // Spawn interval in ticks
 export const SPAWN_INTERVAL_TICKS = 10 * TICK_RATE; // 10 seconds

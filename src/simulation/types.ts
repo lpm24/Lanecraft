@@ -90,6 +90,7 @@ export const STONE_NODE_X = 68;
 export const HQ_WIDTH = 8;
 export const HQ_HEIGHT = 3;
 export const HQ_HP = 2000;
+export const NUKE_RADIUS = 16;
 
 // Lane paths: both lanes CONVERGE into a single corridor before the diamond,
 // fork around it (left or right), then reconverge on the other side.

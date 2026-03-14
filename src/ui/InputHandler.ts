@@ -11,6 +11,7 @@ import { TICK_RATE } from '../simulation/types';
 import { UIAssets } from '../rendering/UIAssets';
 import { SpriteLoader, drawSpriteFrame, getSpriteFrame } from '../rendering/SpriteLoader';
 import { BuildingPopup } from './BuildingPopup';
+import { getSafeBottom, getSafeTop } from './SafeArea';
 
 interface BuildTrayItem {
   type: BuildingType;
@@ -730,12 +731,12 @@ export class InputHandler {
 
   private getHelpButtonRect(): { x: number; y: number; w: number; h: number } {
     const size = 30;
-    return { x: this.canvas.clientWidth - size - 10, y: 10, w: size, h: size };
+    return { x: this.canvas.clientWidth - size - 10, y: 10 + getSafeTop(), w: size, h: size };
   }
 
   private getSettingsButtonRect(): { x: number; y: number; w: number; h: number } {
     const size = 30;
-    return { x: this.canvas.clientWidth - size * 2 - 18, y: 10, w: size, h: size };
+    return { x: this.canvas.clientWidth - size * 2 - 18, y: 10 + getSafeTop(), w: size, h: size };
   }
 
   private handleHelpButtonClick(e: MouseEvent): boolean {
@@ -801,30 +802,10 @@ export class InputHandler {
     }
   }
 
-  private _safeBottomProbe: HTMLDivElement | null = null;
-
-  /** Measure bottom safe area inset for phones with rounded corners. */
-  private getSafeBottom(): number {
-    // Create a probe element once — CSS env() can only be read from actual elements
-    if (!this._safeBottomProbe) {
-      const probe = document.createElement('div');
-      probe.style.cssText = 'position:fixed;bottom:0;left:0;width:0;padding-bottom:env(safe-area-inset-bottom,0px);pointer-events:none;visibility:hidden';
-      document.body.appendChild(probe);
-      this._safeBottomProbe = probe;
-    }
-    const measured = this._safeBottomProbe.offsetHeight;
-    if (measured > 0) return measured;
-    // Fallback: on portrait mobile, add padding for rounded corners
-    const W = this.canvas.clientWidth;
-    const H = this.canvas.clientHeight;
-    const isPortraitMobile = W < 500 && H > W;
-    return isPortraitMobile ? 16 : 0;
-  }
-
   private getTrayLayout() {
     const W = this.canvas.clientWidth;
     const H = this.canvas.clientHeight;
-    const safeBottom = this.getSafeBottom();
+    const safeBottom = getSafeBottom();
     const milH = 68;
     const milY = H - milH - safeBottom;
     // Miner button + 4 military + nuke = 6 buttons total

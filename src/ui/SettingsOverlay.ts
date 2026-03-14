@@ -1,5 +1,6 @@
 import type { AudioSettings } from '../audio/AudioSettings';
 import type { UIAssets } from '../rendering/UIAssets';
+import { getSafeTop } from './SafeArea';
 
 export interface Rect {
   x: number;
@@ -22,7 +23,7 @@ export function hitRect(x: number, y: number, rect: Rect): boolean {
 
 export function getSettingsOverlayLayout(width: number, _height: number): SettingsOverlayLayout {
   const size = 30;
-  const button = { x: width - size * 2 - 18, y: 10, w: size, h: size };
+  const button = { x: width - size * 2 - 18, y: 10 + getSafeTop(), w: size, h: size };
   const panel = { x: button.x + button.w - 200, y: button.y + button.h + 4, w: 200, h: 98 };
   return {
     button,

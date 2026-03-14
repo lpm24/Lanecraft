@@ -7,6 +7,7 @@ import { SoundManager } from '../audio/SoundManager';
 import { MusicPlayer } from '../audio/MusicPlayer';
 import { getAudioSettings, subscribeToAudioSettings, updateAudioSettings } from '../audio/AudioSettings';
 import { drawSettingsButton, drawSettingsOverlay, getSettingsOverlayLayout, hitRect, sliderValueFromPoint } from '../ui/SettingsOverlay';
+import { getSafeTop } from '../ui/SafeArea';
 
 type ResIcon = 'uiGold' | 'uiWood' | 'uiMeat';
 
@@ -232,7 +233,7 @@ export class RaceSelectScene implements Scene {
   private getBoxLayout(): { x: number; y: number; w: number; h: number }[] {
     const w = this.canvas.clientWidth;
     const h = this.canvas.clientHeight;
-    const headerH = 70;
+    const headerH = 70 + getSafeTop();
     const footerH = 80;
     const randomBtnReserve = 40; // space for the random button below the grid
     const availH = h - headerH - footerH - randomBtnReserve;
@@ -332,7 +333,7 @@ export class RaceSelectScene implements Scene {
     const ribbonW = Math.min(w * 0.7, 500);
     const ribbonH = Math.min(56, h * 0.07);
     const ribbonX = (w - ribbonW) / 2;
-    const ribbonY = 8;
+    const ribbonY = 8 + getSafeTop();
     this.ui.drawBigRibbon(ctx, ribbonX, ribbonY, ribbonW, ribbonH, 0);
 
     const titleSize = Math.max(14, Math.min(ribbonH * 0.4, 22));

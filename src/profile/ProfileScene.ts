@@ -8,6 +8,7 @@ import {
   ACHIEVEMENTS, ALL_AVATARS,
   isAvatarUnlocked, getWinRate, formatTime,
 } from './ProfileData';
+import { getSafeTop } from '../ui/SafeArea';
 
 const ALL_RACES: Race[] = [
   Race.Crown, Race.Horde, Race.Goblins, Race.Oozlings, Race.Demon,
@@ -143,8 +144,9 @@ export class ProfileScene implements Scene {
     const H = this.canvas.clientHeight;
     const compact = W < 600;
     const s = compact ? W / 600 : 1; // scale factor for mobile
-    const headerH = Math.round(compact ? 120 * s + 40 : 180);
-    const tabBarY = Math.round(compact ? 52 * s + 16 : 84);
+    const st = getSafeTop();
+    const headerH = Math.round(compact ? 120 * s + 40 : 180) + st;
+    const tabBarY = Math.round(compact ? 52 * s + 16 : 84) + st;
     const tabH = Math.round(compact ? 36 * s + 8 : 60);
     return { W, H, headerH, tabBarY, tabH, compact, s };
   }
@@ -156,7 +158,8 @@ export class ProfileScene implements Scene {
 
     // Back button (top-left)
     const backSize = compact ? 36 : 64;
-    if (cy < backSize + 10 && cx < backSize + 12) {
+    const st = getSafeTop();
+    if (cy < backSize + 10 + st && cy > st && cx < backSize + 12) {
       this.manager.switchTo('title');
       return;
     }
@@ -246,7 +249,8 @@ export class ProfileScene implements Scene {
     const ribbonW = Math.min(W * 0.5, 560);
     const ribbonH = Math.round(compact ? 40 : 64);
     const ribbonX = (W - ribbonW) / 2;
-    const ribbonY = compact ? 4 : 8;
+    const st = getSafeTop();
+    const ribbonY = (compact ? 4 : 8) + st;
     this.ui.drawBigRibbon(ctx, ribbonX, ribbonY, ribbonW, ribbonH, 2); // yellow ribbon
     ctx.font = `bold ${compact ? 18 : 32}px monospace`;
     ctx.textAlign = 'center';
@@ -256,12 +260,14 @@ export class ProfileScene implements Scene {
 
     // Back button — small blue round
     const backSize = compact ? 36 : 64;
-    this.ui.drawSmallBlueRoundButton(ctx, compact ? 4 : 8, compact ? 4 : 6, backSize);
+    const backX = compact ? 4 : 8;
+    const backY = (compact ? 4 : 6) + st;
+    this.ui.drawSmallBlueRoundButton(ctx, backX, backY, backSize);
     ctx.fillStyle = '#fff';
     ctx.font = `bold ${compact ? 20 : 32}px monospace`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('<', (compact ? 4 : 8) + backSize / 2, (compact ? 4 : 6) + backSize / 2);
+    ctx.fillText('<', backX + backSize / 2, backY + backSize / 2);
 
     // Tab bar — blue buttons
     const tabs: { key: Tab; label: string }[] = [

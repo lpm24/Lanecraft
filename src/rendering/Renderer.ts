@@ -18,6 +18,7 @@ import {
   ScreenShake, WeatherSystem, AmbientParticles,
   ProjectileTrails, ConstructionAnims, HitFlashTracker, CombatVFX, triggerHaptic,
 } from './VisualEffects';
+import { getSafeTop } from '../ui/SafeArea';
 
 const T = TILE_SIZE;
 const LANE_LEFT_COLOR = '#4fc3f7';
@@ -2827,13 +2828,20 @@ export class Renderer {
     const iconSz = compact ? 16 : 22;
     const hudH = compact ? 42 : 56;
     const pad = compact ? 6 : 12;
+    const safeTop = getSafeTop();
+
+    // Safe area fill above HUD for notch/rounded corners
+    if (safeTop > 0) {
+      ctx.fillStyle = '#1a1008';
+      ctx.fillRect(0, 0, W, safeTop);
+    }
 
     // HUD background — oversized to hide left/right edges, taller for breathing room
     const bgOverW = Math.round(W * 0.25);
     const bgH = Math.round(hudH * 1.10);
-    if (!this.ui.drawWoodTable(ctx, -bgOverW / 2, 0, W + bgOverW, bgH)) {
+    if (!this.ui.drawWoodTable(ctx, -bgOverW / 2, safeTop, W + bgOverW, bgH)) {
       ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
-      ctx.fillRect(0, 0, W, bgH);
+      ctx.fillRect(0, safeTop, W, bgH);
     }
 
     ctx.font = `bold ${fontSize}px monospace`;
@@ -2841,7 +2849,7 @@ export class Renderer {
     const elapsed = Math.max(1, state.tick / 20);
 
     // Row 1: Resources + timer
-    const y1 = compact ? 14 : 20;
+    const y1 = safeTop + (compact ? 14 : 20);
     let x = pad;
     const iconY = y1 - iconSz / 2;
 
@@ -2883,7 +2891,7 @@ export class Renderer {
     ctx.fillText(timerText, timerX - ctx.measureText(timerText).width, y1 + fontSize * 0.35);
 
     // Row 2: HQ bars + diamond + units
-    const y2 = compact ? 32 : 42;
+    const y2 = safeTop + (compact ? 32 : 42);
     const smallFont = compact ? 9 : 11;
     ctx.font = `bold ${smallFont}px monospace`;
     let x2 = pad;
@@ -3083,7 +3091,7 @@ export class Renderer {
       mmW = Math.round(mmH * aspect);
     }
     const mx = this.canvas.clientWidth - mmW - 10;
-    const my = compact ? 46 : 60;
+    const my = (compact ? 46 : 60) + getSafeTop();
     if (sx < mx || sx > mx + mmW || sy < my || sy > my + mmH) return null;
     const tileX = ((sx - mx) / mmW) * this.mapW;
     const tileY = ((sy - my) / mmH) * this.mapH;
@@ -3107,7 +3115,7 @@ export class Renderer {
       mmW = Math.round(mmH * aspect);
     }
     const mx = this.canvas.clientWidth - mmW - 10;
-    const my = compact ? 46 : 60; // top-right, just below HUD bar
+    const my = (compact ? 46 : 60) + getSafeTop(); // top-right, just below HUD bar
     const scaleX = mmW / mW;
     const scaleY = mmH / mH;
 
