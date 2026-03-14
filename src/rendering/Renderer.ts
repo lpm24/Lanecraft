@@ -1678,8 +1678,41 @@ export class Renderer {
         drawGridFrame(ctx, img, def, animFrame, px - size / 2, py - size / 2, size, size);
         drewSprite = true;
       }
+    } else if (p.visual === 'cannonball') {
+      // HQ cannonball — large dark sphere with fiery trail
+      const r = T * 0.5;
+      const cbTarget = state.units.find(u => u.id === p.targetId);
+      const cbAngle = cbTarget
+        ? Math.atan2(cbTarget.y - p.y, cbTarget.x - p.x)
+        : isBottom ? -Math.PI / 2 : Math.PI / 2;
+      const tdx = Math.cos(cbAngle);
+      const tdy = Math.sin(cbAngle);
+      // Trail (behind the projectile)
+      ctx.beginPath();
+      ctx.arc(px - tdx * T * 1.2, py - tdy * T * 1.2, r * 0.7, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(255, 100, 0, 0.3)';
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(px - tdx * T * 0.6, py - tdy * T * 0.6, r * 0.85, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(255, 150, 0, 0.4)';
+      ctx.fill();
+      // Main ball
+      ctx.beginPath();
+      ctx.arc(px, py, r, 0, Math.PI * 2);
+      const grad = ctx.createRadialGradient(px - r * 0.3, py - r * 0.3, 0, px, py, r);
+      grad.addColorStop(0, '#555');
+      grad.addColorStop(0.6, '#222');
+      grad.addColorStop(1, '#000');
+      ctx.fillStyle = grad;
+      ctx.fill();
+      // Highlight
+      ctx.beginPath();
+      ctx.arc(px - r * 0.25, py - r * 0.25, r * 0.3, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.25)';
+      ctx.fill();
+      drewSprite = true;
     } else if (p.visual === 'bolt') {
-      // Tower / HQ bolt — use orb sprite, slightly larger
+      // Tower bolt — use orb sprite, slightly larger
       const boltRace = race ?? Race.Crown;
       const orbData = this.sprites.getOrbSprite(boltRace);
       if (orbData) {

@@ -2239,16 +2239,17 @@ function tickHQDefense(state: GameState): void {
     }
 
     if (closest) {
-      // Fire a projectile from the HQ at the target
+      // Fire a cannonball from the HQ — splash damage in area
       state.projectiles.push({
         id: genId(state),
         x: hx, y: hy,
         targetId: closest.id,
         damage: HQ_DAMAGE,
-        speed: 10,
-        aoeRadius: 0,
-        team, visual: 'bolt',
+        speed: 8,
+        aoeRadius: 4,
+        team, visual: 'cannonball',
         sourcePlayerId: -1, // HQ has no specific player owner
+        splashDamagePct: 0.5,
       });
       state.hqAttackTimer[team] = HQ_COOLDOWN_TICKS;
       continue;

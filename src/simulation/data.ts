@@ -272,15 +272,15 @@ export const UNIT_STATS: Record<Race, RaceUnits> = {
 
 // Tower stats per race
 export const TOWER_STATS: Record<Race, { hp: number; damage: number; attackSpeed: number; range: number; ascii: string }> = {
-  [Race.Crown]:    { hp: 220, damage: 10, attackSpeed: 1.4, range: 7, ascii: '[||]' },
-  [Race.Horde]:    { hp: 250, damage: 14, attackSpeed: 1.4, range: 7, ascii: '[HH]' },
-  [Race.Goblins]:  { hp: 150, damage: 10, attackSpeed: 1.0, range: 7, ascii: '[gg]' },
-  [Race.Oozlings]: { hp: 170, damage: 8,  attackSpeed: 0.8, range: 7, ascii: '[oo]' },
-  [Race.Demon]:    { hp: 160, damage: 18, attackSpeed: 1.8, range: 8, ascii: '<F>' },
-  [Race.Deep]:     { hp: 280, damage: 8,  attackSpeed: 1.0, range: 7, ascii: '(@)' },
-  [Race.Wild]:     { hp: 200, damage: 10, attackSpeed: 1.0, range: 6, ascii: '[*]' },
-  [Race.Geists]:   { hp: 180, damage: 12, attackSpeed: 1.2, range: 8, ascii: '{~}' },
-  [Race.Tenders]:  { hp: 260, damage: 8,  attackSpeed: 1.0, range: 5, ascii: '[^^]' },
+  [Race.Crown]:    { hp: 880,  damage: 10, attackSpeed: 1.4, range: 11, ascii: '[||]' },
+  [Race.Horde]:    { hp: 1000, damage: 14, attackSpeed: 1.4, range: 11, ascii: '[HH]' },
+  [Race.Goblins]:  { hp: 600,  damage: 10, attackSpeed: 1.0, range: 11, ascii: '[gg]' },
+  [Race.Oozlings]: { hp: 680,  damage: 8,  attackSpeed: 0.8, range: 11, ascii: '[oo]' },
+  [Race.Demon]:    { hp: 640,  damage: 18, attackSpeed: 1.8, range: 12, ascii: '<F>' },
+  [Race.Deep]:     { hp: 1120, damage: 8,  attackSpeed: 1.0, range: 11, ascii: '(@)' },
+  [Race.Wild]:     { hp: 800,  damage: 10, attackSpeed: 1.0, range: 9,  ascii: '[*]' },
+  [Race.Geists]:   { hp: 720,  damage: 12, attackSpeed: 1.2, range: 12, ascii: '{~}' },
+  [Race.Tenders]:  { hp: 1040, damage: 8,  attackSpeed: 1.0, range: 8,  ascii: '[^^]' },
 };
 
 // Race accent colors

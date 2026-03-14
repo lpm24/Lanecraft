@@ -408,7 +408,7 @@ export interface DiamondState {
   deliveries: number;   // how many times diamond has been delivered (champion gets stronger)
 }
 
-export type ProjectileVisual = 'arrow' | 'orb' | 'circle' | 'bolt' | 'bone';
+export type ProjectileVisual = 'arrow' | 'orb' | 'circle' | 'bolt' | 'bone' | 'cannonball';
 
 export interface ProjectileState {
   id: number;
