@@ -165,7 +165,10 @@ export class TitleScene implements Scene {
     }
   }
 
+  private enterTime = 0;
+
   enter(): void {
+    this.enterTime = Date.now();
     this.pulseTime = 0;
     this.waiting = true;
     this.waitTimer = 0.5;
@@ -596,6 +599,8 @@ export class TitleScene implements Scene {
   }
 
   private handleClick(cx: number, cy: number): void {
+    // Ignore clicks shortly after entering (prevents mobile touch-through from other scenes)
+    if (Date.now() - this.enterTime < 350) return;
     // Cancel reset ELO confirm if clicking anything other than the reset button
     if (this.resetEloConfirm && !this.hitRect(cx, cy, this.resetEloBtnRect)) {
       this.resetEloConfirm = false;
