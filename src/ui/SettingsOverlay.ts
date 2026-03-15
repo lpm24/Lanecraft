@@ -85,7 +85,9 @@ export function drawSettingsOverlay(
 ): void {
   const { panel, close, musicRow, sfxRow } = layout;
 
-  if (!ui.drawWoodTable(ctx, panel.x, panel.y, panel.w, panel.h)) {
+  const bgPadX = panel.w * 0.10;
+  const bgPadY = panel.h * 0.10;
+  if (!ui.drawWoodTable(ctx, panel.x - bgPadX, panel.y - bgPadY, panel.w + bgPadX * 2, panel.h + bgPadY * 2)) {
     ctx.fillStyle = 'rgba(0,0,0,0.88)';
     ctx.fillRect(panel.x, panel.y, panel.w, panel.h);
   }

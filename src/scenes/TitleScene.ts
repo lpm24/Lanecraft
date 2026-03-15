@@ -2340,20 +2340,16 @@ export class TitleScene implements Scene {
   private renderNameTag(ctx: CanvasRenderingContext2D, _w: number, _h: number): void {
     const fontSize = Math.max(12, Math.min(_w / 40, 16));
     const nameH = fontSize + 8;
-    const avatarSize = nameH * 2;   // profile button is 2x name height
+    const baseAvatarSize = nameH * 2;
+    const avatarSize = Math.round(baseAvatarSize * 1.3);  // 30% bigger
     const diceSize = nameH;
-    const gap = 6;
 
     ctx.font = `bold ${fontSize}px monospace`;
     const nameW = ctx.measureText(this.playerName).width;
 
-    // Positions — avatar on far left, then name pill to its right
+    // Positions — avatar top-left, name underneath
     const avatarX = 8;
     const avatarY = 8;
-    const pillX = avatarX + avatarSize + gap;
-    const pillY = avatarY + (avatarSize - nameH) / 2;  // vertically center with avatar
-    const totalPillW = diceSize + 6 + nameW;
-    const pillPad = 8;
 
     // ── Profile avatar button (square) ──
     this.profileBtnRect = { x: avatarX, y: avatarY, w: avatarSize, h: avatarSize };
@@ -2392,20 +2388,21 @@ export class TitleScene implements Scene {
       }
     }
 
-    // ── Name pill background ──
-    ctx.fillStyle = 'rgba(0,0,0,0.55)';
-    ctx.beginPath();
-    ctx.roundRect(pillX - pillPad, pillY - pillPad, totalPillW + pillPad * 2, nameH + pillPad * 2, nameH / 2);
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(255,215,0,0.3)';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.roundRect(pillX - pillPad, pillY - pillPad, totalPillW + pillPad * 2, nameH + pillPad * 2, nameH / 2);
-    ctx.stroke();
+    // ── Player name underneath avatar ──
+    const nameCx = avatarX + avatarSize / 2;
+    const nameY = avatarY + avatarSize + 4;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.font = `bold ${fontSize * 0.8}px monospace`;
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.fillText(this.playerName, nameCx + 1, nameY + 1);
+    ctx.fillStyle = '#ffd700';
+    ctx.fillText(this.playerName, nameCx, nameY);
+    ctx.textBaseline = 'alphabetic';
 
-    // ── Dice button ──
-    const diceX = pillX;
-    const diceY = pillY;
+    // ── Dice button (to the right of the avatar) ──
+    const diceX = avatarX + avatarSize + 6;
+    const diceY = avatarY;
     this.diceBtnRect = { x: diceX - 4, y: diceY - 4, w: diceSize + 8, h: diceSize + 8 };
 
     ctx.fillStyle = 'rgba(255,215,0,0.15)';
@@ -2429,14 +2426,6 @@ export class TitleScene implements Scene {
       ctx.arc(dcx + dx, dcy + dy, dotR, 0, Math.PI * 2);
       ctx.fill();
     }
-
-    // ── Player name ──
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'middle';
-    ctx.font = `bold ${fontSize}px monospace`;
-    ctx.fillStyle = '#ffd700';
-    ctx.fillText(this.playerName, pillX + diceSize + 6, pillY + nameH / 2);
-    ctx.textBaseline = 'alphabetic';
   }
 
   // ─── Render: Join code input ───

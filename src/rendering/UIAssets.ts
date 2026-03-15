@@ -9,7 +9,6 @@
 // 9-slice panels
 import bannerPng from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/UI Elements/UI Elements/Banners/Banner.png?url';
 import woodTablePng from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/UI Elements/UI Elements/Wood Table/WoodTable.png?url';
-import woodTableSlotsPng from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/UI Elements/UI Elements/Wood Table/WoodTable_Slots.png?url';
 import specialPaperPng from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/UI Elements/UI Elements/Papers/SpecialPaper.png?url';
 
 // Ribbons & Swords (spritesheets)
@@ -89,7 +88,7 @@ export class UIAssets {
   /** Kick off loading all UI assets. Returns a promise that resolves when every image is ready. */
   preload(): Promise<void> {
     const urls = [
-      bannerPng, woodTablePng, woodTableSlotsPng, specialPaperPng,
+      bannerPng, woodTablePng, specialPaperPng,
       bigRibbonsPng, smallRibbonsPng, swordsPng,
       bigBlueBtnPng, bigBlueBtnPressedPng, bigRedBtnPng, bigRedBtnPressedPng,
       smallBlueRoundPng, smallRedRoundPng, smallRedRoundPressedPng,
@@ -168,16 +167,9 @@ export class UIAssets {
 
   // WoodTable: 448x448 9-slice for large panels, 192x192 single tile for small
   drawWoodTable(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number): boolean {
-    if (w < 300 || h < 300) {
-      // Slots variant is a single tile — just stretch it
-      const img = this.loadImage(woodTableSlotsPng);
-      if (!img) return false;
-      ctx.drawImage(img, x, y, w, h);
-    } else {
-      const img = this.loadImage(woodTablePng);
-      if (!img) return false;
-      this.drawNineSlice(ctx, img, STRIP_448, STRIP_448, x, y, w, h);
-    }
+    const img = this.loadImage(woodTablePng);
+    if (!img) return false;
+    this.drawNineSlice(ctx, img, STRIP_448, STRIP_448, x, y, w, h);
     return true;
   }
 
