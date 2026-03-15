@@ -21,9 +21,6 @@ import {
   getEffectiveSpeed, tickDuelStatusEffects, tickDuelCombat, tickDuelProjectiles, findNearestEnemy,
 } from './TitleDuelSim';
 
-// Re-export for backward compatibility
-export type { LocalSetup } from './TitleLocalSetup';
-export { getElo, ELO_DEFAULT, loadAllElo, saveAllElo } from './TitleElo';
 
 const PARTY_DIFFICULTY_OPTIONS: { level: BotDifficultyLevel; label: string; color: string }[] = [
   { level: BotDifficultyLevel.Easy, label: 'EASY', color: '#4caf50' },

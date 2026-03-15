@@ -170,9 +170,10 @@ export class ProfileScene implements Scene {
       return;
     }
 
-    // Dice button (reroll name)
+    // Dice button (reroll name) — only active on stats tab
     const d = this.diceBtnRect;
-    if (cx >= d.x && cx <= d.x + d.w && cy >= d.y && cy <= d.y + d.h) {
+    if (this.tab === 'stats' && cy > headerH &&
+        cx >= d.x && cx <= d.x + d.w && cy >= d.y && cy <= d.y + d.h) {
       this.playerName = randomName();
       savePlayerName(this.playerName);
       return;
