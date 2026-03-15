@@ -11,10 +11,12 @@ function gitInfo() {
   }
 }
 
-export default defineConfig(() => {
+export default defineConfig(({ command }) => {
   const git = gitInfo();
   return {
-    base: '/SpawnWars/',
+    base: process.env.CAP_BUILD
+      ? '/'
+      : (command === 'serve' ? '/' : '/SpawnWars/'),
     define: {
       __BUILD_HASH__: JSON.stringify(git.hash),
       __BUILD_NUMBER__: JSON.stringify(git.count),

@@ -1,0 +1,125 @@
+name: iOS Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_name:
+        description: 'Marketing version (e.g. 1.0.0)'
+        required: true
+        default: '1.0.0'
+      build_number:
+        description: 'Build number (integer, must increase each TestFlight upload)'
+        required: true
+        default: '1'
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode 16
+        run: sudo xcode-select -s /Applications/Xcode_16.2.app
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build web assets
+        run: CAP_BUILD=1 npm run build
+
+      - name: Add iOS platform
+        run: npx cap add ios
+
+      - name: Sync Capacitor iOS
+        run: npx cap sync ios
+
+      - name: Patch AppDelegate (remove broken userActivity method)
+        run: |
+          sed -i '' '/func application.*continue userActivity/,/^    }/d' ios/App/App/AppDelegate.swift
+
+      - name: Set app icon
+        run: cp public/icons/app-icon-1024.png ios/App/App/Assets.xcassets/AppIcon.appiconset/AppIcon-512@2x.png
+
+      - name: Create ExportOptions.plist
+        run: |
+          cat > ios/App/ExportOptions.plist << 'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>app-store</string>
+            <key>signingStyle</key>
+            <string>manual</string>
+            <key>signingCertificate</key>
+            <string>Apple Distribution</string>
+            <key>teamID</key>
+            <string>${{ secrets.IOS_TEAM_ID }}</string>
+            <key>provisioningProfiles</key>
+            <dict>
+              <key>com.krool.spawnwars</key>
+              <string>${{ secrets.IOS_PROVISION_PROFILE_NAME }}</string>
+            </dict>
+            <key>uploadSymbols</key>
+            <true/>
+            <key>stripSwiftSymbols</key>
+            <true/>
+          </dict>
+          </plist>
+          PLIST
+
+      - name: Import signing certificate
+        uses: apple-actions/import-codesign-certs@v3
+        with:
+          p12-file-base64: ${{ secrets.IOS_P12_BASE64 }}
+          p12-password: ${{ secrets.IOS_P12_PASSWORD }}
+
+      - name: Install provisioning profile
+        run: |
+          echo "${{ secrets.IOS_PROVISION_PROFILE_BASE64 }}" | base64 -d > profile.mobileprovision
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          cp profile.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/
+
+      - name: Build archive
+        run: |
+          cd ios/App
+          xcodebuild archive \
+            -project App.xcodeproj \
+            -scheme App \
+            -archivePath $RUNNER_TEMP/App.xcarchive \
+            -configuration Release \
+            MARKETING_VERSION="${{ inputs.version_name }}" \
+            CURRENT_PROJECT_VERSION="${{ inputs.build_number }}" \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY="Apple Distribution" \
+            PROVISIONING_PROFILE_SPECIFIER="${{ secrets.IOS_PROVISION_PROFILE_NAME }}" \
+            DEVELOPMENT_TEAM="${{ secrets.IOS_TEAM_ID }}"
+
+      - name: Export IPA
+        run: |
+          cd ios/App
+          xcodebuild -exportArchive \
+            -archivePath $RUNNER_TEMP/App.xcarchive \
+            -exportPath $RUNNER_TEMP/export \
+            -exportOptionsPlist ExportOptions.plist
+
+      - name: Upload to App Store Connect
+        run: |
+          mkdir -p ~/.appstoreconnect/private_keys
+          echo "${{ secrets.APPSTORE_PRIVATE_KEY }}" > ~/.appstoreconnect/private_keys/AuthKey_${{ secrets.APPSTORE_KEY_ID }}.p8
+          xcrun altool --upload-app \
+            --type ios \
+            --file "$RUNNER_TEMP/export/App.ipa" \
+            --apiKey "${{ secrets.APPSTORE_KEY_ID }}" \
+            --apiIssuer "${{ secrets.APPSTORE_ISSUER_ID }}"
+
+      - name: Upload IPA artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: SpawnWars-${{ inputs.version_name }}.ipa
+          path: ${{ runner.temp }}/export/App.ipa

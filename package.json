@@ -6,16 +6,24 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "build:ci": "tsc && vite build",
+    "cap:build": "cross-env CAP_BUILD=1 npm run build",
+    "cap:sync": "npx cap sync",
+    "cap:ios": "npm run cap:build && npx cap sync ios",
     "preview": "vite preview",
     "test:sim": "tsc -p tsconfig.simtest.json && node -e \"require('fs').mkdirSync('dist-simtest',{recursive:true});require('fs').writeFileSync('dist-simtest/package.json','{\\\"type\\\":\\\"commonjs\\\"}')\" && node dist-simtest/tests/simSmoke.js",
     "balance": "tsc -p tsconfig.simtest.json && node -e \"require('fs').mkdirSync('dist-simtest',{recursive:true});require('fs').writeFileSync('dist-simtest/package.json','{\\\"type\\\":\\\"commonjs\\\"}')\" && node dist-simtest/tests/balanceSim.js"
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.2.0",
     "@types/node": "^25.3.5",
+    "cross-env": "^10.1.0",
     "typescript": "^5.9.3",
     "vite": "^7.3.1"
   },
   "dependencies": {
+    "@capacitor/core": "^8.2.0",
+    "@capacitor/ios": "^8.2.0",
     "firebase": "^12.10.0"
   }
 }
