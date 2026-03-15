@@ -73,7 +73,9 @@ export class ProfileScene implements Scene {
     this.scrollY = 0;
     this.tab = 'stats';
 
+    let lastTouchTime = 0;
     this.clickHandler = (e: MouseEvent) => {
+      if (Date.now() - lastTouchTime < 300) return;
       const rect = this.canvas.getBoundingClientRect();
       this.handleClick(e.clientX - rect.left, e.clientY - rect.top);
     };
@@ -94,7 +96,7 @@ export class ProfileScene implements Scene {
     };
     this.touchEndHandler = (e: TouchEvent) => {
       if (!this.touchDragged) {
-        // Tap — treat as click
+        lastTouchTime = Date.now();
         const t = e.changedTouches[0];
         if (!t) return;
         const rect = this.canvas.getBoundingClientRect();

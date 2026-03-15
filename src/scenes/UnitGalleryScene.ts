@@ -71,7 +71,9 @@ export class UnitGalleryScene implements Scene {
     const achId = checkNonMatchAchievement(profile, 'gallery_visitor');
     if (achId) { const def = ACHIEVEMENTS.find(a => a.id === achId); if (def) this.manager.showToast(`Achievement: ${def.name}`, def.desc); }
 
+    let lastTouchTime = 0;
     this.clickHandler = (e: MouseEvent) => {
+      if (Date.now() - lastTouchTime < 300) return;
       const rect = this.canvas.getBoundingClientRect();
       const cx = e.clientX - rect.left;
       const cy = e.clientY - rect.top;
@@ -82,6 +84,8 @@ export class UnitGalleryScene implements Scene {
       const touch = e.touches[0];
       if (!touch) return;
       if (e.type === 'touchstart') {
+        e.preventDefault();
+        lastTouchTime = Date.now();
         this.touchLastY = touch.clientY;
         const rect = this.canvas.getBoundingClientRect();
         const cx = touch.clientX - rect.left;

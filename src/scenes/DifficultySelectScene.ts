@@ -103,7 +103,9 @@ export class DifficultySelectScene implements Scene {
       if (e.key === 'Escape') this.manager.switchTo('raceSelect');
     };
 
+    let lastTouchTime = 0;
     this.clickHandler = (e) => {
+      if (Date.now() - lastTouchTime < 300) return;
       const [cx, cy] = this.toCanvas(e.clientX, e.clientY);
       if (this.isBackButtonAt(cx, cy)) { this.manager.switchTo('raceSelect'); return; }
       if (this.isFogToggleAt(cx, cy)) {
@@ -137,6 +139,7 @@ export class DifficultySelectScene implements Scene {
 
     this.touchHandler = (e) => {
       e.preventDefault();
+      lastTouchTime = Date.now();
       const touch = e.touches[0];
       if (!touch) return;
       const [cx, cy] = this.toCanvas(touch.clientX, touch.clientY);

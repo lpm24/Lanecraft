@@ -43,7 +43,9 @@ export class PostMatchScene implements Scene {
 
     const continueTarget = this.stats?.wasPartyGame ? 'title' : 'raceSelect';
 
+    let lastTouchTime = 0;
     this.clickHandler = (e) => {
+      if (Date.now() - lastTouchTime < 300) return;
       const rect = this.canvas.getBoundingClientRect();
       const cx = e.clientX - rect.left;
       const cy = e.clientY - rect.top;
@@ -58,6 +60,7 @@ export class PostMatchScene implements Scene {
 
     this.touchHandler = (e) => {
       e.preventDefault();
+      lastTouchTime = Date.now();
       const touch = e.touches[0];
       if (!touch) return;
       const rect = this.canvas.getBoundingClientRect();

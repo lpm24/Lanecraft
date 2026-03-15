@@ -127,7 +127,9 @@ export class RaceSelectScene implements Scene {
       }
     };
 
+    let lastTouchTime = 0;
     this.clickHandler = (e) => {
+      if (Date.now() - lastTouchTime < 300) return;
       const [cx, cy] = this.toCanvasCoords(e.clientX, e.clientY);
       if (this.handleSettingsClick(cx, cy)) return;
       if (this.isBackButtonAt(cx, cy)) { this.manager.switchTo('title'); return; }
@@ -154,6 +156,7 @@ export class RaceSelectScene implements Scene {
 
     this.touchHandler = (e) => {
       e.preventDefault();
+      lastTouchTime = Date.now();
       const touch = e.touches[0];
       if (!touch) return;
       const [cx, cy] = this.toCanvasCoords(touch.clientX, touch.clientY);
