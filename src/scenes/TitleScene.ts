@@ -2344,9 +2344,6 @@ export class TitleScene implements Scene {
     const avatarSize = Math.round(baseAvatarSize * 1.3);  // 30% bigger
     const diceSize = nameH;
 
-    ctx.font = `bold ${fontSize}px monospace`;
-    const nameW = ctx.measureText(this.playerName).width;
-
     // Positions — avatar top-left, name underneath
     const avatarX = 8;
     const avatarY = 8;
