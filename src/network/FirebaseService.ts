@@ -4,13 +4,13 @@ import { getAuth, signInAnonymously, Auth, User, onAuthStateChanged } from 'fire
 import { getDatabase, Database } from 'firebase/database';
 
 const firebaseConfig = {
-  apiKey: 'AIzaSyADBuKcc80UoOv0Zr6I3ojHVgqopS7pRaM',
-  authDomain: 'spawnr-80dc1.firebaseapp.com',
-  databaseURL: 'https://spawnr-80dc1-default-rtdb.firebaseio.com',
-  projectId: 'spawnr-80dc1',
-  storageBucket: 'spawnr-80dc1.firebasestorage.app',
-  messagingSenderId: '257775204980',
-  appId: '1:257775204980:web:d46a06cbc4665b2ee4ef21',
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY ?? '',
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN ?? '',
+  databaseURL: import.meta.env.VITE_FIREBASE_DATABASE_URL ?? '',
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID ?? '',
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET ?? '',
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID ?? '',
+  appId: import.meta.env.VITE_FIREBASE_APP_ID ?? '',
 };
 
 let app: FirebaseApp | null = null;

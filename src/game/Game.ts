@@ -249,6 +249,7 @@ export class Game {
     this.loop.stop();
     this.sounds.dispose();
     this.input.destroy();
+    this.renderer.destroy();
     this.renderer.camera.destroy();
     if (this.commandSync) {
       // Only delete game data if match ended naturally (not mid-game quit)

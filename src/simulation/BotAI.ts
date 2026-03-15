@@ -1936,10 +1936,12 @@ function botValueBasedBuild(
   const unaffordableOptions = options.filter(o => !o.affordable && o.waitSecs < 20 && o.waitSecs > 0);
 
   // Sort both by value (deterministic tie-break by action name, then type, then building id)
+  // NOTE: use < > instead of localeCompare to avoid locale-dependent sort order (desync risk)
+  const cmpStr = (x: string, y: string) => x < y ? -1 : x > y ? 1 : 0;
   const optionSort = (a: BuildOption, b: BuildOption) =>
     b.value - a.value
-    || a.action.localeCompare(b.action)
-    || (a.type ?? '').localeCompare(b.type ?? '')
+    || cmpStr(a.action, b.action)
+    || cmpStr(a.type ?? '', b.type ?? '')
     || (a.building?.id ?? 0) - (b.building?.id ?? 0);
   affordableOptions.sort(optionSort);
   unaffordableOptions.sort(optionSort);
@@ -2228,7 +2230,7 @@ function botUpgradeBuildings(
         if (countA !== countB) return countB - countA;
       }
       if (a.upgradePath.length !== b.upgradePath.length) return a.upgradePath.length - b.upgradePath.length;
-      return a.placedTick - b.placedTick;
+      return a.placedTick - b.placedTick || a.id - b.id;
     });
 
   const intel = ctx.intelligence[playerId];

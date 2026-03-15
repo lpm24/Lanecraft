@@ -1576,7 +1576,7 @@ function applyCasterSupport(state: GameState, caster: UnitState, race: Race, sp:
     case Race.Geists: {
       // Lifesteal heal: heal lowest-HP allies directly
       const healAmt = 2 + healBonus;
-      const wounded = allies.filter(a => a.hp < a.maxHp).sort((a, b) => (a.hp / a.maxHp) - (b.hp / b.maxHp) || a.id - b.id);
+      const wounded = allies.filter(a => a.hp < a.maxHp).sort((a, b) => (a.hp * b.maxHp) - (b.hp * a.maxHp) || a.id - b.id);
       const count = Math.min(3, wounded.length);
       for (let i = 0; i < count; i++) {
         wounded[i].hp = Math.min(wounded[i].maxHp, wounded[i].hp + healAmt);

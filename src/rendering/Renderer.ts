@@ -107,6 +107,11 @@ export class Renderer {
   private lastUnitRenders = new Map<number, UnitRenderSnapshot>();
   private lastBuildingIds = new Set<number>();
   private lastBuildingPositions = new Map<number, { x: number; y: number; hpPct: number }>();
+  // Pooled sets to avoid per-frame allocations
+  private _pooledUnitIds = new Set<number>();
+  private _pooledBuildingIds = new Set<number>();
+  private _pooledBuildingIds2 = new Set<number>();
+  private _pooledCombatZones: { x: number; y: number }[] = [];
 
   // Visual effects systems
   private dayNight: DayNightState = getDayNight(0);
@@ -136,6 +141,8 @@ export class Renderer {
   // Fog of war
   private fogCache: HTMLCanvasElement | null = null;
   private fogCacheTick = -1;
+  // Resize listener cleanup
+  private resizeHandler = () => this.resize();
 
   constructor(canvas: HTMLCanvasElement, ui?: UIAssets) {
     this.canvas = canvas;
@@ -144,7 +151,11 @@ export class Renderer {
     this.sprites = new SpriteLoader();
     this.ui = ui ?? new UIAssets();
     this.resize();
-    window.addEventListener('resize', () => this.resize());
+    window.addEventListener('resize', this.resizeHandler);
+  }
+
+  destroy(): void {
+    window.removeEventListener('resize', this.resizeHandler);
   }
 
   private resize(): void {
@@ -269,7 +280,8 @@ export class Renderer {
     this.lastHqHp = [...state.hqHp];
 
     // Gather combat zones for ambient particles
-    const combatZones: { x: number; y: number }[] = [];
+    const combatZones = this._pooledCombatZones;
+    combatZones.length = 0;
     for (const u of state.units) {
       if (u.targetId !== null) combatZones.push({ x: u.x, y: u.y });
     }
@@ -2908,7 +2920,8 @@ export class Renderer {
 
   private detectDeaths(state: GameState): void {
     // Unit deaths
-    const currentUnitIds = new Set<number>();
+    const currentUnitIds = this._pooledUnitIds;
+    currentUnitIds.clear();
     for (const u of state.units) {
       currentUnitIds.add(u.id);
       const faceLeft = this.facing.get(u.id) ?? (u.team === Team.Top);
@@ -2965,7 +2978,8 @@ export class Renderer {
     this.lastUnitIds = currentUnitIds;
 
     // Building deaths — explosion for destroyed (low HP), dust puff for sold (high HP)
-    const currentBuildingIds = new Set<number>();
+    const currentBuildingIds = this._pooledBuildingIds;
+    currentBuildingIds.clear();
     for (const b of state.buildings) {
       currentBuildingIds.add(b.id);
       this.lastBuildingPositions.set(b.id, { x: b.worldX + 0.5, y: b.worldY + 0.5, hpPct: b.hp / b.maxHp });
@@ -2996,7 +3010,9 @@ export class Renderer {
       }
     }
     // Cleanup removed buildings
-    const currentIds = new Set(state.buildings.map(b => b.id));
+    const currentIds = this._pooledBuildingIds2;
+    currentIds.clear();
+    for (const b of state.buildings) currentIds.add(b.id);
     for (const id of this.knownBuildingIds) {
       if (!currentIds.has(id)) this.knownBuildingIds.delete(id);
     }

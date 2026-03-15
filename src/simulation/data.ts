@@ -205,7 +205,7 @@ export const UNIT_STATS: Record<Race, RaceUnits> = {
       name: 'Spitter', hp: 40, damage: 5, attackSpeed: 1.1, moveSpeed: 3.8, range: 6, ascii: 'O~', spawnCount: 2,
     },
     [BuildingType.CasterSpawner]: {
-      name: 'Bloater', hp: 39, damage: 12, attackSpeed: 2.4, moveSpeed: 2.8, range: 6, ascii: '{O}',
+      name: 'Bloater', hp: 39, damage: 12, attackSpeed: 2.4, moveSpeed: 2.8, range: 6, ascii: '{O}', spawnCount: 2,
     },
   },
   // === DEMON — Glass Cannon Chaos ===

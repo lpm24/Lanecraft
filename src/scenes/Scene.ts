@@ -48,11 +48,18 @@ export class SceneManager {
   private toasts: Toast[] = [];
   private onToastShow: (() => void) | null = null;
 
+  private resizeHandler = () => this.resizeCanvas();
+
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d')!;
     this.resizeCanvas();
-    window.addEventListener('resize', () => this.resizeCanvas());
+    window.addEventListener('resize', this.resizeHandler);
+  }
+
+  dispose(): void {
+    this.running = false;
+    window.removeEventListener('resize', this.resizeHandler);
   }
 
   private resizeCanvas(): void {
