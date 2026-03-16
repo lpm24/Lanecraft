@@ -11,7 +11,7 @@ import { getMapById } from '../simulation/maps';
 import { SoundManager } from '../audio/SoundManager';
 import { MusicPlayer } from '../audio/MusicPlayer';
 import { getAudioSettings, subscribeToAudioSettings, updateAudioSettings } from '../audio/AudioSettings';
-import { drawSettingsButton, drawSettingsOverlay, getSettingsOverlayLayout, hitRect as hitOverlayRect, sliderValueFromPoint, SettingsSliderDrag } from '../ui/SettingsOverlay';
+import { drawSettingsButton, drawSettingsOverlay, getSettingsOverlayLayout, hitRect as hitOverlayRect, sliderValueFromPoint, handleVisualToggleClick, SettingsSliderDrag } from '../ui/SettingsOverlay';
 import { loadPlayerName } from './TitlePlayerName';
 import { getElo, saveAllElo, updateTeamElo } from './TitleElo';
 import { LocalSetup, saveLocalSetup, loadLocalSetup, createDefaultLocalSetup, getLocalActiveSlots, canStartLocalSetup, canStartParty } from './TitleLocalSetup';
@@ -529,6 +529,7 @@ export class TitleScene implements Scene {
     leave: { x: number; y: number; w: number; h: number };
     code: { x: number; y: number; w: number; h: number };
     modeToggle: { x: number; y: number; w: number; h: number };
+    fogToggle: { x: number; y: number; w: number; h: number };
     diffBtns: { x: number; y: number; w: number; h: number }[];
   } {
     const w = this.canvas.clientWidth;
@@ -554,11 +555,14 @@ export class TitleScene implements Scene {
       });
     }
 
-    // Single mode toggle (1v1 / 2v2 / 3v3)
-    const toggleW = panelW * 0.45;
+    // Mode toggle + fog toggle side by side
+    const totalTogW = panelW * 0.72;
+    const toggleGap = 8;
+    const toggleW = totalTogW * 0.6;
+    const fogW = totalTogW - toggleW - toggleGap;
     const toggleH = 24;
     const mapTogY = py + panelH * 0.26;
-    const modeTogX = px + (panelW - toggleW) / 2;
+    const modeTogX = px + (panelW - totalTogW) / 2;
 
     // Difficulty buttons (host only, between slots and start button)
     const dbtnW = panelW * 0.18;
@@ -581,6 +585,7 @@ export class TitleScene implements Scene {
       leave: { x: px + panelW * 0.60, y: py + panelH - 56, w: panelW * 0.28, h: 44 },
       code: { x: px + panelW * 0.125, y: py + 2, w: panelW * 0.75, h: 52 },
       modeToggle: { x: modeTogX, y: mapTogY, w: toggleW, h: toggleH },
+      fogToggle: { x: modeTogX + toggleW + toggleGap, y: mapTogY, w: fogW, h: toggleH },
       diffBtns,
     };
   }
@@ -591,6 +596,7 @@ export class TitleScene implements Scene {
     start: { x: number; y: number; w: number; h: number };
     leave: { x: number; y: number; w: number; h: number };
     modeToggle: { x: number; y: number; w: number; h: number };
+    fogToggle: { x: number; y: number; w: number; h: number };
   } {
     const w = this.canvas.clientWidth;
     const h = this.canvas.clientHeight;
@@ -613,11 +619,17 @@ export class TitleScene implements Scene {
       });
     }
 
-    // Single mode toggle (1v1 / 2v2 / 3v3)
-    const toggleW = panelW * 0.45;
+    // Mode toggle + fog toggle side by side
+    const totalTogW = panelW * 0.72;
+    const toggleGap = 8;
+    const toggleW = totalTogW * 0.6;
+    const fogW = totalTogW - toggleW - toggleGap;
     const toggleH = 24;
     const mapTogY = py + panelH * 0.12;
-    const modeTogX = px + (panelW - toggleW) / 2;
+    const modeTogX = px + (panelW - totalTogW) / 2;
+    const fogX = modeTogX + toggleW + toggleGap;
+    const fogY = mapTogY;
+    const fogH = toggleH;
 
     return {
       panel: { x: px, y: py, w: panelW, h: panelH },
@@ -625,6 +637,7 @@ export class TitleScene implements Scene {
       start: { x: px + panelW * 0.15, y: py + panelH - 56, w: panelW * 0.42, h: 44 },
       leave: { x: px + panelW * 0.60, y: py + panelH - 56, w: panelW * 0.28, h: 44 },
       modeToggle: { x: modeTogX, y: mapTogY, w: toggleW, h: toggleH },
+      fogToggle: { x: fogX, y: fogY, w: fogW, h: fogH },
     };
   }
 
@@ -659,6 +672,7 @@ export class TitleScene implements Scene {
         updateAudioSettings({ sfxVolume: sliderValueFromPoint(cx, settingsLayout.sfxRow) });
         return;
       }
+      if (handleVisualToggleClick(cx, cy, settingsLayout)) return;
       if (hitOverlayRect(cx, cy, settingsLayout.panel)) return;
       this.settingsOpen = false;
     }
@@ -752,6 +766,12 @@ export class TitleScene implements Scene {
         this.localSetupCycleMode();
         return;
       }
+      // Fog of war toggle
+      if (this.hitRect(cx, cy, pl.fogToggle)) {
+        ls.fogOfWar = !(ls.fogOfWar ?? true);
+        saveLocalSetup(ls);
+        return;
+      }
       // Start button
       if (this.hitRect(cx, cy, pl.start) && canStartLocalSetup(ls)) {
         if (this.onLocalStart) this.onLocalStart(ls);
@@ -797,6 +817,12 @@ export class TitleScene implements Scene {
             return;
           }
         }
+      }
+      // Fog of war toggle (host only)
+      if (isHost && this.hitRect(cx, cy, pl.fogToggle)) {
+        const current = this.partyState.fogOfWar ?? true;
+        this.party?.updateFogOfWar(!current);
+        return;
       }
       // Mode toggle (host only — cycle Duel → Battle → War)
       if (isHost && this.hitRect(cx, cy, pl.modeToggle)) {
@@ -1601,9 +1627,9 @@ export class TitleScene implements Scene {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillStyle = 'rgba(0,0,0,0.5)';
-    ctx.fillText('SPAWN WARS', w / 2 + 2, bannerY + bannerH * 0.45 + 2);
+    ctx.fillText('LANECRAFT', w / 2 + 2, bannerY + bannerH * 0.45 + 2);
     ctx.fillStyle = '#fff';
-    ctx.fillText('SPAWN WARS', w / 2, bannerY + bannerH * 0.45);
+    ctx.fillText('LANECRAFT', w / 2, bannerY + bannerH * 0.45);
 
     // Subtitle
     const subW = Math.min(w * 0.45, 300);
@@ -1614,7 +1640,7 @@ export class TitleScene implements Scene {
     ctx.font = `bold ${Math.max(10, subH * 0.38)}px monospace`;
     ctx.textBaseline = 'middle';
     ctx.fillStyle = '#fff';
-    ctx.fillText('Build. Spawn. Conquer.', w / 2, subY + subH * 0.5);
+    ctx.fillText('Build. Spawn. Dominate.', w / 2, subY + subH * 0.5);
 
     // === Buttons or Party Panel ===
     if (this.localSetup) {
@@ -1875,6 +1901,23 @@ export class TitleScene implements Scene {
       ctx.fillStyle = 'rgba(255,215,64,0.6)';
       ctx.fillText('<', mt.x + 10, mt.y + mt.h / 2);
       ctx.fillText('>', mt.x + mt.w - 10, mt.y + mt.h / 2);
+    }
+
+    // Fog of War toggle
+    {
+      const ft = pl.fogToggle;
+      const fogOn = ls.fogOfWar ?? true;
+      ctx.fillStyle = 'rgba(0,0,0,0.25)';
+      ctx.fillRect(ft.x, ft.y, ft.w, ft.h);
+      ctx.strokeStyle = fogOn ? 'rgba(102,217,239,0.5)' : 'rgba(255,255,255,0.2)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(ft.x, ft.y, ft.w, ft.h);
+      const ftFontSize = Math.max(8, ft.h * 0.5);
+      ctx.font = `bold ${ftFontSize}px monospace`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = fogOn ? '#66d9ef' : 'rgba(255,255,255,0.4)';
+      ctx.fillText(`FOG: ${fogOn ? 'ON' : 'OFF'}`, ft.x + ft.w / 2, ft.y + ft.h / 2);
     }
 
     // Team color backgrounds
@@ -2172,6 +2215,23 @@ export class TitleScene implements Scene {
         ctx.fillText('<', mt.x + 10, mt.y + mt.h / 2);
         ctx.fillText('>', mt.x + mt.w - 10, mt.y + mt.h / 2);
       }
+    }
+
+    // Fog of War toggle (host can click, guests see state)
+    {
+      const ft = pl.fogToggle;
+      const fogOn = ps.fogOfWar ?? true;
+      ctx.fillStyle = 'rgba(0,0,0,0.25)';
+      ctx.fillRect(ft.x, ft.y, ft.w, ft.h);
+      ctx.strokeStyle = fogOn ? 'rgba(102,217,239,0.5)' : 'rgba(255,255,255,0.2)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(ft.x, ft.y, ft.w, ft.h);
+      const ftFontSize = Math.max(8, ft.h * 0.5);
+      ctx.font = `bold ${ftFontSize}px monospace`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = fogOn ? '#66d9ef' : 'rgba(255,255,255,0.4)';
+      ctx.fillText(`FOG: ${fogOn ? 'ON' : 'OFF'}`, ft.x + ft.w / 2, ft.y + ft.h / 2);
     }
 
     // Team color backgrounds behind slot groups

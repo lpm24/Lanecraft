@@ -3,7 +3,7 @@ import { Camera } from '../rendering/Camera';
 import { Renderer } from '../rendering/Renderer';
 import {
   BuildingType, TILE_SIZE, Lane,
-  HarvesterAssignment, Team, Race, UnitState,
+  HarvesterAssignment, Team, Race, UnitState, NUKE_RADIUS,
 } from '../simulation/types';
 import { getBuildGridOrigin, getTeamAlleyOrigin, getHutGridOrigin } from '../simulation/GameState';
 import { RACE_BUILDING_COSTS, UNIT_STATS, TOWER_STATS, RACE_COLORS, getRaceUsedResources, UPGRADE_TREES } from '../simulation/data';
@@ -12,6 +12,8 @@ import { UIAssets } from '../rendering/UIAssets';
 import { SpriteLoader, drawSpriteFrame, getSpriteFrame } from '../rendering/SpriteLoader';
 import { BuildingPopup } from './BuildingPopup';
 import { getSafeBottom, getSafeTop } from './SafeArea';
+import { getAudioSettings, updateAudioSettings } from '../audio/AudioSettings';
+import { getVisualSettings, updateVisualSettings } from '../rendering/VisualSettings';
 
 interface BuildTrayItem {
   type: BuildingType;
@@ -49,6 +51,7 @@ const CAMERA_SNAP_STORAGE_KEY = 'spawnwars.cameraSnapOnSelect';
 const MINIMAP_PAN_STORAGE_KEY = 'spawnwars.minimapPanEnabled';
 const STICKY_BUILD_STORAGE_KEY = 'spawnwars.stickyBuildMode';
 const MOBILE_HINT_SEEN_KEY = 'spawnwars.mobileHintSeen';
+const NUKE_LOCKOUT_SECONDS = 60;
 
 export class InputHandler {
   private game: Game;
@@ -178,6 +181,7 @@ export class InputHandler {
     this.saveUiFeedbackEnabled();
     this.saveRadialSettings();
     this.saveGameplaySettings();
+    updateVisualSettings({ screenShake: true, weather: true, dayNight: true });
   }
 
   private initMobileHint(): void {
@@ -200,6 +204,311 @@ export class InputHandler {
     return this.laneToggleMode === 'single' ? 'Fast Toggle' : 'Safe Select';
   }
 
+  /** Compute the in-game settings panel layout. Row Y positions are relative to panel top. */
+  private getSettingsPanelLayout() {
+    const sr = this.getSettingsButtonRect();
+    const sx = sr.x + sr.w - 200;
+    const sy = sr.y + sr.h + 4;
+    const pw = 200;
+    const rowH = 22;
+    const gap = 2;
+    const pad = 8;
+
+    let y = 24; // after title row
+
+    // Audio section
+    const audioHeaderY = y; y += 14;
+    const musicRowY = y; y += rowH + gap;
+    const sfxRowY = y; y += rowH + gap + 4;
+
+    // Visual section
+    const visualHeaderY = y; y += 14;
+    const shakeRowY = y; y += rowH + gap;
+    const weatherRowY = y; y += rowH + gap;
+    const dayNightRowY = y; y += rowH + gap + 4;
+
+    // Controls section
+    const controlsHeaderY = y; y += 14;
+    const laneRowY = y; y += rowH + gap;
+    const feedbackRowY = y; y += rowH + gap;
+    const cameraSnapRowY = y; y += rowH + gap;
+    const minimapRowY = y; y += rowH + gap;
+    const stickyRowY = y; y += rowH + gap;
+    const holdDelayRowY = y; y += rowH + gap;
+    const radialSizeRowY = y; y += rowH + gap;
+    const radialA11yRowY = y; y += rowH + gap + 4;
+
+    // Actions
+    const resetRowY = y; y += rowH + gap + 8;
+    let concedeRowY = -1;
+    if (this.onConcede) { concedeRowY = y; y += rowH + gap + 8; }
+    const quitRowY = y; y += rowH + pad;
+
+    const panelH = y;
+
+    return {
+      sx, sy, pw, panelH, pad, rowH,
+      audioHeaderY, musicRowY, sfxRowY,
+      visualHeaderY, shakeRowY, weatherRowY, dayNightRowY,
+      controlsHeaderY, laneRowY, feedbackRowY, cameraSnapRowY, minimapRowY,
+      stickyRowY, holdDelayRowY, radialSizeRowY, radialA11yRowY,
+      resetRowY, concedeRowY, quitRowY,
+    };
+  }
+
+  private drawSettingsPanel(ctx: CanvasRenderingContext2D): void {
+    const L = this.getSettingsPanelLayout();
+    const { sx, sy, pw, panelH, pad, rowH } = L;
+    const rw = pw - pad * 2;
+    const rx = sx + pad;
+    const audio = getAudioSettings();
+    const vis = getVisualSettings();
+
+    // Panel background
+    if (!this.ui.drawWoodTable(ctx, sx, sy, pw, panelH)) {
+      ctx.fillStyle = 'rgba(0,0,0,0.92)';
+      ctx.fillRect(sx, sy, pw, panelH);
+    }
+
+    // Title + close
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 12px monospace';
+    ctx.textAlign = 'start';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillText('Settings', sx + pad, sy + 16);
+    this.ui.drawIcon(ctx, 'close', sx + pw - 22, sy + 4, 16);
+
+    // ── Helper: section header ──
+    const drawHeader = (yOff: number, label: string) => {
+      ctx.fillStyle = '#8fa7bf';
+      ctx.font = 'bold 9px monospace';
+      const tw = ctx.measureText(label).width;
+      ctx.fillText(label, rx, sy + yOff + 10);
+      ctx.fillStyle = 'rgba(255,255,255,0.08)';
+      ctx.fillRect(rx + tw + 4, sy + yOff + 6, rw - tw - 4, 1);
+    };
+
+    // ── Helper: toggle row ──
+    const drawToggle = (yOff: number, label: string, on: boolean, color: string) => {
+      ctx.fillStyle = 'rgba(20,20,20,0.9)';
+      ctx.fillRect(rx, sy + yOff, rw, rowH);
+      ctx.strokeStyle = on ? color : '#555';
+      ctx.strokeRect(rx, sy + yOff, rw, rowH);
+      ctx.fillStyle = on ? color : '#888';
+      ctx.font = 'bold 11px monospace';
+      ctx.fillText(`${label}: ${on ? 'on' : 'off'}`, rx + 8, sy + yOff + 15);
+      // Mini toggle switch
+      const tX = rx + rw - 32;
+      const tY = sy + yOff + 5;
+      ctx.fillStyle = on ? color : '#444';
+      ctx.fillRect(tX, tY, 24, 12);
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(on ? tX + 12 : tX, tY, 12, 12);
+    };
+
+    // ── Helper: slider row ──
+    const drawSlider = (yOff: number, label: string, value: number, color: string) => {
+      ctx.fillStyle = 'rgba(20,20,20,0.9)';
+      ctx.fillRect(rx, sy + yOff, rw, rowH);
+      ctx.strokeStyle = color;
+      ctx.strokeRect(rx, sy + yOff, rw, rowH);
+      ctx.fillStyle = color;
+      ctx.font = 'bold 11px monospace';
+      ctx.fillText(`${label}: ${Math.round(value * 100)}%`, rx + 8, sy + yOff + 15);
+      // Slider track
+      const trackX = rx + 92;
+      const trackY = sy + yOff + 8;
+      const trackW = rw - 100;
+      const trackH = 6;
+      const fillW = Math.max(0, Math.min(trackW, trackW * value));
+      ctx.fillStyle = 'rgba(255,255,255,0.1)';
+      ctx.fillRect(trackX, trackY, trackW, trackH);
+      ctx.fillStyle = color;
+      ctx.fillRect(trackX, trackY, fillW, trackH);
+      ctx.strokeStyle = color;
+      ctx.strokeRect(trackX, trackY, trackW, trackH);
+      const knobX = trackX + fillW;
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(Math.max(trackX - 2, Math.min(trackX + trackW - 4, knobX - 2)), trackY - 2, 4, trackH + 4);
+    };
+
+    // ── Helper: action row ──
+    const drawAction = (yOff: number, label: string, color: string, bgColor: string) => {
+      ctx.fillStyle = bgColor;
+      ctx.fillRect(rx, sy + yOff, rw, rowH);
+      ctx.strokeStyle = color;
+      ctx.strokeRect(rx, sy + yOff, rw, rowH);
+      ctx.fillStyle = color;
+      ctx.font = 'bold 11px monospace';
+      ctx.fillText(label, rx + 8, sy + yOff + 15);
+    };
+
+    // ── AUDIO ──
+    drawHeader(L.audioHeaderY, 'AUDIO');
+    drawSlider(L.musicRowY, 'Music', audio.musicVolume, '#90caf9');
+    drawSlider(L.sfxRowY, 'SFX', audio.sfxVolume, '#ffcc80');
+
+    // ── VISUAL ──
+    drawHeader(L.visualHeaderY, 'VISUAL');
+    drawToggle(L.shakeRowY, 'Screen Shake', vis.screenShake, '#a5d6a7');
+    drawToggle(L.weatherRowY, 'Weather', vis.weather, '#a5d6a7');
+    drawToggle(L.dayNightRowY, 'Day/Night', vis.dayNight, '#a5d6a7');
+
+    // ── CONTROLS ──
+    drawHeader(L.controlsHeaderY, 'CONTROLS');
+    // Lane tap: special value-cycle row (not a simple on/off toggle)
+    ctx.fillStyle = 'rgba(20,20,20,0.9)';
+    ctx.fillRect(rx, sy + L.laneRowY, rw, rowH);
+    ctx.strokeStyle = '#9bb7ff';
+    ctx.strokeRect(rx, sy + L.laneRowY, rw, rowH);
+    ctx.fillStyle = '#9bb7ff';
+    ctx.font = 'bold 11px monospace';
+    ctx.fillText(`Lane Tap: ${this.laneModeLabel()}`, rx + 8, sy + L.laneRowY + 15);
+    drawToggle(L.feedbackRowY, 'UI Feedback', this.uiFeedbackEnabled, '#90caf9');
+    drawToggle(L.cameraSnapRowY, 'Camera Snap', this.cameraSnapOnSelect, '#90caf9');
+    drawToggle(L.minimapRowY, 'Minimap Pan', this.minimapPanEnabled, '#90caf9');
+    drawToggle(L.stickyRowY, 'Sticky Build', this.stickyBuildMode, '#90caf9');
+
+    // Hold delay and radial size as value-cycle rows
+    ctx.fillStyle = 'rgba(20,20,20,0.9)';
+    ctx.fillRect(rx, sy + L.holdDelayRowY, rw, rowH);
+    ctx.strokeStyle = '#90caf9';
+    ctx.strokeRect(rx, sy + L.holdDelayRowY, rw, rowH);
+    ctx.fillStyle = '#90caf9';
+    ctx.font = 'bold 11px monospace';
+    ctx.fillText(`Hold Delay: ${this.radialArmMs}ms`, rx + 8, sy + L.holdDelayRowY + 15);
+
+    ctx.fillStyle = 'rgba(20,20,20,0.9)';
+    ctx.fillRect(rx, sy + L.radialSizeRowY, rw, rowH);
+    ctx.strokeStyle = '#90caf9';
+    ctx.strokeRect(rx, sy + L.radialSizeRowY, rw, rowH);
+    ctx.fillStyle = '#90caf9';
+    ctx.font = 'bold 11px monospace';
+    ctx.fillText(`Radial Size: ${this.radialSize}`, rx + 8, sy + L.radialSizeRowY + 15);
+
+    drawToggle(L.radialA11yRowY, 'Radial A11y', this.radialAccessibility, '#90caf9');
+
+    // ── ACTIONS ──
+    drawAction(L.resetRowY, 'Reset Defaults', '#ffcc80', 'rgba(20,20,20,0.9)');
+    if (this.onConcede && L.concedeRowY >= 0) {
+      drawAction(L.concedeRowY, 'Concede Match', '#ffa726', 'rgba(80,60,10,0.9)');
+    }
+    drawAction(L.quitRowY, 'Quit Game', '#ff5252', 'rgba(80,20,20,0.9)');
+  }
+
+  private handleSettingsPanelClick(cx: number, cy: number): boolean {
+    const L = this.getSettingsPanelLayout();
+    const { sx, sy, pw, panelH, pad, rowH } = L;
+    const rx = sx + pad;
+    const rw = pw - pad * 2;
+
+    // Click outside panel → close
+    if (cx < sx || cx >= sx + pw || cy < sy || cy >= sy + panelH) {
+      this.settingsOpen = false;
+      return true;
+    }
+    // Close button
+    if (cx >= sx + pw - 22 && cx < sx + pw - 6 && cy >= sy + 4 && cy < sy + 20) {
+      this.settingsOpen = false;
+      return true;
+    }
+
+    const inRow = (rowY: number) => cx >= rx && cx < rx + rw && cy >= sy + rowY && cy < sy + rowY + rowH;
+
+    // Audio sliders (click sets value)
+    if (inRow(L.musicRowY)) {
+      const trackX = rx + 92;
+      const trackW = rw - 100;
+      const v = Math.max(0, Math.min(1, (cx - trackX) / trackW));
+      updateAudioSettings({ musicVolume: v });
+      return true;
+    }
+    if (inRow(L.sfxRowY)) {
+      const trackX = rx + 92;
+      const trackW = rw - 100;
+      const v = Math.max(0, Math.min(1, (cx - trackX) / trackW));
+      updateAudioSettings({ sfxVolume: v });
+      return true;
+    }
+
+    // Visual toggles
+    if (inRow(L.shakeRowY)) {
+      const vis = getVisualSettings();
+      updateVisualSettings({ screenShake: !vis.screenShake });
+      return true;
+    }
+    if (inRow(L.weatherRowY)) {
+      const vis = getVisualSettings();
+      updateVisualSettings({ weather: !vis.weather });
+      return true;
+    }
+    if (inRow(L.dayNightRowY)) {
+      const vis = getVisualSettings();
+      updateVisualSettings({ dayNight: !vis.dayNight });
+      return true;
+    }
+
+    // Controls toggles
+    if (inRow(L.laneRowY)) {
+      this.laneToggleMode = this.laneToggleMode === 'double' ? 'single' : 'double';
+      this.saveLaneMode();
+      return true;
+    }
+    if (inRow(L.feedbackRowY)) {
+      this.uiFeedbackEnabled = !this.uiFeedbackEnabled;
+      this.saveUiFeedbackEnabled();
+      return true;
+    }
+    if (inRow(L.cameraSnapRowY)) {
+      this.cameraSnapOnSelect = !this.cameraSnapOnSelect;
+      this.saveGameplaySettings();
+      return true;
+    }
+    if (inRow(L.minimapRowY)) {
+      this.minimapPanEnabled = !this.minimapPanEnabled;
+      this.saveGameplaySettings();
+      return true;
+    }
+    if (inRow(L.stickyRowY)) {
+      this.stickyBuildMode = !this.stickyBuildMode;
+      this.saveGameplaySettings();
+      return true;
+    }
+    if (inRow(L.holdDelayRowY)) {
+      this.radialArmMs = this.radialArmMs >= 500 ? 240 : this.radialArmMs + 40;
+      this.saveRadialSettings();
+      return true;
+    }
+    if (inRow(L.radialSizeRowY)) {
+      this.radialSize = this.radialSize >= 110 ? 60 : this.radialSize + 8;
+      this.saveRadialSettings();
+      return true;
+    }
+    if (inRow(L.radialA11yRowY)) {
+      this.radialAccessibility = !this.radialAccessibility;
+      this.saveRadialSettings();
+      return true;
+    }
+
+    // Actions
+    if (inRow(L.resetRowY)) {
+      this.resetUiDefaults();
+      return true;
+    }
+    if (this.onConcede && L.concedeRowY >= 0 && inRow(L.concedeRowY)) {
+      this.settingsOpen = false;
+      this.onConcede();
+      return true;
+    }
+    if (inRow(L.quitRowY)) {
+      this.settingsOpen = false;
+      this.onQuitGame?.();
+      return true;
+    }
+
+    return true; // consume click inside panel
+  }
+
   private eventToWorld(e: MouseEvent): { x: number; y: number } {
     const rect = this.canvas.getBoundingClientRect();
     const canvasX = e.clientX - rect.left;
@@ -218,7 +527,7 @@ export class InputHandler {
       }
       // Nuke mode
       if (e.key === 'n' || e.key === 'N') {
-        if (this.game.state.players[this.pid]?.nukeAvailable) {
+        if (this.game.state.players[this.pid]?.nukeAvailable && !this.isNukeLocked()) {
           this.nukeTargeting = !this.nukeTargeting;
           this.selectedBuilding = null;
         }
@@ -676,7 +985,7 @@ export class InputHandler {
       y += compact ? 2 : 4;
     };
 
-    heading('SPAWN WARS', '#fff');
+    heading('LANECRAFT', '#fff');
     line('2v2 RTS: destroy enemy HQ or bring Diamond home to win.', '#ccc');
     y += compact ? 0 : 2;
     rule();
@@ -900,70 +1209,7 @@ export class InputHandler {
     }
 
     if (this.settingsOpen) {
-      const sr = this.getSettingsButtonRect();
-      const sx = sr.x + sr.w - 200;
-      const sy = sr.y + sr.h + 4;
-      const panelH = this.onConcede ? 394 : 358;
-      if (cx < sx || cx >= sx + 200 || cy < sy || cy >= sy + panelH) {
-        this.settingsOpen = false;
-        return true;
-      }
-      // close button
-      if (cx >= sx + 176 && cx < sx + 196 && cy >= sy + 4 && cy < sy + 20) {
-        this.settingsOpen = false;
-        return true;
-      }
-      if (cx >= sx && cx < sx + 200 && cy >= sy && cy < sy + panelH) {
-        if (cy >= sy + 34 && cy < sy + 58) {
-          this.laneToggleMode = this.laneToggleMode === 'double' ? 'single' : 'double';
-          this.saveLaneMode();
-        }
-        if (cy >= sy + 66 && cy < sy + 90) {
-          this.uiFeedbackEnabled = !this.uiFeedbackEnabled;
-          this.saveUiFeedbackEnabled();
-        }
-        if (cy >= sy + 98 && cy < sy + 122) {
-          this.cameraSnapOnSelect = !this.cameraSnapOnSelect;
-          this.saveGameplaySettings();
-        }
-        if (cy >= sy + 130 && cy < sy + 154) {
-          this.minimapPanEnabled = !this.minimapPanEnabled;
-          this.saveGameplaySettings();
-        }
-        if (cy >= sy + 162 && cy < sy + 186) {
-          this.stickyBuildMode = !this.stickyBuildMode;
-          this.saveGameplaySettings();
-        }
-        if (cy >= sy + 194 && cy < sy + 218) {
-          this.radialArmMs = this.radialArmMs >= 500 ? 240 : this.radialArmMs + 40;
-          this.saveRadialSettings();
-        }
-        if (cy >= sy + 226 && cy < sy + 250) {
-          this.radialSize = this.radialSize >= 110 ? 60 : this.radialSize + 8;
-          this.saveRadialSettings();
-        }
-        if (cy >= sy + 258 && cy < sy + 282) {
-          this.radialAccessibility = !this.radialAccessibility;
-          this.saveRadialSettings();
-        }
-        if (cy >= sy + 290 && cy < sy + 314) {
-          this.resetUiDefaults();
-        }
-        // Concede + Quit — positions shift when concede is present
-        let actionY = 326;
-        if (this.onConcede) {
-          if (cy >= sy + actionY && cy < sy + actionY + 24) {
-            this.settingsOpen = false;
-            this.onConcede();
-          }
-          actionY += 36;
-        }
-        if (cy >= sy + actionY && cy < sy + actionY + 24) {
-          this.settingsOpen = false;
-          this.onQuitGame?.();
-        }
-        return true;
-      }
+      if (this.handleSettingsPanelClick(cx, cy)) return true;
     }
 
     // Consume taps in safe area bar below tray (rounded phone corners)
@@ -992,7 +1238,7 @@ export class InputHandler {
           if (this.cameraSnapOnSelect) this.panToBuildArea(item.type);
         }
       } else if (colIdx === BUILD_TRAY.length + 1) {
-        if (player.nukeAvailable) {
+        if (player.nukeAvailable && !this.isNukeLocked()) {
           this.selectedBuilding = null;
           this.nukeTargeting = !this.nukeTargeting;
         }
@@ -1250,9 +1496,11 @@ export class InputHandler {
 
     // === Nuke button (col 5) — 9-slice BigRedButton filling the cell ===
     const nukeAvail = player.nukeAvailable;
+    const nukeLocked = this.isNukeLocked();
+    const nukeReady = nukeAvail && !nukeLocked;
     const nukeX = (BUILD_TRAY.length + 1) * milW;
     const nukePad = 2;
-    if (nukeAvail) {
+    if (nukeReady) {
       this.ui.drawBigRedButton(ctx, nukeX + nukePad, milY + nukePad, milW - nukePad * 2, milH - nukePad * 2, this.nukeTargeting);
     } else {
       ctx.globalAlpha = 0.3;
@@ -1260,12 +1508,20 @@ export class InputHandler {
       ctx.globalAlpha = 1;
     }
     ctx.textAlign = 'center';
-    ctx.fillStyle = nukeAvail ? '#fff' : '#888';
+    ctx.fillStyle = nukeReady ? '#fff' : '#888';
     ctx.font = 'bold 12px monospace';
     ctx.fillText('NUKE', nukeX + milW / 2, milY + milH / 2 + 4);
-    ctx.fillStyle = '#888';
-    ctx.font = '9px monospace';
-    ctx.fillText('[N]', nukeX + milW / 2, milY + milH - 6);
+    if (nukeLocked && nukeAvail) {
+      // Show countdown timer
+      const secsLeft = Math.ceil(NUKE_LOCKOUT_SECONDS - this.game.state.tick / TICK_RATE);
+      ctx.fillStyle = '#ff5722';
+      ctx.font = 'bold 10px monospace';
+      ctx.fillText(`${secsLeft}s`, nukeX + milW / 2, milY + milH - 6);
+    } else {
+      ctx.fillStyle = '#888';
+      ctx.font = '9px monospace';
+      ctx.fillText('[N]', nukeX + milW / 2, milY + milH - 6);
+    }
 
     if (quickChatCdMs > 0) {
       ctx.textAlign = 'left';
@@ -1314,139 +1570,7 @@ export class InputHandler {
     }
 
     if (this.settingsOpen) {
-      const sr = this.getSettingsButtonRect();
-      const sx = sr.x + sr.w - 200;
-      const sy = sr.y + sr.h + 4;
-      // Settings container - WoodTable 9-slice
-      const panelH = this.onConcede ? 394 : 358;
-      if (!this.ui.drawWoodTable(ctx, sx, sy, 200, panelH)) {
-        ctx.fillStyle = 'rgba(0,0,0,0.88)';
-        ctx.fillRect(sx, sy, 200, panelH);
-      }
-      ctx.fillStyle = '#fff';
-      ctx.font = 'bold 12px monospace';
-      ctx.fillText('Settings', sx + 8, sy + 16);
-      // Close button - X icon
-      const closeSize = 16;
-      this.ui.drawIcon(ctx, 'close', sx + 178, sy + 4, closeSize);
-      ctx.fillStyle = 'rgba(20,20,20,0.9)';
-      ctx.fillRect(sx + 8, sy + 34, 184, 24);
-      ctx.strokeStyle = '#9bb7ff';
-      ctx.strokeRect(sx + 8, sy + 34, 184, 24);
-      ctx.fillStyle = '#9bb7ff';
-      ctx.font = 'bold 12px monospace';
-      ctx.fillText(`Lane Tap: ${this.laneModeLabel()}`, sx + 16, sy + 50);
-      ctx.fillStyle = '#8fa7bf';
-      ctx.font = '10px monospace';
-      ctx.fillText('Fast = single tap, Safe = double tap', sx + 8, sy + 63);
-
-      ctx.fillStyle = 'rgba(20,20,20,0.9)';
-      ctx.fillRect(sx + 8, sy + 66, 184, 24);
-      ctx.strokeStyle = '#90caf9';
-      ctx.strokeRect(sx + 8, sy + 66, 184, 24);
-      ctx.fillStyle = '#90caf9';
-      ctx.font = 'bold 12px monospace';
-      ctx.fillText(`UI Feedback: ${this.uiFeedbackEnabled ? 'on' : 'off'}`, sx + 16, sy + 82);
-      ctx.fillStyle = '#8fa7bf';
-      ctx.font = '10px monospace';
-      ctx.fillText('Haptics + short beep for chat actions', sx + 8, sy + 95);
-
-      ctx.fillStyle = 'rgba(20,20,20,0.9)';
-      ctx.fillRect(sx + 8, sy + 98, 184, 24);
-      ctx.strokeStyle = '#90caf9';
-      ctx.strokeRect(sx + 8, sy + 98, 184, 24);
-      ctx.fillStyle = '#90caf9';
-      ctx.font = 'bold 12px monospace';
-      ctx.fillText(`Camera Snap: ${this.cameraSnapOnSelect ? 'on' : 'off'}`, sx + 16, sy + 114);
-      ctx.fillStyle = '#8fa7bf';
-      ctx.font = '10px monospace';
-      ctx.fillText('Jump to build area when selecting builders', sx + 8, sy + 127);
-
-      ctx.fillStyle = 'rgba(20,20,20,0.9)';
-      ctx.fillRect(sx + 8, sy + 130, 184, 24);
-      ctx.strokeStyle = '#90caf9';
-      ctx.strokeRect(sx + 8, sy + 130, 184, 24);
-      ctx.fillStyle = '#90caf9';
-      ctx.font = 'bold 12px monospace';
-      ctx.fillText(`Minimap Pan: ${this.minimapPanEnabled ? 'on' : 'off'}`, sx + 16, sy + 146);
-      ctx.fillStyle = '#8fa7bf';
-      ctx.font = '10px monospace';
-      ctx.fillText('Allow minimap clicks to move the camera', sx + 8, sy + 159);
-
-      ctx.fillStyle = 'rgba(20,20,20,0.9)';
-      ctx.fillRect(sx + 8, sy + 162, 184, 24);
-      ctx.strokeStyle = '#90caf9';
-      ctx.strokeRect(sx + 8, sy + 162, 184, 24);
-      ctx.fillStyle = '#90caf9';
-      ctx.font = 'bold 12px monospace';
-      ctx.fillText(`Sticky Build: ${this.stickyBuildMode ? 'on' : 'off'}`, sx + 16, sy + 178);
-      ctx.fillStyle = '#8fa7bf';
-      ctx.font = '10px monospace';
-      ctx.fillText('Keep build mode active after placing', sx + 8, sy + 191);
-
-      ctx.fillStyle = 'rgba(20,20,20,0.9)';
-      ctx.fillRect(sx + 8, sy + 194, 184, 24);
-      ctx.strokeStyle = '#90caf9';
-      ctx.strokeRect(sx + 8, sy + 194, 184, 24);
-      ctx.fillStyle = '#90caf9';
-      ctx.font = 'bold 12px monospace';
-      ctx.fillText(`Hold Delay: ${this.radialArmMs}ms`, sx + 16, sy + 210);
-      ctx.fillStyle = '#8fa7bf';
-      ctx.font = '10px monospace';
-      ctx.fillText('Long-press time before radial opens', sx + 8, sy + 223);
-
-      ctx.fillStyle = 'rgba(20,20,20,0.9)';
-      ctx.fillRect(sx + 8, sy + 226, 184, 24);
-      ctx.strokeStyle = '#90caf9';
-      ctx.strokeRect(sx + 8, sy + 226, 184, 24);
-      ctx.fillStyle = '#90caf9';
-      ctx.font = 'bold 12px monospace';
-      ctx.fillText(`Radial Size: ${this.radialSize}`, sx + 16, sy + 242);
-      ctx.fillStyle = '#8fa7bf';
-      ctx.font = '10px monospace';
-      ctx.fillText('Bigger ring + farther option labels', sx + 8, sy + 255);
-
-      ctx.fillStyle = 'rgba(20,20,20,0.9)';
-      ctx.fillRect(sx + 8, sy + 258, 184, 24);
-      ctx.strokeStyle = '#90caf9';
-      ctx.strokeRect(sx + 8, sy + 258, 184, 24);
-      ctx.fillStyle = '#90caf9';
-      ctx.font = 'bold 12px monospace';
-      ctx.fillText(`Radial A11y: ${this.radialAccessibility ? 'on' : 'off'}`, sx + 16, sy + 274);
-      ctx.fillStyle = '#8fa7bf';
-      ctx.font = '10px monospace';
-      ctx.fillText('High contrast + larger chat labels', sx + 8, sy + 287);
-
-      ctx.fillStyle = 'rgba(20,20,20,0.9)';
-      ctx.fillRect(sx + 8, sy + 290, 184, 24);
-      ctx.strokeStyle = '#ffcc80';
-      ctx.strokeRect(sx + 8, sy + 290, 184, 24);
-      ctx.fillStyle = '#ffcc80';
-      ctx.font = 'bold 12px monospace';
-      ctx.fillText('Reset Defaults', sx + 16, sy + 306);
-
-      let actionY = 326;
-
-      // Concede button (solo only)
-      if (this.onConcede) {
-        ctx.fillStyle = 'rgba(80,60,10,0.9)';
-        ctx.fillRect(sx + 8, sy + actionY, 184, 24);
-        ctx.strokeStyle = '#ffa726';
-        ctx.strokeRect(sx + 8, sy + actionY, 184, 24);
-        ctx.fillStyle = '#ffa726';
-        ctx.font = 'bold 12px monospace';
-        ctx.fillText('Concede Match', sx + 16, sy + actionY + 16);
-        actionY += 36;
-      }
-
-      // Quit Game button
-      ctx.fillStyle = 'rgba(80,20,20,0.9)';
-      ctx.fillRect(sx + 8, sy + actionY, 184, 24);
-      ctx.strokeStyle = '#ff5252';
-      ctx.strokeRect(sx + 8, sy + actionY, 184, 24);
-      ctx.fillStyle = '#ff5252';
-      ctx.font = 'bold 12px monospace';
-      ctx.fillText('Quit Game', sx + 16, sy + actionY + 16);
+      this.drawSettingsPanel(ctx);
     }
 
     // Building popup (in-world)
@@ -2081,6 +2205,12 @@ export class InputHandler {
     ctx.setTransform(window.devicePixelRatio || 1, 0, 0, window.devicePixelRatio || 1, 0, 0);
   }
 
+  /** True when the nuke is locked out (first 60s of the match). */
+  private isNukeLocked(): boolean {
+    const state = this.game.state;
+    return state.tick < NUKE_LOCKOUT_SECONDS * TICK_RATE;
+  }
+
   private drawNukeOverlay(ctx: CanvasRenderingContext2D): void {
     const cam = this.camera;
     const team = this.game.state.players[this.pid]?.team ?? Team.Bottom;
@@ -2134,11 +2264,30 @@ export class InputHandler {
     ctx.fillStyle = 'rgba(255, 100, 0, 0.04)';
     ctx.fillRect(0, 0, this.canvas.clientWidth, this.canvas.clientHeight);
 
-    // Instruction text
+    // Radius preview circle at mouse position (PC only)
+    if (this.pointerX > 0 && this.pointerY > 0) {
+      const radiusScreen = NUKE_RADIUS * TILE_SIZE * cam.zoom;
+      const pulse = 0.6 + 0.4 * Math.sin(Date.now() / 300);
+      ctx.beginPath();
+      ctx.arc(this.pointerX, this.pointerY, radiusScreen, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(255, 60, 0, ${0.08 * pulse})`;
+      ctx.fill();
+      ctx.strokeStyle = `rgba(255, 80, 0, ${0.5 * pulse})`;
+      ctx.lineWidth = 2;
+      ctx.setLineDash([6, 4]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    // Instruction text + warning
+    const cw = this.canvas.clientWidth;
     ctx.fillStyle = '#ff5722';
     ctx.font = 'bold 16px monospace';
     ctx.textAlign = 'center';
-    ctx.fillText('CLICK TO FIRE NUKE (own half only)  [ESC to cancel]', this.canvas.clientWidth / 2, 60);
+    ctx.fillText('CLICK TO FIRE NUKE (own half only)  [ESC to cancel]', cw / 2, 60);
+    ctx.fillStyle = '#ffab40';
+    ctx.font = 'bold 13px monospace';
+    ctx.fillText('YOU ONLY GET 1 NUKE PER MATCH', cw / 2, 80);
     ctx.textAlign = 'start';
   }
 

@@ -2,7 +2,7 @@ import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
   appId: 'com.krool.spawnwars',
-  appName: 'Spawn Wars',
+  appName: 'Lanecraft',
   webDir: 'dist',
   server: {
     androidScheme: 'https',
