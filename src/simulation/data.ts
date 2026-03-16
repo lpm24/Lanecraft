@@ -143,7 +143,7 @@ export const WOOD_YIELD_PER_TRIP = 10;
 export const STONE_YIELD_PER_TRIP = 10;
 
 // Spawn interval in ticks
-export const SPAWN_INTERVAL_TICKS = 14 * TICK_RATE; // 14 seconds (40% slower spawns)
+export const SPAWN_INTERVAL_TICKS = Math.round(16.8 * TICK_RATE); // 16.8 seconds (20% slower than 14s)
 
 // Unit stats per race per building type
 interface UnitStatDef {

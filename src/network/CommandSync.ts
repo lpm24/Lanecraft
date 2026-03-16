@@ -61,6 +61,7 @@ export class CommandSync {
   private highestWrittenTurn = -1;
   // Circuit breaker: consecutive write failures → trigger disconnect
   private consecutiveWriteFailures = 0;
+  private writesDisabled = false;
   private static readonly MAX_WRITE_FAILURES = 5;
 
   onDesync: DesyncCallback | null = null;
@@ -261,7 +262,7 @@ export class CommandSync {
     }
 
     // Only write to Firebase if there are remote players to sync with
-    if (this.remoteSlotIds.length > 0 && this.consecutiveWriteFailures < CommandSync.MAX_WRITE_FAILURES) {
+    if (this.remoteSlotIds.length > 0 && !this.writesDisabled) {
       const db = getDb();
       set(ref(db, `games/${this.partyCode}/turns/${turn}/${this.localSlotId}`), data).then(() => {
         this.consecutiveWriteFailures = 0; // reset on success
@@ -270,6 +271,7 @@ export class CommandSync {
         console.error(`[CommandSync] Failed to push turn ${turn} (${this.consecutiveWriteFailures}/${CommandSync.MAX_WRITE_FAILURES}):`, err);
         if (this.consecutiveWriteFailures >= CommandSync.MAX_WRITE_FAILURES) {
           console.error('[CommandSync] Too many write failures — treating as disconnect');
+          this.writesDisabled = true; // immediately stop future writes
           this.connected = false;
           this.onDisconnect?.();
         }

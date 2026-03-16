@@ -6,7 +6,7 @@ import { UIAssets } from '../rendering/UIAssets';
 import { SoundManager } from '../audio/SoundManager';
 import { MusicPlayer } from '../audio/MusicPlayer';
 import { getAudioSettings, subscribeToAudioSettings, updateAudioSettings } from '../audio/AudioSettings';
-import { drawSettingsButton, drawSettingsOverlay, getSettingsOverlayLayout, hitRect, sliderValueFromPoint, SettingsSliderDrag } from '../ui/SettingsOverlay';
+import { drawSettingsButton, drawSettingsOverlay, getSettingsOverlayLayout, hitRect, sliderValueFromPoint, handleVisualToggleClick, SettingsSliderDrag } from '../ui/SettingsOverlay';
 import { getSafeTop } from '../ui/SafeArea';
 
 type ResIcon = 'uiGold' | 'uiWood' | 'uiMeat';
@@ -261,6 +261,7 @@ export class RaceSelectScene implements Scene {
       updateAudioSettings({ sfxVolume: sliderValueFromPoint(cx, layout.sfxRow) });
       return true;
     }
+    if (handleVisualToggleClick(cx, cy, layout)) return true;
     if (hitRect(cx, cy, layout.panel)) return true;
     this.settingsOpen = false;
     return false;

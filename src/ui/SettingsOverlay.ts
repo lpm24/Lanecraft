@@ -1,4 +1,5 @@
 import { type AudioSettings, updateAudioSettings } from '../audio/AudioSettings';
+import { getVisualSettings, updateVisualSettings } from '../rendering/VisualSettings';
 import type { UIAssets } from '../rendering/UIAssets';
 import { getSafeTop } from './SafeArea';
 
@@ -15,6 +16,9 @@ export interface SettingsOverlayLayout {
   close: Rect;
   musicRow: Rect;
   sfxRow: Rect;
+  shakeRow: Rect;
+  weatherRow: Rect;
+  dayNightRow: Rect;
 }
 
 export function hitRect(x: number, y: number, rect: Rect): boolean {
@@ -24,13 +28,31 @@ export function hitRect(x: number, y: number, rect: Rect): boolean {
 export function getSettingsOverlayLayout(width: number, _height: number): SettingsOverlayLayout {
   const size = 30;
   const button = { x: width - size * 2 - 18, y: 10 + getSafeTop(), w: size, h: size };
-  const panel = { x: button.x + button.w - 200, y: button.y + button.h + 4, w: 200, h: 98 };
+  // Panel height: title(24) + audioHeader(16) + music(26) + sfx(26) + gap(6)
+  //   + visualHeader(16) + shake(26) + weather(26) + dayNight(26) + pad(8) = 200
+  const panelH = 200;
+  const panel = { x: button.x + button.w - 200, y: button.y + button.h + 4, w: 200, h: panelH };
+  const rowH = 24;
+  const px = panel.x + 8;
+  const pw = 184;
+  // Audio section
+  const audioHeaderY = panel.y + 24;
+  const musicY = audioHeaderY + 16;
+  const sfxY = musicY + rowH + 2;
+  // Visual section
+  const visualHeaderY = sfxY + rowH + 6;
+  const shakeY = visualHeaderY + 16;
+  const weatherY = shakeY + rowH + 2;
+  const dayNightY = weatherY + rowH + 2;
   return {
     button,
     panel,
     close: { x: panel.x + 178, y: panel.y + 4, w: 16, h: 16 },
-    musicRow: { x: panel.x + 8, y: panel.y + 34, w: 184, h: 24 },
-    sfxRow: { x: panel.x + 8, y: panel.y + 66, w: 184, h: 24 },
+    musicRow: { x: px, y: musicY, w: pw, h: rowH },
+    sfxRow: { x: px, y: sfxY, w: pw, h: rowH },
+    shakeRow: { x: px, y: shakeY, w: pw, h: rowH },
+    weatherRow: { x: px, y: weatherY, w: pw, h: rowH },
+    dayNightRow: { x: px, y: dayNightY, w: pw, h: rowH },
   };
 }
 
@@ -51,6 +73,36 @@ function drawSlider(ctx: CanvasRenderingContext2D, rect: Rect, value: number, co
   const knobX = trackX + fillW;
   ctx.fillStyle = '#fff';
   ctx.fillRect(Math.max(trackX - 2, Math.min(trackX + trackW - 4, knobX - 2)), trackY - 2, 4, trackH + 4);
+}
+
+function drawToggleRow(
+  ctx: CanvasRenderingContext2D, rect: Rect, label: string, on: boolean, color: string,
+): void {
+  ctx.fillStyle = 'rgba(20,20,20,0.9)';
+  ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+  ctx.strokeStyle = on ? color : '#666';
+  ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
+  ctx.fillStyle = on ? color : '#888';
+  ctx.font = 'bold 11px monospace';
+  ctx.fillText(`${label}: ${on ? 'on' : 'off'}`, rect.x + 8, rect.y + 16);
+  // Toggle indicator
+  const tX = rect.x + rect.w - 34;
+  const tY = rect.y + 6;
+  const tW = 26;
+  const tH = 12;
+  ctx.fillStyle = on ? color : '#444';
+  ctx.fillRect(tX, tY, tW, tH);
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(on ? tX + tW - 12 : tX, tY, 12, tH);
+}
+
+function drawSectionHeader(ctx: CanvasRenderingContext2D, x: number, y: number, label: string): void {
+  ctx.fillStyle = '#8fa7bf';
+  ctx.font = 'bold 10px monospace';
+  ctx.fillText(label, x, y + 10);
+  // Thin separator line
+  ctx.fillStyle = 'rgba(255,255,255,0.08)';
+  ctx.fillRect(x + ctx.measureText(label).width + 6, y + 6, 184 - ctx.measureText(label).width - 6, 1);
 }
 
 export function drawSettingsButton(
@@ -81,9 +133,10 @@ export function drawSettingsOverlay(
   ctx: CanvasRenderingContext2D,
   ui: UIAssets,
   layout: SettingsOverlayLayout,
-  settings: AudioSettings,
+  audioSettings: AudioSettings,
 ): void {
-  const { panel, close, musicRow, sfxRow } = layout;
+  const { panel, close, musicRow, sfxRow, shakeRow, weatherRow, dayNightRow } = layout;
+  const vis = getVisualSettings();
 
   const bgPadX = panel.w * 0.10;
   const bgPadY = panel.h * 0.10;
@@ -99,23 +152,51 @@ export function drawSettingsOverlay(
   ctx.fillText('Settings', panel.x + 8, panel.y + 16);
   ui.drawIcon(ctx, 'close', close.x, close.y, close.w);
 
+  // ── Audio Section ──
+  drawSectionHeader(ctx, panel.x + 8, panel.y + 20, 'AUDIO');
+
   ctx.fillStyle = 'rgba(20,20,20,0.9)';
   ctx.fillRect(musicRow.x, musicRow.y, musicRow.w, musicRow.h);
   ctx.strokeStyle = '#90caf9';
   ctx.strokeRect(musicRow.x, musicRow.y, musicRow.w, musicRow.h);
   ctx.fillStyle = '#90caf9';
-  ctx.font = 'bold 12px monospace';
-  ctx.fillText(`Music: ${Math.round(settings.musicVolume * 100)}%`, musicRow.x + 8, musicRow.y + 16);
-  drawSlider(ctx, musicRow, settings.musicVolume, '#90caf9');
+  ctx.font = 'bold 11px monospace';
+  ctx.fillText(`Music: ${Math.round(audioSettings.musicVolume * 100)}%`, musicRow.x + 8, musicRow.y + 16);
+  drawSlider(ctx, musicRow, audioSettings.musicVolume, '#90caf9');
 
   ctx.fillStyle = 'rgba(20,20,20,0.9)';
   ctx.fillRect(sfxRow.x, sfxRow.y, sfxRow.w, sfxRow.h);
   ctx.strokeStyle = '#ffcc80';
   ctx.strokeRect(sfxRow.x, sfxRow.y, sfxRow.w, sfxRow.h);
   ctx.fillStyle = '#ffcc80';
-  ctx.font = 'bold 12px monospace';
-  ctx.fillText(`SFX: ${Math.round(settings.sfxVolume * 100)}%`, sfxRow.x + 8, sfxRow.y + 16);
-  drawSlider(ctx, sfxRow, settings.sfxVolume, '#ffcc80');
+  ctx.font = 'bold 11px monospace';
+  ctx.fillText(`SFX: ${Math.round(audioSettings.sfxVolume * 100)}%`, sfxRow.x + 8, sfxRow.y + 16);
+  drawSlider(ctx, sfxRow, audioSettings.sfxVolume, '#ffcc80');
+
+  // ── Visual Section ──
+  drawSectionHeader(ctx, panel.x + 8, sfxRow.y + sfxRow.h + 2, 'VISUAL');
+
+  drawToggleRow(ctx, shakeRow, 'Screen Shake', vis.screenShake, '#a5d6a7');
+  drawToggleRow(ctx, weatherRow, 'Weather', vis.weather, '#a5d6a7');
+  drawToggleRow(ctx, dayNightRow, 'Day/Night', vis.dayNight, '#a5d6a7');
+}
+
+/** Handle clicks on visual toggle rows. Returns true if a toggle was hit. */
+export function handleVisualToggleClick(cx: number, cy: number, layout: SettingsOverlayLayout): boolean {
+  const vis = getVisualSettings();
+  if (hitRect(cx, cy, layout.shakeRow)) {
+    updateVisualSettings({ screenShake: !vis.screenShake });
+    return true;
+  }
+  if (hitRect(cx, cy, layout.weatherRow)) {
+    updateVisualSettings({ weather: !vis.weather });
+    return true;
+  }
+  if (hitRect(cx, cy, layout.dayNightRow)) {
+    updateVisualSettings({ dayNight: !vis.dayNight });
+    return true;
+  }
+  return false;
 }
 
 export function sliderValueFromPoint(x: number, rect: Rect): number {

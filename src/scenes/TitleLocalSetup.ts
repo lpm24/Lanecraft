@@ -15,6 +15,8 @@ export interface LocalSetup {
   playerRace: Race | 'random';
   /** Players per team (1 = 1v1, 2 = 2v2). Default = map's playersPerTeam. */
   teamSize?: number;
+  /** Whether fog of war is enabled. Default = true. */
+  fogOfWar?: boolean;
 }
 
 const LOCAL_SETUP_KEY = 'spawnwars.localSetup';
@@ -49,6 +51,7 @@ export function createDefaultLocalSetup(): LocalSetup {
     playerSlot: 0,
     playerRace: 'random',
     teamSize: 1,
+    fogOfWar: true,
   };
 }
 

@@ -152,6 +152,7 @@ uiReady.then(() => {
       botDifficulty: difficulty,
       mapDef,
       slotNames,
+      fogOfWar: party.fogOfWar ?? true,
     });
     manager.switchTo('match');
   };
@@ -174,6 +175,7 @@ uiReady.then(() => {
       botDifficulty: BotDifficultyLevel.Medium,
       mapDef,
       slotNames: { [String(setup.playerSlot)]: titleScene.name },
+      fogOfWar: setup.fogOfWar ?? true,
     });
     manager.switchTo('match');
   };

@@ -924,7 +924,7 @@ function buildHut(state: GameState, cmd: Extract<GameCommand, { type: 'build_hut
       state.harvesters.push({
         id: genId(state), hutId: building.id, playerId: cmd.playerId, team: player.team,
         x: world.x, y: world.y, hp: 30, maxHp: 30, damage: 0,
-        assignment: HarvesterAssignment.BaseGold,
+        assignment: getDefaultHarvesterAssignment(player.race),
         state: 'walking_to_node', miningTimer: 0, respawnTimer: 0,
         carryingDiamond: false, carryingResource: null, carryAmount: 0,
         queuedWoodAmount: 0, woodCarryTarget: 0, woodDropsCreated: 0,
@@ -957,6 +957,9 @@ const NUKE_TEAM_COOLDOWN_TICKS = 11 * TICK_RATE; // 11s team-wide cooldown betwe
 function fireNuke(state: GameState, cmd: Extract<GameCommand, { type: 'fire_nuke' }>): void {
   const player = state.players[cmd.playerId];
   if (!player.nukeAvailable) return;
+
+  // 60-second match lockout — nukes disabled for the first minute
+  if (state.tick < 60 * TICK_RATE) return;
 
   // Team-wide nuke cooldown — prevent stacking
   const team = player.team;
@@ -1301,7 +1304,19 @@ function tickUnitMovement(state: GameState): void {
       sepCount++;
     }
     const separationOffset = sepCount > 0 ? Math.max(-0.7, Math.min(0.7, sep * 0.18)) : 0;
-    const laneOffset = (baseOffset + jitter + separationOffset) * chokeSpread;
+
+    // Reduce formation spread near the diamond so units don't get pushed into cells
+    const dcx = state.mapDef?.diamondCenter.x ?? DIAMOND_CENTER_X;
+    const dcy = state.mapDef?.diamondCenter.y ?? DIAMOND_CENTER_Y;
+    const dhw = state.mapDef?.diamondHalfW ?? DIAMOND_HALF_W;
+    const dhh = state.mapDef?.diamondHalfH ?? DIAMOND_HALF_H;
+    const ddx = Math.abs(pos.x - dcx) / (dhw + 4);
+    const ddy = Math.abs(pos.y - dcy) / (dhh + 4);
+    const diamondProximity = ddx + ddy;
+    // Inside the diamond+buffer zone, shrink formation offset
+    const diamondShrink = diamondProximity < 1 ? 0.3 + 0.7 * diamondProximity : 1;
+
+    const laneOffset = (baseOffset + jitter + separationOffset) * chokeSpread * diamondShrink;
     const tx = posAhead.x - pos.x;
     const ty = posAhead.y - pos.y;
     const tLen = Math.sqrt(tx * tx + ty * ty) || 1;
@@ -1318,6 +1333,17 @@ function tickUnitMovement(state: GameState): void {
     } else if (!isBlocked(desiredX, desiredY, 0.45, state.diamondCells)) {
       unit.x = desiredX;
       unit.y = desiredY;
+    } else {
+      // Formation offset is blocked — fall back to on-path position so units don't freeze
+      const fpx = pos.x - unit.x;
+      const fpy = pos.y - unit.y;
+      const fpd = Math.sqrt(fpx * fpx + fpy * fpy);
+      if (fpd > movePerTick && fpd > 0.001) {
+        moveWithSlide(unit, pos.x, pos.y, movePerTick, state.diamondCells, state.mapDef);
+      } else if (!isBlocked(pos.x, pos.y, 0.45, state.diamondCells)) {
+        unit.x = pos.x;
+        unit.y = pos.y;
+      }
     }
   }
 }

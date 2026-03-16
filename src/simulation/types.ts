@@ -102,9 +102,9 @@ export const LANE_PATHS = {
       { x: 40, y: 110 },  // base center
       { x: 40, y: 95 },   // through neck (both lanes share this corridor)
       { x: 40, y: 82 },   // convergence point — both lanes merge here
-      { x: 28, y: 72 },   // fork left, approach diamond
-      { x: 22, y: 60 },   // alongside diamond left edge
-      { x: 28, y: 48 },   // past diamond, heading back to center
+      { x: 24, y: 72 },   // fork left, approach diamond (wider clearance)
+      { x: 18, y: 60 },   // alongside diamond left edge (wider clearance)
+      { x: 24, y: 48 },   // past diamond, heading back to center
       { x: 40, y: 38 },   // reconvergence — both lanes merge again
       { x: 40, y: 25 },   // through top neck
       { x: 40, y: 10 },   // enemy base center
@@ -113,9 +113,9 @@ export const LANE_PATHS = {
       { x: 40, y: 110 },  // base center (same start as left)
       { x: 40, y: 95 },   // through neck
       { x: 40, y: 82 },   // convergence point
-      { x: 52, y: 72 },   // fork right, approach diamond
-      { x: 58, y: 60 },   // alongside diamond right edge
-      { x: 52, y: 48 },   // past diamond, heading back to center
+      { x: 56, y: 72 },   // fork right, approach diamond (wider clearance)
+      { x: 62, y: 60 },   // alongside diamond right edge (wider clearance)
+      { x: 56, y: 48 },   // past diamond, heading back to center
       { x: 40, y: 38 },   // reconvergence
       { x: 40, y: 25 },   // through top neck
       { x: 40, y: 10 },   // enemy base center
@@ -126,9 +126,9 @@ export const LANE_PATHS = {
       { x: 40, y: 10 },
       { x: 40, y: 25 },
       { x: 40, y: 38 },
-      { x: 28, y: 48 },
-      { x: 22, y: 60 },
-      { x: 28, y: 72 },
+      { x: 24, y: 48 },
+      { x: 18, y: 60 },
+      { x: 24, y: 72 },
       { x: 40, y: 82 },
       { x: 40, y: 95 },
       { x: 40, y: 110 },
@@ -137,9 +137,9 @@ export const LANE_PATHS = {
       { x: 40, y: 10 },
       { x: 40, y: 25 },
       { x: 40, y: 38 },
-      { x: 52, y: 48 },
-      { x: 58, y: 60 },
-      { x: 52, y: 72 },
+      { x: 56, y: 48 },
+      { x: 62, y: 60 },
+      { x: 56, y: 72 },
       { x: 40, y: 82 },
       { x: 40, y: 95 },
       { x: 40, y: 110 },

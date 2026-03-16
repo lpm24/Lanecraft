@@ -12,14 +12,24 @@ export class GameLoop {
     this.onRender = onRender;
   }
 
+  private visibilityHandler = (): void => {
+    if (!document.hidden) {
+      // Tab just became visible — reset timing so we don't try to catch up
+      this.lastTime = performance.now();
+      this.accumulator = 0;
+    }
+  };
+
   start(): void {
     this.running = true;
     this.lastTime = performance.now();
+    document.addEventListener('visibilitychange', this.visibilityHandler);
     requestAnimationFrame((t) => this.loop(t));
   }
 
   stop(): void {
     this.running = false;
+    document.removeEventListener('visibilitychange', this.visibilityHandler);
   }
 
   private loop(time: number): void {

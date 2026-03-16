@@ -29,6 +29,7 @@ export interface PartyState {
   difficulty?: string; // global fallback BotDifficultyLevel, set by host
   teamSize?: number;   // players per team (1 = 1v1, 2 = 2v2, etc). Default = map's playersPerTeam.
   createdAt?: number;  // Date.now() when party was created — used to skip stale parties
+  fogOfWar?: boolean;  // whether fog of war is enabled (default true)
 }
 
 /** Helper to get the ordered list of occupied player slots. */
@@ -158,6 +159,7 @@ export class PartyManager {
       status: 'waiting',
       seed: Math.floor(Math.random() * 2147483647),
       createdAt: Date.now(),
+      fogOfWar: true,
     };
 
     await set(ref(db, `parties/${code}`), party);
@@ -246,6 +248,12 @@ export class PartyManager {
     if (!this.partyCode || !this._state || !this._isHost) return;
     const db = getDb();
     await set(ref(db, `parties/${this.partyCode}/difficulty`), difficulty);
+  }
+
+  async updateFogOfWar(fogOfWar: boolean): Promise<void> {
+    if (!this.partyCode || !this._state || !this._isHost) return;
+    const db = getDb();
+    await set(ref(db, `parties/${this.partyCode}/fogOfWar`), fogOfWar);
   }
 
   async updateTeamSize(teamSize: number): Promise<void> {

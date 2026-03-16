@@ -19,6 +19,7 @@ import {
   ProjectileTrails, ConstructionAnims, HitFlashTracker, CombatVFX, triggerHaptic,
 } from './VisualEffects';
 import { getSafeTop, getSafeBottom } from '../ui/SafeArea';
+import { getVisualSettings } from './VisualSettings';
 
 const T = TILE_SIZE;
 const LANE_LEFT_COLOR = '#4fc3f7';
@@ -152,6 +153,10 @@ export class Renderer {
     this.ui = ui ?? new UIAssets();
     this.resize();
     window.addEventListener('resize', this.resizeHandler);
+    // Lightning triggers a subtle screen shake
+    this.weather.onLightning = () => {
+      if (getVisualSettings().screenShake) this.screenShake.trigger(1.5, 0.15);
+    };
   }
 
   destroy(): void {
@@ -249,10 +254,11 @@ export class Renderer {
     // Track HP changes for hit flash
     this.hitFlash.updateFromState(this.unitHpTracker, state.units);
 
-    // Update visual effects
-    this.dayNight = getDayNight(elapsedSec);
-    this.screenShake.update(dt);
-    this.weather.update(dt, elapsedSec, this.dayNight.phase);
+    // Update visual effects (respect user preferences)
+    const vfxPrefs = getVisualSettings();
+    this.dayNight = vfxPrefs.dayNight ? getDayNight(elapsedSec) : getDayNight(0.25 * 240); // noon
+    if (vfxPrefs.screenShake) this.screenShake.update(dt); else { this.screenShake.offsetX = 0; this.screenShake.offsetY = 0; }
+    if (vfxPrefs.weather) this.weather.update(dt, elapsedSec, this.dayNight.phase, this.dayNight.brightness);
     this.projectileTrails.update(dt);
     this.updateDeadUnits(dt);
     if (state.tick !== this.lastConsumedTick) {
@@ -263,7 +269,7 @@ export class Renderer {
 
     // Detect nuke detonation for screen shake + haptic
     if (state.nukeEffects.length > this.lastNukeCount) {
-      this.screenShake.trigger(8, 0.6);
+      if (vfxPrefs.screenShake) this.screenShake.trigger(8, 0.6);
       triggerHaptic(200, 1.0);
     }
     this.lastNukeCount = state.nukeEffects.length;
@@ -272,7 +278,7 @@ export class Renderer {
     if (this.lastHqHp[0] >= 0) {
       for (let t = 0; t < state.hqHp.length; t++) {
         if ((this.lastHqHp[t] ?? 0) > 0 && state.hqHp[t] <= 0) {
-          this.screenShake.trigger(12, 1.0);
+          if (vfxPrefs.screenShake) this.screenShake.trigger(12, 1.0);
           triggerHaptic(300, 1.0);
         }
       }
@@ -340,10 +346,10 @@ export class Renderer {
     }
 
     // Weather particles (world-space)
-    this.weather.drawWorld(ctx);
+    if (vfxPrefs.weather) this.weather.drawWorld(ctx);
 
     // Day/night tint overlay (world-space)
-    if (this.dayNight.tintAlpha > 0.005) {
+    if (vfxPrefs.dayNight && this.dayNight.tintAlpha > 0.005) {
       ctx.fillStyle = this.dayNight.tint;
       ctx.fillRect(
         this.camera.x - 100, this.camera.y - 100,
@@ -354,7 +360,7 @@ export class Renderer {
 
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     // Weather screen overlay
-    this.weather.drawOverlay(ctx, this.canvas.clientWidth, this.canvas.clientHeight);
+    if (vfxPrefs.weather) this.weather.drawOverlay(ctx, this.canvas.clientWidth, this.canvas.clientHeight);
     this.drawHUD(ctx, state, networkLatencyMs, desyncDetected, peerDisconnected, waitingForAllyMs);
     this.drawQuickChats(ctx, state);
     this.drawMinimap(ctx, state);
