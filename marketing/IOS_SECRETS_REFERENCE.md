@@ -16,7 +16,7 @@
 | Secret | How to create |
 |--------|---------------|
 | `IOS_PROVISION_PROFILE_BASE64` | 1. Register App ID at developer.apple.com/account/resources/identifiers<br>2. Create App Store Distribution profile at developer.apple.com/account/resources/profiles<br>3. Download .mobileprovision<br>4. `base64 -w 0 profile.mobileprovision > output.txt` |
-| `IOS_PROVISION_PROFILE_NAME` | The name you gave the profile (e.g. `SpawnWars_AppStore`) |
+| `IOS_PROVISION_PROFILE_NAME` | The name you gave the profile (e.g. `Lanecraft_AppStore`) |
 
 ## Also needed per app (not secrets)
 

@@ -139,23 +139,24 @@ export class PostMatchScene implements Scene {
     ctx.fillStyle = '#fff';
     ctx.fillText(won ? 'VICTORY' : 'DEFEAT', w / 2, headerBannerY + headerBannerH * 0.62);
 
-    // Win condition + match time
-    ctx.font = `bold ${fontSize}px monospace`;
-    ctx.fillStyle = '#ddd';
+    // Stats table panel - Banner 9-slice with generous padding
+    const panelW = Math.min(w * 0.98, 1060);
+    const panelH = h * 0.90;
+    const panelX = (w - panelW) / 2;
+    const panelY = headerBannerY + headerBannerH + 12;
+    const bgPadX = Math.round(panelW * 0.05);
+    const bgPadY = Math.round(panelH * 0.05);
+    this.ui.drawBanner(ctx, panelX - bgPadX, panelY - bgPadY, panelW + bgPadX * 2, panelH + bgPadY * 2);
+
+    // Win condition + match time (inside panel, unified with content)
     const condText = state.winCondition === 'military' ? 'HQ Destroyed'
       : state.winCondition === 'diamond' ? 'Diamond Delivered'
       : state.winCondition === 'timeout' ? 'Time Expired' : '';
     const totalSec = Math.floor(state.tick / 20);
-    ctx.fillText(`${condText}  -  ${Math.floor(totalSec / 60)}:${(totalSec % 60).toString().padStart(2, '0')}`, w / 2, headerBannerY + headerBannerH + 24);
-
-    // Stats table panel - Banner 9-slice with generous padding
-    const panelW = Math.min(w * 0.94, 1060);
-    const panelH = h * 0.90;
-    const panelX = (w - panelW) / 2;
-    const panelY = headerBannerY + headerBannerH + 38;
-    const bgPadX = Math.round(panelW * 0.05);
-    const bgPadY = Math.round(panelH * 0.05);
-    this.ui.drawBanner(ctx, panelX - bgPadX, panelY - bgPadY, panelW + bgPadX * 2, panelH + bgPadY * 2);
+    ctx.font = `bold ${fontSize * 0.85}px monospace`;
+    ctx.fillStyle = '#5c4020';
+    ctx.textAlign = 'center';
+    ctx.fillText(`${condText}  \u2014  ${Math.floor(totalSec / 60)}:${(totalSec % 60).toString().padStart(2, '0')}`, w / 2, panelY + 18);
 
     // Inner content area (inset from Banner 9-slice borders)
     const pad = panelW * 0.06;
@@ -165,7 +166,7 @@ export class PostMatchScene implements Scene {
 
     // Player stats table
     const tableFontSize = fontSize * 0.7;
-    const tableY = panelY + 48;
+    const tableY = panelY + 34;
     const rowH = tableFontSize * 2.4;
     // Columns positioned relative to inner area
     const colX = [
@@ -265,29 +266,33 @@ export class PostMatchScene implements Scene {
       ctx.fillText(`${ps?.totalDamageDealt ?? 0}`, colX[6], y);
     }
 
-    // HQ HP with bar sprites
-    const hqY = tableY + (rowIdx + 1.5) * rowH;
-    ctx.font = `bold ${fontSize}px monospace`;
-    ctx.textAlign = 'center';
-    ctx.fillStyle = '#5c4020';
-    ctx.fillText('HQ Health', w / 2, hqY);
-
-    const barW = Math.min(140, panelW * 0.18);
-    const barH = 18;
-    const barGap = 30;
+    // HQ HP — compact centered row: [US hp bar]  [ENEMY hp bar]
+    const hqY = tableY + (rowIdx + 1) * rowH + 4;
+    const barW = Math.min(100, panelW * 0.14);
+    const barH = 14;
+    const hqGap = Math.round(fontSize * 0.6);
     const ourHp = Math.max(0, state.hqHp[localTeam]);
     const enemyTeam = localTeam === Team.Bottom ? Team.Top : Team.Bottom;
     const enemyHp = Math.max(0, state.hqHp[enemyTeam]);
-    this.ui.drawBar(ctx, w / 2 - barW - barGap, hqY + 8, barW, barH, ourHp / 1000);
+
+    ctx.font = `bold ${fontSize * 0.7}px monospace`;
+    // Left side: label then bar
+    const usLabel = `US ${ourHp}`;
+    const usLabelW = ctx.measureText(usLabel).width;
+    ctx.textAlign = 'right';
     ctx.fillStyle = '#1a4a8a';
-    ctx.font = `bold ${fontSize * 0.8}px monospace`;
-    ctx.fillText(`US ${ourHp}`, w / 2 - barW / 2 - barGap, hqY + 38);
-    this.ui.drawBar(ctx, w / 2 + barGap, hqY + 8, barW, barH, enemyHp / 1000);
+    ctx.fillText(usLabel, w / 2 - hqGap, hqY + 12);
+    this.ui.drawBar(ctx, w / 2 - hqGap - usLabelW - barW - 6, hqY + 2, barW, barH, ourHp / 1000);
+    // Right side: label then bar
+    const enLabel = `ENEMY ${enemyHp}`;
+    const enLabelW = ctx.measureText(enLabel).width;
+    ctx.textAlign = 'left';
     ctx.fillStyle = '#a01020';
-    ctx.fillText(`ENEMY ${enemyHp}`, w / 2 + barW / 2 + barGap, hqY + 38);
+    ctx.fillText(enLabel, w / 2 + hqGap, hqY + 12);
+    this.ui.drawBar(ctx, w / 2 + hqGap + enLabelW + 6, hqY + 2, barW, barH, enemyHp / 1000);
 
     // Awards + War Hero combined section
-    const sectionY = hqY + rowH * 2.2;
+    const sectionY = hqY + rowH * 1.2;
     this.drawAwardsAndHero(ctx, state, pStats, w, innerW, sectionY, fontSize);
 
     // Continue button - Sword
@@ -316,57 +321,64 @@ export class PostMatchScene implements Scene {
     const awardIcons: Record<string, IconName> = {
       'MVP Damage': 'sword', 'Best Economy': 'gold', 'Best Defender': 'shield',
       'Most Spawned': 'sword', 'Nuke Master': 'sword', 'Diamond Runner': 'gold',
+      'Tower Damage': 'shield', 'Most Healing': 'meat', 'Most Tanked': 'shield',
     };
     const gap = Math.round(fontSize * 0.4); // consistent spacing unit
 
-    // --- Awards as horizontal cards ---
+    // --- Awards as 4-per-row cards ---
     if (awards.length > 0) {
+      const cols = 4;
       const cardGap = gap;
-      const totalGap = cardGap * (awards.length - 1);
-      const cardW = Math.min(Math.floor((innerW - totalGap) / awards.length), 180);
-      const cardH = fontSize * 3.8;
-      const totalCardsW = cardW * awards.length + totalGap;
-      let cx = (w - totalCardsW) / 2;
+      const totalGapPerRow = cardGap * (cols - 1);
+      const cardW = Math.min(Math.floor((innerW - totalGapPerRow) / cols), 200);
+      const cardH = fontSize * 4.2;
+      const totalRowW = cardW * cols + totalGapPerRow;
+      const rowStartX = (w - totalRowW) / 2;
 
-      for (const a of awards) {
+      for (let i = 0; i < awards.length; i++) {
+        const a = awards[i];
+        const col = i % cols;
+        const row = Math.floor(i / cols);
+        const cx = rowStartX + col * (cardW + cardGap);
+        const cy = y + row * (cardH + cardGap);
+
         // Card background
         ctx.fillStyle = 'rgba(62,44,26,0.15)';
         ctx.strokeStyle = 'rgba(62,44,26,0.3)';
         ctx.lineWidth = 1.5;
         ctx.beginPath();
-        ctx.roundRect(cx, y, cardW, cardH, 5);
+        ctx.roundRect(cx, cy, cardW, cardH, 5);
         ctx.fill();
         ctx.stroke();
 
         const cardCenterX = cx + cardW / 2;
-        const iconSz = fontSize * 1.3;
+        const iconSz = fontSize * 1.4;
         const icon = awardIcons[a.label] ?? 'sword';
         const inset = gap;
 
         // Icon centered at top of card
-        this.ui.drawIcon(ctx, icon, cardCenterX - iconSz / 2, y + inset, iconSz);
+        this.ui.drawIcon(ctx, icon, cardCenterX - iconSz / 2, cy + inset, iconSz);
 
         // Award label — truncate to fit card
         ctx.font = `bold ${fontSize * 0.55}px monospace`;
         ctx.textAlign = 'center';
         ctx.fillStyle = '#6b4e28';
         const label = this.truncateText(ctx, a.label.toUpperCase(), cardW - inset * 2);
-        ctx.fillText(label, cardCenterX, y + inset + iconSz + fontSize * 0.55);
+        ctx.fillText(label, cardCenterX, cy + inset + iconSz + fontSize * 0.6);
 
         // Player name in their color
         ctx.font = `bold ${fontSize * 0.65}px monospace`;
         ctx.fillStyle = this.darkenColor(PLAYER_COLORS[a.playerId], 0.7);
         const name = this.truncateText(ctx, this.slotLabel(a.playerId), cardW - inset * 2);
-        ctx.fillText(name, cardCenterX, y + inset + iconSz + fontSize * 1.3);
+        ctx.fillText(name, cardCenterX, cy + inset + iconSz + fontSize * 1.35);
 
         // Value
         ctx.font = `${fontSize * 0.5}px monospace`;
         ctx.fillStyle = '#7a5c38';
-        ctx.fillText(a.value, cardCenterX, y + inset + iconSz + fontSize * 1.9);
-
-        cx += cardW + cardGap;
+        ctx.fillText(a.value, cardCenterX, cy + inset + iconSz + fontSize * 2.0);
       }
-      y += cardH + gap * 2;
+      const rows = Math.ceil(awards.length / cols);
+      y += rows * (cardH + cardGap) + gap;
     }
 
     // --- War Hero card ---
@@ -380,7 +392,7 @@ export class PostMatchScene implements Scene {
     // Card dimensions — sized to fit content
     const lineH = fontSize * 1.1; // consistent line spacing
     const heroCardW = Math.min(innerW, 400);
-    const heroCardH = lineH * 5;
+    const heroCardH = lineH * 6;
     const heroCardX = (w - heroCardW) / 2;
     const heroCardY = y;
 
@@ -399,7 +411,7 @@ export class PostMatchScene implements Scene {
     );
     if (spriteResult) {
       const [img, def] = spriteResult;
-      const tick = Math.floor(this.animTime * 4); // slow idle animation ~4fps
+      const tick = Math.floor(this.animTime * 1.5); // slow idle animation
       const frame = getSpriteFrame(tick, def);
       const sx = frame * def.frameW;
       const scale = def.scale ?? 1.0;
@@ -416,8 +428,10 @@ export class PostMatchScene implements Scene {
     const textAvailW = heroCardW - spriteDrawW - gap * 2;
     const textCenterX = textL + textAvailW / 2;
 
-    // Line positions — consistent rhythm from top of card
-    const line1Y = heroCardY + lineH * 0.9;
+    // Line positions — vertically centered in taller card
+    const contentH = lineH * 4.6; // total text height
+    const topPad = (heroCardH - contentH) / 2;
+    const line1Y = heroCardY + topPad + lineH * 0.9;
     const line2Y = line1Y + lineH;
     const line3Y = line2Y + lineH * 0.85;
     const line4Y = line3Y + lineH;
@@ -524,9 +538,11 @@ export class PostMatchScene implements Scene {
     best(ps => ps.totalDamageDealt, 'MVP Damage', v => `${v} dmg`);
     best(ps => ps.totalGoldEarned + ps.totalWoodEarned + ps.totalStoneEarned, 'Best Economy', v => `${v} resources`);
     best(ps => ps.totalDamageNearHQ, 'Best Defender', v => `${v} dmg near HQ`);
+    best(ps => ps.totalDamageTaken, 'Most Tanked', v => `${v} taken`);
+    best(ps => ps.towerDamageDealt, 'Tower Damage', v => `${v} dmg`);
+    best(ps => ps.totalHealing, 'Most Healing', v => `${v} healed`);
     best(ps => ps.unitsSpawned, 'Most Spawned', v => `${v} units`);
     best(ps => ps.nukeKills, 'Nuke Master', v => `${v} kills`);
-    best(ps => ps.diamondPickups, 'Diamond Runner', v => `${v} pickups`);
 
     return awards;
   }

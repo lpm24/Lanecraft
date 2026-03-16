@@ -121,5 +121,5 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: SpawnWars-${{ inputs.version_name }}.ipa
+          name: Lanecraft-${{ inputs.version_name }}.ipa
           path: ${{ runner.temp }}/export/App.ipa

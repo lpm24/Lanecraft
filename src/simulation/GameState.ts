@@ -724,6 +724,7 @@ function processCommand(state: GameState, cmd: GameCommand): void {
     case 'fire_nuke': fireNuke(state, cmd); break;
     case 'ping': addPing(state, cmd); break;
     case 'quick_chat': addQuickChat(state, cmd); break;
+    case 'concede': concedeMatch(state, cmd); break;
   }
 }
 
@@ -760,6 +761,7 @@ function purchaseUpgrade(state: GameState, cmd: Extract<GameCommand, { type: 'pu
   const treeDef: UpgradeNodeDef | undefined = (UPGRADE_TREES[player.race]?.[building.type] as any)?.[cmd.choice];
   const label = treeDef ? treeDef.name : `UP ${cmd.choice}`;
   addFloatingText(state, building.worldX + 0.5, building.worldY, label, '#90caf9');
+  addSound(state, 'upgrade_complete', building.worldX, building.worldY);
 }
 
 function placeBuilding(state: GameState, cmd: Extract<GameCommand, { type: 'place_building' }>): void {
@@ -1014,6 +1016,19 @@ function addQuickChat(state: GameState, cmd: Extract<GameCommand, { type: 'quick
   if (state.quickChats.length > 6) state.quickChats.shift();
 }
 
+function concedeMatch(state: GameState, cmd: Extract<GameCommand, { type: 'concede' }>): void {
+  if (state.matchPhase === 'ended') return;
+  const player = state.players[cmd.playerId];
+  if (!player) return;
+  const enemyTeam = player.team === Team.Bottom ? Team.Top : Team.Bottom;
+  state.winner = enemyTeam;
+  state.winCondition = 'military';
+  state.matchPhase = 'ended';
+  const humanPlayer = state.players.find(p => !p.isBot);
+  const humanTeam = humanPlayer?.team ?? Team.Bottom;
+  addSound(state, humanTeam === enemyTeam ? 'match_end_win' : 'match_end_lose');
+}
+
 function dropDiamond(state: GameState, x: number, y: number): void {
   state.diamond.state = 'dropped';
   state.diamond.x = x;
@@ -1153,6 +1168,7 @@ function killHarvester(state: GameState, h: HarvesterState): void {
 // === Tick Systems ===
 
 function tickSpawners(state: GameState): void {
+  let spawnSounds = 0;
   for (const building of state.buildings) {
     if (building.type === BuildingType.Tower || building.type === BuildingType.HarvesterHut) continue;
     building.actionTimer--;
@@ -1184,6 +1200,7 @@ function tickSpawners(state: GameState): void {
         });
         if (state.playerStats[building.playerId]) state.playerStats[building.playerId].unitsSpawned++;
       }
+      if (spawnSounds < 2) { addSound(state, 'unit_spawn', building.worldX, building.worldY); spawnSounds++; }
     }
   }
 }
@@ -1420,7 +1437,13 @@ function applyKnockback(unit: UnitState, amount: number, mapDef?: MapDef): void 
   unit.y = pos.y;
 }
 
-function dealDamage(state: GameState, target: UnitState, amount: number, showFloat: boolean, sourcePlayerId?: number, sourceUnitId?: number): void {
+/** Track healing for a unit's owner. */
+function trackHealing(state: GameState, unit: UnitState, amount: number): void {
+  const ps = state.playerStats[unit.playerId];
+  if (ps) ps.totalHealing += amount;
+}
+
+function dealDamage(state: GameState, target: UnitState, amount: number, showFloat: boolean, sourcePlayerId?: number, sourceUnitId?: number, isTowerShot?: boolean): void {
   // Dodge check
   const dodge = target.upgradeSpecial?.dodgeChance ?? 0;
   if (dodge > 0 && state.rng() < dodge) {
@@ -1447,8 +1470,11 @@ function dealDamage(state: GameState, target: UnitState, amount: number, showFlo
     target.hp -= amount;
     if (showFloat && amount >= 5) addFloatingText(state, target.x, target.y, `-${amount}`, '#ff6666');
     // Track damage stats
+    const targetPs = state.playerStats[target.playerId];
+    if (targetPs) targetPs.totalDamageTaken += amount;
     if (sourcePlayerId !== undefined && state.playerStats[sourcePlayerId]) {
       state.playerStats[sourcePlayerId].totalDamageDealt += amount;
+      if (isTowerShot) state.playerStats[sourcePlayerId].towerDamageDealt += amount;
       // Check if near own HQ (within 20 tiles)
       const team = state.players[sourcePlayerId].team;
       const hq = getHQPosition(team, state.mapDef);
@@ -1476,7 +1502,9 @@ function dealDamage(state: GameState, target: UnitState, amount: number, showFlo
           if (killerRace === Race.Wild) {
             // Heal killer on kill (bloodthirst)
             const healAmt = Math.round(killer.maxHp * 0.25);
+            const actualHeal = Math.min(killer.maxHp - killer.hp, healAmt);
             killer.hp = Math.min(killer.maxHp, killer.hp + healAmt);
+            if (actualHeal > 0) trackHealing(state, killer, actualHeal);
             const frenzyRadius = 6;
             applyStatus(killer, StatusType.Frenzy, 1);
             applyStatus(killer, StatusType.Haste, 1);
@@ -1615,7 +1643,9 @@ function applyCasterSupport(state: GameState, caster: UnitState, race: Race, sp:
       const wounded = allies.filter(a => a.hp < a.maxHp).sort((a, b) => (a.hp * b.maxHp) - (b.hp * a.maxHp) || a.id - b.id);
       const count = Math.min(3, wounded.length);
       for (let i = 0; i < count; i++) {
+        const ah = Math.min(wounded[i].maxHp - wounded[i].hp, healAmt);
         wounded[i].hp = Math.min(wounded[i].maxHp, wounded[i].hp + healAmt);
+        if (ah > 0) trackHealing(state, caster, ah);
         addDeathParticles(state, wounded[i].x, wounded[i].y, '#546e7a', 1);
         addCombatEvent(state, { type: 'heal', x: wounded[i].x, y: wounded[i].y, color: '#b39ddb' });
       }
@@ -1632,7 +1662,9 @@ function applyCasterSupport(state: GameState, caster: UnitState, race: Race, sp:
       let tendersHealVfx = 0;
       for (const a of allies) {
         if (a.hp < a.maxHp) {
+          const ah = Math.min(a.maxHp - a.hp, healAmt);
           a.hp = Math.min(a.maxHp, a.hp + healAmt);
+          if (ah > 0) trackHealing(state, caster, ah);
           addDeathParticles(state, a.x, a.y, '#33691e', 1);
           if (tendersHealVfx < 4) { addCombatEvent(state, { type: 'heal', x: a.x, y: a.y, color: '#66bb6a' }); tendersHealVfx++; }
           healedAny = true;
@@ -1669,7 +1701,9 @@ function applyOnHitEffects(state: GameState, attacker: UnitState, target: UnitSt
         }
         const hordeSteal = Math.round(attacker.damage * 0.10);
         if (hordeSteal > 0) {
+          const ah = Math.min(attacker.maxHp - attacker.hp, hordeSteal);
           attacker.hp = Math.min(attacker.maxHp, attacker.hp + hordeSteal);
+          if (ah > 0) trackHealing(state, attacker, ah);
           addCombatEvent(state, { type: 'lifesteal', x: target.x, y: target.y, x2: attacker.x, y2: attacker.y, color: '#66bb6a' });
         }
       }
@@ -1703,7 +1737,9 @@ function applyOnHitEffects(state: GameState, attacker: UnitState, target: UnitSt
       if (isMelee) {
         applyStatus(target, StatusType.Burn, 1 + (sp?.extraBurnStacks ?? 0));
         const geistMeleeSteal = Math.round(attacker.damage * 0.15);
+        const geistAh = Math.min(attacker.maxHp - attacker.hp, geistMeleeSteal);
         attacker.hp = Math.min(attacker.maxHp, attacker.hp + geistMeleeSteal);
+        if (geistAh > 0) trackHealing(state, attacker, geistAh);
         if (geistMeleeSteal > 0) addCombatEvent(state, { type: 'lifesteal', x: target.x, y: target.y, x2: attacker.x, y2: attacker.y, color: '#b39ddb' });
       }
       // Wraith Bow: 20% ranged lifesteal is applied via projectile hit logic (tickProjectiles)
@@ -1989,6 +2025,7 @@ function tickCombat(state: GameState): void {
   const unitById = new Map(state.units.map(u => [u.id, u]));
   const AGGRO_BONUS = 2.5;
   const AGGRO_LEASH = 3.5;
+  let meleeHitSounds = 0; // simulation-side throttle (SoundManager has its own per-category cooldown too)
 
   // Count how many units are already targeting each enemy (for target spreading)
   const attackerCount = new Map<number, number>();
@@ -2186,6 +2223,7 @@ function tickCombat(state: GameState): void {
               unit.y = target.y - leapDy / leapDist;
             }
             addCombatEvent(state, { type: 'pulse', x: unit.x, y: unit.y, radius: 3, color: '#2196f3' });
+            addSound(state, 'ability_leap', unit.x, unit.y);
             // AoE slow on landing
             for (const nearby of state.units) {
               if (nearby.team === unit.team || nearby.hp <= 0) continue;
@@ -2198,6 +2236,7 @@ function tickCombat(state: GameState): void {
 
           const meleeDmg = getEffectiveDamage(unit);
           dealDamage(state, target, meleeDmg, meleeDmg >= 5, unit.playerId, unit.id);
+          if (meleeHitSounds < 4) { addSound(state, 'melee_hit', unit.x, unit.y); meleeHitSounds++; }
           applyOnHitEffects(state, unit, target);
 
           // Cleave: hit additional adjacent enemies
@@ -2221,8 +2260,9 @@ function tickCombat(state: GameState): void {
               applyOnHitEffects(state, unit, cleaved[ci]);
               addCombatEvent(state, { type: 'chain', x: unit.x, y: unit.y, x2: cleaved[ci].x, y2: cleaved[ci].y, color: '#ff9800' });
             }
-            if (cleaved.length > 0 && state.rng() < 0.3) {
-              addFloatingText(state, unit.x, unit.y - 0.3, '⚔️', '#ff9800', undefined, true);
+            if (cleaved.length > 0) {
+              addSound(state, 'ability_cleave', unit.x, unit.y);
+              if (state.rng() < 0.3) addFloatingText(state, unit.x, unit.y - 0.3, '⚔️', '#ff9800', undefined, true);
             }
           }
         }
@@ -2388,6 +2428,7 @@ function tickHQDefense(state: GameState): void {
 }
 
 function tickTowers(state: GameState): void {
+  let towerFireSounds = 0;
   for (const building of state.buildings) {
     if (building.type !== BuildingType.Tower) continue;
 
@@ -2418,6 +2459,7 @@ function tickTowers(state: GameState): void {
         Math.sqrt((u.x - tx) ** 2 + (u.y - ty) ** 2) <= stats.range);
       if (hasEnemiesInRange) {
         applyTowerSpecial(state, building, player.race, stats, upgrade.special);
+        if (towerFireSounds < 2) { addSound(state, 'tower_fire', tx, ty); towerFireSounds++; }
         continue;
       }
     }
@@ -2449,8 +2491,10 @@ function tickTowers(state: GameState): void {
         sourcePlayerId: building.playerId,
         extraBurnStacks: towerUpgrade.special.extraBurnStacks,
         extraSlowStacks: towerUpgrade.special.extraSlowStacks,
+        isTowerShot: true,
       });
       // Ember tower applies burn on hit (handled in tickProjectiles)
+      if (towerFireSounds < 2) { addSound(state, 'tower_fire', tx, ty); towerFireSounds++; }
       building.actionTimer = Math.round(stats.attackSpeed * TICK_RATE);
       continue;
     }
@@ -2484,6 +2528,7 @@ function tickTowers(state: GameState): void {
 function tickProjectiles(state: GameState): void {
   const toRemove = new Set<number>();
   const unitById = new Map(state.units.map(u => [u.id, u]));
+  let rangedHitSounds = 0;
 
   for (const p of state.projectiles) {
     const target = unitById.get(p.targetId);
@@ -2504,7 +2549,8 @@ function tickProjectiles(state: GameState): void {
       }
 
       // Hit! Apply damage through shield
-      dealDamage(state, target, p.damage, true, p.sourcePlayerId, p.sourceUnitId);
+      dealDamage(state, target, p.damage, true, p.sourcePlayerId, p.sourceUnitId, p.isTowerShot);
+      if (rangedHitSounds < 3) { addSound(state, 'ranged_hit', target.x, target.y); rangedHitSounds++; }
       addDeathParticles(state, target.x, target.y, '#ffaa00', 2);
 
       // Apply status effects based on source player's race + upgrade extras
@@ -2525,7 +2571,9 @@ function tickProjectiles(state: GameState): void {
           if (source && source.hp > 0) {
             const steal = Math.round(p.damage * p.lifestealPct);
             if (steal > 0) {
+              const lsAh = Math.min(source.maxHp - source.hp, steal);
               source.hp = Math.min(source.maxHp, source.hp + steal);
+              if (lsAh > 0) trackHealing(state, source, lsAh);
               addCombatEvent(state, { type: 'lifesteal', x: target.x, y: target.y, x2: source.x, y2: source.y, color: '#b39ddb' });
             }
           }
@@ -2558,7 +2606,9 @@ function tickProjectiles(state: GameState): void {
                 if (source && source.hp > 0) {
                   const steal = Math.round(aoeDmg * p.lifestealPct);
                   if (steal > 0) {
+                    const aoeAh = Math.min(source.maxHp - source.hp, steal);
                     source.hp = Math.min(source.maxHp, source.hp + steal);
+                    if (aoeAh > 0) trackHealing(state, source, aoeAh);
                   }
                 }
               }
@@ -2616,7 +2666,9 @@ function tickStatusEffects(state: GameState): void {
         const burnEff = unit.statusEffects.find(e => e.type === StatusType.Burn);
         const blighted = burnEff && burnEff.stacks >= 3;
         if (!blighted) {
+          const regenAh = Math.min(unit.maxHp - unit.hp, regen);
           unit.hp = Math.min(unit.maxHp, unit.hp + regen);
+          if (regenAh > 0) trackHealing(state, unit, regenAh);
           addDeathParticles(state, unit.x, unit.y, '#4caf50', 1);
           // Throttle heal VFX to every 3 seconds to avoid sparkle spam
           if (state.tick % (TICK_RATE * 3) === 0) {
@@ -2723,7 +2775,7 @@ function applyTowerSpecial(state: GameState, building: BuildingState, race: Race
       }
       if (nearest) {
         towerVisualProjectile(state, building, nearest);
-        dealDamage(state, nearest, stats.damage, false, building.playerId);
+        dealDamage(state, nearest, stats.damage, false, building.playerId, undefined, true);
         addDeathParticles(state, nearest.x, nearest.y, '#ffd700', 2);
         building.actionTimer = Math.round(stats.attackSpeed * TICK_RATE);
       }
@@ -2740,7 +2792,7 @@ function applyTowerSpecial(state: GameState, building: BuildingState, race: Race
       }
       if (nearest) {
         towerVisualProjectile(state, building, nearest);
-        dealDamage(state, nearest, stats.damage, false, building.playerId);
+        dealDamage(state, nearest, stats.damage, false, building.playerId, undefined, true);
         if (state.rng() < 0.3) {
           applyKnockback(nearest, 0.02, state.mapDef);
           addDeathParticles(state, nearest.x, nearest.y, '#ffab40', 3);
@@ -2773,7 +2825,7 @@ function applyTowerSpecial(state: GameState, building: BuildingState, race: Race
       let chainX = tx, chainY = ty;
       for (let i = 0; i < targets.length; i++) {
         const dmg = i === 0 ? stats.damage : Math.round(stats.damage * chainPct);
-        dealDamage(state, targets[i], dmg, true, building.playerId);
+        dealDamage(state, targets[i], dmg, true, building.playerId, undefined, true);
         addDeathParticles(state, targets[i].x, targets[i].y, '#00e5ff', 2);
         // Chain projectile from previous position to this target
         addCombatEvent(state, { type: 'chain', x: chainX, y: chainY, x2: targets[i].x, y2: targets[i].y, color: '#00e5ff' });
@@ -2798,7 +2850,7 @@ function applyTowerSpecial(state: GameState, building: BuildingState, race: Race
       }
       if (nearest) {
         towerVisualProjectile(state, building, nearest);
-        dealDamage(state, nearest, stats.damage, false, building.playerId);
+        dealDamage(state, nearest, stats.damage, false, building.playerId, undefined, true);
         applyStatus(nearest, StatusType.Burn, burnStacks);
         addDeathParticles(state, nearest.x, nearest.y, '#ff3d00', 2);
         building.actionTimer = Math.round(stats.attackSpeed * TICK_RATE);
@@ -2813,7 +2865,7 @@ function applyTowerSpecial(state: GameState, building: BuildingState, race: Race
         if (u.team !== enemyTeam) continue;
         const d = Math.sqrt((u.x - tx) ** 2 + (u.y - ty) ** 2);
         if (d <= stats.range) {
-          dealDamage(state, u, stats.damage, false, building.playerId);
+          dealDamage(state, u, stats.damage, false, building.playerId, undefined, true);
           applyStatus(u, StatusType.Slow, slowStacks);
           addDeathParticles(state, u.x, u.y, '#4fc3f7', 1);
           hit = true;
@@ -2834,7 +2886,7 @@ function applyTowerSpecial(state: GameState, building: BuildingState, race: Race
         if (u.team !== enemyTeam) continue;
         const d = Math.sqrt((u.x - tx) ** 2 + (u.y - ty) ** 2);
         if (d <= stats.range) {
-          dealDamage(state, u, stats.damage, false, building.playerId);
+          dealDamage(state, u, stats.damage, false, building.playerId, undefined, true);
           applyStatus(u, StatusType.Burn, burnStacks);
           if (slowStacks > 0) applyStatus(u, StatusType.Slow, slowStacks);
           addDeathParticles(state, u.x, u.y, '#66bb6a', 1);
@@ -2859,7 +2911,7 @@ function applyTowerSpecial(state: GameState, building: BuildingState, race: Race
       }
       if (nearest) {
         towerVisualProjectile(state, building, nearest);
-        dealDamage(state, nearest, stats.damage, false, building.playerId);
+        dealDamage(state, nearest, stats.damage, false, building.playerId, undefined, true);
         applyStatus(nearest, StatusType.Burn, burnStacks);
         addDeathParticles(state, nearest.x, nearest.y, '#546e7a', 2);
         building.actionTimer = Math.round(stats.attackSpeed * TICK_RATE);
@@ -2875,7 +2927,7 @@ function applyTowerSpecial(state: GameState, building: BuildingState, race: Race
         if (u.team !== enemyTeam) continue;
         const d = Math.sqrt((u.x - tx) ** 2 + (u.y - ty) ** 2);
         if (d <= stats.range) {
-          dealDamage(state, u, stats.damage, false, building.playerId);
+          dealDamage(state, u, stats.damage, false, building.playerId, undefined, true);
           applyStatus(u, StatusType.Slow, slowStacks);
           if (burnStacks > 0) applyStatus(u, StatusType.Burn, burnStacks);
           addDeathParticles(state, u.x, u.y, '#a5d6a7', 1);

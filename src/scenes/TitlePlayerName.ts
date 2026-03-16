@@ -33,7 +33,7 @@ export function randomName(): string {
 
 export function loadPlayerName(): string {
   try {
-    const saved = localStorage.getItem('spawnwars_name');
+    const saved = localStorage.getItem('lanecraft_name');
     if (saved) return saved;
     const name = randomName();
     savePlayerName(name);
@@ -42,5 +42,5 @@ export function loadPlayerName(): string {
 }
 
 export function savePlayerName(name: string): void {
-  try { localStorage.setItem('spawnwars_name', name); } catch {}
+  try { localStorage.setItem('lanecraft_name', name); } catch {}
 }

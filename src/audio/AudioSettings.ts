@@ -3,7 +3,7 @@ export interface AudioSettings {
   sfxVolume: number;
 }
 
-const STORAGE_KEY = 'asciiwars.audioSettings';
+const STORAGE_KEY = 'lanecraft.audioSettings';
 const DEFAULT_SETTINGS: AudioSettings = {
   musicVolume: 0.45,
   sfxVolume: 0.8,

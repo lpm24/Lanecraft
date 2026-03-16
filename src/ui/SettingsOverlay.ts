@@ -21,20 +21,20 @@ export interface SettingsOverlayLayout {
   dayNightRow: Rect;
 }
 
-export function hitRect(x: number, y: number, rect: Rect): boolean {
-  return x >= rect.x && x <= rect.x + rect.w && y >= rect.y && y <= rect.y + rect.h;
+export function hitRect(x: number, y: number, rect: Rect, pad = 0): boolean {
+  return x >= rect.x - pad && x <= rect.x + rect.w + pad && y >= rect.y - pad && y <= rect.y + rect.h + pad;
 }
 
 export function getSettingsOverlayLayout(width: number, _height: number): SettingsOverlayLayout {
-  const size = 30;
-  const button = { x: width - size * 2 - 18, y: 10 + getSafeTop(), w: size, h: size };
-  // Panel height: title(24) + audioHeader(16) + music(26) + sfx(26) + gap(6)
-  //   + visualHeader(16) + shake(26) + weather(26) + dayNight(26) + pad(8) = 200
-  const panelH = 200;
-  const panel = { x: button.x + button.w - 200, y: button.y + button.h + 4, w: 200, h: panelH };
-  const rowH = 24;
+  const size = 46;
+  const button = { x: width - size - 14, y: 13 + getSafeTop(), w: size, h: size };
+  // Panel height: title(24) + audioHeader(16) + music(30) + sfx(30) + gap(6)
+  //   + visualHeader(16) + shake(30) + weather(30) + dayNight(30) + pad(8) = 220
+  const panelH = 220;
+  const panel = { x: button.x + button.w - 210, y: button.y + button.h + 4, w: 210, h: panelH };
+  const rowH = 28;
   const px = panel.x + 8;
-  const pw = 184;
+  const pw = 194;
   // Audio section
   const audioHeaderY = panel.y + 24;
   const musicY = audioHeaderY + 16;
@@ -47,7 +47,7 @@ export function getSettingsOverlayLayout(width: number, _height: number): Settin
   return {
     button,
     panel,
-    close: { x: panel.x + 178, y: panel.y + 4, w: 16, h: 16 },
+    close: { x: panel.x + 174, y: panel.y + 2, w: 22, h: 22 },
     musicRow: { x: px, y: musicY, w: pw, h: rowH },
     sfxRow: { x: px, y: sfxY, w: pw, h: rowH },
     shakeRow: { x: px, y: shakeY, w: pw, h: rowH },
@@ -58,8 +58,8 @@ export function getSettingsOverlayLayout(width: number, _height: number): Settin
 
 function drawSlider(ctx: CanvasRenderingContext2D, rect: Rect, value: number, color: string): void {
   const trackX = rect.x + 94;
-  const trackY = rect.y + 9;
-  const trackW = 76;
+  const trackY = rect.y + 11;
+  const trackW = 86;
   const trackH = 6;
   const fillW = Math.max(0, Math.min(trackW, trackW * value));
 
@@ -72,7 +72,7 @@ function drawSlider(ctx: CanvasRenderingContext2D, rect: Rect, value: number, co
 
   const knobX = trackX + fillW;
   ctx.fillStyle = '#fff';
-  ctx.fillRect(Math.max(trackX - 2, Math.min(trackX + trackW - 4, knobX - 2)), trackY - 2, 4, trackH + 4);
+  ctx.fillRect(Math.max(trackX - 3, Math.min(trackX + trackW - 5, knobX - 3)), trackY - 3, 6, trackH + 6);
 }
 
 function drawToggleRow(
@@ -83,13 +83,13 @@ function drawToggleRow(
   ctx.strokeStyle = on ? color : '#666';
   ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
   ctx.fillStyle = on ? color : '#888';
-  ctx.font = 'bold 11px monospace';
-  ctx.fillText(`${label}: ${on ? 'on' : 'off'}`, rect.x + 8, rect.y + 16);
+  ctx.font = 'bold 12px monospace';
+  ctx.fillText(`${label}: ${on ? 'on' : 'off'}`, rect.x + 8, rect.y + 18);
   // Toggle indicator
-  const tX = rect.x + rect.w - 34;
-  const tY = rect.y + 6;
-  const tW = 26;
-  const tH = 12;
+  const tX = rect.x + rect.w - 36;
+  const tY = rect.y + 7;
+  const tW = 28;
+  const tH = 14;
   ctx.fillStyle = on ? color : '#444';
   ctx.fillRect(tX, tY, tW, tH);
   ctx.fillStyle = '#fff';
@@ -98,11 +98,11 @@ function drawToggleRow(
 
 function drawSectionHeader(ctx: CanvasRenderingContext2D, x: number, y: number, label: string): void {
   ctx.fillStyle = '#8fa7bf';
-  ctx.font = 'bold 10px monospace';
+  ctx.font = 'bold 11px monospace';
   ctx.fillText(label, x, y + 10);
   // Thin separator line
   ctx.fillStyle = 'rgba(255,255,255,0.08)';
-  ctx.fillRect(x + ctx.measureText(label).width + 6, y + 6, 184 - ctx.measureText(label).width - 6, 1);
+  ctx.fillRect(x + ctx.measureText(label).width + 6, y + 6, 194 - ctx.measureText(label).width - 6, 1);
 }
 
 export function drawSettingsButton(
@@ -160,8 +160,8 @@ export function drawSettingsOverlay(
   ctx.strokeStyle = '#90caf9';
   ctx.strokeRect(musicRow.x, musicRow.y, musicRow.w, musicRow.h);
   ctx.fillStyle = '#90caf9';
-  ctx.font = 'bold 11px monospace';
-  ctx.fillText(`Music: ${Math.round(audioSettings.musicVolume * 100)}%`, musicRow.x + 8, musicRow.y + 16);
+  ctx.font = 'bold 12px monospace';
+  ctx.fillText(`Music: ${Math.round(audioSettings.musicVolume * 100)}%`, musicRow.x + 8, musicRow.y + 18);
   drawSlider(ctx, musicRow, audioSettings.musicVolume, '#90caf9');
 
   ctx.fillStyle = 'rgba(20,20,20,0.9)';
@@ -169,8 +169,8 @@ export function drawSettingsOverlay(
   ctx.strokeStyle = '#ffcc80';
   ctx.strokeRect(sfxRow.x, sfxRow.y, sfxRow.w, sfxRow.h);
   ctx.fillStyle = '#ffcc80';
-  ctx.font = 'bold 11px monospace';
-  ctx.fillText(`SFX: ${Math.round(audioSettings.sfxVolume * 100)}%`, sfxRow.x + 8, sfxRow.y + 16);
+  ctx.font = 'bold 12px monospace';
+  ctx.fillText(`SFX: ${Math.round(audioSettings.sfxVolume * 100)}%`, sfxRow.x + 8, sfxRow.y + 18);
   drawSlider(ctx, sfxRow, audioSettings.sfxVolume, '#ffcc80');
 
   // ── Visual Section ──
@@ -201,7 +201,7 @@ export function handleVisualToggleClick(cx: number, cy: number, layout: Settings
 
 export function sliderValueFromPoint(x: number, rect: Rect): number {
   const trackX = rect.x + 94;
-  const trackW = 76;
+  const trackW = 86;
   return Math.max(0, Math.min(1, (x - trackX) / trackW));
 }
 

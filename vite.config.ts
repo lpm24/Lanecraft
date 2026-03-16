@@ -16,7 +16,7 @@ export default defineConfig(({ command }) => {
   return {
     base: process.env.CAP_BUILD
       ? '/'
-      : (command === 'serve' ? '/' : '/SpawnWars/'),
+      : (command === 'serve' ? '/' : '/Lanecraft/'),
     define: {
       __BUILD_HASH__: JSON.stringify(git.hash),
       __BUILD_NUMBER__: JSON.stringify(git.count),

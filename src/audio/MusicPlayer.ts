@@ -40,19 +40,41 @@ export class MusicPlayer {
   private fadeTimer: ReturnType<typeof setInterval> | null = null;
   private settingsUnsub: (() => void);
   private lastTrackUrl = '';
+  private visibilityHandler: (() => void) | null = null;
+  private wasPaused = false;
 
   constructor() {
     this.settingsUnsub = subscribeToAudioSettings((s: AudioSettings) => {
       this.volume = s.musicVolume;
-      if (this.current) {
-        this.current.volume = this.volume * this.fadeTarget;
+      if (this.gainNode) {
+        this.gainNode.gain.value = this.volume * this.fadeTarget;
       }
     });
+
+    // Pause music when app goes to background so browser doesn't show media controls
+    this.visibilityHandler = () => {
+      if (document.hidden) {
+        if (this.current && !this.current.paused) {
+          this.current.pause();
+          this.wasPaused = true;
+        }
+      } else {
+        if (this.wasPaused && this.current && this.category) {
+          this.current.play().catch(() => {});
+          this.wasPaused = false;
+        }
+      }
+    };
+    document.addEventListener('visibilitychange', this.visibilityHandler);
   }
 
   dispose(): void {
     this.stop();
     this.settingsUnsub();
+    if (this.visibilityHandler) {
+      document.removeEventListener('visibilitychange', this.visibilityHandler);
+      this.visibilityHandler = null;
+    }
   }
 
   private getTracksForCategory(): string[] {
@@ -75,13 +97,34 @@ export class MusicPlayer {
     return url;
   }
 
+  /** Lazily create AudioContext + gain for routing music through Web Audio
+   *  (prevents browser from showing media session / interrupting podcasts) */
+  private ensureAudioContext(): void {
+    if (this.actx) return;
+    this.actx = new AudioContext();
+    this.gainNode = this.actx.createGain();
+    this.gainNode.connect(this.actx.destination);
+  }
+  private actx: AudioContext | null = null;
+  private gainNode: GainNode | null = null;
+  private sourceNode: MediaElementAudioSourceNode | null = null;
+
   private startTrack(url: string): void {
     if (!url) return;
     this.lastTrackUrl = url;
     const audio = new Audio(url);
-    audio.volume = 0;
+    audio.crossOrigin = 'anonymous';
+    audio.volume = 1; // volume controlled via gainNode, not element
     this.current = audio;
     this.fadeTarget = 0;
+
+    // Route through Web Audio API so browser doesn't treat it as a media session
+    this.ensureAudioContext();
+    if (this.actx!.state === 'suspended') void this.actx!.resume();
+    // Disconnect previous source
+    if (this.sourceNode) { try { this.sourceNode.disconnect(); } catch {} }
+    this.sourceNode = this.actx!.createMediaElementSource(audio);
+    this.sourceNode.connect(this.gainNode!);
 
     // When track ends, play another random track from same category
     audio.addEventListener('ended', () => {
@@ -109,8 +152,8 @@ export class MusicPlayer {
     this.fadeTimer = setInterval(() => {
       const elapsed = Date.now() - start;
       const t = Math.min(1, elapsed / FADE_MS);
-      if (this.current) {
-        this.current.volume = this.volume * t;
+      if (this.gainNode) {
+        this.gainNode.gain.value = this.volume * t;
       }
       if (t >= 1) this.clearFade();
     }, 30);
@@ -121,12 +164,14 @@ export class MusicPlayer {
     if (!this.current) { onDone?.(); return; }
     this.fadeTarget = 0;
     const audio = this.current;
-    const startVol = audio.volume;
+    const startVol = this.gainNode?.gain.value ?? this.volume;
     const start = Date.now();
     this.fadeTimer = setInterval(() => {
       const elapsed = Date.now() - start;
       const t = Math.min(1, elapsed / FADE_MS);
-      audio.volume = startVol * (1 - t);
+      if (this.gainNode) {
+        this.gainNode.gain.value = startVol * (1 - t);
+      }
       if (t >= 1) {
         this.clearFade();
         audio.pause();

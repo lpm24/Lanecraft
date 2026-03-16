@@ -169,10 +169,7 @@ export class Game {
     this.renderer.camera.worldTilesH = mapDef.height;
     this.input = new InputHandler(this, canvas, this.renderer.camera, ui, this.renderer.sprites);
     this.input.onQuitGame = () => this.handleQuitGame();
-    // Concede button only in solo (non-multiplayer) matches
-    if (!this.isMultiplayer) {
-      this.input.onConcede = () => this.handleConcede();
-    }
+    this.input.onConcede = () => this.handleConcede();
     this.sounds = new SoundManager();
 
     // Center camera on local player's HQ at game start
@@ -269,15 +266,23 @@ export class Game {
     this.onQuitGame?.();
   }
 
-  /** Concede the match — enemy team wins immediately (solo only). */
+  /** Concede the match — enemy team wins immediately. */
   private handleConcede(): void {
     if (this.state.matchPhase === 'ended') return;
-    const localTeam = this.state.players[this.localPlayerId]?.team ?? Team.Bottom;
-    const enemyTeam = localTeam === Team.Bottom ? Team.Top : Team.Bottom;
-    this.state.winner = enemyTeam;
-    this.state.winCondition = 'military';
-    this.state.matchPhase = 'ended';
-    this.state.soundEvents.push({ type: 'match_end_lose' });
+
+    if (this.isMultiplayer && this.commandSync && this.localPlayerId !== 0) {
+      // Non-host in multiplayer: leave game (replaced by bot), show results locally
+      this.commandSync.broadcastLeave();
+      const localTeam = this.state.players[this.localPlayerId]?.team ?? Team.Bottom;
+      const enemyTeam = localTeam === Team.Bottom ? Team.Top : Team.Bottom;
+      this.state.winner = enemyTeam;
+      this.state.winCondition = 'military';
+      this.state.matchPhase = 'ended';
+      this.state.soundEvents.push({ type: 'match_end_lose' });
+    } else {
+      // Solo or host: send concede command through simulation (syncs to all players)
+      this.sendCommand({ type: 'concede', playerId: this.localPlayerId });
+    }
   }
 
   /** Convert a human player slot to a Nightmare-difficulty bot mid-game. */

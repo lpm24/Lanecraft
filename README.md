@@ -1,4 +1,4 @@
-# Spawn Wars
+# Lanecraft
 
 Fantasy RTS with 9 races, sprite-based rendering, and deterministic tick simulation. Supports 1v1, 2v2, 3v3, and 4v4 modes. Build spawners, upgrade units, contest the diamond, and destroy the enemy HQ.
 

@@ -4,7 +4,7 @@ export interface VisualSettings {
   dayNight: boolean;
 }
 
-const STORAGE_KEY = 'spawnwars.visualSettings';
+const STORAGE_KEY = 'lanecraft.visualSettings';
 const DEFAULT_SETTINGS: VisualSettings = {
   screenShake: true,
   weather: true,

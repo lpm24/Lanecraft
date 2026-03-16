@@ -37,7 +37,7 @@ interface RaceAggregates {
   avgDurationSec: number;
 }
 
-const STORAGE_KEY = 'spawnwars.balanceLog';
+const STORAGE_KEY = 'lanecraft.balanceLog';
 const MAX_RECORDS = 200;
 
 function loadRecords(): MatchRecord[] {

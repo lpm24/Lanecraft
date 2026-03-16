@@ -1,3 +1,5 @@
+import { getSafeTop } from '../ui/SafeArea';
+
 export interface Scene {
   enter(): void;
   exit(): void;
@@ -47,19 +49,29 @@ export class SceneManager {
   private currentName = '';
   private toasts: Toast[] = [];
   private onToastShow: (() => void) | null = null;
+  private toastSlideY = -70; // current toast Y for hit-testing
 
   private resizeHandler = () => this.resizeCanvas();
+  private toastClickHandler = (e: MouseEvent) => this.dismissToastAt(e.clientX, e.clientY);
+  private toastTouchHandler = (e: TouchEvent) => {
+    const t = e.touches[0] ?? e.changedTouches[0];
+    if (t && this.dismissToastAt(t.clientX, t.clientY)) e.preventDefault();
+  };
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d')!;
     this.resizeCanvas();
     window.addEventListener('resize', this.resizeHandler);
+    this.canvas.addEventListener('click', this.toastClickHandler);
+    this.canvas.addEventListener('touchstart', this.toastTouchHandler, { passive: false });
   }
 
   dispose(): void {
     this.running = false;
     window.removeEventListener('resize', this.resizeHandler);
+    this.canvas.removeEventListener('click', this.toastClickHandler);
+    this.canvas.removeEventListener('touchstart', this.toastTouchHandler);
   }
 
   private resizeCanvas(): void {
@@ -109,6 +121,28 @@ export class SceneManager {
       burstSpawned: false,
       glowPhase: 0,
     });
+  }
+
+  private dismissToastAt(clientX: number, clientY: number): boolean {
+    if (this.toasts.length === 0) return false;
+    const rect = this.canvas.getBoundingClientRect();
+    const cx = clientX - rect.left;
+    const cy = clientY - rect.top;
+    const W = this.canvas.clientWidth;
+    const toastW = Math.min(460, W - 40);
+    const toastH = 70;
+    const toastX = (W - toastW) / 2;
+    const pad = 10;
+    if (cx >= toastX - pad && cx <= toastX + toastW + pad &&
+        cy >= this.toastSlideY - pad && cy <= this.toastSlideY + toastH + pad) {
+      // Trigger quick fade-out
+      const toast = this.toasts[0];
+      if (toast.timer > TOAST_FADE_OUT) {
+        toast.timer = TOAST_FADE_OUT;
+      }
+      return true;
+    }
+    return false;
   }
 
   start(initialScene: string): void {
@@ -240,11 +274,13 @@ export class SceneManager {
     toast.fadeIn = Math.min(1, toast.fadeIn + dt / TOAST_FADE_IN);
     toast.glowPhase += dt * 0.003;
 
+    const safeTop = getSafeTop();
+
     // Fire sound + burst on first visible frame
     if (!toast.burstSpawned && toast.fadeIn > 0) {
       toast.burstSpawned = true;
       const cx = W / 2;
-      const cy = 20 + toastH / 2;
+      const cy = safeTop + 12 + toastH / 2;
       this.spawnBurst(toast, cx, cy, toastW);
       this.onToastShow?.();
     }
@@ -269,7 +305,9 @@ export class SceneManager {
     const bounce = slideProgress < 1
       ? 1 - Math.pow(1 - slideProgress, 3) * (1 + 2.5 * (1 - slideProgress))
       : 1;
-    const slideY = -toastH + (20 + toastH) * bounce;
+    const toastRestY = safeTop + 12;
+    const slideY = -toastH + (toastRestY + toastH) * bounce;
+    this.toastSlideY = slideY;
 
     const cx = toastX + toastW / 2;
     const cy = slideY + toastH / 2;

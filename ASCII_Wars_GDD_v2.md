@@ -1,9 +1,9 @@
-# Spawn Wars - Game Design Document v2 (Implementation Ready)
+# Lanecraft - Game Design Document v2 (Implementation Ready)
 
-> **Note:** This game was originally titled "ASCII Wars". It has since been renamed to **Spawn Wars** and expanded from 6 to 9 races with sprite-based rendering.
+> **Note:** This game was originally titled "ASCII Wars", then "Spawn Wars". It has since been renamed to **Lanecraft** and expanded from 6 to 9 races with sprite-based rendering.
 
 ## Working Title
-Spawn Wars
+Lanecraft
 
 ## High Concept
 A real-time lane autobattler supporting 1v1, 2v2, 3v3, and 4v4 modes. Players build spawn buildings on a base grid. Units automatically march toward the enemy base, splitting left or right around a central diamond obstacle. Players win either by destroying the enemy HQ or by mining and returning a single unique diamond to their HQ.

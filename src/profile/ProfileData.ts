@@ -43,7 +43,7 @@ export interface PlayerProfile {
   achievements: Record<string, { unlocked: boolean; unlockedAt: number; progress: number }>;
 }
 
-const STORAGE_KEY = 'spawnwars.profile';
+const STORAGE_KEY = 'lanecraft.profile';
 
 const ALL_RACES: Race[] = [
   Race.Crown, Race.Horde, Race.Goblins, Race.Oozlings, Race.Demon,

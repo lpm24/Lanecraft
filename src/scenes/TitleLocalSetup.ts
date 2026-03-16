@@ -19,7 +19,7 @@ export interface LocalSetup {
   fogOfWar?: boolean;
 }
 
-const LOCAL_SETUP_KEY = 'spawnwars.localSetup';
+const LOCAL_SETUP_KEY = 'lanecraft.localSetup';
 
 export function saveLocalSetup(setup: LocalSetup): void {
   try { localStorage.setItem(LOCAL_SETUP_KEY, JSON.stringify(setup)); } catch {}

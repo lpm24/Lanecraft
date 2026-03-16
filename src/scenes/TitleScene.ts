@@ -12,6 +12,7 @@ import { SoundManager } from '../audio/SoundManager';
 import { MusicPlayer } from '../audio/MusicPlayer';
 import { getAudioSettings, subscribeToAudioSettings, updateAudioSettings } from '../audio/AudioSettings';
 import { drawSettingsButton, drawSettingsOverlay, getSettingsOverlayLayout, hitRect as hitOverlayRect, sliderValueFromPoint, handleVisualToggleClick, SettingsSliderDrag } from '../ui/SettingsOverlay';
+import { getSafeTop } from '../ui/SafeArea';
 import { loadPlayerName } from './TitlePlayerName';
 import { getElo, saveAllElo, updateTeamElo } from './TitleElo';
 import { LocalSetup, saveLocalSetup, loadLocalSetup, createDefaultLocalSetup, getLocalActiveSlots, canStartLocalSetup, canStartParty } from './TitleLocalSetup';
@@ -149,13 +150,13 @@ export class TitleScene implements Scene {
     this.musicPlayer = musicPlayer;
     // Load persisted duel settings
     try {
-      const ts = localStorage.getItem('spawnwars.duelTeamSize');
+      const ts = localStorage.getItem('lanecraft.duelTeamSize');
       this.duelTeamSize = (ts === '1' ? 1 : ts === '3' ? 3 : 2) as 1 | 2 | 3;
-      const tr = localStorage.getItem('spawnwars.duelTier');
+      const tr = localStorage.getItem('lanecraft.duelTier');
       this.duelTier = (tr === '2' ? 2 : tr === '3' ? 3 : 1) as 1 | 2 | 3;
-      const rl = localStorage.getItem('spawnwars.duelRaceLocked');
+      const rl = localStorage.getItem('lanecraft.duelRaceLocked');
       this.duelRaceLocked = rl === 'false' ? false : true; // default true
-      const tf = localStorage.getItem('spawnwars.duelTypeFilter');
+      const tf = localStorage.getItem('lanecraft.duelTypeFilter');
       this.duelTypeFilter = (tf === 'Melee' || tf === 'Ranged' || tf === 'Caster') ? tf : 'Any';
     } catch {
       this.duelTeamSize = 1;
@@ -509,7 +510,7 @@ export class TitleScene implements Scene {
   } {
     const w = this.canvas.clientWidth;
     const h = this.canvas.clientHeight;
-    const btnW = Math.min(w * 0.38, 280);
+    const btnW = Math.min(w * 0.52, 360);
     const btnH = Math.min(h * 0.07, 52);
     const gap = 10;
     const startY = h * 0.28;
@@ -655,12 +656,12 @@ export class TitleScene implements Scene {
       this.resetEloConfirm = false;
     }
     const settingsLayout = getSettingsOverlayLayout(this.canvas.clientWidth, this.canvas.clientHeight);
-    if (hitOverlayRect(cx, cy, settingsLayout.button)) {
+    if (hitOverlayRect(cx, cy, settingsLayout.button, 6)) {
       this.settingsOpen = !this.settingsOpen;
       return;
     }
     if (this.settingsOpen) {
-      if (hitOverlayRect(cx, cy, settingsLayout.close)) {
+      if (hitOverlayRect(cx, cy, settingsLayout.close, 8)) {
         this.settingsOpen = false;
         return;
       }
@@ -692,7 +693,7 @@ export class TitleScene implements Scene {
     if (hitAnyDuelBtn) this.resetEloConfirm = false;
     if (this.hitRect(cx, cy, this.teamSizeBtnRect)) {
       this.duelTeamSize = this.duelTeamSize === 1 ? 2 : this.duelTeamSize === 2 ? 3 : 1;
-      try { localStorage.setItem('spawnwars.duelTeamSize', String(this.duelTeamSize)); } catch {}
+      try { localStorage.setItem('lanecraft.duelTeamSize', String(this.duelTeamSize)); } catch {}
       this.waiting = true;
       this.waitTimer = 0.5;
       this.blueTeam = [];
@@ -701,7 +702,7 @@ export class TitleScene implements Scene {
     }
     if (this.hitRect(cx, cy, this.tierBtnRect)) {
       this.duelTier = this.duelTier === 1 ? 2 : this.duelTier === 2 ? 3 : 1;
-      try { localStorage.setItem('spawnwars.duelTier', String(this.duelTier)); } catch {}
+      try { localStorage.setItem('lanecraft.duelTier', String(this.duelTier)); } catch {}
       this.waiting = true;
       this.waitTimer = 0.5;
       this.blueTeam = [];
@@ -710,7 +711,7 @@ export class TitleScene implements Scene {
     }
     if (this.hitRect(cx, cy, this.raceLockBtnRect)) {
       this.duelRaceLocked = !this.duelRaceLocked;
-      try { localStorage.setItem('spawnwars.duelRaceLocked', String(this.duelRaceLocked)); } catch {}
+      try { localStorage.setItem('lanecraft.duelRaceLocked', String(this.duelRaceLocked)); } catch {}
       this.waiting = true;
       this.waitTimer = 0.5;
       this.blueTeam = [];
@@ -721,7 +722,7 @@ export class TitleScene implements Scene {
       const cycle: Array<'Any' | 'Melee' | 'Ranged' | 'Caster'> = ['Any', 'Melee', 'Ranged', 'Caster'];
       const idx = cycle.indexOf(this.duelTypeFilter);
       this.duelTypeFilter = cycle[(idx + 1) % cycle.length];
-      try { localStorage.setItem('spawnwars.duelTypeFilter', this.duelTypeFilter); } catch {}
+      try { localStorage.setItem('lanecraft.duelTypeFilter', this.duelTypeFilter); } catch {}
       this.waiting = true;
       this.waitTimer = 0.5;
       this.blueTeam = [];
@@ -984,7 +985,7 @@ export class TitleScene implements Scene {
   }
 
   private getLastPartyRace(): Race {
-    const saved = localStorage.getItem('spawnwars.lastPartyRace');
+    const saved = localStorage.getItem('lanecraft.lastPartyRace');
     if (saved && ALL_RACES.includes(saved as Race)) return saved as Race;
     return Race.Crown;
   }
@@ -1168,7 +1169,7 @@ export class TitleScene implements Scene {
     const idx = raceOrder.indexOf(currentRace);
     const nextRace = raceOrder[(idx + dir + raceOrder.length) % raceOrder.length];
     this.party.updateRace(nextRace as Race);
-    localStorage.setItem('spawnwars.lastPartyRace', String(nextRace));
+    localStorage.setItem('lanecraft.lastPartyRace', String(nextRace));
   }
 
   private cycleBotRace(slot: number): void {
@@ -1632,7 +1633,7 @@ export class TitleScene implements Scene {
     ctx.fillText('LANECRAFT', w / 2, bannerY + bannerH * 0.45);
 
     // Subtitle
-    const subW = Math.min(w * 0.45, 300);
+    const subW = Math.min(w * 0.55, 360);
     const subH = Math.min(h * 0.055, 40);
     const subX = (w - subW) / 2;
     const subY = bannerY + bannerH - subH * 0.2;
@@ -1640,7 +1641,7 @@ export class TitleScene implements Scene {
     ctx.font = `bold ${Math.max(10, subH * 0.38)}px monospace`;
     ctx.textBaseline = 'middle';
     ctx.fillStyle = '#fff';
-    ctx.fillText('Build. Spawn. Dominate.', w / 2, subY + subH * 0.5);
+    ctx.fillText('Spawn Glory', w / 2, subY + subH * 0.5);
 
     // === Buttons or Party Panel ===
     if (this.localSetup) {
@@ -1771,7 +1772,7 @@ export class TitleScene implements Scene {
 
     // Positions — avatar top-left, name underneath
     const avatarX = 8;
-    const avatarY = 8;
+    const avatarY = 8 + getSafeTop();
 
     // ── Profile avatar button (square) ──
     this.profileBtnRect = { x: avatarX, y: avatarY, w: avatarSize, h: avatarSize };

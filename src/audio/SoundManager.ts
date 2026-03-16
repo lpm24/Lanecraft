@@ -3,10 +3,8 @@ import { Camera } from '../rendering/Camera';
 import { subscribeToAudioSettings, type AudioSettings } from './AudioSettings';
 
 const TILE_SIZE = 16;
-const MAP_TILE_W = 80;
-const MAP_TILE_H = 120;
 
-const SFX_MASTER_GAIN = 0.25;
+const SFX_MASTER_GAIN = 0.5;
 const MUSIC_MASTER_GAIN = 0.075;
 
 type RhythmStyle = 'standard' | 'heavy' | 'sparse' | 'tribal' | 'none';
@@ -145,6 +143,10 @@ export class SoundManager {
   private noiseBufferCache = new Map<number, AudioBuffer>();
   private settings: AudioSettings;
   private settingsUnsub: (() => void) | null = null;
+  // Per-category cooldowns — prevent audio spam in large battles
+  private lastPlayTime = new Map<string, number>();
+  private playCounts = new Map<string, number>();
+  private lastPlayReset = 0;
 
   private musicGain: GainNode | null = null;
   private musicPlaying = false;
@@ -180,8 +182,16 @@ export class SoundManager {
   private ctx(): AudioContext {
     if (!this.actx) {
       this.actx = new AudioContext();
+      // Master compressor prevents clipping when many sounds play in 4v4
+      const comp = this.actx.createDynamicsCompressor();
+      comp.threshold.value = -18;
+      comp.knee.value = 12;
+      comp.ratio.value = 8;
+      comp.attack.value = 0.005;
+      comp.release.value = 0.15;
+      comp.connect(this.actx.destination);
       this.master = this.actx.createGain();
-      this.master.connect(this.actx.destination);
+      this.master.connect(comp);
       this.applyAudioSettings();
     }
     if (this.actx.state === 'suspended') void this.actx.resume();
@@ -204,18 +214,82 @@ export class SoundManager {
     camera: Camera,
     canvas: HTMLCanvasElement,
   ): number {
-    const zoomGain = Math.min(1, camera.zoom);
-    if (worldTileX === undefined || worldTileY === undefined) return zoomGain;
+    // Global events (no position) always play at full volume
+    if (worldTileX === undefined || worldTileY === undefined) return 1;
 
+    // Camera center in world-tile coordinates
     const camCX = (camera.x + (canvas.clientWidth || canvas.width) / (2 * camera.zoom)) / TILE_SIZE;
     const camCY = (camera.y + (canvas.clientHeight || canvas.height) / (2 * camera.zoom)) / TILE_SIZE;
     const dx = worldTileX - camCX;
     const dy = worldTileY - camCY;
     const dist = Math.sqrt(dx * dx + dy * dy);
-    const maxDist = (Math.max(MAP_TILE_W, MAP_TILE_H) * 0.7) / camera.zoom;
-    const distGain = Math.max(0, 1 - dist / maxDist);
 
-    return zoomGain * distGain;
+    // Visible radius in tiles — how much of the map the camera can see
+    const visW = (canvas.clientWidth || canvas.width) / (camera.zoom * TILE_SIZE);
+    const visH = (canvas.clientHeight || canvas.height) / (camera.zoom * TILE_SIZE);
+    const visRadius = Math.sqrt(visW * visW + visH * visH) / 2;
+
+    // Sounds within the viewport are full volume, then fade over another 50%
+    const fadeStart = visRadius;
+    const fadeEnd = visRadius * 1.5;
+
+    if (dist <= fadeStart) return 1;
+    if (dist >= fadeEnd) return 0;
+    return 1 - (dist - fadeStart) / (fadeEnd - fadeStart);
+  }
+
+  /** Stereo pan value [-1, 1] based on horizontal position relative to camera */
+  private spatialPan(
+    worldTileX: number | undefined,
+    camera: Camera,
+    canvas: HTMLCanvasElement,
+  ): number {
+    if (worldTileX === undefined) return 0;
+    const camCX = (camera.x + (canvas.clientWidth || canvas.width) / (2 * camera.zoom)) / TILE_SIZE;
+    const visW = (canvas.clientWidth || canvas.width) / (camera.zoom * TILE_SIZE);
+    const offset = (worldTileX - camCX) / (visW / 2);
+    return Math.max(-0.7, Math.min(0.7, offset)); // cap at 0.7 to keep sounds from going full left/right
+  }
+
+  /** Create a gain node with optional stereo panning for spatial SFX */
+  private spatialDest(pan: number): GainNode {
+    const ac = this.ctx();
+    const d = this.dest();
+    if (Math.abs(pan) < 0.05) return d; // no panning needed
+    const panner = ac.createStereoPanner();
+    panner.pan.value = pan;
+    const g = ac.createGain();
+    g.gain.value = 1;
+    g.connect(panner);
+    panner.connect(d);
+    return g;
+  }
+
+  /** Per-category cooldown — returns false if this sound type should be skipped.
+   *  maxPerBatch limits how many can play per postTick batch (~50ms).
+   *  minIntervalMs prevents rapid-fire across consecutive ticks. */
+  private shouldPlay(category: string, minIntervalMs: number, maxPerBatch: number): boolean {
+    const now = performance.now();
+    // Reset batch counts when a new tick batch starts (>5ms gap between calls)
+    if (now - this.lastPlayReset > 5) {
+      this.playCounts.clear();
+      this.lastPlayReset = now;
+    }
+    const count = this.playCounts.get(category) ?? 0;
+    if (count >= maxPerBatch) return false;
+    // minInterval only blocks if we're in a DIFFERENT batch (prevents cross-tick spam)
+    if (count === 0) {
+      const last = this.lastPlayTime.get(category) ?? 0;
+      if (now - last < minIntervalMs) return false;
+    }
+    this.lastPlayTime.set(category, now);
+    this.playCounts.set(category, count + 1);
+    return true;
+  }
+
+  /** Pitch randomization — returns a multiplier near 1.0 */
+  private pitchVar(range = 0.06): number {
+    return 1 + (Math.random() - 0.5) * range * 2;
   }
 
   private note(freq: number, duration: number, gain: number, dest: GainNode, type: OscillatorType = 'square', startOffset = 0): void {
@@ -257,7 +331,8 @@ export class SoundManager {
     osc.stop(t0 + duration + 0.01);
   }
 
-  private noise(duration: number, gain: number, dest: GainNode, startOffset = 0): void {
+  /** Bandpass-filtered noise for shaped impact/whoosh sounds */
+  private filteredNoise(duration: number, gain: number, dest: GainNode, freq: number, q: number, startOffset = 0): void {
     const ac = this.ctx();
     const bufSize = Math.floor(ac.sampleRate * duration);
     let buf = this.noiseBufferCache.get(bufSize);
@@ -268,12 +343,17 @@ export class SoundManager {
       this.noiseBufferCache.set(bufSize, buf);
     }
     const src = ac.createBufferSource();
+    const filter = ac.createBiquadFilter();
     const g = ac.createGain();
     const t0 = ac.currentTime + startOffset;
     src.buffer = buf;
+    filter.type = 'bandpass';
+    filter.frequency.value = freq;
+    filter.Q.value = q;
     g.gain.setValueAtTime(gain, t0);
     g.gain.exponentialRampToValueAtTime(0.001, t0 + duration);
-    src.connect(g);
+    src.connect(filter);
+    filter.connect(g);
     g.connect(dest);
     src.start(t0);
     src.stop(t0 + duration + 0.01);
@@ -593,93 +673,210 @@ export class SoundManager {
     }, 200);
   }
 
-  private playBuildingPlaced(v: number): void {
-    const d = this.dest();
-    this.note(330, 0.06, v * 0.4, d, 'square', 0);
-    this.note(494, 0.06, v * 0.4, d, 'square', 0.065);
-    this.note(659, 0.10, v * 0.5, d, 'square', 0.13);
+  // ═══════════════════════════════════════════════
+  // SFX Generators — all use pitch randomization
+  // ═══════════════════════════════════════════════
+
+  private playBuildingPlaced(v: number, d: GainNode): void {
+    const p = this.pitchVar(0.04);
+    this.note(330 * p, 0.06, v * 0.35, d, 'square', 0);
+    this.note(494 * p, 0.06, v * 0.35, d, 'square', 0.065);
+    this.note(659 * p, 0.10, v * 0.4, d, 'square', 0.13);
   }
 
-  private playBuildingDestroyed(v: number): void {
-    const d = this.dest();
-    this.sweep(400, 50, 0.28, v * 0.5, d, 'sawtooth');
-    this.noise(0.25, v * 0.3, d);
+  private playBuildingDestroyed(v: number, d: GainNode): void {
+    const p = this.pitchVar(0.08);
+    this.sweep(380 * p, 50, 0.25, v * 0.35, d, 'sawtooth');
+    this.filteredNoise(0.2, v * 0.25, d, 600, 1.5);
   }
 
-  private playUnitKilled(v: number): void {
-    const d = this.dest();
-    this.sweep(280, 80, 0.09, v * 0.25, d, 'square');
+  private playMeleeHit(v: number, d: GainNode): void {
+    const p = this.pitchVar(0.12);
+    // Percussive thwack: filtered noise burst + low body thud
+    this.filteredNoise(0.04, v * 0.4, d, 1200 * p, 2);
+    this.sweep(110 * p, 55, 0.05, v * 0.25, d, 'triangle');
   }
 
-  private playNukeIncoming(v: number): void {
-    const d = this.dest();
-    this.sweep(220, 880, 0.8, v * 0.5, d, 'sawtooth', 0);
-    this.sweep(220, 880, 0.8, v * 0.4, d, 'sawtooth', 0.85);
+  private playRangedHit(v: number, d: GainNode): void {
+    const p = this.pitchVar(0.15);
+    // Pluck — high tick + filtered noise
+    this.note(700 * p, 0.025, v * 0.25, d, 'square');
+    this.filteredNoise(0.03, v * 0.15, d, 2000 * p, 3);
   }
 
-  private playNukeDetonated(v: number): void {
-    const d = this.dest();
-    this.note(60, 0.5, v * 0.6, d, 'sine');
-    this.note(40, 0.4, v * 0.5, d, 'sine', 0.05);
-    this.noise(0.55, v * 0.6, d);
-    this.sweep(300, 30, 0.5, v * 0.4, d, 'sawtooth');
+  private playUnitKilled(v: number, d: GainNode): void {
+    const p = this.pitchVar(0.1);
+    this.sweep(260 * p, 70, 0.1, v * 0.35, d, 'square');
+    this.filteredNoise(0.07, v * 0.2, d, 400, 1);
   }
 
-  private playDiamondExposed(v: number): void {
-    const d = this.dest();
+  private playUnitSpawn(v: number, d: GainNode): void {
+    const p = this.pitchVar(0.08);
+    // Soft ascending blip — subtle "ready" feedback
+    this.note(440 * p, 0.05, v * 0.2, d, 'triangle');
+    this.note(660 * p, 0.07, v * 0.25, d, 'triangle', 0.04);
+  }
+
+  private playTowerFire(v: number, d: GainNode): void {
+    const p = this.pitchVar(0.12);
+    // Short zap — brief high-freq burst
+    this.sweep(900 * p, 400 * p, 0.05, v * 0.2, d, 'sawtooth');
+    this.filteredNoise(0.03, v * 0.12, d, 3000, 4);
+  }
+
+  private playUpgradeComplete(v: number, d: GainNode): void {
+    const p = this.pitchVar(0.04);
+    // Bright chime — 2-note ascending with shimmer
+    this.note(523 * p, 0.1, v * 0.3, d, 'triangle');
+    this.note(784 * p, 0.15, v * 0.35, d, 'triangle', 0.08);
+    this.note(1568 * p, 0.1, v * 0.12, d, 'sine', 0.1); // shimmer overtone
+  }
+
+  private playAbilityLeap(v: number, d: GainNode): void {
+    const p = this.pitchVar(0.06);
+    // Whoosh + impact thud
+    this.sweep(200 * p, 600 * p, 0.08, v * 0.35, d, 'triangle');
+    this.filteredNoise(0.06, v * 0.25, d, 800, 2);
+    this.sweep(120 * p, 40, 0.06, v * 0.2, d, 'sine', 0.07);
+  }
+
+  private playAbilityCleave(v: number, d: GainNode): void {
+    const p = this.pitchVar(0.08);
+    // Wide metallic slash
+    this.sweep(500 * p, 150, 0.07, v * 0.3, d, 'sawtooth');
+    this.filteredNoise(0.05, v * 0.2, d, 1500, 2.5);
+  }
+
+  private playNukeIncoming(v: number, d: GainNode): void {
+    // Slow-attack warning siren — NOT startling.
+    // Soft filtered tone that swells over 0.8s, then repeats.
+    // Uses sine (smooth) at mid-range (600-900 Hz) to cut through without being shrill.
+    const ac = this.ctx();
+    const t0 = ac.currentTime;
+    for (let i = 0; i < 2; i++) {
+      const offset = i * 0.7;
+      const osc = ac.createOscillator();
+      const g = ac.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(600, t0 + offset);
+      osc.frequency.linearRampToValueAtTime(900, t0 + offset + 0.6);
+      // Slow attack: ramp from 0 → peak over 100ms (prevents startle)
+      g.gain.setValueAtTime(0.001, t0 + offset);
+      g.gain.linearRampToValueAtTime(v * 0.3, t0 + offset + 0.1);
+      g.gain.setValueAtTime(v * 0.3, t0 + offset + 0.5);
+      g.gain.exponentialRampToValueAtTime(0.001, t0 + offset + 0.65);
+      osc.connect(g);
+      g.connect(d);
+      osc.start(t0 + offset);
+      osc.stop(t0 + offset + 0.7);
+      // Sub-harmonic for body
+      const sub = ac.createOscillator();
+      const sg = ac.createGain();
+      sub.type = 'triangle';
+      sub.frequency.setValueAtTime(300, t0 + offset);
+      sub.frequency.linearRampToValueAtTime(450, t0 + offset + 0.6);
+      sg.gain.setValueAtTime(0.001, t0 + offset);
+      sg.gain.linearRampToValueAtTime(v * 0.15, t0 + offset + 0.1);
+      sg.gain.exponentialRampToValueAtTime(0.001, t0 + offset + 0.65);
+      sub.connect(sg);
+      sg.connect(d);
+      sub.start(t0 + offset);
+      sub.stop(t0 + offset + 0.7);
+    }
+  }
+
+  private playNukeDetonated(v: number, d: GainNode): void {
+    // Deep rumble + filtered noise burst — feels massive but not harsh
+    this.note(50, 0.6, v * 0.4, d, 'sine');
+    this.note(35, 0.5, v * 0.3, d, 'sine', 0.03);
+    this.filteredNoise(0.5, v * 0.35, d, 200, 0.8);
+    this.sweep(250, 25, 0.5, v * 0.25, d, 'triangle');
+  }
+
+  private playDiamondExposed(v: number, d: GainNode): void {
+    const p = this.pitchVar(0.03);
     const notes = [523, 659, 784, 1047];
-    notes.forEach((f, i) => this.note(f, 0.15, v * 0.45, d, 'square', i * 0.13));
-  }
-
-  private playDiamondCarried(v: number): void {
-    const d = this.dest();
-    this.note(1047, 0.07, v * 0.4, d, 'square', 0);
-    this.note(1319, 0.10, v * 0.5, d, 'square', 0.08);
-  }
-
-  private playHqDamaged(v: number): void {
-    const d = this.dest();
-    this.sweep(150, 50, 0.22, v * 0.55, d, 'square');
-    this.noise(0.18, v * 0.25, d);
-  }
-
-  private playMatchStart(v: number): void {
-    const d = this.dest();
-    const notes = [262, 330, 392, 523];
-    notes.forEach((f, i) => this.note(f, 0.12, v * 0.5, d, 'square', i * 0.11));
-  }
-
-  private playMatchEndWin(v: number): void {
-    const d = this.dest();
-    const notes = [523, 659, 784, 1047, 1047];
     notes.forEach((f, i) => {
-      const dur = i === notes.length - 1 ? 0.4 : 0.13;
-      this.note(f, dur, v * 0.5, d, 'square', i * 0.14);
+      this.note(f * p, 0.15, v * 0.35, d, 'triangle', i * 0.12);
+      this.note(f * p * 2, 0.08, v * 0.1, d, 'sine', i * 0.12 + 0.02); // octave shimmer
     });
   }
 
-  private playMatchEndLose(v: number): void {
-    const d = this.dest();
+  private playDiamondCarried(v: number, d: GainNode): void {
+    const p = this.pitchVar(0.04);
+    this.note(1047 * p, 0.07, v * 0.3, d, 'triangle', 0);
+    this.note(1319 * p, 0.10, v * 0.35, d, 'triangle', 0.07);
+  }
+
+  private playHqDamaged(v: number, d: GainNode): void {
+    const p = this.pitchVar(0.06);
+    // Low warning pulse — urgent but not piercing
+    this.sweep(140 * p, 50, 0.2, v * 0.35, d, 'triangle');
+    this.filteredNoise(0.15, v * 0.15, d, 300, 1.2);
+  }
+
+  private playMatchStart(v: number, d: GainNode): void {
+    const notes = [262, 330, 392, 523];
+    notes.forEach((f, i) => this.note(f, 0.12, v * 0.4, d, 'triangle', i * 0.11));
+  }
+
+  private playMatchEndWin(v: number, d: GainNode): void {
+    const notes = [523, 659, 784, 1047, 1047];
+    notes.forEach((f, i) => {
+      const dur = i === notes.length - 1 ? 0.4 : 0.13;
+      this.note(f, dur, v * 0.4, d, 'triangle', i * 0.14);
+    });
+  }
+
+  private playMatchEndLose(v: number, d: GainNode): void {
     const notes = [392, 330, 262, 220];
-    notes.forEach((f, i) => this.note(f, 0.18, v * 0.45, d, 'square', i * 0.16));
+    notes.forEach((f, i) => this.note(f, 0.18, v * 0.35, d, 'triangle', i * 0.16));
   }
 
   play(event: SoundEvent, camera: Camera, canvas: HTMLCanvasElement): void {
     const v = this.spatialGain(event.x, event.y, camera, canvas);
     if (v < 0.01) return;
 
-    switch (event.type) {
-      case 'building_placed': this.playBuildingPlaced(v); break;
-      case 'building_destroyed': this.playBuildingDestroyed(v); break;
-      case 'unit_killed': this.playUnitKilled(v); break;
-      case 'nuke_incoming': this.playNukeIncoming(v); break;
-      case 'nuke_detonated': this.playNukeDetonated(v); break;
-      case 'diamond_exposed': this.playDiamondExposed(v); break;
-      case 'diamond_carried': this.playDiamondCarried(v); break;
-      case 'hq_damaged': this.playHqDamaged(v); break;
-      case 'match_start': this.playMatchStart(v); break;
-      case 'match_end_win': this.playMatchEndWin(v); break;
-      case 'match_end_lose': this.playMatchEndLose(v); break;
+    const pan = this.spatialPan(event.x, camera, canvas);
+    const t = event.type;
+
+    // Per-category cooldowns: (minIntervalMs, maxPerFrame)
+    // Frequent combat sounds get strict limits; rare/important sounds always play
+    switch (t) {
+      case 'melee_hit':
+        if (!this.shouldPlay('melee', 30, 3)) return;
+        this.playMeleeHit(v, this.spatialDest(pan)); break;
+      case 'ranged_hit':
+        if (!this.shouldPlay('ranged', 40, 2)) return;
+        this.playRangedHit(v, this.spatialDest(pan)); break;
+      case 'unit_killed':
+        if (!this.shouldPlay('killed', 40, 3)) return;
+        this.playUnitKilled(v, this.spatialDest(pan)); break;
+      case 'unit_spawn':
+        if (!this.shouldPlay('spawn', 80, 2)) return;
+        this.playUnitSpawn(v, this.spatialDest(pan)); break;
+      case 'tower_fire':
+        if (!this.shouldPlay('tower', 60, 2)) return;
+        this.playTowerFire(v, this.spatialDest(pan)); break;
+      case 'ability_leap':
+        if (!this.shouldPlay('leap', 100, 2)) return;
+        this.playAbilityLeap(v, this.spatialDest(pan)); break;
+      case 'ability_cleave':
+        if (!this.shouldPlay('cleave', 80, 2)) return;
+        this.playAbilityCleave(v, this.spatialDest(pan)); break;
+      // Below: less frequent sounds — always play, still get panning
+      case 'building_placed': this.playBuildingPlaced(v, this.spatialDest(pan)); break;
+      case 'building_destroyed': this.playBuildingDestroyed(v, this.spatialDest(pan)); break;
+      case 'upgrade_complete': this.playUpgradeComplete(v, this.spatialDest(pan)); break;
+      case 'nuke_incoming': this.playNukeIncoming(v, this.spatialDest(pan)); break;
+      case 'nuke_detonated': this.playNukeDetonated(v, this.spatialDest(pan)); break;
+      case 'diamond_exposed': this.playDiamondExposed(v, this.spatialDest(pan)); break;
+      case 'diamond_carried': this.playDiamondCarried(v, this.spatialDest(pan)); break;
+      case 'hq_damaged': this.playHqDamaged(v, this.spatialDest(pan)); break;
+      // Global sounds — no panning
+      case 'match_start': this.playMatchStart(v, this.dest()); break;
+      case 'match_end_win': this.playMatchEndWin(v, this.dest()); break;
+      case 'match_end_lose': this.playMatchEndLose(v, this.dest()); break;
     }
   }
 

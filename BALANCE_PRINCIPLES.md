@@ -1,4 +1,4 @@
-# Spawn Wars — Auto-Balance Foundational Principles
+# Lanecraft — Auto-Balance Foundational Principles
 
 This document defines the **immutable design principles** that any automated balancing system must respect. Stat tuning must never flatten race identity — the goal is parity of *power*, not sameness of *feel*.
 

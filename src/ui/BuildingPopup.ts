@@ -90,9 +90,10 @@ export class BuildingPopup {
   private laneBtnRect = { x: 0, y: 0, w: 0, h: 0 };
   private statsBtnRect = { x: 0, y: 0, w: 0, h: 0 };
 
-  open(buildingId: number): void {
+  open(buildingId: number, isMobile = false): void {
     this.targetBuildingId = buildingId;
-    this.showStats = infoPanelPreference === 'open';
+    // Default stats closed on mobile to save space
+    this.showStats = isMobile ? false : infoPanelPreference === 'open';
     this.animTick = 0;
   }
 
@@ -160,14 +161,14 @@ export class BuildingPopup {
 
     // --- Responsive sizing ---
     const isMobile = canvasW < 600;
-    const PAD = isMobile ? 8 : 12;
-    const POPUP_W = isMobile ? Math.min(310, canvasW - 12) : 340;
-    const UPGRADE_BTN_H = isMobile ? 126 : 132;
-    const SPRITE_SIZE = isMobile ? 38 : 44;
-    const FOOTER_BTN_H = isMobile ? MIN_TAP + 4 : MIN_TAP + 8;
-    const HEADER_H = 36;
-    const ICON_SIZE = isMobile ? 14 : 16;
-    const GAP = 6;
+    const PAD = isMobile ? 6 : 12;
+    const POPUP_W = isMobile ? Math.min(canvasW - 8, 340) : 340;
+    const UPGRADE_BTN_H = isMobile ? 96 : 132;
+    const SPRITE_SIZE = isMobile ? 30 : 44;
+    const FOOTER_BTN_H = isMobile ? MIN_TAP + 2 : MIN_TAP + 8;
+    const HEADER_H = isMobile ? 30 : 36;
+    const ICON_SIZE = isMobile ? 13 : 16;
+    const GAP = isMobile ? 4 : 6;
 
     // Calculate popup height
     const upgradeRowH = options.length > 0 ? UPGRADE_BTN_H + GAP : 0;
@@ -200,8 +201,8 @@ export class BuildingPopup {
     ctx.setTransform(window.devicePixelRatio || 1, 0, 0, window.devicePixelRatio || 1, 0, 0);
 
     // === Background panel (WoodTable 9-slice) — draw oversized for visual padding ===
-    const bgPadX = Math.round(popupW * 0.15);
-    const bgPadY = Math.round(popupH * 0.10);
+    const bgPadX = Math.round(popupW * (isMobile ? 0.08 : 0.15));
+    const bgPadY = Math.round(popupH * (isMobile ? 0.06 : 0.10));
     if (!ui.drawWoodTable(ctx, px - bgPadX, py - bgPadY, popupW + bgPadX * 2, popupH + bgPadY * 2)) {
       ctx.fillStyle = 'rgba(30,20,10,0.92)';
       ctx.fillRect(px - bgPadX, py - bgPadY, popupW + bgPadX * 2, popupH + bgPadY * 2);
@@ -374,8 +375,8 @@ export class BuildingPopup {
     }
 
     // Content inset — keep all text/sprites inside the button's visible region
-    const insetX = isMobile ? 10 : 14;
-    const insetY = isMobile ? 10 : 14;
+    const insetX = isMobile ? 6 : 14;
+    const insetY = isMobile ? 6 : 14;
     const cx = x + insetX;
     const cy = y + insetY;
     const cw = w - insetX * 2;
@@ -441,11 +442,11 @@ export class BuildingPopup {
 
     // Upgrade name (prominent, word-wrap to 2 lines) — pushed down into blue area
     ctx.textAlign = 'left';
-    const nameFontSize = isMobile ? 13 : 14;
+    const nameFontSize = isMobile ? 12 : 14;
     ctx.font = `bold ${nameFontSize}px monospace`;
     const name = opt.name ?? opt.choice;
-    const nameLines = this.wordWrap(ctx, name, textW, 2);
-    let textY = cy + 16;
+    const nameLines = this.wordWrap(ctx, name, textW, isMobile ? 1 : 2);
+    let textY = cy + (isMobile ? 12 : 16);
     for (const line of nameLines) {
       shadowText(line, textLeft, textY);
       ctx.fillStyle = canAfford ? '#fff' : '#aaa';
@@ -454,12 +455,12 @@ export class BuildingPopup {
     }
 
     // Description — wrap to fit, normalize Y so both buttons align
-    const descFontSize = isMobile ? 11 : 12;
+    const descFontSize = isMobile ? 10 : 12;
     ctx.font = `${descFontSize}px monospace`;
     const desc = opt.desc ?? '';
     const descLines = this.wordWrap(ctx, desc, textW, 2);
-    // Fixed Y for description — account for 2-line wrapped names
-    const descY = cy + 16 + (nameFontSize + 2) * 2 + 4;
+    // Fixed Y for description — account for wrapped names
+    const descY = cy + (isMobile ? 12 : 16) + (nameFontSize + 2) * (isMobile ? 1 : 2) + 2;
     let descLineY = descY;
     for (const line of descLines) {
       shadowText(line, textLeft, descLineY);
@@ -469,7 +470,7 @@ export class BuildingPopup {
     }
 
     // Cost with resource icons — pulled up into blue area (above bottom edge)
-    const costY = cy + ch - 14;
+    const costY = cy + ch - (isMobile ? 8 : 14);
     let costX = textLeft;
     ctx.font = `bold ${isMobile ? 11 : 12}px monospace`;
 

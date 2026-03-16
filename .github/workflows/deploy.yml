@@ -73,7 +73,7 @@ jobs:
           done
           PAYLOAD=$(jq -n \
             --rawfile desc "$DESCFILE" \
-            --arg title "Spawn Wars Deployed" \
+            --arg title "Lanecraft Deployed" \
             --arg url "$DEPLOY_URL" \
             --arg footer "Deployed by $AUTHOR" \
             '{embeds: [{title: $title, description: ($desc | rtrimstr("\n")), url: $url, color: 5763719, footer: {text: $footer}}]}')

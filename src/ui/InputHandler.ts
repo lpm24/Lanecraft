@@ -42,15 +42,15 @@ const ASSIGNMENT_LABELS: Record<HarvesterAssignment, string> = {
   [HarvesterAssignment.Center]: 'C Center',
 };
 
-const LANE_MODE_STORAGE_KEY = 'spawnwars.laneToggleMode';
-const UI_FEEDBACK_STORAGE_KEY = 'spawnwars.uiFeedbackEnabled';
-const RADIAL_ARM_MS_STORAGE_KEY = 'spawnwars.radialArmMs';
-const RADIAL_SIZE_STORAGE_KEY = 'spawnwars.radialSize';
-const RADIAL_A11Y_STORAGE_KEY = 'spawnwars.radialA11y';
-const CAMERA_SNAP_STORAGE_KEY = 'spawnwars.cameraSnapOnSelect';
-const MINIMAP_PAN_STORAGE_KEY = 'spawnwars.minimapPanEnabled';
-const STICKY_BUILD_STORAGE_KEY = 'spawnwars.stickyBuildMode';
-const MOBILE_HINT_SEEN_KEY = 'spawnwars.mobileHintSeen';
+const LANE_MODE_STORAGE_KEY = 'lanecraft.laneToggleMode';
+const UI_FEEDBACK_STORAGE_KEY = 'lanecraft.uiFeedbackEnabled';
+const RADIAL_ARM_MS_STORAGE_KEY = 'lanecraft.radialArmMs';
+const RADIAL_SIZE_STORAGE_KEY = 'lanecraft.radialSize';
+const RADIAL_A11Y_STORAGE_KEY = 'lanecraft.radialA11y';
+const CAMERA_SNAP_STORAGE_KEY = 'lanecraft.cameraSnapOnSelect';
+const MINIMAP_PAN_STORAGE_KEY = 'lanecraft.minimapPanEnabled';
+const STICKY_BUILD_STORAGE_KEY = 'lanecraft.stickyBuildMode';
+const MOBILE_HINT_SEEN_KEY = 'lanecraft.mobileHintSeen';
 const NUKE_LOCKOUT_SECONDS = 60;
 
 export class InputHandler {
@@ -74,6 +74,7 @@ export class InputHandler {
   private queuedQuickChat: { message: string; at: number } | null = null;
   private mobileHintVisible = false;
   private settingsOpen = false;
+  private settingsSliderDrag: 'music' | 'sfx' | null = null;
   private activeTouchPointers = new Set<number>();
   private laneToggleMode: 'double' | 'single' = 'double';
   private radialArmMs = 320;
@@ -99,7 +100,7 @@ export class InputHandler {
 
   /** Called when the player taps "Quit Game" in the settings panel. */
   onQuitGame: (() => void) | null = null;
-  /** Called when the player taps "Concede" in the settings panel (solo only). */
+  /** Called when the player taps "Concede" in the settings panel. */
   onConcede: (() => void) | null = null;
 
   constructor(game: Game, canvas: HTMLCanvasElement, camera: Camera, ui?: UIAssets, sprites?: SpriteLoader) {
@@ -264,8 +265,10 @@ export class InputHandler {
     const audio = getAudioSettings();
     const vis = getVisualSettings();
 
-    // Panel background
-    if (!this.ui.drawWoodTable(ctx, sx, sy, pw, panelH)) {
+    // Panel background — draw oversized to account for 9-slice dead space
+    const bgPadX = pw * 0.15;
+    const bgPadY = panelH * 0.15;
+    if (!this.ui.drawWoodTable(ctx, sx - bgPadX, sy - bgPadY, pw + bgPadX * 2, panelH + bgPadY * 2)) {
       ctx.fillStyle = 'rgba(0,0,0,0.92)';
       ctx.fillRect(sx, sy, pw, panelH);
     }
@@ -405,6 +408,7 @@ export class InputHandler {
     // Click outside panel → close
     if (cx < sx || cx >= sx + pw || cy < sy || cy >= sy + panelH) {
       this.settingsOpen = false;
+      this.settingsSliderDrag = null;
       return true;
     }
     // Close button
@@ -509,6 +513,19 @@ export class InputHandler {
     return true; // consume click inside panel
   }
 
+  private applySettingsSlider(cx: number, L: ReturnType<typeof InputHandler.prototype.getSettingsPanelLayout>): void {
+    const rx = L.sx + L.pad;
+    const rw = L.pw - L.pad * 2;
+    const trackX = rx + 92;
+    const trackW = rw - 100;
+    const v = Math.max(0, Math.min(1, (cx - trackX) / trackW));
+    if (this.settingsSliderDrag === 'music') {
+      updateAudioSettings({ musicVolume: v });
+    } else if (this.settingsSliderDrag === 'sfx') {
+      updateAudioSettings({ sfxVolume: v });
+    }
+  }
+
   private eventToWorld(e: MouseEvent): { x: number; y: number } {
     const rect = this.canvas.getBoundingClientRect();
     const canvasX = e.clientX - rect.left;
@@ -596,6 +613,7 @@ export class InputHandler {
         this.quickChatRadialActive = false;
         this.quickChatRadialCenter = null;
         this.settingsOpen = false;
+        this.settingsSliderDrag = null;
         this.selectedBuilding = null;
         this.nukeTargeting = false;
         this.selectedUnitId = null;
@@ -652,6 +670,47 @@ export class InputHandler {
           }
         }
       }
+    }, sig);
+
+    // Slider drag support for settings panel
+    this.canvas.addEventListener('pointerdown', (e) => {
+      if (!this.settingsOpen) return;
+      const rect = this.canvas.getBoundingClientRect();
+      const cx = e.clientX - rect.left;
+      const cy = e.clientY - rect.top;
+      const L = this.getSettingsPanelLayout();
+      const rx = L.sx + L.pad;
+      const rw = L.pw - L.pad * 2;
+      const inRow = (rowY: number) => cx >= rx && cx < rx + rw && cy >= L.sy + rowY && cy < L.sy + rowY + L.rowH;
+      if (inRow(L.musicRowY)) {
+        this.settingsSliderDrag = 'music';
+        this.applySettingsSlider(cx, L);
+        e.preventDefault();
+      } else if (inRow(L.sfxRowY)) {
+        this.settingsSliderDrag = 'sfx';
+        this.applySettingsSlider(cx, L);
+        e.preventDefault();
+      }
+    }, sig);
+
+    this.canvas.addEventListener('pointermove', (e) => {
+      if (!this.settingsSliderDrag) return;
+      const rect = this.canvas.getBoundingClientRect();
+      const cx = e.clientX - rect.left;
+      this.applySettingsSlider(cx, this.getSettingsPanelLayout());
+      e.preventDefault();
+    }, sig);
+
+    this.canvas.addEventListener('pointerup', () => {
+      if (this.settingsSliderDrag) {
+        this.settingsSliderDrag = null;
+        // Suppress the click event that fires after pointer up on a drag
+        this.suppressClicksUntil = Date.now() + 50;
+      }
+    }, sig);
+
+    this.canvas.addEventListener('pointercancel', () => {
+      this.settingsSliderDrag = null;
     }, sig);
 
     this.canvas.addEventListener('click', (e) => {
@@ -861,7 +920,8 @@ export class InputHandler {
     }
 
     // Open building popup for spawners and towers
-    this.buildingPopup.open(building.id);
+    const isMobile = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+    this.buildingPopup.open(building.id, isMobile);
   }
 
   private getUpgradeChoice(building: { type: BuildingType; upgradePath: string[] }, alternate: boolean): string | null {
@@ -921,8 +981,8 @@ export class InputHandler {
     ctx.fillStyle = 'rgba(0, 0, 0, 0.82)';
     ctx.fillRect(0, 0, W, H);
 
-    const pw = Math.min(W - 24, 760);
-    const ph = Math.min(H - 24, compact ? 560 : 640);
+    const pw = Math.min(W - 12, 800);
+    const ph = Math.min(H - 12, compact ? 700 : 800);
     const px = (W - pw) / 2;
     const py = (H - ph) / 2;
 
@@ -1840,7 +1900,7 @@ export class InputHandler {
     const now = Date.now();
     if (!this.devBalanceCache.data || now - this.devBalanceCache.lastRefresh > 2000) {
       try {
-        const raw = localStorage.getItem('spawnwars.balanceLog');
+        const raw = localStorage.getItem('lanecraft.balanceLog');
         this.devBalanceCache.data = raw ? JSON.parse(raw) : [];
       } catch { this.devBalanceCache.data = []; }
       this.devBalanceCache.lastRefresh = now;

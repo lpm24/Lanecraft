@@ -2051,6 +2051,11 @@ function botDoBuildOrder(
       if (tryBuild(BuildingType.CasterSpawner)) return true;
       if (tryBuild(BuildingType.MeleeSpawner)) return true;
     }
+    // Resource-starved: can't afford any spawner — build a hut to accelerate income
+    if (!atHutCap && hutCount < profile.maxHuts && botCanAffordHut(state, playerId, hutCount)) {
+      emit({ type: 'build_hut', playerId });
+      return true;
+    }
     return false;
   }
 
@@ -2070,9 +2075,8 @@ function botDoBuildOrder(
     for (const [type, count, target] of needs) {
       if (count < target && tryBuild(type)) return true;
     }
-    // If we need spawners but can't afford the preferred type, try any spawner
-    const totalSpawnersNow = meleeCount + rangedCount + casterCount;
-    if (totalSpawnersNow < 2) {
+    // If we can't afford the preferred type, try any spawner we can afford
+    if (!atSpawnerCap) {
       for (const [type, ,] of needs) {
         if (tryBuild(type)) return true;
       }
@@ -2092,6 +2096,11 @@ function botDoBuildOrder(
     }
     // Keep building huts beyond profile targets if we haven't hit our cap
     if (!atHutCap && tryHut()) return true;
+    // Resource-starved: nothing else affordable — build a hut for economy
+    if (!atHutCap && hutCount < diff.maxHuts && botCanAffordHut(state, playerId, hutCount)) {
+      emit({ type: 'build_hut', playerId });
+      return true;
+    }
     return false;
   }
 

@@ -35,7 +35,7 @@ const RANDOM_INDEX = RACES.length; // index 9
 const COLS = 3;
 const ROWS = 3;
 
-const LAST_RACE_KEY = 'spawnwars.lastRace';
+const LAST_RACE_KEY = 'lanecraft.lastRace';
 
 function woodText(
   ctx: CanvasRenderingContext2D, text: string, x: number, y: number,
@@ -284,7 +284,7 @@ export class RaceSelectScene implements Scene {
     const h = this.canvas.clientHeight;
     const headerH = 70 + getSafeTop();
     const footerH = 80;
-    const randomBtnReserve = 40; // space for the random button below the grid
+    const randomBtnReserve = 60; // space for the random button below the grid
     const availH = h - headerH - footerH - randomBtnReserve;
     const availW = w - 40;
     const gapX = 8;
@@ -346,14 +346,14 @@ export class RaceSelectScene implements Scene {
     const h = this.canvas.clientHeight;
     const boxes = this.getBoxLayout();
     const lastRow = boxes[RACES.length - 1]; // Tenders (bottom-right)
-    const btnW = lastRow.w * 0.8;
-    const btnH = Math.max(22, lastRow.h * 0.22);
+    const btnW = lastRow.w; // same width as a race tile
+    const btnH = Math.max(40, lastRow.h * 0.40); // ~100% taller than before
     const gridBottom = lastRow.y + lastRow.h;
     // Cap so it doesn't overlap the bottom BACK/NEXT buttons (pinned at h - 72, 56px tall)
     const maxY = h - 72 - btnH - 8;
     return {
       x: (this.canvas.clientWidth - btnW) / 2,
-      y: Math.min(gridBottom + 6, maxY),
+      y: Math.min(gridBottom + 8, maxY),
       w: btnW,
       h: btnH,
     };
@@ -391,10 +391,13 @@ export class RaceSelectScene implements Scene {
     ctx.fillStyle = '#fff';
     ctx.fillText('CHOOSE YOUR RACE', w / 2, ribbonY + ribbonH * 0.58);
 
-    const hintSize = Math.max(9, Math.min(w / 55, 12));
-    ctx.font = `${hintSize}px monospace`;
-    ctx.fillStyle = 'rgba(255,255,255,0.5)';
-    ctx.fillText('Arrow keys + Enter  |  Click to select', w / 2, ribbonY + ribbonH + 12);
+    const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+    if (!isTouchDevice) {
+      const hintSize = Math.max(9, Math.min(w / 55, 12));
+      ctx.font = `${hintSize}px monospace`;
+      ctx.fillStyle = 'rgba(255,255,255,0.5)';
+      ctx.fillText('Arrow keys + Enter  |  Click to select', w / 2, ribbonY + ribbonH + 12);
+    }
 
     const boxes = this.getBoxLayout();
     const fontSize = Math.max(10, Math.min(boxes[0].w / 8, 16));
@@ -431,8 +434,8 @@ export class RaceSelectScene implements Scene {
       const cx = box.x + box.w / 2;
       const unitTypes: ('melee' | 'ranged' | 'caster')[] = ['melee', 'ranged', 'caster'];
       const spriteSlotW = box.w / 3;
-      const spriteZoneH = box.h * 0.38;
-      const spriteBaseY = box.y + 6 + spriteZoneH;
+      const spriteZoneH = box.h * 0.35;
+      const spriteBaseY = box.y + 4 + spriteZoneH;
       for (let ui = 0; ui < unitTypes.length; ui++) {
         const spriteData = this.sprites.getUnitSprite(race.race, unitTypes[ui], 0);
         if (!spriteData) continue;
@@ -450,7 +453,7 @@ export class RaceSelectScene implements Scene {
       }
 
       const nameFontSize = fontSize * 1.5;
-      const nameY = box.y + box.h * 0.50;
+      const nameY = box.y + box.h * 0.53;
       ctx.textAlign = 'center';
       ctx.font = `bold ${nameFontSize}px monospace`;
       const nameColor = isSelected ? colors.primary : '#fff';
@@ -461,7 +464,7 @@ export class RaceSelectScene implements Scene {
 
       const iconSize = fontSize * 1.8;
       const iconGap = iconSize * 0.5;
-      const iconY = box.y + box.h * 0.70;
+      const iconY = box.y + box.h * 0.73;
       const totalIconW = iconSize * 2 + iconGap;
       const iconStartX = cx - totalIconW / 2;
       for (let ri = 0; ri < 2; ri++) {

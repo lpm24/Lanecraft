@@ -2,7 +2,7 @@ import { Race } from '../simulation/types';
 
 // ─── ELO Rating System ───
 
-const ELO_STORAGE_KEY = 'spawnwars.duelElo';
+const ELO_STORAGE_KEY = 'lanecraft.duelElo';
 export const ELO_DEFAULT = 1200;
 const ELO_K = 32;
 

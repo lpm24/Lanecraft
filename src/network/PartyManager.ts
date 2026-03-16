@@ -108,7 +108,7 @@ export class PartyManager {
 
   set localName(name: string) {
     this._localName = name;
-    try { localStorage.setItem('spawnwars.playerName', name); } catch {}
+    try { localStorage.setItem('lanecraft.playerName', name); } catch {}
     // Push name update if in a party
     if (this._state && this.partyCode) {
       const db = getDb();
@@ -118,11 +118,11 @@ export class PartyManager {
 
   private loadName(): string {
     try {
-      const saved = localStorage.getItem('spawnwars.playerName');
+      const saved = localStorage.getItem('lanecraft.playerName');
       if (saved) return saved;
     } catch {}
     const name = defaultName();
-    try { localStorage.setItem('spawnwars.playerName', name); } catch {}
+    try { localStorage.setItem('lanecraft.playerName', name); } catch {}
     return name;
   }
 

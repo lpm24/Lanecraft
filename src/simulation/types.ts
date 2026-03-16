@@ -426,6 +426,7 @@ export interface ProjectileState {
   extraSlowStacks?: number;
   splashDamagePct?: number;
   lifestealPct?: number;
+  isTowerShot?: boolean;
 }
 
 export interface FloatingText {
@@ -506,7 +507,10 @@ export interface CombatEvent {
 
 export type SoundEventType =
   | 'building_placed' | 'building_destroyed'
-  | 'unit_killed' | 'nuke_incoming' | 'nuke_detonated'
+  | 'unit_killed' | 'melee_hit' | 'ranged_hit'
+  | 'unit_spawn' | 'tower_fire' | 'upgrade_complete'
+  | 'ability_leap' | 'ability_cleave'
+  | 'nuke_incoming' | 'nuke_detonated'
   | 'diamond_exposed' | 'diamond_carried' | 'hq_damaged'
   | 'match_start' | 'match_end_win' | 'match_end_lose';
 
@@ -522,6 +526,9 @@ export interface PlayerStats {
   totalStoneEarned: number;
   totalDamageDealt: number;
   totalDamageNearHQ: number; // within 20 tiles of own HQ
+  totalDamageTaken: number;
+  towerDamageDealt: number;
+  totalHealing: number;
   unitsSpawned: number;
   unitsLost: number;
   nukeKills: number;
@@ -533,6 +540,7 @@ export function createPlayerStats(): PlayerStats {
   return {
     totalGoldEarned: 0, totalWoodEarned: 0, totalStoneEarned: 0,
     totalDamageDealt: 0, totalDamageNearHQ: 0,
+    totalDamageTaken: 0, towerDamageDealt: 0, totalHealing: 0,
     unitsSpawned: 0, unitsLost: 0, nukeKills: 0,
     diamondPickups: 0, diamondTimeHeld: 0,
   };
@@ -598,4 +606,5 @@ export type GameCommand =
   | { type: 'set_hut_assignment'; playerId: number; hutId: number; assignment: HarvesterAssignment }
   | { type: 'fire_nuke'; playerId: number; x: number; y: number }
   | { type: 'ping'; playerId: number; x: number; y: number }
-  | { type: 'quick_chat'; playerId: number; message: string };
+  | { type: 'quick_chat'; playerId: number; message: string }
+  | { type: 'concede'; playerId: number };

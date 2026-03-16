@@ -33,9 +33,9 @@ const MODE_OPTIONS: ModeOption[] = [
   { label: '4v4', color: '#ff6e40', map: WARZONE_MAP, teamSize: 4 },
 ];
 
-const LAST_DIFFICULTY_KEY = 'spawnwars.lastDifficulty';
-const LAST_MODE_KEY = 'spawnwars.lastMode';
-const LAST_FOG_KEY = 'spawnwars.lastFogOfWar';
+const LAST_DIFFICULTY_KEY = 'lanecraft.lastDifficulty';
+const LAST_MODE_KEY = 'lanecraft.lastMode';
+const LAST_FOG_KEY = 'lanecraft.lastFogOfWar';
 
 function shadowText(
   ctx: CanvasRenderingContext2D, text: string, x: number, y: number,
@@ -228,12 +228,12 @@ export class DifficultySelectScene implements Scene {
     const totalW = Math.min(w * 0.9, 420);
     const gap = compact ? 6 : 10;
     const btnW = (totalW - gap * (MODE_OPTIONS.length - 1)) / MODE_OPTIONS.length;
-    const btnH = compact ? 34 : 44;
+    const btnH = compact ? 40 : 44;
     const startX = (w - totalW) / 2;
 
     // Position halfway between ribbon bottom and difficulty cards top
     const ribbonBottom = (compact ? 48 : 58) + 8 + getSafeTop();
-    const cardH = compact ? 38 : 48;
+    const cardH = compact ? 44 : 48;
     const cardGap = compact ? 4 : 8;
     const totalCardsH = DIFFICULTIES.length * cardH + (DIFFICULTIES.length - 1) * cardGap;
     const btnSpace = compact ? 56 : 80;
@@ -250,7 +250,7 @@ export class DifficultySelectScene implements Scene {
 
   private getModeButtonIndexAt(cx: number, cy: number): number {
     const btns = this.getModeButtonLayout();
-    const pad = 4;
+    const pad = 8;
     for (let i = 0; i < btns.length; i++) {
       const b = btns[i];
       if (cx >= b.x - pad && cx <= b.x + b.w + pad && cy >= b.y - pad && cy <= b.y + b.h + pad) return i;
@@ -269,7 +269,7 @@ export class DifficultySelectScene implements Scene {
     const modeBtns = this.getModeButtonLayout();
     const modeBottom = modeBtns[0].y + modeBtns[0].h;
     const topMargin = modeBottom + (compact ? 8 : 14);
-    const cardH = compact ? 38 : 48;
+    const cardH = compact ? 44 : 48;
     const fogH = compact ? 30 : 36;
     const totalH = DIFFICULTIES.length * cardH + (DIFFICULTIES.length - 1) * gap + gap + fogH;
     const btnSpace = compact ? 56 : 80;
@@ -284,11 +284,11 @@ export class DifficultySelectScene implements Scene {
     }));
   }
 
-  private get compact(): boolean { return this.canvas.clientHeight < 700; }
+  private get compact(): boolean { return this.canvas.clientHeight < 560; }
 
   private getCardIndexAt(cx: number, cy: number): number {
     const cards = this.getCardLayout();
-    const pad = 4;
+    const pad = 6;
     for (let i = 0; i < cards.length; i++) {
       const c = cards[i];
       if (cx >= c.x - pad && cx <= c.x + c.w + pad && cy >= c.y - pad && cy <= c.y + c.h + pad) return i;
@@ -304,8 +304,8 @@ export class DifficultySelectScene implements Scene {
     const totalBtnW = Math.min(w * 0.9, 440);
     const btnW = (totalBtnW - btnGap) / 2;
     const rowX = (w - totalBtnW) / 2;
-    const btnH = compact ? 42 : 56;
-    const btnY = h - (compact ? 52 : 72);
+    const btnH = compact ? 48 : 56;
+    const btnY = h - (compact ? 58 : 72);
     return { backX: rowX, startX: rowX + btnW + btnGap, btnW, btnH, btnY };
   }
 
