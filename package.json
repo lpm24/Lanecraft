@@ -10,6 +10,7 @@
     "cap:build": "cross-env CAP_BUILD=1 npm run build",
     "cap:sync": "npx cap sync",
     "cap:ios": "npm run cap:build && npx cap sync ios",
+    "cap:android": "npm run cap:build && npx cap sync android && npx cap open android",
     "preview": "vite preview",
     "test:sim": "tsc -p tsconfig.simtest.json && node -e \"require('fs').mkdirSync('dist-simtest',{recursive:true});require('fs').writeFileSync('dist-simtest/package.json','{\\\"type\\\":\\\"commonjs\\\"}')\" && node dist-simtest/tests/simSmoke.js",
     "balance": "tsc -p tsconfig.simtest.json && node -e \"require('fs').mkdirSync('dist-simtest',{recursive:true});require('fs').writeFileSync('dist-simtest/package.json','{\\\"type\\\":\\\"commonjs\\\"}')\" && node dist-simtest/tests/balanceSim.js"
@@ -22,6 +23,8 @@
     "vite": "^7.3.1"
   },
   "dependencies": {
+    "@capacitor/android": "^8.2.0",
+    "@capacitor/app": "^8.0.1",
     "@capacitor/core": "^8.2.0",
     "@capacitor/ios": "^8.2.0",
     "firebase": "^12.10.0"

@@ -1,0 +1,89 @@
+name: Android Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_name:
+        description: 'Version name (e.g. 1.0.0)'
+        required: true
+        default: '1.0.0'
+      version_code:
+        description: 'Version code (integer, must increase each release)'
+        required: true
+        default: '1'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build web assets
+        run: CAP_BUILD=1 npm run build
+
+      - name: Add Android platform
+        run: npx cap add android
+
+      - name: Sync Capacitor Android
+        run: npx cap sync android
+
+      - name: Set version code and name
+        run: |
+          sed -i "s/versionCode 1/versionCode ${{ inputs.version_code }}/" android/app/build.gradle
+          sed -i "s/versionName \"1.0\"/versionName \"${{ inputs.version_name }}\"/" android/app/build.gradle
+          grep -q "versionCode ${{ inputs.version_code }}" android/app/build.gradle || { echo "ERROR: versionCode not set"; exit 1; }
+          grep -q "versionName \"${{ inputs.version_name }}\"" android/app/build.gradle || { echo "ERROR: versionName not set"; exit 1; }
+
+      - name: Set app icon
+        run: |
+          sudo apt-get install -y imagemagick > /dev/null 2>&1
+          ICON=public/icons/app-icon-1024.png
+          rm -rf android/app/src/main/res/mipmap-anydpi-v26
+          for pair in mdpi:48 hdpi:72 xhdpi:96 xxhdpi:144 xxxhdpi:192; do
+            DPI=${pair%%:*}; SIZE=${pair##*:}
+            DIR=android/app/src/main/res/mipmap-$DPI
+            convert "$ICON" -resize ${SIZE}x${SIZE} "$DIR/ic_launcher.png"
+            cp "$DIR/ic_launcher.png" "$DIR/ic_launcher_round.png"
+          done
+
+      - name: Decode keystore
+        run: echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > android/keystore.jks
+
+      - name: Build signed release AAB
+        working-directory: android
+        run: |
+          ./gradlew bundleRelease \
+            -Pandroid.injected.signing.store.file=${{ github.workspace }}/android/keystore.jks \
+            -Pandroid.injected.signing.store.password=${{ secrets.ANDROID_KEYSTORE_PASSWORD }} \
+            -Pandroid.injected.signing.key.alias=${{ secrets.ANDROID_KEY_ALIAS }} \
+            -Pandroid.injected.signing.key.password=${{ secrets.ANDROID_KEY_PASSWORD }}
+
+      - name: Upload AAB artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Lanecraft-${{ inputs.version_name }}.aab
+          path: android/app/build/outputs/bundle/release/app-release.aab
+
+      - name: Upload to Google Play
+        if: env.GPLAY_KEY != ''
+        env:
+          GPLAY_KEY: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: com.krool.spawnwars
+          releaseFiles: android/app/build/outputs/bundle/release/app-release.aab
+          track: internal
+          status: draft
