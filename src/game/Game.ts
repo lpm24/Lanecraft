@@ -35,6 +35,7 @@ export class Game {
   onMatchEnd: (() => void) | null = null;
   onQuitGame: (() => void) | null = null;
   private matchEndTick = 0;
+  private pagehideHandler: (() => void) | null = null;
 
   /** Per-slot display names for the results screen. */
   slotNames: { [slot: string]: string } = {};
@@ -184,6 +185,24 @@ export class Game {
       () => this.render(),
     );
 
+    // Pause/resume Firebase connection on app background/foreground
+    if (this.commandSync) {
+      const cs = this.commandSync;
+      this.loop.onPause = () => cs.pause();
+      this.loop.onResume = () => cs.resume();
+    }
+
+    // Broadcast leave on page close/navigation (more reliable than beforeunload on iOS)
+    if (this.commandSync) {
+      this.pagehideHandler = () => {
+        if (this.commandSync) {
+          this.commandSync.broadcastLeave();
+          this.commandSync.stop();
+        }
+      };
+      window.addEventListener('pagehide', this.pagehideHandler);
+    }
+
     // Use local player's race for music theme
     const musicRace = partyOpts
       ? (partyOpts.humanPlayers.find(h => h.slot === this.localPlayerId)?.race ?? playerRace)
@@ -248,6 +267,10 @@ export class Game {
     this.input.destroy();
     this.renderer.destroy();
     this.renderer.camera.destroy();
+    if (this.pagehideHandler) {
+      window.removeEventListener('pagehide', this.pagehideHandler);
+      this.pagehideHandler = null;
+    }
     if (this.commandSync) {
       // Only delete game data if match ended naturally (not mid-game quit)
       if (this.state.matchPhase === 'ended') {

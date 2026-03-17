@@ -1140,6 +1140,7 @@ export class TitleScene implements Scene {
 
   private async doJoinParty(): Promise<void> {
     if (this.joinCodeInput.length < 4) return;
+    this.connecting = true;
     try {
       await this.ensureFirebase();
       this.party!.localName = this.playerName;
@@ -1149,6 +1150,8 @@ export class TitleScene implements Scene {
     } catch (e: any) {
       console.error('[Party] Join failed:', e);
       this.showPartyError(e.message || 'Failed to join');
+    } finally {
+      this.connecting = false;
     }
   }
 

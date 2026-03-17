@@ -59,6 +59,7 @@ export class ProfileScene implements Scene {
   private touchLastY = 0;
   private touchStartY = 0;
   private touchDragged = false;
+  private enterTime = 0;
 
   constructor(manager: SceneManager, canvas: HTMLCanvasElement, ui: UIAssets, sprites: SpriteLoader) {
     this.manager = manager;
@@ -72,6 +73,7 @@ export class ProfileScene implements Scene {
     this.playerName = loadPlayerName();
     this.scrollY = 0;
     this.tab = 'stats';
+    this.enterTime = Date.now();
 
     let lastTouchTime = 0;
     this.clickHandler = (e: MouseEvent) => {
@@ -96,6 +98,8 @@ export class ProfileScene implements Scene {
     };
     this.touchEndHandler = (e: TouchEvent) => {
       if (!this.touchDragged) {
+        // Ignore touchend from the same gesture that opened this scene
+        if (Date.now() - this.enterTime < 300) return;
         lastTouchTime = Date.now();
         const t = e.changedTouches[0];
         if (!t) return;

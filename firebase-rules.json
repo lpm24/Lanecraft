@@ -25,6 +25,7 @@
           ".validate": "newData.isString() && newData.val().length <= 128"
         },
         "seed": {
+          ".write": "auth != null && data.parent().child('hostUid').val() === auth.uid",
           ".validate": "newData.isNumber()"
         },
         "maxSlots": {

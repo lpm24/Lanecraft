@@ -137,10 +137,10 @@ export class UnitGalleryScene implements Scene {
       return;
     }
     // Tab bar (fixed at top)
-    const tabBarY = 30;
-    const tabH = 28;
+    const tabLayout = this.getTabLayout();
+    const tabBarY = tabLayout[0].y;
+    const tabH = tabLayout[0].h;
     if (cy >= tabBarY && cy <= tabBarY + tabH) {
-      const tabLayout = this.getTabLayout();
       for (let i = 0; i < tabLayout.length; i++) {
         const t = tabLayout[i];
         if (cx >= t.x && cx <= t.x + t.w) {

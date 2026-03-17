@@ -544,6 +544,47 @@ function buildDiamondCellMap(cells: GoldCell[]): Map<string, GoldCell> {
   return m;
 }
 
+// === Debug: catch units teleporting to origin ===
+const _debugPrevPositions = new Map<number, { x: number; y: number }>();
+function debugCheckUnitPositions(state: GameState, phase: string): void {
+  for (const u of state.units) {
+    if (u.hp <= 0) continue;
+    const prev = _debugPrevPositions.get(u.id);
+    // Detect units at or very near origin (no valid gameplay position is < 3 tiles from corner)
+    if (u.x < 3 && u.y < 3) {
+      console.warn(
+        `[BUG] Unit at origin after ${phase}! tick=${state.tick} id=${u.id} type="${u.type}" ` +
+        `pos=(${u.x.toFixed(2)},${u.y.toFixed(2)}) prev=(${prev?.x.toFixed(2) ?? '?'},${prev?.y.toFixed(2) ?? '?'}) ` +
+        `team=${u.team} lane=${u.lane} pathProgress=${u.pathProgress.toFixed(4)} ` +
+        `targetId=${u.targetId} hp=${u.hp}/${u.maxHp} category=${u.category}`
+      );
+      // Fix: clamp to nearest valid position so unit doesn't get stuck at origin
+      clampToArenaBounds(u, 0.35, state.mapDef);
+    }
+    // Detect NaN positions
+    if (isNaN(u.x) || isNaN(u.y)) {
+      console.error(
+        `[BUG] Unit has NaN position after ${phase}! tick=${state.tick} id=${u.id} type="${u.type}" ` +
+        `pos=(${u.x},${u.y}) prev=(${prev?.x ?? '?'},${prev?.y ?? '?'}) ` +
+        `team=${u.team} lane=${u.lane} pathProgress=${u.pathProgress}`
+      );
+      // Fix: snap to lane path start
+      const path = getLanePath(u.team, u.lane, state.mapDef);
+      u.x = path[0].x;
+      u.y = path[0].y;
+      u.pathProgress = 0;
+    }
+    _debugPrevPositions.set(u.id, { x: u.x, y: u.y });
+  }
+  // Clean up stale entries
+  if (state.tick % 100 === 0) {
+    const liveIds = new Set(state.units.map(u => u.id));
+    for (const id of _debugPrevPositions.keys()) {
+      if (!liveIds.has(id)) _debugPrevPositions.delete(id);
+    }
+  }
+}
+
 // === Simulation Tick ===
 
 export function simulateTick(state: GameState, commands: GameCommand[]): void {
@@ -601,13 +642,18 @@ export function simulateTick(state: GameState, commands: GameCommand[]): void {
   }
 
   tickSpawners(state);
+  debugCheckUnitPositions(state, 'tickSpawners');
   tickUnitMovement(state);
+  debugCheckUnitPositions(state, 'tickUnitMovement');
   tickUnitDiamondPickup(state);
   tickUnitCollision(state);
+  debugCheckUnitPositions(state, 'tickUnitCollision');
   tickCombat(state);
+  debugCheckUnitPositions(state, 'tickCombat');
   tickTowers(state);
   tickHQDefense(state);
   tickProjectiles(state);
+  debugCheckUnitPositions(state, 'tickProjectiles');
   tickStatusEffects(state);
   tickNukeTelegraphs(state);
   tickHarvesters(state);

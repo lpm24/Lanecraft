@@ -366,7 +366,7 @@ export class PartyManager {
     if (!this.partyCode || !this._state || !this._isHost) return;
     await set(ref(getDb(), `parties/${this.partyCode}/status`), 'waiting');
     // Generate a new seed for the next match
-    await set(ref(getDb(), `parties/${this.partyCode}/seed`), Math.floor(Math.random() * 2147483647));
+    await set(ref(getDb(), `parties/${this.partyCode}/seed`), Math.floor(Math.random() * 2147483647)).catch(() => {});
   }
 
   async startGame(): Promise<void> {

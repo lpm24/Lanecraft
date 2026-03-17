@@ -14,7 +14,7 @@
 // listens to all other human players' slots.
 
 import { ref, set, onValue, remove, onDisconnect, Unsubscribe } from 'firebase/database';
-import { getDb } from './FirebaseService';
+import { getDb, goOffline, goOnline, reauth } from './FirebaseService';
 import { GameCommand } from '../simulation/types';
 
 export const TICKS_PER_TURN = 4; // 200ms at 20tps
@@ -62,6 +62,7 @@ export class CommandSync {
   // Circuit breaker: consecutive write failures → trigger disconnect
   private consecutiveWriteFailures = 0;
   private writesDisabled = false;
+  private reauthAttempted = false;
   private static readonly MAX_WRITE_FAILURES = 5;
 
   onDesync: DesyncCallback | null = null;
@@ -266,9 +267,21 @@ export class CommandSync {
       const db = getDb();
       set(ref(db, `games/${this.partyCode}/turns/${turn}/${this.localSlotId}`), data).then(() => {
         this.consecutiveWriteFailures = 0; // reset on success
+        this.reauthAttempted = false;
       }).catch((err) => {
         this.consecutiveWriteFailures++;
         console.error(`[CommandSync] Failed to push turn ${turn} (${this.consecutiveWriteFailures}/${CommandSync.MAX_WRITE_FAILURES}):`, err);
+        // Try re-auth once before giving up (handles expired token / CORS refresh failure)
+        if (this.consecutiveWriteFailures >= 3 && !this.reauthAttempted) {
+          this.reauthAttempted = true;
+          console.warn('[CommandSync] Attempting re-auth after write failures');
+          reauth().then(user => {
+            if (user) {
+              console.log('[CommandSync] Re-auth succeeded, resetting failure counter');
+              this.consecutiveWriteFailures = 0;
+            }
+          });
+        }
         if (this.consecutiveWriteFailures >= CommandSync.MAX_WRITE_FAILURES) {
           console.error('[CommandSync] Too many write failures — treating as disconnect');
           this.writesDisabled = true; // immediately stop future writes
@@ -389,6 +402,24 @@ export class CommandSync {
         }
       });
       this.unsubs.push(unsub);
+    }
+  }
+
+  /** Pause network activity (app backgrounded). Disconnects Firebase to save battery. */
+  pause(): void {
+    if (this.pingInterval) {
+      clearInterval(this.pingInterval);
+      this.pingInterval = null;
+    }
+    goOffline();
+  }
+
+  /** Resume network activity (app foregrounded). Reconnects Firebase. */
+  resume(): void {
+    goOnline();
+    // Restart latency ping
+    if (!this.pingInterval && this.connected) {
+      this.pingInterval = setInterval(() => this.measureLatency(), 3000);
     }
   }
 
