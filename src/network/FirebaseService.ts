@@ -1,7 +1,8 @@
 // Firebase initialization and anonymous auth
 import { initializeApp, FirebaseApp } from 'firebase/app';
-import { getAuth, signInAnonymously, Auth, User, onAuthStateChanged } from 'firebase/auth';
-import { getDatabase, Database } from 'firebase/database';
+import { getAuth, initializeAuth, indexedDBLocalPersistence, signInAnonymously, Auth, User, onAuthStateChanged } from 'firebase/auth';
+import { getDatabase, Database, goOffline as fbGoOffline, goOnline as fbGoOnline } from 'firebase/database';
+import { Capacitor } from '@capacitor/core';
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY ?? '',
@@ -23,6 +24,8 @@ export function isFirebaseConfigured(): boolean {
   return firebaseConfig.apiKey !== '' && firebaseConfig.databaseURL !== '';
 }
 
+const FIREBASE_AUTH_TIMEOUT_MS = 15_000;
+
 export function initFirebase(): Promise<User> {
   if (initPromise) return initPromise;
 
@@ -33,22 +36,50 @@ export function initFirebase(): Promise<User> {
     }
 
     app = initializeApp(firebaseConfig);
-    auth = getAuth(app);
+    // getAuth() registers a browserPopupRedirectResolver that hangs in
+    // iOS WKWebView. Use initializeAuth with indexedDB persistence instead.
+    auth = Capacitor.isNativePlatform()
+      ? initializeAuth(app, { persistence: indexedDBLocalPersistence })
+      : getAuth(app);
     db = getDatabase(app);
+
+    let settled = false;
+    const timeout = setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        console.error('[Firebase] Auth timed out after', FIREBASE_AUTH_TIMEOUT_MS, 'ms');
+        initPromise = null; // allow retry
+        reject(new Error('Connection timed out — check your network'));
+      }
+    }, FIREBASE_AUTH_TIMEOUT_MS);
 
     onAuthStateChanged(auth, (user) => {
       currentUser = user;
+      // Resolve on first successful auth state if signInAnonymously hasn't settled yet
+      if (user && !settled) {
+        settled = true;
+        clearTimeout(timeout);
+        resolve(user);
+      }
     });
 
     signInAnonymously(auth)
       .then((cred) => {
-        currentUser = cred.user;
-        resolve(cred.user);
+        if (!settled) {
+          settled = true;
+          clearTimeout(timeout);
+          currentUser = cred.user;
+          resolve(cred.user);
+        }
       })
       .catch((err) => {
-        console.error('[Firebase] Auth failed:', err.code, err.message);
-        initPromise = null; // allow retry
-        reject(err);
+        if (!settled) {
+          settled = true;
+          clearTimeout(timeout);
+          console.error('[Firebase] Auth failed:', err.code, err.message);
+          initPromise = null; // allow retry
+          reject(err);
+        }
       });
   });
 
@@ -67,4 +98,26 @@ export function getUser(): User | null {
 export function getUserId(): string {
   if (!currentUser) throw new Error('Not authenticated');
   return currentUser.uid;
+}
+
+/** Re-authenticate anonymously (e.g. after token refresh failure). */
+export async function reauth(): Promise<User | null> {
+  if (!auth) return null;
+  try {
+    const cred = await signInAnonymously(auth);
+    currentUser = cred.user;
+    return cred.user;
+  } catch {
+    return null;
+  }
+}
+
+/** Disconnect Firebase RTDB (call on app background/pause). */
+export function goOffline(): void {
+  if (db) fbGoOffline(db);
+}
+
+/** Reconnect Firebase RTDB (call on app resume/foreground). */
+export function goOnline(): void {
+  if (db) fbGoOnline(db);
 }
