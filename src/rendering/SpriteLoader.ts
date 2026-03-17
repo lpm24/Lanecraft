@@ -34,6 +34,11 @@ import blackArchery from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (
 import blackMonastery from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Buildings/Black Buildings/Monastery.png?url';
 import blackTower from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Buildings/Black Buildings/Tower.png?url';
 import blackCastle from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Buildings/Black Buildings/Castle.png?url';
+import blueHouse2 from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Buildings/Blue Buildings/House2.png?url';
+import purpleHouse2 from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Buildings/Purple Buildings/House2.png?url';
+import redHouse2 from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Buildings/Red Buildings/House2.png?url';
+import yellowHouse2 from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Buildings/Yellow Buildings/House2.png?url';
+import blackHouse2 from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Buildings/Black Buildings/House2.png?url';
 
 // ============================================================
 // UNIT SPRITES — Crown (Tiny Swords humans, Blue + Red)
@@ -875,17 +880,17 @@ const HARVESTER_SPRITES: { [pid: number]: HarvesterSpriteSet } = {
 // Player-keyed building URLs: "playerId/buildingKey"
 const BUILDING_URLS: Record<string, string> = {
   '0/hut': blueHouse, '0/melee': blueBarracks, '0/ranged': blueArchery,
-  '0/caster': blueMonastery, '0/tower': blueTower, '0/hq': blueCastle,
+  '0/caster': blueMonastery, '0/tower': blueTower, '0/hq': blueCastle, '0/research': blueHouse2,
   '1/hut': purpleHouse, '1/melee': purpleBarracks, '1/ranged': purpleArchery,
-  '1/caster': purpleMonastery, '1/tower': purpleTower, '1/hq': purpleCastle,
+  '1/caster': purpleMonastery, '1/tower': purpleTower, '1/hq': purpleCastle, '1/research': purpleHouse2,
   '2/hut': redHouse, '2/melee': redBarracks, '2/ranged': redArchery,
-  '2/caster': redMonastery, '2/tower': redTower, '2/hq': redCastle,
+  '2/caster': redMonastery, '2/tower': redTower, '2/hq': redCastle, '2/research': redHouse2,
   '3/hut': yellowHouse, '3/melee': yellowBarracks, '3/ranged': yellowArchery,
-  '3/caster': yellowMonastery, '3/tower': yellowTower, '3/hq': yellowCastle,
+  '3/caster': yellowMonastery, '3/tower': yellowTower, '3/hq': yellowCastle, '3/research': yellowHouse2,
   '4/hut': blackHouse, '4/melee': blackBarracks, '4/ranged': blackArchery,
-  '4/caster': blackMonastery, '4/tower': blackTower, '4/hq': blackCastle,
+  '4/caster': blackMonastery, '4/tower': blackTower, '4/hq': blackCastle, '4/research': blackHouse2,
   '5/hut': blueHouse, '5/melee': blueBarracks, '5/ranged': blueArchery,
-  '5/caster': blueMonastery, '5/tower': blueTower, '5/hq': blueCastle,
+  '5/caster': blueMonastery, '5/tower': blueTower, '5/hq': blueCastle, '5/research': blueHouse2,
 };
 
 const BUILDING_KEY: Partial<Record<BuildingType, string>> = {
@@ -894,6 +899,7 @@ const BUILDING_KEY: Partial<Record<BuildingType, string>> = {
   [BuildingType.RangedSpawner]: 'ranged',
   [BuildingType.CasterSpawner]: 'caster',
   [BuildingType.Tower]: 'tower',
+  [BuildingType.Research]: 'research', // House2 sprite from Tiny Swords
 };
 
 // ============================================================

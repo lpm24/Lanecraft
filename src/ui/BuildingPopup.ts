@@ -284,16 +284,25 @@ export class BuildingPopup {
     if (isSpawner) {
       this.laneBtnRect = { x: footerX, y: footerY, w: footerBtnW, h: FOOTER_BTN_H };
       ui.drawBigBlueButton(ctx, footerX, footerY, footerBtnW, FOOTER_BTN_H);
+      const isOozlings = race === Race.Oozlings;
       const isHorizontal = state.mapDef.shapeAxis === 'x';
-      const laneLabel = building.lane === 'left'
-        ? (isHorizontal ? 'TOP' : 'LEFT')
-        : (isHorizontal ? 'BOT' : 'RIGHT');
-      const laneColor = building.lane === 'left' ? '#4fc3f7' : '#ff8a65';
+      let laneLabel: string;
+      let laneColor: string;
+      if (isOozlings) {
+        laneLabel = 'BOTH';
+        laneColor = '#b39ddb';
+      } else if (building.lane === 'left') {
+        laneLabel = isHorizontal ? 'TOP' : 'LEFT';
+        laneColor = '#4fc3f7';
+      } else {
+        laneLabel = isHorizontal ? 'BOT' : 'RIGHT';
+        laneColor = '#ff8a65';
+      }
       ctx.textAlign = 'center';
       ctx.font = 'bold 11px monospace';
       ctx.fillStyle = laneColor;
       ctx.fillText(laneLabel, footerX + footerBtnW / 2, footerY + FOOTER_BTN_H / 2 - 5);
-      ctx.fillText('LANE', footerX + footerBtnW / 2, footerY + FOOTER_BTN_H / 2 + 9);
+      ctx.fillText(isOozlings ? 'LANES' : 'LANE', footerX + footerBtnW / 2, footerY + FOOTER_BTN_H / 2 + 9);
       footerX += footerBtnW + GAP;
     }
 

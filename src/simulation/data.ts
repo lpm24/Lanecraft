@@ -1,4 +1,5 @@
-import { BuildingType, Race, TICK_RATE } from './types';
+import { BuildingType, Race, TICK_RATE, AbilityTargetMode } from './types';
+import type { RaceAbilityDef } from './types';
 
 // Race-specific building costs
 export const RACE_BUILDING_COSTS: Record<Race, Record<BuildingType, { gold: number; wood: number; stone: number; hp: number }>> = {
@@ -9,14 +10,16 @@ export const RACE_BUILDING_COSTS: Record<Race, Record<BuildingType, { gold: numb
     [BuildingType.CasterSpawner]: { gold: 100, wood: 10, stone: 0,  hp: 200 },
     [BuildingType.Tower]:         { gold: 113, wood: 0,  stone: 10, hp: 220 },
     [BuildingType.HarvesterHut]:  { gold: 50,  wood: 0,  stone: 0,  hp: 150 },
+    [BuildingType.Research]:      { gold: 0,   wood: 0,  stone: 0,  hp: 500 },
   },
-  // Horde: Gold+Stone economy. Durable buildings, stone-heavy costs.
+  // Horde: All 3 resources. Melee=meat, Ranged=wood, Caster=gold. Collect one of each T3 for auras.
   [Race.Horde]: {
-    [BuildingType.MeleeSpawner]:  { gold: 0,   wood: 0,  stone: 75, hp: 350 },
-    [BuildingType.RangedSpawner]: { gold: 125, wood: 0,  stone: 0,  hp: 300 },
-    [BuildingType.CasterSpawner]: { gold: 124, wood: 0,  stone: 19, hp: 250 },
-    [BuildingType.Tower]:         { gold: 110, wood: 0,  stone: 30, hp: 280 },
-    [BuildingType.HarvesterHut]:  { gold: 50,  wood: 0,  stone: 11, hp: 180 },
+    [BuildingType.MeleeSpawner]:  { gold: 0,   wood: 0,  stone: 85, hp: 350 },
+    [BuildingType.RangedSpawner]: { gold: 0,   wood: 90, stone: 0,  hp: 300 },
+    [BuildingType.CasterSpawner]: { gold: 110, wood: 0,  stone: 0,  hp: 250 },
+    [BuildingType.Tower]:         { gold: 50,  wood: 30, stone: 30, hp: 280 },
+    [BuildingType.HarvesterHut]:  { gold: 30,  wood: 10, stone: 10, hp: 180 },
+    [BuildingType.Research]:      { gold: 0,   wood: 0,  stone: 0,  hp: 500 },
   },
   // Goblins: Gold+Wood economy. Very cheap, fragile buildings.
   [Race.Goblins]: {
@@ -25,6 +28,7 @@ export const RACE_BUILDING_COSTS: Record<Race, Record<BuildingType, { gold: numb
     [BuildingType.CasterSpawner]: { gold: 44,  wood: 13, stone: 0,  hp: 140 },
     [BuildingType.Tower]:         { gold: 36,  wood: 12, stone: 0,  hp: 150 },
     [BuildingType.HarvesterHut]:  { gold: 21,  wood: 7,  stone: 0,  hp: 110 },
+    [BuildingType.Research]:      { gold: 0,   wood: 0,  stone: 0,  hp: 500 },
   },
   // Oozlings: Gold+Stone economy. Cheap (swarm units).
   [Race.Oozlings]: {
@@ -33,6 +37,7 @@ export const RACE_BUILDING_COSTS: Record<Race, Record<BuildingType, { gold: numb
     [BuildingType.CasterSpawner]: { gold: 35,  wood: 0,  stone: 35, hp: 160 },
     [BuildingType.Tower]:         { gold: 75,  wood: 0,  stone: 19, hp: 170 },
     [BuildingType.HarvesterHut]:  { gold: 35,  wood: 0,  stone: 10, hp: 130 },
+    [BuildingType.Research]:      { gold: 0,   wood: 0,  stone: 0,  hp: 500 },
   },
   // Demon: Stone+Wood economy. No gold. Glass cannon, reduced costs.
   [Race.Demon]: {
@@ -41,6 +46,7 @@ export const RACE_BUILDING_COSTS: Record<Race, Record<BuildingType, { gold: numb
     [BuildingType.CasterSpawner]: { gold: 0,  wood: 20, stone: 38, hp: 140 },
     [BuildingType.Tower]:         { gold: 0,  wood: 15, stone: 32, hp: 160 },
     [BuildingType.HarvesterHut]:  { gold: 0,  wood: 8,  stone: 14, hp: 120 },
+    [BuildingType.Research]:      { gold: 0,  wood: 0,  stone: 0,  hp: 500 },
   },
   // Deep: Wood+Gold economy. Very durable buildings.
   [Race.Deep]: {
@@ -49,6 +55,7 @@ export const RACE_BUILDING_COSTS: Record<Race, Record<BuildingType, { gold: numb
     [BuildingType.CasterSpawner]: { gold: 30, wood: 55, stone: 0,  hp: 260 },
     [BuildingType.Tower]:         { gold: 23, wood: 53, stone: 0,  hp: 280 },
     [BuildingType.HarvesterHut]:  { gold: 15, wood: 30, stone: 0,  hp: 170 },
+    [BuildingType.Research]:      { gold: 0,  wood: 0,  stone: 0,  hp: 500 },
   },
   // Wild: Wood+Stone economy. No gold. Medium buildings.
   [Race.Wild]: {
@@ -57,6 +64,7 @@ export const RACE_BUILDING_COSTS: Record<Race, Record<BuildingType, { gold: numb
     [BuildingType.CasterSpawner]: { gold: 0,  wood: 40, stone: 22, hp: 190 },
     [BuildingType.Tower]:         { gold: 0,  wood: 34, stone: 19, hp: 200 },
     [BuildingType.HarvesterHut]:  { gold: 0,  wood: 18, stone: 8,  hp: 140 },
+    [BuildingType.Research]:      { gold: 0,  wood: 0,  stone: 0,  hp: 500 },
   },
   // Geists: Stone+Gold economy. Medium buildings.
   [Race.Geists]: {
@@ -65,6 +73,7 @@ export const RACE_BUILDING_COSTS: Record<Race, Record<BuildingType, { gold: numb
     [BuildingType.CasterSpawner]: { gold: 30, wood: 0,  stone: 48, hp: 180 },
     [BuildingType.Tower]:         { gold: 19, wood: 0,  stone: 41, hp: 180 },
     [BuildingType.HarvesterHut]:  { gold: 12, wood: 0,  stone: 18, hp: 130 },
+    [BuildingType.Research]:      { gold: 0,  wood: 0,  stone: 0,  hp: 500 },
   },
   // Tenders: Wood+Gold economy. Durable natural buildings.
   [Race.Tenders]: {
@@ -73,6 +82,7 @@ export const RACE_BUILDING_COSTS: Record<Race, Record<BuildingType, { gold: numb
     [BuildingType.CasterSpawner]: { gold: 26, wood: 45, stone: 0,  hp: 240 },
     [BuildingType.Tower]:         { gold: 17, wood: 37, stone: 0,  hp: 300 },
     [BuildingType.HarvesterHut]:  { gold: 11, wood: 21, stone: 0,  hp: 160 },
+    [BuildingType.Research]:      { gold: 0,  wood: 0,  stone: 0,  hp: 500 },
   },
 };
 
@@ -87,7 +97,7 @@ export const BUILDING_COSTS = RACE_BUILDING_COSTS[Race.Crown];
 // Race-specific upgrade costs
 export const RACE_UPGRADE_COSTS: Record<Race, { tier1: { gold: number; wood: number; stone: number }; tier2: { gold: number; wood: number; stone: number } }> = {
   [Race.Crown]:    { tier1: { gold: 80,  wood: 0,  stone: 0 },  tier2: { gold: 120, wood: 40, stone: 0 } },
-  [Race.Horde]:    { tier1: { gold: 60,  wood: 0,  stone: 20 }, tier2: { gold: 120, wood: 0,  stone: 40 } },
+  [Race.Horde]:    { tier1: { gold: 30,  wood: 20, stone: 20 }, tier2: { gold: 60,  wood: 40, stone: 40 } },
   [Race.Goblins]:  { tier1: { gold: 45,  wood: 15, stone: 0 },  tier2: { gold: 90,  wood: 30, stone: 0 } },
   [Race.Oozlings]: { tier1: { gold: 50,  wood: 0,  stone: 15 }, tier2: { gold: 100, wood: 0,  stone: 30 } },
   [Race.Demon]:    { tier1: { gold: 0,   wood: 15, stone: 35 }, tier2: { gold: 0,   wood: 30, stone: 70 } },
@@ -166,7 +176,7 @@ export const UNIT_STATS: Record<Race, RaceUnits> = {
       name: 'Swordsman', hp: 94, damage: 11, attackSpeed: 1.1, moveSpeed: 3.5, range: 1, ascii: '[+]',
     },
     [BuildingType.RangedSpawner]: {
-      name: 'Bowman', hp: 50, damage: 9, attackSpeed: 1.3, moveSpeed: 3.5, range: 7, ascii: '>>',
+      name: 'Bowman', hp: 38, damage: 11, attackSpeed: 1.3, moveSpeed: 3.5, range: 7, ascii: '>>',
     },
     [BuildingType.CasterSpawner]: {
       name: 'Priest', hp: 44, damage: 13, attackSpeed: 2.2, moveSpeed: 3.0, range: 7, ascii: '{C}',
@@ -178,7 +188,7 @@ export const UNIT_STATS: Record<Race, RaceUnits> = {
       name: 'Brute', hp: 110, damage: 14, attackSpeed: 1.1, moveSpeed: 3.2, range: 1, ascii: '[#]',
     },
     [BuildingType.RangedSpawner]: {
-      name: 'Bowcleaver', hp: 94, damage: 13, attackSpeed: 1.3, moveSpeed: 3.0, range: 7, ascii: '=>',
+      name: 'Bowcleaver', hp: 71, damage: 16, attackSpeed: 1.3, moveSpeed: 3.0, range: 7, ascii: '=>',
     },
     [BuildingType.CasterSpawner]: {
       name: 'War Chanter', hp: 56, damage: 15, attackSpeed: 2.0, moveSpeed: 3.2, range: 7, ascii: '{H}',
@@ -190,7 +200,7 @@ export const UNIT_STATS: Record<Race, RaceUnits> = {
       name: 'Sticker', hp: 61, damage: 7, attackSpeed: 0.9, moveSpeed: 5.0, range: 1, ascii: '/>',
     },
     [BuildingType.RangedSpawner]: {
-      name: 'Knifer', hp: 39, damage: 8, attackSpeed: 1.0, moveSpeed: 4.5, range: 6, ascii: '~>',
+      name: 'Knifer', hp: 29, damage: 10, attackSpeed: 1.0, moveSpeed: 4.5, range: 6, ascii: '~>',
     },
     [BuildingType.CasterSpawner]: {
       name: 'Hexer', hp: 31, damage: 10, attackSpeed: 2.2, moveSpeed: 3.5, range: 7, ascii: '{G}',
@@ -202,7 +212,7 @@ export const UNIT_STATS: Record<Race, RaceUnits> = {
       name: 'Globule', hp: 57, damage: 5, attackSpeed: 0.9, moveSpeed: 4.2, range: 1, ascii: 'o', spawnCount: 2,
     },
     [BuildingType.RangedSpawner]: {
-      name: 'Spitter', hp: 40, damage: 5, attackSpeed: 1.1, moveSpeed: 3.8, range: 6, ascii: 'O~', spawnCount: 2,
+      name: 'Spitter', hp: 30, damage: 6, attackSpeed: 1.1, moveSpeed: 3.8, range: 6, ascii: 'O~', spawnCount: 2,
     },
     [BuildingType.CasterSpawner]: {
       name: 'Bloater', hp: 39, damage: 12, attackSpeed: 2.4, moveSpeed: 2.8, range: 6, ascii: '{O}', spawnCount: 2,
@@ -214,7 +224,7 @@ export const UNIT_STATS: Record<Race, RaceUnits> = {
       name: 'Smasher', hp: 75, damage: 10, attackSpeed: 1.0, moveSpeed: 4.2, range: 1, ascii: '/X\\',
     },
     [BuildingType.RangedSpawner]: {
-      name: 'Eye Sniper', hp: 50, damage: 11, attackSpeed: 1.4, moveSpeed: 3.5, range: 8, ascii: '@>',
+      name: 'Eye Sniper', hp: 38, damage: 14, attackSpeed: 1.4, moveSpeed: 3.5, range: 8, ascii: '@>',
     },
     [BuildingType.CasterSpawner]: {
       name: 'Overlord', hp: 40, damage: 15, attackSpeed: 2.2, moveSpeed: 2.5, range: 7, ascii: '{D}',
@@ -226,7 +236,7 @@ export const UNIT_STATS: Record<Race, RaceUnits> = {
       name: 'Shell Guard', hp: 220, damage: 9, attackSpeed: 1.2, moveSpeed: 2.5, range: 1, ascii: '|W|',
     },
     [BuildingType.RangedSpawner]: {
-      name: 'Harpooner', hp: 73, damage: 13, attackSpeed: 1.3, moveSpeed: 3.2, range: 7, ascii: '->',
+      name: 'Harpooner', hp: 55, damage: 16, attackSpeed: 1.3, moveSpeed: 3.2, range: 7, ascii: '->',
     },
     [BuildingType.CasterSpawner]: {
       name: 'Tidecaller', hp: 59, damage: 17, attackSpeed: 2.4, moveSpeed: 3.0, range: 7, ascii: '{~}',
@@ -238,7 +248,7 @@ export const UNIT_STATS: Record<Race, RaceUnits> = {
       name: 'Lurker', hp: 72, damage: 8, attackSpeed: 1.0, moveSpeed: 3.0, range: 1, ascii: '%#',
     },
     [BuildingType.RangedSpawner]: {
-      name: 'Bonechucker', hp: 50, damage: 11, attackSpeed: 1.1, moveSpeed: 3.6, range: 6, ascii: '.@',
+      name: 'Bonechucker', hp: 38, damage: 14, attackSpeed: 1.1, moveSpeed: 3.6, range: 6, ascii: '.@',
     },
     [BuildingType.CasterSpawner]: {
       name: 'Scaled Sage', hp: 42, damage: 13, attackSpeed: 2.2, moveSpeed: 3.5, range: 7, ascii: '{W}',
@@ -250,7 +260,7 @@ export const UNIT_STATS: Record<Race, RaceUnits> = {
       name: 'Bone Knight', hp: 94, damage: 8, attackSpeed: 1.1, moveSpeed: 3.5, range: 1, ascii: '~^',
     },
     [BuildingType.RangedSpawner]: {
-      name: 'Wraith Bow', hp: 39, damage: 10, attackSpeed: 1.2, moveSpeed: 3.8, range: 7, ascii: '~>',
+      name: 'Wraith Bow', hp: 29, damage: 13, attackSpeed: 1.2, moveSpeed: 3.8, range: 7, ascii: '~>',
     },
     [BuildingType.CasterSpawner]: {
       name: 'Necromancer', hp: 32, damage: 13, attackSpeed: 2.4, moveSpeed: 3.0, range: 7, ascii: '{V}',
@@ -262,7 +272,7 @@ export const UNIT_STATS: Record<Race, RaceUnits> = {
       name: 'Treant', hp: 154, damage: 9, attackSpeed: 1.2, moveSpeed: 2.8, range: 1, ascii: '|T|',
     },
     [BuildingType.RangedSpawner]: {
-      name: 'Tinker', hp: 44, damage: 10, attackSpeed: 1.1, moveSpeed: 4.0, range: 7, ascii: '.>',
+      name: 'Tinker', hp: 33, damage: 13, attackSpeed: 1.1, moveSpeed: 4.0, range: 7, ascii: '.>',
     },
     [BuildingType.CasterSpawner]: {
       name: 'Grove Keeper', hp: 50, damage: 13, attackSpeed: 2.2, moveSpeed: 3.0, range: 7, ascii: '{Y}',
@@ -346,6 +356,15 @@ export interface UpgradeSpecial {
   spawnCount?: number;          // override base spawnCount (e.g. Spider Brood=3, Spider Swarm=5)
   goldOnKill?: number;          // earn N gold when this unit kills an enemy
   goldOnDeath?: number;         // earn N gold when this unit dies
+  explodeOnDeath?: boolean;     // Oozlings baneling: explode on death dealing AoE damage
+  explodeDamage?: number;       // damage dealt by explosion
+  explodeRadius?: number;       // explosion radius in tiles
+  skeletonSummonChance?: number; // Geists caster: chance (0-1) to summon mini-skeleton on nearby death
+  crownMage?: boolean;           // Crown caster mage branch: fire AoE damage instead of shielding
+  // Horde auras (affect nearby allies within ~5 tiles)
+  auraDamageBonus?: number;      // +flat damage to nearby allies
+  auraSpeedBonus?: number;       // +% move speed to nearby allies (0.1 = +10%)
+  auraArmorBonus?: number;       // +% damage reduction to nearby allies (0.1 = 10%)
 }
 
 export interface UpgradeNodeDef {
@@ -386,11 +405,11 @@ export const UPGRADE_TREES: Record<Race, Partial<Record<BuildingType, Record<Upg
     },
     [BuildingType.CasterSpawner]: {
       B: { name: 'High Priest', desc: '+30% HP, shield +2 targets', hpMult: 1.30, special: { shieldTargetBonus: 2 }, spawnSpeedMult: 0.88 },
-      C: { name: 'Battle Priest', desc: 'Faster atk, +25% range', attackSpeedMult: 0.80, rangeMult: 1.25, spawnSpeedMult: 0.88 },
+      C: { name: 'War Mage', desc: 'AoE damage, +40% dmg', damageMult: 1.40, special: { crownMage: true, aoeRadiusBonus: 1 }, spawnSpeedMult: 0.88 },
       D: { name: 'Arch Bishop', desc: '+40% HP, shield +3 targets', hpMult: 1.40, special: { shieldTargetBonus: 3 }, spawnSpeedMult: 0.82 },
       E: { name: 'War Cleric', desc: '+35% dmg, shield +20 absorb', damageMult: 1.35, special: { shieldAbsorbBonus: 20 }, spawnSpeedMult: 0.82 },
-      F: { name: 'Swift Healer', desc: 'Very fast, shield +25 absorb', attackSpeedMult: 0.65, special: { shieldAbsorbBonus: 25 }, spawnSpeedMult: 0.82 },
-      G: { name: 'Holy Avenger', desc: '+50% dmg, +30% range', damageMult: 1.50, rangeMult: 1.30, spawnSpeedMult: 0.82 },
+      F: { name: 'Battle Magus', desc: '+50% dmg, burn on hit', damageMult: 1.50, special: { crownMage: true, aoeRadiusBonus: 2, extraBurnStacks: 1 }, spawnSpeedMult: 0.82 },
+      G: { name: 'Archmage', desc: '+80% dmg, large AoE, burn', damageMult: 1.80, rangeMult: 1.25, special: { crownMage: true, aoeRadiusBonus: 3, extraBurnStacks: 2 }, spawnSpeedMult: 0.82 },
     },
     [BuildingType.Tower]: {
       B: { name: 'Reinforced Tower', desc: '+60% HP, +30% dmg', hpMult: 1.60, damageMult: 1.30 },
@@ -401,31 +420,45 @@ export const UPGRADE_TREES: Record<Race, Partial<Record<BuildingType, Record<Upg
       G: { name: 'Siege Tower', desc: '+60% dmg, +3 range', damageMult: 1.60, special: { towerRangeBonus: 3 } },
     },
   },
-  // ============ HORDE (Orcs) — Knockback & Power [HYBRID] ============
+  // ============ HORDE (Orcs) — All 3 Resources, Aura T3 Units [HYBRID] ============
+  // Melee costs meat (B=meat path, C=gold path). Ranged costs wood (B=wood, C=meat). Caster costs gold (B=gold, C=wood).
+  // T3 units grant auras — collect one of each for a powerful combined army.
   [Race.Horde]: {
     [BuildingType.MeleeSpawner]: {
-      B: { name: 'Iron Brute', desc: '+45% HP, +20% dmg', hpMult: 1.45, damageMult: 1.20, spawnSpeedMult: 0.88 },
-      C: { name: 'Raging Brute', desc: '+30% dmg, faster atk', damageMult: 1.30, attackSpeedMult: 0.85, spawnSpeedMult: 0.88 },
-      D: { name: 'Warchief', desc: '+70% HP, 20% dmg reduction', hpMult: 1.70, special: { damageReductionPct: 0.20 }, spawnSpeedMult: 0.82 },
-      E: { name: 'Berserker', desc: '+55% dmg, knockback/hit', damageMult: 1.55, special: { knockbackEveryN: 1 }, spawnSpeedMult: 0.82 },
-      F: { name: 'Bloodrager', desc: '+50% dmg, guaranteed haste', damageMult: 1.50, special: { guaranteedHaste: true }, spawnSpeedMult: 0.82 },
-      G: { name: 'Skull Crusher', desc: '+60% dmg, faster atk', damageMult: 1.60, attackSpeedMult: 0.80, spawnSpeedMult: 0.82 },
+      // B path = meat (stays on starting resource)
+      B: { name: 'Iron Brute', desc: '+45% HP, +20% dmg', hpMult: 1.45, damageMult: 1.20, spawnSpeedMult: 0.88, cost: { gold: 0, wood: 0, stone: 45 } },
+      // C path = gold (switches resource)
+      C: { name: 'Raging Brute', desc: '+30% dmg, faster atk', damageMult: 1.30, attackSpeedMult: 0.85, spawnSpeedMult: 0.88, cost: { gold: 45, wood: 0, stone: 0 } },
+      // D,E under B (meat)
+      D: { name: 'Warchief', desc: '+70% HP, AURA: +10% armor', hpMult: 1.70, special: { damageReductionPct: 0.15, auraArmorBonus: 0.10 }, spawnSpeedMult: 0.82, cost: { gold: 0, wood: 0, stone: 90 } },
+      E: { name: 'Berserker', desc: '+55% dmg, AURA: +3 dmg', damageMult: 1.55, special: { knockbackEveryN: 2, auraDamageBonus: 3 }, spawnSpeedMult: 0.82, cost: { gold: 0, wood: 0, stone: 90 } },
+      // F,G under C (gold)
+      F: { name: 'Bloodrager', desc: '+50% dmg, AURA: +10% speed', damageMult: 1.50, special: { guaranteedHaste: true, auraSpeedBonus: 0.10 }, spawnSpeedMult: 0.82, cost: { gold: 90, wood: 0, stone: 0 } },
+      G: { name: 'Skull Crusher', desc: '+60% dmg, AURA: +4 dmg', damageMult: 1.60, attackSpeedMult: 0.80, special: { auraDamageBonus: 4 }, spawnSpeedMult: 0.82, cost: { gold: 90, wood: 0, stone: 0 } },
     },
     [BuildingType.RangedSpawner]: {
-      B: { name: 'Heavy Cleaver', desc: '+30% HP, +30% dmg', hpMult: 1.30, damageMult: 1.30, spawnSpeedMult: 0.88 },
-      C: { name: 'Quick Cleaver', desc: 'Faster atk, +15% speed', attackSpeedMult: 0.80, moveSpeedMult: 1.15, spawnSpeedMult: 0.88 },
-      D: { name: 'War Thrower', desc: '+45% dmg, knockback/2', damageMult: 1.45, special: { knockbackEveryN: 2 }, spawnSpeedMult: 0.82 },
-      E: { name: 'Siege Cleaver', desc: '+40% dmg, splash 2t', damageMult: 1.40, special: { splashRadius: 2, splashDamagePct: 0.55 }, spawnSpeedMult: 0.82 },
-      F: { name: 'Rapid Thrower', desc: 'Much faster, +20% speed', attackSpeedMult: 0.70, moveSpeedMult: 1.20, spawnSpeedMult: 0.82 },
-      G: { name: 'Twin Cleaver', desc: 'Fires 2 projectiles', special: { multishotCount: 1, multishotDamagePct: 0.80 }, spawnSpeedMult: 0.82 },
+      // B path = wood (stays on starting resource)
+      B: { name: 'Heavy Cleaver', desc: '+30% HP, +30% dmg', hpMult: 1.30, damageMult: 1.30, spawnSpeedMult: 0.88, cost: { gold: 0, wood: 45, stone: 0 } },
+      // C path = meat (switches resource)
+      C: { name: 'Quick Cleaver', desc: 'Faster atk, +15% speed', attackSpeedMult: 0.80, moveSpeedMult: 1.15, spawnSpeedMult: 0.88, cost: { gold: 0, wood: 0, stone: 45 } },
+      // D,E under B (wood)
+      D: { name: 'War Thrower', desc: '+45% dmg, AURA: +10% speed', damageMult: 1.45, special: { knockbackEveryN: 2, auraSpeedBonus: 0.10 }, spawnSpeedMult: 0.82, cost: { gold: 0, wood: 90, stone: 0 } },
+      E: { name: 'Siege Cleaver', desc: '+40% dmg, splash, AURA: +2 dmg', damageMult: 1.40, special: { splashRadius: 2, splashDamagePct: 0.55, auraDamageBonus: 2 }, spawnSpeedMult: 0.82, cost: { gold: 0, wood: 90, stone: 0 } },
+      // F,G under C (meat)
+      F: { name: 'Rapid Thrower', desc: 'Much faster, AURA: +10% armor', attackSpeedMult: 0.70, moveSpeedMult: 1.20, special: { auraArmorBonus: 0.10 }, spawnSpeedMult: 0.82, cost: { gold: 0, wood: 0, stone: 90 } },
+      G: { name: 'Twin Cleaver', desc: '2 projectiles, AURA: +3 dmg', special: { multishotCount: 1, multishotDamagePct: 0.80, auraDamageBonus: 3 }, spawnSpeedMult: 0.82, cost: { gold: 0, wood: 0, stone: 90 } },
     },
     [BuildingType.CasterSpawner]: {
-      B: { name: 'Battle Chanter', desc: '+30% HP, +5 heal', hpMult: 1.30, special: { healBonus: 5 }, spawnSpeedMult: 0.88 },
-      C: { name: 'War Drummer', desc: 'Faster atk, +25% range', attackSpeedMult: 0.80, rangeMult: 1.25, spawnSpeedMult: 0.88 },
-      D: { name: 'Blood Chanter', desc: '+40% dmg, +8 heal', damageMult: 1.40, special: { healBonus: 8 }, spawnSpeedMult: 0.82 },
-      E: { name: 'Rage Shaman', desc: '+45% dmg, +2 AoE', damageMult: 1.45, special: { aoeRadiusBonus: 2 }, spawnSpeedMult: 0.82 },
-      F: { name: 'Swift Chanter', desc: 'Very fast, +5 heal', attackSpeedMult: 0.65, special: { healBonus: 5 }, spawnSpeedMult: 0.82 },
-      G: { name: 'Doom Chanter', desc: '+55% dmg, +30% range', damageMult: 1.55, rangeMult: 1.30, spawnSpeedMult: 0.82 },
+      // B path = gold (stays on starting resource)
+      B: { name: 'Battle Chanter', desc: '+30% HP, +5 haste targets', hpMult: 1.30, special: { healBonus: 5 }, spawnSpeedMult: 0.88, cost: { gold: 45, wood: 0, stone: 0 } },
+      // C path = wood (switches resource)
+      C: { name: 'War Drummer', desc: 'Faster atk, +25% range', attackSpeedMult: 0.80, rangeMult: 1.25, spawnSpeedMult: 0.88, cost: { gold: 0, wood: 45, stone: 0 } },
+      // D,E under B (gold)
+      D: { name: 'Blood Chanter', desc: '+40% dmg, AURA: +3 dmg', damageMult: 1.40, special: { healBonus: 8, auraDamageBonus: 3 }, spawnSpeedMult: 0.82, cost: { gold: 90, wood: 0, stone: 0 } },
+      E: { name: 'Rage Shaman', desc: '+45% dmg, AURA: +15% speed', damageMult: 1.45, special: { aoeRadiusBonus: 2, auraSpeedBonus: 0.15 }, spawnSpeedMult: 0.82, cost: { gold: 90, wood: 0, stone: 0 } },
+      // F,G under C (wood)
+      F: { name: 'Swift Chanter', desc: 'Very fast, AURA: +10% armor', attackSpeedMult: 0.65, special: { healBonus: 5, auraArmorBonus: 0.10 }, spawnSpeedMult: 0.82, cost: { gold: 0, wood: 90, stone: 0 } },
+      G: { name: 'Doom Chanter', desc: '+55% dmg, AURA: +4 dmg', damageMult: 1.55, rangeMult: 1.30, special: { auraDamageBonus: 4 }, spawnSpeedMult: 0.82, cost: { gold: 0, wood: 90, stone: 0 } },
     },
     [BuildingType.Tower]: {
       B: { name: 'Orc Palisade', desc: '+60% HP, +35% dmg', hpMult: 1.60, damageMult: 1.35 },
@@ -475,11 +508,11 @@ export const UPGRADE_TREES: Record<Race, Partial<Record<BuildingType, Record<Upg
   [Race.Oozlings]: {
     [BuildingType.MeleeSpawner]: {
       B: { name: 'Tough Glob', desc: '+35% HP, +20% dmg', hpMult: 1.35, damageMult: 1.20, spawnSpeedMult: 0.80 },
-      C: { name: 'Quick Glob', desc: '+25% speed, faster atk', moveSpeedMult: 1.25, attackSpeedMult: 0.85, spawnSpeedMult: 0.80 },
+      C: { name: 'Baneling', desc: '+40% speed, explodes on death', moveSpeedMult: 1.40, spawnSpeedMult: 0.80, special: { explodeOnDeath: true, explodeDamage: 35, explodeRadius: 3 } },
       D: { name: 'Armored Glob', desc: '+55% HP, 15% dmg reduction', hpMult: 1.55, special: { damageReductionPct: 0.15 }, spawnSpeedMult: 0.70 },
       E: { name: 'Acid Glob', desc: '+40% dmg, +2 burn', damageMult: 1.40, special: { extraBurnStacks: 2 } },
-      F: { name: 'Hyper Glob', desc: '+35% speed, guaranteed haste', moveSpeedMult: 1.35, special: { guaranteedHaste: true }, spawnSpeedMult: 0.70 },
-      G: { name: 'Chain Glob', desc: '+35% dmg, chain 2 targets', damageMult: 1.35, special: { extraChainTargets: 2, chainDamagePct: 0.60 } },
+      F: { name: 'Volatile', desc: '+50% speed, big explosion', moveSpeedMult: 1.50, spawnSpeedMult: 0.70, special: { explodeOnDeath: true, explodeDamage: 60, explodeRadius: 4 } },
+      G: { name: 'Detonator', desc: 'Huge explosion, +3 burn', moveSpeedMult: 1.30, spawnSpeedMult: 0.70, special: { explodeOnDeath: true, explodeDamage: 90, explodeRadius: 5, extraBurnStacks: 3 } },
     },
     [BuildingType.RangedSpawner]: {
       B: { name: 'Thick Spitter', desc: '+30% HP, +25% dmg', hpMult: 1.30, damageMult: 1.25, spawnSpeedMult: 0.80 },
@@ -630,12 +663,12 @@ export const UPGRADE_TREES: Record<Race, Partial<Record<BuildingType, Record<Upg
       G: { name: 'Death Skull', desc: '+50% dmg, +30% range', damageMult: 1.50, rangeMult: 1.30, spawnSpeedMult: 0.85 },
     },
     [BuildingType.CasterSpawner]: {
-      B: { name: 'Plague Mage', desc: '+30% HP, +5 heal', hpMult: 1.30, special: { healBonus: 5 }, spawnSpeedMult: 0.90 },
+      B: { name: 'Plague Mage', desc: '+30% HP, 15% summon chance', hpMult: 1.30, special: { skeletonSummonChance: 0.15 }, spawnSpeedMult: 0.90 },
       C: { name: 'Dark Sorcerer', desc: 'Faster atk, +25% range', attackSpeedMult: 0.80, rangeMult: 1.25, spawnSpeedMult: 0.90 },
-      D: { name: 'Pestilence', desc: '+40% dmg, +7 heal, +2 burn', damageMult: 1.40, special: { healBonus: 7, extraBurnStacks: 2 }, spawnSpeedMult: 0.85 },
-      E: { name: 'Soul Siphon', desc: '+45% dmg, +2 AoE', damageMult: 1.45, special: { aoeRadiusBonus: 2 }, spawnSpeedMult: 0.85 },
-      F: { name: 'Shadow Sorcerer', desc: 'Very fast, +5 heal', attackSpeedMult: 0.65, special: { healBonus: 5 }, spawnSpeedMult: 0.85 },
-      G: { name: 'Arch Sorcerer', desc: '+55% dmg, +30% range', damageMult: 1.55, rangeMult: 1.30, spawnSpeedMult: 0.85 },
+      D: { name: 'Necromancer', desc: '+40% dmg, 25% summon chance', damageMult: 1.40, special: { skeletonSummonChance: 0.25 }, spawnSpeedMult: 0.85 },
+      E: { name: 'Soul Harvester', desc: '+45% dmg, +2 burn', damageMult: 1.45, special: { extraBurnStacks: 2 }, spawnSpeedMult: 0.85 },
+      F: { name: 'Shadow Sorcerer', desc: 'Very fast, 20% summon', attackSpeedMult: 0.65, special: { skeletonSummonChance: 0.20 }, spawnSpeedMult: 0.85 },
+      G: { name: 'Arch Lich', desc: '+55% dmg, 30% summon', damageMult: 1.55, special: { skeletonSummonChance: 0.30 }, spawnSpeedMult: 0.85 },
     },
     [BuildingType.Tower]: {
       B: { name: 'Shadow Spire', desc: '+50% HP, +35% dmg', hpMult: 1.50, damageMult: 1.35 },
@@ -657,20 +690,20 @@ export const UPGRADE_TREES: Record<Race, Partial<Record<BuildingType, Record<Upg
       G: { name: 'Radish King', desc: '+40% dmg, +20% speed, +2 slow', damageMult: 1.40, moveSpeedMult: 1.20, special: { extraSlowStacks: 2 }, spawnSpeedMult: 0.85, cost: { gold: 180, wood: 0, stone: 0 } },
     },
     [BuildingType.RangedSpawner]: {
-      B: { name: 'Heavy Tinker', desc: '+35% HP, +30% dmg', hpMult: 1.35, damageMult: 1.30, spawnSpeedMult: 0.90 },
-      C: { name: 'Rapid Tinker', desc: 'Faster atk, +2 slow', attackSpeedMult: 0.80, special: { extraSlowStacks: 2 }, spawnSpeedMult: 0.90 },
-      D: { name: 'Blight Tinker', desc: '+40% dmg, splash 2t', damageMult: 1.40, special: { splashRadius: 2, splashDamagePct: 0.50 }, spawnSpeedMult: 0.85 },
-      E: { name: 'Toxic Tinker', desc: '+35% dmg, +2 burn', damageMult: 1.35, special: { extraBurnStacks: 2 }, spawnSpeedMult: 0.85 },
-      F: { name: 'Swift Tinker', desc: 'Much faster, +25% range', attackSpeedMult: 0.70, rangeMult: 1.25, spawnSpeedMult: 0.85 },
-      G: { name: 'Grand Tinker', desc: '+45% dmg, splash 3t', damageMult: 1.45, special: { splashRadius: 3, splashDamagePct: 0.45 }, spawnSpeedMult: 0.85 },
+      B: { name: 'Heavy Tinker', desc: '+35% HP, +30% dmg', hpMult: 1.35, damageMult: 1.30, spawnSpeedMult: 0.90, cost: { gold: 45, wood: 0, stone: 0 } },
+      C: { name: 'Thorn Thrower', desc: 'Faster atk, +2 slow', attackSpeedMult: 0.80, special: { extraSlowStacks: 2 }, spawnSpeedMult: 0.90, cost: { gold: 0, wood: 0, stone: 45 } },
+      D: { name: 'Blight Tinker', desc: '+40% dmg, splash 2t', damageMult: 1.40, special: { splashRadius: 2, splashDamagePct: 0.50 }, spawnSpeedMult: 0.85, cost: { gold: 90, wood: 0, stone: 0 } },
+      E: { name: 'Grand Tinker', desc: '+45% dmg, splash 3t', damageMult: 1.45, special: { splashRadius: 3, splashDamagePct: 0.45 }, spawnSpeedMult: 0.85, cost: { gold: 90, wood: 0, stone: 0 } },
+      F: { name: 'Toxic Hurler', desc: '+35% dmg, +2 burn', damageMult: 1.35, special: { extraBurnStacks: 2 }, spawnSpeedMult: 0.85, cost: { gold: 0, wood: 0, stone: 90 } },
+      G: { name: 'Briar Beast', desc: 'Much faster, +25% range', attackSpeedMult: 0.70, rangeMult: 1.25, spawnSpeedMult: 0.85, cost: { gold: 0, wood: 0, stone: 90 } },
     },
     [BuildingType.CasterSpawner]: {
-      B: { name: 'Deep Root', desc: '+35% HP, +5 heal', hpMult: 1.35, special: { healBonus: 5 }, spawnSpeedMult: 0.90 },
-      C: { name: 'Spore Weaver', desc: 'Faster atk, +3 slow', attackSpeedMult: 0.80, special: { extraSlowStacks: 3 }, spawnSpeedMult: 0.90 },
-      D: { name: 'Ancient Root', desc: '+35% dmg, +8 heal, +2 slow', damageMult: 1.35, special: { healBonus: 8, extraSlowStacks: 2 }, spawnSpeedMult: 0.85 },
-      E: { name: 'Bloom Shaper', desc: '+40% dmg, +2 AoE', damageMult: 1.40, special: { aoeRadiusBonus: 2 }, spawnSpeedMult: 0.85 },
-      F: { name: 'Mycelium Sage', desc: 'Very fast, +7 heal', attackSpeedMult: 0.65, special: { healBonus: 7 }, spawnSpeedMult: 0.85 },
-      G: { name: 'Fungal Lord', desc: '+50% dmg, +35% range', damageMult: 1.50, rangeMult: 1.35, spawnSpeedMult: 0.85 },
+      B: { name: 'Deep Root', desc: '+35% HP, +5 heal', hpMult: 1.35, special: { healBonus: 5 }, spawnSpeedMult: 0.90, cost: { gold: 0, wood: 0, stone: 45 } },
+      C: { name: 'Spore Weaver', desc: 'Faster atk, +3 slow', attackSpeedMult: 0.80, special: { extraSlowStacks: 3 }, spawnSpeedMult: 0.90, cost: { gold: 0, wood: 45, stone: 0 } },
+      D: { name: 'Fungal Hulk', desc: '+35% dmg, +8 heal, +2 slow', damageMult: 1.35, special: { healBonus: 8, extraSlowStacks: 2 }, spawnSpeedMult: 0.85, cost: { gold: 0, wood: 0, stone: 90 } },
+      E: { name: 'Bloom Shaper', desc: '+40% dmg, +2 AoE', damageMult: 1.40, special: { aoeRadiusBonus: 2 }, spawnSpeedMult: 0.85, cost: { gold: 0, wood: 0, stone: 90 } },
+      F: { name: 'Mycelium Sage', desc: 'Very fast, +7 heal', attackSpeedMult: 0.65, special: { healBonus: 7 }, spawnSpeedMult: 0.85, cost: { gold: 0, wood: 90, stone: 0 } },
+      G: { name: 'Fungal Lord', desc: '+50% dmg, +35% range', damageMult: 1.50, rangeMult: 1.35, spawnSpeedMult: 0.85, cost: { gold: 0, wood: 90, stone: 0 } },
     },
     [BuildingType.Tower]: {
       B: { name: 'Thorn Wall', desc: '+60% HP, +30% dmg', hpMult: 1.60, damageMult: 1.30 },
@@ -682,3 +715,210 @@ export const UPGRADE_TREES: Record<Race, Partial<Record<BuildingType, Record<Upg
     },
   },
 };
+
+// Race ability display info for the bottom-bar ability button
+export const RACE_ABILITY_INFO: Record<Race, { name: string; key: string; desc: string }> = {
+  [Race.Crown]:    { name: 'Foundry',   key: '5', desc: 'Build a Gold Foundry. +1 gold per miner trip.' },
+  [Race.Horde]:    { name: 'War Troll', key: '5', desc: 'Summon a mighty troll from your citadel.' },
+  [Race.Goblins]:  { name: 'Potions',   key: '5', desc: 'Build a Potion Shop. Buffs nearby allies.' },
+  [Race.Oozlings]: { name: 'Globule',   key: '5', desc: 'Build a Globule. Spawns extra oozlings.' },
+  [Race.Demon]:    { name: 'Fireball',  key: '5', desc: 'Hurl a fireball. Consumes ALL mana.' },
+  [Race.Deep]:     { name: 'Deluge',    key: '5', desc: 'Unleash a storm. Slows all enemies.' },
+  [Race.Wild]:     { name: 'Frenzy',    key: '5', desc: 'Enrage allies in an area. +Speed +Damage.' },
+  [Race.Geists]:   { name: 'Summon',    key: '5', desc: 'Summon 5 skeleton warriors at target.' },
+  [Race.Tenders]:  { name: 'Seeds',     key: '5', desc: 'Plant a seed. Grows into a random unit.' },
+};
+
+// Race ability definitions — costs, cooldowns, targeting, etc.
+export const RACE_ABILITY_DEFS: Record<Race, RaceAbilityDef> = {
+  [Race.Crown]: {
+    race: Race.Crown, name: 'Gold Foundry',
+    targetMode: AbilityTargetMode.BuildSlot,
+    baseCooldownTicks: 0,
+    baseCost: { gold: 120, wood: 40 },
+  },
+  [Race.Horde]: {
+    race: Race.Horde, name: 'War Troll',
+    targetMode: AbilityTargetMode.Instant,
+    baseCooldownTicks: 60 * TICK_RATE,
+    baseCost: { gold: 200, wood: 50, stone: 100 },
+    costGrowthFactor: 1.5,
+  },
+  [Race.Goblins]: {
+    race: Race.Goblins, name: 'Potion Shop',
+    targetMode: AbilityTargetMode.BuildSlot,
+    baseCooldownTicks: 0,
+    baseCost: { gold: 80, wood: 30 },
+  },
+  [Race.Oozlings]: {
+    race: Race.Oozlings, name: 'Globule',
+    targetMode: AbilityTargetMode.BuildSlot,
+    baseCooldownTicks: 0,
+    baseCost: { deathEssence: 50 },
+  },
+  [Race.Demon]: {
+    race: Race.Demon, name: 'Fireball',
+    targetMode: AbilityTargetMode.Targeted,
+    baseCooldownTicks: 30 * TICK_RATE,
+    baseCost: { mana: 30 },
+    requiresVision: true,
+    aoeRadius: 6,
+  },
+  [Race.Deep]: {
+    race: Race.Deep, name: 'Deluge',
+    targetMode: AbilityTargetMode.Instant,
+    baseCooldownTicks: 45 * TICK_RATE,
+    baseCost: { wood: 100, gold: 50 },
+    costGrowthFactor: 1.3,
+  },
+  [Race.Wild]: {
+    race: Race.Wild, name: 'Frenzy',
+    targetMode: AbilityTargetMode.Targeted,
+    baseCooldownTicks: 40 * TICK_RATE,
+    baseCost: { stone: 80 },
+    costGrowthFactor: 1.3,
+    aoeRadius: 8,
+  },
+  [Race.Geists]: {
+    race: Race.Geists, name: 'Summon Skeletons',
+    targetMode: AbilityTargetMode.Targeted,
+    baseCooldownTicks: 35 * TICK_RATE,
+    baseCost: { souls: 30 },
+    requiresVision: true,
+    aoeRadius: 4,
+  },
+  [Race.Tenders]: {
+    race: Race.Tenders, name: 'Plant Seed',
+    targetMode: AbilityTargetMode.BuildSlot,
+    baseCooldownTicks: 10 * TICK_RATE,
+    baseCost: { gold: 40, wood: 20 },
+    costGrowthFactor: 1.2,
+  },
+};
+
+// === Research Upgrade System ===
+
+export type ResearchCategory = 'melee' | 'ranged' | 'caster';
+
+export interface ResearchUpgradeDef {
+  id: string;
+  category: ResearchCategory;
+  type: 'attack' | 'defense' | 'race_special';
+  name: string;
+  desc: string;
+  /** One-shot upgrades are purchased once; attack/defense are infinite */
+  oneShot: boolean;
+}
+
+// 6 universal upgrades: melee/ranged/caster x atk/def
+export const RESEARCH_UPGRADES: ResearchUpgradeDef[] = [
+  { id: 'melee_atk', category: 'melee', type: 'attack', name: 'Melee Attack', desc: '+25% melee damage per level', oneShot: false },
+  { id: 'melee_def', category: 'melee', type: 'defense', name: 'Melee Defense', desc: 'Melee damage reduction (diminishing)', oneShot: false },
+  { id: 'ranged_atk', category: 'ranged', type: 'attack', name: 'Ranged Attack', desc: '+25% ranged damage per level', oneShot: false },
+  { id: 'ranged_def', category: 'ranged', type: 'defense', name: 'Ranged Defense', desc: 'Ranged damage reduction (diminishing)', oneShot: false },
+  { id: 'caster_atk', category: 'caster', type: 'attack', name: 'Caster Attack', desc: '+25% caster damage per level', oneShot: false },
+  { id: 'caster_def', category: 'caster', type: 'defense', name: 'Caster Defense', desc: 'Caster damage reduction (diminishing)', oneShot: false },
+];
+
+// Per-race one-shot upgrades (2 per category = 6 per race)
+export const RACE_RESEARCH_UPGRADES: Record<Race, ResearchUpgradeDef[]> = {
+  [Race.Crown]: [
+    { id: 'crown_melee_1', category: 'melee', type: 'race_special', name: 'Defend Stance', desc: '-25% ranged dmg taken', oneShot: true },
+    { id: 'crown_melee_2', category: 'melee', type: 'race_special', name: 'Royal Guard', desc: '+15% HP, +2g on kill', oneShot: true },
+    { id: 'crown_ranged_1', category: 'ranged', type: 'race_special', name: 'Piercing Arrows', desc: 'Ignore 20% def', oneShot: true },
+    { id: 'crown_ranged_2', category: 'ranged', type: 'race_special', name: 'Crown Volley', desc: '+1 proj at 40% dmg', oneShot: true },
+    { id: 'crown_caster_1', category: 'caster', type: 'race_special', name: 'Fortified Shields', desc: '+8 shield absorb', oneShot: true },
+    { id: 'crown_caster_2', category: 'caster', type: 'race_special', name: 'Healing Aura', desc: '1 HP/s to 2 allies', oneShot: true },
+  ],
+  [Race.Horde]: [
+    { id: 'horde_melee_1', category: 'melee', type: 'race_special', name: 'Blood Rage', desc: '+20% dmg <50% HP', oneShot: true },
+    { id: 'horde_melee_2', category: 'melee', type: 'race_special', name: 'Thick Skin', desc: '+20% HP', oneShot: true },
+    { id: 'horde_ranged_1', category: 'ranged', type: 'race_special', name: 'Heavy Bolts', desc: '+1 Slow on hit', oneShot: true },
+    { id: 'horde_ranged_2', category: 'ranged', type: 'race_special', name: 'Bombardier', desc: 'Splash 2.5t at 30%', oneShot: true },
+    { id: 'horde_caster_1', category: 'caster', type: 'race_special', name: 'War Drums', desc: 'Haste 3s->5s', oneShot: true },
+    { id: 'horde_caster_2', category: 'caster', type: 'race_special', name: 'Berserker Howl', desc: 'Haste gives +15% dmg', oneShot: true },
+  ],
+  [Race.Goblins]: [
+    { id: 'goblins_melee_1', category: 'melee', type: 'race_special', name: 'Coated Blades', desc: '+1 Burn on melee', oneShot: true },
+    { id: 'goblins_melee_2', category: 'melee', type: 'race_special', name: 'Scurry', desc: '+20% move speed', oneShot: true },
+    { id: 'goblins_ranged_1', category: 'ranged', type: 'race_special', name: 'Incendiary Tips', desc: '+1 Burn on ranged', oneShot: true },
+    { id: 'goblins_ranged_2', category: 'ranged', type: 'race_special', name: 'Scatter Shot', desc: '15% double fire', oneShot: true },
+    { id: 'goblins_caster_1', category: 'caster', type: 'race_special', name: 'Potent Hex', desc: '+1 Slow stack', oneShot: true },
+    { id: 'goblins_caster_2', category: 'caster', type: 'race_special', name: 'Jinx Cloud', desc: 'Slowed +15% dmg taken', oneShot: true },
+  ],
+  [Race.Oozlings]: [
+    { id: 'oozlings_melee_1', category: 'melee', type: 'race_special', name: 'Volatile Membrane', desc: 'Explode on death', oneShot: true },
+    { id: 'oozlings_melee_2', category: 'melee', type: 'race_special', name: 'Mitosis', desc: '10% spawn copy on death', oneShot: true },
+    { id: 'oozlings_ranged_1', category: 'ranged', type: 'race_special', name: 'Corrosive Spit', desc: '-10% target dmg 3s', oneShot: true },
+    { id: 'oozlings_ranged_2', category: 'ranged', type: 'race_special', name: 'Acid Pool', desc: 'Kill leaves dmg pool', oneShot: true },
+    { id: 'oozlings_caster_1', category: 'caster', type: 'race_special', name: 'Symbiotic Link', desc: 'Heal during haste', oneShot: true },
+    { id: 'oozlings_caster_2', category: 'caster', type: 'race_special', name: 'Mass Division', desc: 'Spawn 3 not 2', oneShot: true },
+  ],
+  [Race.Demon]: [
+    { id: 'demon_melee_1', category: 'melee', type: 'race_special', name: 'Infernal Rage', desc: '+25% vs burning', oneShot: true },
+    { id: 'demon_melee_2', category: 'melee', type: 'race_special', name: 'Soul Siphon', desc: '+2 mana on kill', oneShot: true },
+    { id: 'demon_ranged_1', category: 'ranged', type: 'race_special', name: 'Hellfire Arrows', desc: '+1 Burn, +10% dmg', oneShot: true },
+    { id: 'demon_ranged_2', category: 'ranged', type: 'race_special', name: 'Eye of Destruction', desc: '+1.5 splash radius', oneShot: true },
+    { id: 'demon_caster_1', category: 'caster', type: 'race_special', name: 'Flame Conduit', desc: '+1 AoE burn', oneShot: true },
+    { id: 'demon_caster_2', category: 'caster', type: 'race_special', name: 'Immolation', desc: '2t burn aura', oneShot: true },
+  ],
+  [Race.Deep]: [
+    { id: 'deep_melee_1', category: 'melee', type: 'race_special', name: 'Tidal Guard', desc: '+15% HP, +5% DR', oneShot: true },
+    { id: 'deep_melee_2', category: 'melee', type: 'race_special', name: 'Crushing Depths', desc: '+20% vs slowed', oneShot: true },
+    { id: 'deep_ranged_1', category: 'ranged', type: 'race_special', name: 'Frozen Harpoons', desc: '+1 Slow', oneShot: true },
+    { id: 'deep_ranged_2', category: 'ranged', type: 'race_special', name: 'Anchor Shot', desc: 'Root 0.5s', oneShot: true },
+    { id: 'deep_caster_1', category: 'caster', type: 'race_special', name: 'Purifying Tide', desc: 'Cleanse 1 burn ally', oneShot: true },
+    { id: 'deep_caster_2', category: 'caster', type: 'race_special', name: 'Abyssal Ward', desc: '3 shield/5s allies', oneShot: true },
+  ],
+  [Race.Wild]: [
+    { id: 'wild_melee_1', category: 'melee', type: 'race_special', name: 'Savage Frenzy', desc: 'Frenzy +2s, +10% dmg', oneShot: true },
+    { id: 'wild_melee_2', category: 'melee', type: 'race_special', name: 'Pack Hunter', desc: '+10%/ally max +30%', oneShot: true },
+    { id: 'wild_ranged_1', category: 'ranged', type: 'race_special', name: 'Venomous Fangs', desc: '+1 Burn', oneShot: true },
+    { id: 'wild_ranged_2', category: 'ranged', type: 'race_special', name: "Predator's Mark", desc: 'Marked +15% dmg taken', oneShot: true },
+    { id: 'wild_caster_1', category: 'caster', type: 'race_special', name: "Nature's Wrath", desc: '+1 AoE radius', oneShot: true },
+    { id: 'wild_caster_2', category: 'caster', type: 'race_special', name: 'Alpha Howl', desc: 'Casters grant Frenzy', oneShot: true },
+  ],
+  [Race.Geists]: [
+    { id: 'geists_melee_1', category: 'melee', type: 'race_special', name: 'Death Grip', desc: 'Lifesteal 15->25%', oneShot: true },
+    { id: 'geists_melee_2', category: 'melee', type: 'race_special', name: 'Spectral Armor', desc: '+5% DR per 25% missing HP', oneShot: true },
+    { id: 'geists_ranged_1', category: 'ranged', type: 'race_special', name: 'Soul Arrows', desc: '+10% lifesteal', oneShot: true },
+    { id: 'geists_ranged_2', category: 'ranged', type: 'race_special', name: 'Phantom Volley', desc: '15% pass-through', oneShot: true },
+    { id: 'geists_caster_1', category: 'caster', type: 'race_special', name: 'Necrotic Burst', desc: '+2 heal amount', oneShot: true },
+    { id: 'geists_caster_2', category: 'caster', type: 'race_special', name: 'Undying Will', desc: 'Skeleton summon chance', oneShot: true },
+  ],
+  [Race.Tenders]: [
+    { id: 'tenders_melee_1', category: 'melee', type: 'race_special', name: 'Bark Skin', desc: 'Regen 1->2 HP/s', oneShot: true },
+    { id: 'tenders_melee_2', category: 'melee', type: 'race_special', name: 'Thorned Vines', desc: 'Reflect 3 dmg', oneShot: true },
+    { id: 'tenders_ranged_1', category: 'ranged', type: 'race_special', name: 'Healing Sap', desc: 'Heal ally 15% of dmg', oneShot: true },
+    { id: 'tenders_ranged_2', category: 'ranged', type: 'race_special', name: 'Root Snare', desc: '20% chance +1 Slow', oneShot: true },
+    { id: 'tenders_caster_1', category: 'caster', type: 'race_special', name: 'Bloom Burst', desc: '+2 heal amount', oneShot: true },
+    { id: 'tenders_caster_2', category: 'caster', type: 'race_special', name: 'Life Link', desc: 'Double heal <30% HP', oneShot: true },
+  ],
+};
+
+/** Get all research upgrades for a race (6 universal + 6 race-specific) */
+export function getAllResearchUpgrades(race: Race): ResearchUpgradeDef[] {
+  return [...RESEARCH_UPGRADES, ...RACE_RESEARCH_UPGRADES[race]];
+}
+
+/** Get cost for a research upgrade. Attack/defense: 80g base x 1.5^level. One-shots: 150g flat. */
+export function getResearchUpgradeCost(id: string, level: number, race: Race): { gold: number; wood: number; stone: number } {
+  const allDefs = getAllResearchUpgrades(race);
+  const def = allDefs.find(d => d.id === id);
+  if (!def) return { gold: 999, wood: 999, stone: 999 };
+  if (def.oneShot) {
+    // One-shot: flat cost scaled to race economy
+    const used = getRaceUsedResources(race);
+    if (!used.gold && used.stone && used.wood) return { gold: 0, wood: 80, stone: 70 };
+    if (!used.gold && used.stone) return { gold: 0, wood: 0, stone: 150 };
+    if (!used.gold && used.wood) return { gold: 0, wood: 150, stone: 0 };
+    return { gold: 150, wood: 0, stone: 0 };
+  }
+  // Infinite scaling: 80 base x 1.5^level
+  const cost = Math.round(80 * Math.pow(1.5, level));
+  const used = getRaceUsedResources(race);
+  if (!used.gold && used.stone && used.wood) return { gold: 0, wood: Math.round(cost * 0.5), stone: Math.round(cost * 0.5) };
+  if (!used.gold && used.stone) return { gold: 0, wood: 0, stone: cost };
+  if (!used.gold && used.wood) return { gold: 0, wood: cost, stone: 0 };
+  return { gold: cost, wood: 0, stone: 0 };
+}

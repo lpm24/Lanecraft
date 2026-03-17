@@ -1,8 +1,9 @@
 import {
   GameState, GameCommand, Race, BuildingType, Lane, Team, HQ_WIDTH, HQ_HEIGHT,
   HarvesterAssignment, HQ_HP, MapDef, TICK_RATE, NUKE_RADIUS,
+  AbilityTargetMode, ResearchUpgradeState,
 } from './types';
-import { RACE_BUILDING_COSTS, UPGRADE_TREES, UpgradeNodeDef, UNIT_STATS, SPAWN_INTERVAL_TICKS, TOWER_STATS, getNodeUpgradeCost, HUT_COST_SCALE, GOLD_YIELD_PER_TRIP, WOOD_YIELD_PER_TRIP, STONE_YIELD_PER_TRIP } from './data';
+import { RACE_BUILDING_COSTS, UPGRADE_TREES, UpgradeNodeDef, UNIT_STATS, SPAWN_INTERVAL_TICKS, TOWER_STATS, getNodeUpgradeCost, HUT_COST_SCALE, GOLD_YIELD_PER_TRIP, WOOD_YIELD_PER_TRIP, STONE_YIELD_PER_TRIP, RACE_ABILITY_DEFS, getAllResearchUpgrades, getResearchUpgradeCost } from './data';
 import { getHQPosition, getUnitUpgradeMultipliers, PASSIVE_INCOME } from './GameState';
 
 // --- Bot Difficulty System ---
@@ -377,6 +378,8 @@ export interface BotContext {
   lastLaneTick: Record<number, number>;
   // Nuke coordination: tick when bot declared "Nuking Now!", 0 = none
   nukeIntentTick: Record<number, number>;
+  // Research upgrade timing
+  lastResearchTick: Record<number, number>;
   // Difficulty settings
   difficulty: Record<number, BotDifficulty>;
   defaultDifficulty: BotDifficulty;
@@ -1094,7 +1097,7 @@ export function createBotContext(
   return {
     lastChatTick: {}, currentLane: {}, lastPushTick: {},
     lastBuildTick: {}, lastUpgradeTick: {}, lastHarvesterTick: {},
-    lastLaneTick: {}, nukeIntentTick: {},
+    lastLaneTick: {}, nukeIntentTick: {}, lastResearchTick: {},
     difficulty: {},
     defaultDifficulty: BOT_DIFFICULTY_PRESETS[difficulty],
     intelligence: {},
@@ -1402,6 +1405,162 @@ function estimateUpgradeValue(
   }
 
   return { value, choice };
+}
+
+// ==================== RESEARCH VALUE ESTIMATION ====================
+
+/** Synergy scores for race one-shot research upgrades, keyed by upgrade id */
+function getOneShotSynergyScore(id: string, threats: ThreatProfile): number {
+  switch (id) {
+    // Crown
+    case 'crown_melee_1': return threats.hasBurst ? 3.0 : 1.0;
+    case 'crown_melee_2': return 2.0;
+    case 'crown_ranged_1': return threats.hasTanks ? 2.5 : 1.2;
+    case 'crown_ranged_2': return 2.5;
+    case 'crown_caster_1': return threats.hasBurn ? 3.0 : 1.5;
+    case 'crown_caster_2': return 1.5;
+    // Horde
+    case 'horde_melee_1': return 2.0;
+    case 'horde_melee_2': return threats.hasBurst ? 2.5 : 1.5;
+    case 'horde_ranged_1': return threats.hasControl ? 1.0 : 2.0;
+    case 'horde_ranged_2': return threats.hasSwarm ? 3.0 : 1.5;
+    case 'horde_caster_1': return 2.0;
+    case 'horde_caster_2': return 2.0;
+    // Goblins
+    case 'goblins_melee_1': return (threats.hasTanks || threats.hasSustain) ? 2.5 : 1.5;
+    case 'goblins_melee_2': return threats.hasControl ? 2.5 : 1.5;
+    case 'goblins_ranged_1': return threats.hasTanks ? 2.5 : 1.5;
+    case 'goblins_ranged_2': return 2.0;
+    case 'goblins_caster_1': return 2.0;
+    case 'goblins_caster_2': return 2.5;
+    // Oozlings
+    case 'oozlings_melee_1': return threats.hasSwarm ? 1.5 : 2.0;
+    case 'oozlings_melee_2': return 2.5;
+    case 'oozlings_ranged_1': return 1.5;
+    case 'oozlings_ranged_2': return 1.5;
+    case 'oozlings_caster_1': return 1.5;
+    case 'oozlings_caster_2': return 3.0;
+    // Demon
+    case 'demon_melee_1': return 2.5;
+    case 'demon_melee_2': return 2.0;
+    case 'demon_ranged_1': return 2.5;
+    case 'demon_ranged_2': return threats.hasSwarm ? 3.0 : 2.0;
+    case 'demon_caster_1': return 2.0;
+    case 'demon_caster_2': return 2.5;
+    // Deep
+    case 'deep_melee_1': return threats.hasBurst ? 2.5 : 1.5;
+    case 'deep_melee_2': return 2.5;
+    case 'deep_ranged_1': return 2.0;
+    case 'deep_ranged_2': return 2.0;
+    case 'deep_caster_1': return threats.hasBurn ? 3.0 : 1.0;
+    case 'deep_caster_2': return threats.hasBurn ? 2.5 : 1.5;
+    // Wild
+    case 'wild_melee_1': return 2.5;
+    case 'wild_melee_2': return 2.0;
+    case 'wild_ranged_1': return threats.hasTanks ? 2.5 : 1.5;
+    case 'wild_ranged_2': return 2.0;
+    case 'wild_caster_1': return threats.hasSwarm ? 3.0 : 1.5;
+    case 'wild_caster_2': return 2.5;
+    // Geists
+    case 'geists_melee_1': return 2.5;
+    case 'geists_melee_2': return threats.hasBurst ? 3.0 : 1.5;
+    case 'geists_ranged_1': return 2.0;
+    case 'geists_ranged_2': return 2.0;
+    case 'geists_caster_1': return 2.0;
+    case 'geists_caster_2': return 2.5;
+    // Tenders
+    case 'tenders_melee_1': return 2.0;
+    case 'tenders_melee_2': return threats.hasSwarm ? 2.5 : 1.5;
+    case 'tenders_ranged_1': return 2.0;
+    case 'tenders_ranged_2': return 1.5;
+    case 'tenders_caster_1': return 2.5;
+    case 'tenders_caster_2': return 2.0;
+    default: return 1.0;
+  }
+}
+
+/**
+ * Estimate value of a research upgrade in comparable power-per-cost units.
+ * Used by Nightmare (botValueBasedBuild) and Hard (botUpgradeBuildings) bots.
+ */
+function estimateResearchValue(
+  _state: GameState, _ctx: BotContext, playerId: number,
+  upgradeId: string, race: Race, bu: ResearchUpgradeState,
+  intel: BotIntelligence, myBuildings: GameState['buildings'],
+): number {
+  const def = getAllResearchUpgrades(race).find(d => d.id === upgradeId);
+  if (!def) return 0;
+
+  // Skip already-owned one-shots
+  if (def.oneShot && bu.raceUpgrades[def.id]) return 0;
+
+  // Get level for scaling upgrades
+  let level = 0;
+  if (upgradeId === 'melee_atk') level = bu.meleeAtkLevel;
+  else if (upgradeId === 'melee_def') level = bu.meleeDefLevel;
+  else if (upgradeId === 'ranged_atk') level = bu.rangedAtkLevel;
+  else if (upgradeId === 'ranged_def') level = bu.rangedDefLevel;
+  else if (upgradeId === 'caster_atk') level = bu.casterAtkLevel;
+  else if (upgradeId === 'caster_def') level = bu.casterDefLevel;
+
+  const cost = getResearchUpgradeCost(upgradeId, level, race);
+  const totalCost = cost.gold + cost.wood + cost.stone;
+  if (totalCost <= 0) return 0;
+
+  // Get category counts
+  const cat = def.category;
+  const catType = cat === 'melee' ? BuildingType.MeleeSpawner
+    : cat === 'ranged' ? BuildingType.RangedSpawner
+    : BuildingType.CasterSpawner;
+  const spawnerCount = myBuildings.filter(b => b.playerId === playerId && b.type === catType).length;
+  const aliveCount = intel.myPerf[cat].alive;
+  const unitStats = UNIT_STATS[race]?.[catType];
+  if (!unitStats) return 0;
+  const avgDamage = unitStats.damage;
+  const avgHP = unitStats.hp;
+
+  const threats = intel.threats;
+  const armyAdvantage = intel.armyAdvantage;
+
+  // --- Race one-shot upgrades ---
+  if (def.oneShot) {
+    if (spawnerCount === 0) return 0; // no spawners of this category
+    const synergyScore = getOneShotSynergyScore(upgradeId, threats);
+    return synergyScore * spawnerCount * 0.4 / totalCost;
+  }
+
+  // --- Attack upgrades (melee_atk, ranged_atk, caster_atk) ---
+  if (def.type === 'attack') {
+    // Marginal multiplier gain: 1.25^(level+1) - 1.25^level = 1.25^level * 0.25
+    const marginalMult = Math.pow(1.25, level) * 0.25;
+    let value = marginalMult * (aliveCount + spawnerCount * 3) * avgDamage / totalCost;
+
+    // Boost if this is the effective category
+    if (intel.effectiveCategory === cat) value *= 1.3;
+    // If losing, attack upgrades get +20% (need to punch through)
+    if (armyAdvantage < 0.8) value *= 1.2;
+
+    return value;
+  }
+
+  // --- Defense upgrades (melee_def, ranged_def, caster_def) ---
+  if (def.type === 'defense') {
+    // Marginal DR gain: 1/(1+0.06*level) - 1/(1+0.06*(level+1))
+    const oldDR = 1 - 1 / (1 + 0.06 * level);
+    const newDR = 1 - 1 / (1 + 0.06 * (level + 1));
+    // Effective HP multiplier increase
+    const ehpGain = (newDR > 0.99 ? 100 : 1 / (1 - newDR)) - (oldDR > 0.99 ? 100 : 1 / (1 - oldDR));
+    let value = ehpGain * (aliveCount + spawnerCount * 3) * avgHP / totalCost;
+
+    // If losing badly, defense gets +50%
+    if (armyAdvantage < 0.6) value *= 1.5;
+    // If weak category matches, multiply by 1.5
+    if (intel.weakCategory === cat) value *= 1.5;
+
+    return value;
+  }
+
+  return 0;
 }
 
 function estimateHutPaybackSeconds(
@@ -1715,6 +1874,25 @@ function runSingleBotAI(state: GameState, ctx: BotContext, playerId: number, emi
   // 3. Lane management — quality scaled by difficulty
   botEvaluateLanes(state, ctx, playerId, myTeam, profile, myBuildings, gameMinutes, diff, emit);
 
+  // 3.5. Race ability — check every 2 seconds (Easy bots skip)
+  if (diff.laneIQ !== 'random' && state.tick % 40 === 0) {
+    botUseAbility(state, playerId, emit);
+  }
+
+  // 3.6. Research upgrades
+  // Nightmare: handled inside botValueBasedBuild (unified value function)
+  // Hard: handled inside botUpgradeBuildings (compared against building upgrades)
+  // Medium: simple timer-based (45s, attack only, army/econ first)
+  // Easy: never
+  if (!diff.useValueFunction && diff.upgradeThreshold >= 99) {
+    // Medium only (upgradeThreshold >= 99 means no building upgrades, i.e. Medium)
+    const researchInterval = diff.laneIQ === 'random' ? 999999 : 45 * TICK_RATE;
+    if (state.tick - (ctx.lastResearchTick[playerId] ?? 0) >= researchInterval) {
+      botManageResearch(state, ctx, playerId, player, diff, emit);
+      ctx.lastResearchTick[playerId] = state.tick;
+    }
+  }
+
   // 4. Harvesters — check every ~2-3 seconds (faster for nightmare)
   const baseHarvInterval = diff.useValueFunction ? 40 : 60;
   const harvInterval = Math.max(30, Math.floor(baseHarvInterval / urgency));
@@ -1795,13 +1973,14 @@ function botValueBasedBuild(
 
   // Score all options — including unaffordable ones for save-for logic
   interface BuildOption {
-    action: 'spawner' | 'upgrade' | 'hut' | 'tower' | 'alley_tower';
+    action: 'spawner' | 'upgrade' | 'hut' | 'tower' | 'alley_tower' | 'research';
     value: number;
     affordable: boolean;
     waitSecs: number;  // seconds to afford (0 if affordable now)
     type?: BuildingType;
     building?: GameState['buildings'][0];
     upgradeChoice?: string;
+    researchId?: string;
   }
 
   const options: BuildOption[] = [];
@@ -1929,6 +2108,37 @@ function botValueBasedBuild(
     }
   }
 
+  // --- Research upgrades (Nightmare: integrated into value function) ---
+  if (intel) {
+    const bu = player.researchUpgrades;
+    const allResearch = getAllResearchUpgrades(race);
+    for (const rDef of allResearch) {
+      if (rDef.oneShot && bu.raceUpgrades[rDef.id]) continue;
+
+      let rLevel = 0;
+      if (rDef.id === 'melee_atk') rLevel = bu.meleeAtkLevel;
+      else if (rDef.id === 'melee_def') rLevel = bu.meleeDefLevel;
+      else if (rDef.id === 'ranged_atk') rLevel = bu.rangedAtkLevel;
+      else if (rDef.id === 'ranged_def') rLevel = bu.rangedDefLevel;
+      else if (rDef.id === 'caster_atk') rLevel = bu.casterAtkLevel;
+      else if (rDef.id === 'caster_def') rLevel = bu.casterDefLevel;
+
+      const rCost = getResearchUpgradeCost(rDef.id, rLevel, race);
+      const rTotalCost = rCost.gold + rCost.wood + rCost.stone;
+      if (rTotalCost <= 0) continue;
+
+      const canAffordR = player.gold >= rCost.gold && player.wood >= rCost.wood && player.stone >= rCost.stone;
+      const rv = estimateResearchValue(state, ctx, playerId, rDef.id, race, bu, intel, myBuildings);
+      if (rv > 0) {
+        const waitR = canAffordR ? 0 : timeToAfford(player, rCost, plan);
+        options.push({
+          action: 'research', value: rv, affordable: canAffordR, waitSecs: waitR,
+          researchId: rDef.id,
+        });
+      }
+    }
+  }
+
   if (options.length === 0) return false;
 
   // --- Save-for logic: should we skip buying cheap now to afford something better soon? ---
@@ -1942,7 +2152,8 @@ function botValueBasedBuild(
     b.value - a.value
     || cmpStr(a.action, b.action)
     || cmpStr(a.type ?? '', b.type ?? '')
-    || (a.building?.id ?? 0) - (b.building?.id ?? 0);
+    || (a.building?.id ?? 0) - (b.building?.id ?? 0)
+    || cmpStr(a.researchId ?? '', b.researchId ?? '');
   affordableOptions.sort(optionSort);
   unaffordableOptions.sort(optionSort);
 
@@ -1980,6 +2191,9 @@ function botValueBasedBuild(
       return true;
     case 'hut':
       emit({ type: 'build_hut', playerId });
+      return true;
+    case 'research':
+      emit({ type: 'research_upgrade', playerId, upgradeId: pick.researchId! });
       return true;
     case 'tower':
     case 'alley_tower':
@@ -2280,6 +2494,44 @@ function botUpgradeBuildings(
     emit({ type: 'purchase_upgrade', playerId, buildingId: b.id, choice: uv.choice });
     return true;
   }
+
+  // --- Hard bots: evaluate research upgrades alongside building upgrades ---
+  // (Nightmare bots handle this in botValueBasedBuild instead)
+  if (!diff.useValueFunction && intel) {
+    const bu = player.researchUpgrades;
+    const allResearch = getAllResearchUpgrades(player.race);
+    let bestResearchValue = 0;
+    let bestResearchId: string | null = null;
+
+    for (const rDef of allResearch) {
+      if (rDef.oneShot && bu.raceUpgrades[rDef.id]) continue;
+
+      let rLevel = 0;
+      if (rDef.id === 'melee_atk') rLevel = bu.meleeAtkLevel;
+      else if (rDef.id === 'melee_def') rLevel = bu.meleeDefLevel;
+      else if (rDef.id === 'ranged_atk') rLevel = bu.rangedAtkLevel;
+      else if (rDef.id === 'ranged_def') rLevel = bu.rangedDefLevel;
+      else if (rDef.id === 'caster_atk') rLevel = bu.casterAtkLevel;
+      else if (rDef.id === 'caster_def') rLevel = bu.casterDefLevel;
+
+      const rCost = getResearchUpgradeCost(rDef.id, rLevel, player.race);
+      if (player.gold < rCost.gold || player.wood < rCost.wood || player.stone < rCost.stone) continue;
+
+      const rv = estimateResearchValue(state, ctx, playerId, rDef.id, player.race, bu, intel, myBuildings);
+      // Hard bots slightly undervalue research (0.8x) to prefer army investment
+      const adjustedRv = rv * 0.8;
+      if (adjustedRv > bestResearchValue) {
+        bestResearchValue = adjustedRv;
+        bestResearchId = rDef.id;
+      }
+    }
+
+    if (bestResearchId && bestResearchValue > 0) {
+      emit({ type: 'research_upgrade', playerId, upgradeId: bestResearchId });
+      return true;
+    }
+  }
+
   return false;
 }
 
@@ -2585,6 +2837,20 @@ function botManageHarvesters(
     }
   }
 
+  // --- Demon: assign at least one harvester to Mana if we have 2+ harvesters ---
+  if (player.race === Race.Demon && myHarvesters.length >= 2) {
+    const manaCount = assignments.filter(a => a === HarvesterAssignment.Mana).length;
+    if (manaCount === 0) {
+      // Replace the last non-center assignment with Mana
+      for (let i = assignments.length - 1; i >= 0; i--) {
+        if (assignments[i] !== HarvesterAssignment.Center) {
+          assignments[i] = HarvesterAssignment.Mana;
+          break;
+        }
+      }
+    }
+  }
+
   // --- Apply assignments, respecting active harvesters ---
   for (let i = 0; i < myHarvesters.length; i++) {
     const h = myHarvesters[i];
@@ -2702,5 +2968,133 @@ function botQuickChat(
     emit({ type: 'quick_chat', playerId, message });
     ctx.lastChatTick[playerId] = state.tick;
   }
+}
+
+// ==================== RACE ABILITY ====================
+
+function botUseAbility(state: GameState, playerId: number, emit: Emit): void {
+  const player = state.players[playerId];
+  if (!player || player.isEmpty || player.abilityCooldown > 0) return;
+
+  const def = RACE_ABILITY_DEFS[player.race];
+  if (!def) return;
+
+  // Check if we can afford it (approximate — doesn't account for growth, but close enough for bots)
+  const growthMult = def.costGrowthFactor ? Math.pow(def.costGrowthFactor, player.abilityUseCount) : 1;
+  const goldCost = Math.floor((def.baseCost.gold ?? 0) * growthMult);
+  const woodCost = Math.floor((def.baseCost.wood ?? 0) * growthMult);
+  const stoneCost = Math.floor((def.baseCost.stone ?? 0) * growthMult);
+  const manaCost = Math.floor((def.baseCost.mana ?? 0) * growthMult);
+  const soulsCost = Math.floor((def.baseCost.souls ?? 0) * growthMult);
+  const essenceCost = Math.floor((def.baseCost.deathEssence ?? 0) * growthMult);
+
+  if (player.gold < goldCost || player.wood < woodCost || player.stone < stoneCost) return;
+  if (player.mana < manaCost || player.souls < soulsCost || player.deathEssence < essenceCost) return;
+
+  const enemyTeam = botEnemyTeam(playerId, state);
+
+  if (def.targetMode === AbilityTargetMode.Instant) {
+    // Instant abilities: use when there are enemy units on the field
+    const enemyCount = state.units.filter(u => u.team === enemyTeam && u.hp > 0).length;
+    if (enemyCount >= 3 || state.tick > 3 * 60 * TICK_RATE) {
+      emit({ type: 'use_ability', playerId });
+    }
+  } else if (def.targetMode === AbilityTargetMode.Targeted) {
+    const radius = def.aoeRadius ?? 6;
+    const r2 = radius * radius;
+
+    // Wild targets allies (buff), others target enemies (damage/summon)
+    const isAllyTarget = player.race === Race.Wild;
+    const targets = isAllyTarget
+      ? state.units.filter(u => u.team === player.team && u.hp > 0)
+      : state.units.filter(u => u.team === enemyTeam && u.hp > 0);
+    if (targets.length < 2) return;
+
+    // Find densest cluster center
+    let bestX = 0, bestY = 0, bestScore = 0;
+    for (const t of targets) {
+      let score = 0;
+      for (const o of targets) {
+        if ((t.x - o.x) ** 2 + (t.y - o.y) ** 2 <= r2) score++;
+      }
+      if (score > bestScore) { bestScore = score; bestX = t.x; bestY = t.y; }
+    }
+
+    if (bestScore >= 2) {
+      emit({ type: 'use_ability', playerId, x: bestX, y: bestY });
+    }
+  } else if (def.targetMode === AbilityTargetMode.BuildSlot) {
+    // BuildSlot abilities: use when affordable and there are open slots
+    emit({ type: 'use_ability', playerId });
+  }
+}
+
+// === Research Upgrade Bot Logic ===
+
+/**
+ * Simple timer-based research for Medium bots only.
+ * Only buys attack upgrades. Skips if a spawner or hut is affordable (army/econ first).
+ */
+function botManageResearch(
+  state: GameState, _ctx: BotContext, playerId: number,
+  player: GameState['players'][0], diff: BotDifficulty, emit: Emit,
+): void {
+  const bu = player.researchUpgrades;
+  const race = player.race;
+  const myBuildings = state.buildings.filter(b => b.playerId === playerId);
+  const meleeCount = myBuildings.filter(b => b.type === BuildingType.MeleeSpawner).length;
+  const rangedCount = myBuildings.filter(b => b.type === BuildingType.RangedSpawner).length;
+  const casterCount = myBuildings.filter(b => b.type === BuildingType.CasterSpawner).length;
+  const hutCount = myBuildings.filter(b => b.type === BuildingType.HarvesterHut).length;
+  const totalSpawners = meleeCount + rangedCount + casterCount;
+
+  // Army/econ first: skip research if we can afford a spawner or hut instead
+  if (totalSpawners < diff.maxSpawners) {
+    const spawnerTypes = [BuildingType.MeleeSpawner, BuildingType.RangedSpawner, BuildingType.CasterSpawner];
+    for (const t of spawnerTypes) {
+      if (botCanAfford(state, playerId, t)) return;
+    }
+  }
+  if (hutCount < diff.maxHuts && botCanAffordHut(state, playerId, hutCount)) return;
+
+  // Medium: only attack upgrades
+  const allDefs = getAllResearchUpgrades(race);
+
+  type UpgradeCandidate = { id: string; score: number; cost: { gold: number; wood: number; stone: number } };
+  const candidates: UpgradeCandidate[] = [];
+
+  for (const def of allDefs) {
+    if (def.oneShot && bu.raceUpgrades[def.id]) continue;
+    // Medium: only attack upgrades
+    if (def.type !== 'attack') continue;
+
+    let level = 0;
+    if (def.id === 'melee_atk') level = bu.meleeAtkLevel;
+    else if (def.id === 'ranged_atk') level = bu.rangedAtkLevel;
+    else if (def.id === 'caster_atk') level = bu.casterAtkLevel;
+
+    const cost = getResearchUpgradeCost(def.id, level, race);
+    if (player.gold < cost.gold || player.wood < cost.wood || player.stone < cost.stone) continue;
+
+    // Score based on how many spawners of this category we have
+    let categoryWeight = 0;
+    if (def.category === 'melee') categoryWeight = meleeCount;
+    else if (def.category === 'ranged') categoryWeight = rangedCount;
+    else categoryWeight = casterCount;
+    if (categoryWeight === 0) continue;
+
+    let score = categoryWeight * 2; // attack multiplier
+    const totalCost = cost.gold + cost.wood + cost.stone;
+    score /= Math.max(1, totalCost / 100);
+
+    candidates.push({ id: def.id, score, cost });
+  }
+
+  if (candidates.length === 0) return;
+
+  // Sort by score descending — deterministic tie-break by id string comparison (no localeCompare)
+  candidates.sort((a, b) => b.score - a.score || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  const best = candidates[0];
+  emit({ type: 'research_upgrade', playerId, upgradeId: best.id });
 }
 

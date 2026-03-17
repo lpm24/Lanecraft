@@ -4,13 +4,15 @@ import { Renderer } from '../rendering/Renderer';
 import {
   BuildingType, TILE_SIZE, Lane,
   HarvesterAssignment, Team, Race, UnitState, NUKE_RADIUS,
+  AbilityTargetMode,
 } from '../simulation/types';
 import { getBuildGridOrigin, getTeamAlleyOrigin, getHutGridOrigin } from '../simulation/GameState';
-import { RACE_BUILDING_COSTS, UNIT_STATS, TOWER_STATS, RACE_COLORS, getRaceUsedResources, UPGRADE_TREES } from '../simulation/data';
+import { RACE_BUILDING_COSTS, UNIT_STATS, TOWER_STATS, RACE_COLORS, getRaceUsedResources, UPGRADE_TREES, RACE_ABILITY_INFO, RACE_ABILITY_DEFS } from '../simulation/data';
 import { TICK_RATE } from '../simulation/types';
 import { UIAssets } from '../rendering/UIAssets';
 import { SpriteLoader, drawSpriteFrame, getSpriteFrame } from '../rendering/SpriteLoader';
 import { BuildingPopup } from './BuildingPopup';
+import { ResearchPopup } from './ResearchPopup';
 import { getSafeBottom, getSafeTop } from './SafeArea';
 import { getAudioSettings, updateAudioSettings } from '../audio/AudioSettings';
 import { getVisualSettings, updateVisualSettings } from '../rendering/VisualSettings';
@@ -22,10 +24,10 @@ interface BuildTrayItem {
 }
 
 const BUILD_TRAY: BuildTrayItem[] = [
-  { type: BuildingType.MeleeSpawner, label: 'Melee', key: '1' },
-  { type: BuildingType.RangedSpawner, label: 'Ranged', key: '2' },
-  { type: BuildingType.CasterSpawner, label: 'Caster', key: '3' },
-  { type: BuildingType.Tower, label: 'Tower', key: '4' },
+  { type: BuildingType.MeleeSpawner, label: 'Melee', key: '2' },
+  { type: BuildingType.RangedSpawner, label: 'Ranged', key: '3' },
+  { type: BuildingType.CasterSpawner, label: 'Caster', key: '4' },
+  { type: BuildingType.Tower, label: 'Tower', key: '5' },
 ];
 
 const ASSIGNMENT_CYCLE: HarvesterAssignment[] = [
@@ -40,7 +42,17 @@ const ASSIGNMENT_LABELS: Record<HarvesterAssignment, string> = {
   [HarvesterAssignment.Wood]: 'W Wood',
   [HarvesterAssignment.Stone]: 'M Meat',
   [HarvesterAssignment.Center]: 'C Center',
+  [HarvesterAssignment.Mana]: '~ Mana',
 };
+
+// Demon gets Mana in the assignment cycle
+const DEMON_ASSIGNMENT_CYCLE: HarvesterAssignment[] = [
+  HarvesterAssignment.BaseGold,
+  HarvesterAssignment.Wood,
+  HarvesterAssignment.Stone,
+  HarvesterAssignment.Center,
+  HarvesterAssignment.Mana,
+];
 
 const LANE_MODE_STORAGE_KEY = 'lanecraft.laneToggleMode';
 const UI_FEEDBACK_STORAGE_KEY = 'lanecraft.uiFeedbackEnabled';
@@ -86,6 +98,8 @@ export class InputHandler {
   private stickyBuildMode = false;
   private audioCtx: AudioContext | null = null;
   private nukeTargeting = false;
+  private abilityTargeting = false;
+  private abilityPlacing = false;  // BuildSlot ability: player is choosing an alley slot
   private tooltip: { text: string; x: number; y: number } | null = null;
   private selectedUnitId: number | null = null;
   private hoveredUnitId: number | null = null;
@@ -96,6 +110,7 @@ export class InputHandler {
   private ui: UIAssets;
   private sprites: SpriteLoader | null = null;
   private buildingPopup = new BuildingPopup();
+  private researchPopup = new ResearchPopup();
   private trayTick = 0;
 
   /** Called when the player taps "Quit Game" in the settings panel. */
@@ -551,8 +566,10 @@ export class InputHandler {
         return;
       }
 
-      if (e.key === 'm' || e.key === 'M') {
+      if (e.key === '1') {
         this.nukeTargeting = false;
+        this.abilityTargeting = false;
+        this.abilityPlacing = false;
         this.selectedUnitId = null;
         if (this.selectedBuilding === BuildingType.HarvesterHut) {
           this.selectedBuilding = null;
@@ -598,6 +615,8 @@ export class InputHandler {
       const item = BUILD_TRAY.find(b => b.key === e.key);
       if (item) {
         this.nukeTargeting = false;
+        this.abilityTargeting = false;
+        this.abilityPlacing = false;
         this.selectedUnitId = null;
         if (this.selectedBuilding === item.type) {
           this.selectedBuilding = null;
@@ -607,7 +626,17 @@ export class InputHandler {
         }
         return;
       }
+      // Race ability key
+      if (e.key === '6') {
+        this.nukeTargeting = false;
+        this.selectedBuilding = null;
+        this.selectedUnitId = null;
+        const player = this.game.state.players[this.pid];
+        if (player) this.activateAbility(player);
+        return;
+      }
       if (e.key === 'Escape') {
+        if (this.researchPopup.isOpen()) { this.researchPopup.close(); return; }
         if (this.buildingPopup.isOpen()) { this.buildingPopup.close(); return; }
         if (this.showTutorial) { this.showTutorial = false; return; }
         this.quickChatRadialActive = false;
@@ -616,6 +645,8 @@ export class InputHandler {
         this.settingsSliderDrag = null;
         this.selectedBuilding = null;
         this.nukeTargeting = false;
+        this.abilityTargeting = false;
+        this.abilityPlacing = false;
         this.selectedUnitId = null;
       }
       if (e.key === 'l' || e.key === 'L') {
@@ -759,6 +790,19 @@ export class InputHandler {
         return;
       }
 
+      // Ability targeting — targeted abilities (fireball, frenzy, summon)
+      if (this.abilityTargeting) {
+        const world = this.eventToWorld(e);
+        const tileX = world.x / TILE_SIZE;
+        const tileY = world.y / TILE_SIZE;
+        this.game.sendCommand({
+          type: 'use_ability', playerId: this.pid,
+          x: tileX, y: tileY,
+        });
+        this.abilityTargeting = false;
+        return;
+      }
+
       if (this.selectedBuilding === null) {
         this.handleBuildingClick(e);
         return;
@@ -776,13 +820,23 @@ export class InputHandler {
       const world = this.eventToWorld(e);
       const slot = this.worldToGridSlot(this.pid, world.x, world.y);
       if (slot) {
-        this.game.sendCommand({
-          type: 'place_building', playerId: this.pid,
-          buildingType: this.selectedBuilding, gridX: slot.gx, gridY: slot.gy,
-          ...(slot.isAlley ? { gridType: 'alley' as const } : {}),
-        });
-        if (!e.shiftKey && !this.stickyBuildMode) {
+        if (this.abilityPlacing && slot.isAlley) {
+          // BuildSlot ability: place ability building at chosen alley slot
+          this.game.sendCommand({
+            type: 'use_ability', playerId: this.pid,
+            gridX: slot.gx, gridY: slot.gy,
+          });
+          this.abilityPlacing = false;
           this.selectedBuilding = null;
+        } else if (!this.abilityPlacing) {
+          this.game.sendCommand({
+            type: 'place_building', playerId: this.pid,
+            buildingType: this.selectedBuilding, gridX: slot.gx, gridY: slot.gy,
+            ...(slot.isAlley ? { gridType: 'alley' as const } : {}),
+          });
+          if (!e.shiftKey && !this.stickyBuildMode) {
+            this.selectedBuilding = null;
+          }
         }
       }
     }, sig);
@@ -797,9 +851,11 @@ export class InputHandler {
       }
 
       // If building mode, just deselect
-      if (this.selectedBuilding !== null || this.nukeTargeting) {
+      if (this.selectedBuilding !== null || this.nukeTargeting || this.abilityTargeting || this.abilityPlacing) {
         this.selectedBuilding = null;
         this.nukeTargeting = false;
+        this.abilityTargeting = false;
+        this.abilityPlacing = false;
         return;
       }
     }, sig);
@@ -859,8 +915,8 @@ export class InputHandler {
     const tx = Math.floor(worldPixelX / TILE_SIZE);
     const ty = Math.floor(worldPixelY / TILE_SIZE);
 
-    // Check shared tower alley first (only for Tower type)
-    if (this.selectedBuilding === BuildingType.Tower) {
+    // Check shared tower alley first (for Tower type or ability BuildSlot placement)
+    if (this.selectedBuilding === BuildingType.Tower || this.abilityPlacing) {
       const team = this.game.state.players[playerId]?.team ?? Team.Bottom;
       const alley = getTeamAlleyOrigin(team, this.game.state.mapDef);
       const agx = tx - alley.x, agy = ty - alley.y;
@@ -880,11 +936,21 @@ export class InputHandler {
     const world = this.eventToWorld(e);
     const tileX = Math.floor(world.x / TILE_SIZE);
     const tileY = Math.floor(world.y / TILE_SIZE);
-    const building = this.game.state.buildings.find(b =>
+    let building = this.game.state.buildings.find(b =>
       b.playerId === this.pid && b.worldX === tileX && b.worldY === tileY
     );
+    // Research is 2x size — expand click area
+    if (!building) {
+      building = this.game.state.buildings.find(b =>
+        b.playerId === this.pid && b.type === BuildingType.Research &&
+        Math.abs(b.worldX - tileX) <= 1 && Math.abs(b.worldY - tileY) <= 1
+      ) ?? undefined;
+    }
     if (!building) {
       // Click outside building: close popup if open, try selecting a unit
+      if (this.researchPopup.isOpen()) {
+        this.researchPopup.close();
+      }
       if (this.buildingPopup.isOpen()) {
         this.buildingPopup.close();
       }
@@ -897,14 +963,23 @@ export class InputHandler {
     this.selectedUnitId = null;
     this.selectedBuildingId = building.id;
 
+    // Click on research: open research popup
+    if (building.type === BuildingType.Research) {
+      this.buildingPopup.close();
+      this.researchPopup.open(building.id);
+      return;
+    }
+
     // Click on hut: cycle harvester assignment (skip resources the race doesn't use)
     if (building.type === BuildingType.HarvesterHut) {
       const h = this.game.state.harvesters.find(h => h.hutId === building.id);
       if (h) {
         const player = this.game.state.players[this.pid];
         const used = player ? getRaceUsedResources(player.race) : { gold: true, wood: true, stone: true };
-        const cycle = ASSIGNMENT_CYCLE.filter(a =>
+        const baseCycle = player?.race === Race.Demon ? DEMON_ASSIGNMENT_CYCLE : ASSIGNMENT_CYCLE;
+        const cycle = baseCycle.filter(a =>
           a === HarvesterAssignment.Center ||
+          a === HarvesterAssignment.Mana ||
           (a === HarvesterAssignment.BaseGold && used.gold) ||
           (a === HarvesterAssignment.Wood && used.wood) ||
           (a === HarvesterAssignment.Stone && used.stone)
@@ -918,6 +993,9 @@ export class InputHandler {
       }
       return;
     }
+
+    // Skip popup for special ability buildings (no upgrades)
+    if (building.isFoundry || building.isPotionShop || building.isGlobule || building.isSeed) return;
 
     // Open building popup for spawners and towers
     const isMobile = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
@@ -1058,7 +1136,7 @@ export class InputHandler {
     rule();
 
     heading('BUILD');
-    line('[1-4] place buildings, [M] add miner hut.', '#eee');
+    line('[1] miner hut, [2-5] buildings, [6] ability.', '#eee');
     line('Right-click own building to sell after cooldown.', '#eee');
     line('[U]/[I] upgrades selected or hovered building.', '#eee');
     y += compact ? 0 : 2;
@@ -1067,7 +1145,7 @@ export class InputHandler {
     heading('COMBAT & LANES');
     line('Units auto-aggro nearby enemies and fight.');
     line('Click spawner toggles lane (Fast or Safe tap mode).');
-    line('[L] flips all spawners; [N] arms nuke targeting.');
+    line('[L] flips all spawners; [N] arms nuke; [5] race ability.');
     y += compact ? 0 : 2;
     rule();
 
@@ -1179,9 +1257,15 @@ export class InputHandler {
     const safeBottom = getSafeBottom();
     const milH = 68;
     const milY = H - milH - safeBottom;
-    // Miner button + 4 military + nuke = 6 buttons total
+    // Miner button + 4 military + race ability = 6 buttons total
     const milW = W / 6;
-    return { W, H, milH, milY, milW, safeBottom };
+    // Floating nuke button above miner (col 0)
+    const nukeW = Math.round(milW * 0.6);
+    const nukeH = 72;
+    const nukeX = Math.round((milW - nukeW) / 2);
+    const nukeY = milY - nukeH - 4;
+    const nukeRect = { x: nukeX, y: nukeY, w: nukeW, h: nukeH };
+    return { W, H, milH, milY, milW, safeBottom, nukeRect };
   }
 
   private processQueuedQuickChat(): void {
@@ -1223,6 +1307,21 @@ export class InputHandler {
     const popupCx = e.clientX - rect.left;
     const popupCy = e.clientY - rect.top;
 
+    // Research popup takes priority
+    if (this.researchPopup.isOpen()) {
+      const result = this.researchPopup.handleClick(popupCx, popupCy);
+      if (result) {
+        if (result.action === 'upgrade') {
+          this.game.sendCommand({ type: 'research_upgrade', playerId: this.pid, upgradeId: result.upgradeId });
+        } else if (result.action === 'close') {
+          this.researchPopup.close();
+        }
+        return true;
+      }
+      if (this.researchPopup.containsPoint(popupCx, popupCy)) return true;
+      this.researchPopup.close();
+    }
+
     // Building popup takes priority
     if (this.buildingPopup.isOpen()) {
       const result = this.buildingPopup.handleClick(popupCx, popupCy);
@@ -1237,8 +1336,12 @@ export class InputHandler {
           } else if (result.action === 'toggle_lane') {
             const b = this.game.state.buildings.find(b => b.id === bId);
             if (b) {
-              const nextLane = b.lane === Lane.Left ? Lane.Right : Lane.Left;
-              this.game.sendCommand({ type: 'toggle_lane', playerId: this.pid, buildingId: bId, lane: nextLane });
+              if (this.game.state.players[this.pid]?.race === Race.Oozlings) {
+                this.laneToast = { text: 'Ooze Must Ooze', until: Date.now() + 1500 };
+              } else {
+                const nextLane = b.lane === Lane.Left ? Lane.Right : Lane.Left;
+                this.game.sendCommand({ type: 'toggle_lane', playerId: this.pid, buildingId: bId, lane: nextLane });
+              }
             }
           } else if (result.action === 'close') {
             this.buildingPopup.close();
@@ -1275,11 +1378,24 @@ export class InputHandler {
     // Consume taps in safe area bar below tray (rounded phone corners)
     if (cy >= milY + milH) return true;
 
+    // Floating nuke button (above miner)
+    const { nukeRect } = this.getTrayLayout();
+    if (cx >= nukeRect.x && cx < nukeRect.x + nukeRect.w &&
+        cy >= nukeRect.y && cy < nukeRect.y + nukeRect.h) {
+      if (player.nukeAvailable && !this.isNukeLocked()) {
+        this.selectedBuilding = null;
+        this.nukeTargeting = !this.nukeTargeting;
+      }
+      return true;
+    }
+
     if (cy >= milY && cy < milY + milH) {
       const colIdx = Math.floor(cx / milW);
       if (colIdx === 0) {
         // Miner button — select-then-place flow
         this.nukeTargeting = false;
+        this.abilityTargeting = false;
+        this.abilityPlacing = false;
         this.selectedUnitId = null;
         if (this.selectedBuilding === BuildingType.HarvesterHut) {
           this.selectedBuilding = null;
@@ -1290,6 +1406,8 @@ export class InputHandler {
       } else if (colIdx >= 1 && colIdx <= BUILD_TRAY.length) {
         const item = BUILD_TRAY[colIdx - 1];
         this.nukeTargeting = false;
+        this.abilityTargeting = false;
+        this.abilityPlacing = false;
         this.selectedUnitId = null;
         if (this.selectedBuilding === item.type) {
           this.selectedBuilding = null;
@@ -1298,10 +1416,11 @@ export class InputHandler {
           if (this.cameraSnapOnSelect) this.panToBuildArea(item.type);
         }
       } else if (colIdx === BUILD_TRAY.length + 1) {
-        if (player.nukeAvailable && !this.isNukeLocked()) {
-          this.selectedBuilding = null;
-          this.nukeTargeting = !this.nukeTargeting;
-        }
+        // Race ability button
+        this.nukeTargeting = false;
+        this.selectedBuilding = null;
+        this.selectedUnitId = null;
+        this.activateAbility(player);
       }
       return true;
     }
@@ -1334,6 +1453,8 @@ export class InputHandler {
         this.drawPlacementPreview(ctx, renderer);
       }
       this.drawBuildTooltip(ctx, renderer);
+    } else if (this.abilityTargeting) {
+      this.drawBuildTooltip(ctx, renderer);
     }
 
     // Hovered unit highlight ring
@@ -1361,6 +1482,10 @@ export class InputHandler {
       this.drawNukeOverlay(ctx);
     }
 
+    if (this.abilityTargeting) {
+      this.drawAbilityOverlay(ctx);
+    }
+
     if (this.tooltip) {
       ctx.fillStyle = 'rgba(0, 0, 0, 0.88)';
       ctx.font = '14px monospace';
@@ -1378,7 +1503,7 @@ export class InputHandler {
   }
 
   private drawBuildTray(ctx: CanvasRenderingContext2D): void {
-    const { W, milH, milY, milW, safeBottom } = this.getTrayLayout();
+    const { W, milH, milY, milW, safeBottom, nukeRect } = this.getTrayLayout();
     const player = this.game.state.players[this.pid];
     const quickChatCdMs = Math.max(0, this.quickChatCooldownUntil - Date.now());
 
@@ -1388,8 +1513,9 @@ export class InputHandler {
       ctx.fillRect(0, milY + milH, W, safeBottom);
     }
 
-    // Build tray background - WoodTable 9-slice
-    if (!this.ui.drawWoodTable(ctx, 0, milY, W, milH)) {
+    // Build tray background - WoodTable 9-slice (30% wider to hide edge dead space)
+    const trayOverW = Math.round(W * 0.15);
+    if (!this.ui.drawWoodTable(ctx, -trayOverW, milY, W + trayOverW * 2, milH)) {
       ctx.fillStyle = 'rgba(0, 0, 0, 0.88)';
       ctx.fillRect(0, milY, W, milH);
     }
@@ -1498,9 +1624,9 @@ export class InputHandler {
         drawCost(costParts, cellCx, textY + 24, canAfford);
       }
 
-      // Key hint
-      ctx.fillStyle = '#444'; ctx.font = '9px monospace'; ctx.textAlign = 'center';
-      ctx.fillText(`[${keyHint}]`, cellCx, cellY + cellH - 4);
+      // Key hint — bottom-right of cell
+      ctx.fillStyle = '#444'; ctx.font = '9px monospace'; ctx.textAlign = 'right';
+      ctx.fillText(`[${keyHint}]`, cellX + milW - 4, cellY + cellH - 4);
     };
 
     // === Miner button (col 0) ===
@@ -1520,7 +1646,7 @@ export class InputHandler {
     const hutSelected = this.selectedBuilding === BuildingType.HarvesterHut;
     drawCell(0, hutSelected, canAffordHut, 'Miner', 'miner',
       myHuts.length < 10 ? hutCostItems : null,
-      myHuts.length >= 10 ? 'MAX' : null, 'M');
+      myHuts.length >= 10 ? 'MAX' : null, '1');
 
     // === Military buttons (cols 1-4) ===
     for (let i = 0; i < BUILD_TRAY.length; i++) {
@@ -1554,33 +1680,133 @@ export class InputHandler {
         isFirstTowerFree ? 'FREE' : null, item.key);
     }
 
-    // === Nuke button (col 5) — 9-slice BigRedButton filling the cell ===
-    const nukeAvail = player.nukeAvailable;
-    const nukeLocked = this.isNukeLocked();
-    const nukeReady = nukeAvail && !nukeLocked;
-    const nukeX = (BUILD_TRAY.length + 1) * milW;
-    const nukePad = 2;
-    if (nukeReady) {
-      this.ui.drawBigRedButton(ctx, nukeX + nukePad, milY + nukePad, milW - nukePad * 2, milH - nukePad * 2, this.nukeTargeting);
-    } else {
-      ctx.globalAlpha = 0.3;
-      this.ui.drawBigRedButton(ctx, nukeX + nukePad, milY + nukePad, milW - nukePad * 2, milH - nukePad * 2);
-      ctx.globalAlpha = 1;
-    }
-    ctx.textAlign = 'center';
-    ctx.fillStyle = nukeReady ? '#fff' : '#888';
-    ctx.font = 'bold 12px monospace';
-    ctx.fillText('NUKE', nukeX + milW / 2, milY + milH / 2 + 4);
-    if (nukeLocked && nukeAvail) {
-      // Show countdown timer
-      const secsLeft = Math.ceil(NUKE_LOCKOUT_SECONDS - this.game.state.tick / TICK_RATE);
-      ctx.fillStyle = '#ff5722';
+    // === Race Ability button (col 5) ===
+    {
+      const abilityInfo = RACE_ABILITY_INFO[race];
+      const abDef = RACE_ABILITY_DEFS[race];
+      const abX = (BUILD_TRAY.length + 1) * milW;
+      const onCooldown = player.abilityCooldown > 0;
+      const isActive = this.abilityTargeting || this.abilityPlacing;
+
+      // Calculate current cost for display
+      const growMult = abDef.costGrowthFactor ? Math.pow(abDef.costGrowthFactor, player.abilityUseCount) : 1;
+      const abCostGold = Math.floor((abDef.baseCost.gold ?? 0) * growMult);
+      const abCostWood = Math.floor((abDef.baseCost.wood ?? 0) * growMult);
+      const abCostStone = Math.floor((abDef.baseCost.stone ?? 0) * growMult);
+      const abCostMana = Math.floor((abDef.baseCost.mana ?? 0) * growMult);
+      const abCostSouls = Math.floor((abDef.baseCost.souls ?? 0) * growMult);
+      const abCostEssence = Math.floor((abDef.baseCost.deathEssence ?? 0) * growMult);
+      const canAffordAbility = !onCooldown &&
+        player.gold >= abCostGold && player.wood >= abCostWood && player.stone >= abCostStone &&
+        player.mana >= abCostMana && player.souls >= abCostSouls && player.deathEssence >= abCostEssence;
+
+      const cellY = isActive ? milY - 6 : milY;
+      const cellH = isActive ? milH + 6 : milH;
+
+      // Cell background
+      ctx.fillStyle = isActive ? 'rgba(126, 87, 194, 0.35)' : (onCooldown ? 'rgba(28, 28, 28, 0.6)' : 'rgba(28, 28, 28, 0.9)');
+      ctx.fillRect(abX + 1, cellY + 1, milW - 2, cellH - 2);
+      ctx.strokeStyle = isActive ? '#b39ddb' : (canAffordAbility ? '#7e57c2' : '#444');
+      ctx.lineWidth = isActive ? 2 : 1;
+      ctx.strokeRect(abX + 1, cellY + 1, milW - 2, cellH - 2);
+
+      const abCx = abX + milW / 2;
+      const adjY = isActive ? milY - 6 : milY;
+
+      // Ability icon — try unit sprite for Horde troll, else canvas-drawn
+      ctx.globalAlpha = (onCooldown || !canAffordAbility) ? 0.4 : 1;
+      ctx.textAlign = 'center';
+      let drewSprite = false;
+      if (race === Race.Horde && this.sprites) {
+        // Draw troll sprite (Goblin melee E = Troll Warlord)
+        const trollData = this.sprites.getUnitSprite(Race.Goblins, 'melee', 0, isActive, 'E');
+        if (trollData) {
+          const [img, def] = trollData;
+          const frame = isActive ? getSpriteFrame(Math.floor(this.trayTick / 3), def) : 0;
+          const iconH = spriteSize;
+          const aspect = def.frameW / def.frameH;
+          const iconW = iconH * aspect;
+          const iconBaseY = isActive ? spriteBaseY - 6 : spriteBaseY;
+          drawSpriteFrame(ctx, img, def, frame, Math.round(abCx - iconW / 2), Math.round(iconBaseY - iconH * (def.groundY ?? 0.71)), iconW, iconH);
+          drewSprite = true;
+        }
+      }
+      if (!drewSprite) {
+        this.drawAbilityIcon(ctx, race, abCx, adjY + 4, 20);
+      }
+      // Ability name
+      ctx.fillStyle = (onCooldown || !canAffordAbility) ? '#888' : '#e1bee7';
       ctx.font = 'bold 10px monospace';
-      ctx.fillText(`${secsLeft}s`, nukeX + milW / 2, milY + milH - 6);
-    } else {
-      ctx.fillStyle = '#888';
-      ctx.font = '9px monospace';
-      ctx.fillText('[N]', nukeX + milW / 2, milY + milH - 6);
+      ctx.fillText(abilityInfo.name, abCx, adjY + 38);
+      ctx.globalAlpha = 1;
+
+      // Cost display
+      if (!onCooldown) {
+        ctx.font = 'bold 9px monospace';
+        const costParts: string[] = [];
+        if (abCostGold > 0) costParts.push(`${abCostGold}g`);
+        if (abCostWood > 0) costParts.push(`${abCostWood}w`);
+        if (abCostStone > 0) costParts.push(`${abCostStone}m`);
+        if (abCostMana > 0) {
+          if (race === Race.Demon) {
+            // Show current mana (what will be consumed) or min cost if can't afford
+            costParts.push(player.mana >= abCostMana ? `${player.mana}mp` : `${abCostMana}mp`);
+          } else {
+            costParts.push(`${abCostMana}mp`);
+          }
+        }
+        if (abCostSouls > 0) costParts.push(`${abCostSouls}s`);
+        if (abCostEssence > 0) costParts.push(`${abCostEssence}e`);
+        ctx.fillStyle = canAffordAbility ? '#aaa' : '#664';
+        if (costParts.length > 0) ctx.fillText(costParts.join(' '), abCx, adjY + 50);
+      }
+
+      // Cooldown timer or key hint
+      if (onCooldown) {
+        const secsLeft = Math.ceil(player.abilityCooldown / TICK_RATE);
+        ctx.fillStyle = '#ff9800';
+        ctx.font = 'bold 10px monospace';
+        ctx.fillText(`${secsLeft}s`, abCx, adjY + cellH - 4);
+      } else {
+        ctx.fillStyle = '#666';
+        ctx.font = '9px monospace'; ctx.textAlign = 'right';
+        ctx.fillText(`[${abilityInfo.key}]`, abX + milW - 4, adjY + cellH - 4);
+      }
+    }
+
+    // === Floating Nuke button (above miner) ===
+    {
+      const nukeAvail = player.nukeAvailable;
+      const nukeLocked = this.isNukeLocked();
+      const nukeReady = nukeAvail && !nukeLocked;
+      const nr = nukeRect;
+      const nukePad = 2;
+      if (nukeReady) {
+        this.ui.drawBigRedButton(ctx, nr.x + nukePad, nr.y + nukePad, nr.w - nukePad * 2, nr.h - nukePad * 2, this.nukeTargeting);
+      } else if (nukeAvail) {
+        ctx.globalAlpha = 0.3;
+        this.ui.drawBigRedButton(ctx, nr.x + nukePad, nr.y + nukePad, nr.w - nukePad * 2, nr.h - nukePad * 2);
+        ctx.globalAlpha = 1;
+      } else {
+        // Nuke already used — dim it out
+        ctx.globalAlpha = 0.15;
+        this.ui.drawBigRedButton(ctx, nr.x + nukePad, nr.y + nukePad, nr.w - nukePad * 2, nr.h - nukePad * 2);
+        ctx.globalAlpha = 1;
+      }
+      ctx.textAlign = 'center';
+      ctx.fillStyle = nukeReady ? '#fff' : '#888';
+      ctx.font = 'bold 10px monospace';
+      ctx.fillText('NUKE', nr.x + nr.w / 2, nr.y + nr.h / 2 + 2);
+      if (nukeLocked && nukeAvail) {
+        const secsLeft = Math.ceil(NUKE_LOCKOUT_SECONDS - this.game.state.tick / TICK_RATE);
+        ctx.fillStyle = '#ff5722';
+        ctx.font = 'bold 9px monospace';
+        ctx.fillText(`${secsLeft}s`, nr.x + nr.w / 2, nr.y + nr.h - 2);
+      } else if (nukeAvail) {
+        ctx.fillStyle = '#888';
+        ctx.font = '8px monospace';
+        ctx.fillText('[N]', nr.x + nr.w / 2, nr.y + nr.h - 2);
+      }
     }
 
     if (quickChatCdMs > 0) {
@@ -1592,7 +1818,12 @@ export class InputHandler {
     ctx.textAlign = 'left';
     ctx.fillStyle = '#9bb7ff';
     ctx.font = '11px monospace';
-    ctx.fillText(`Lane tap: ${this.laneModeLabel()}`, 120, milY - 8);
+    if (player.race === Race.Oozlings) {
+      ctx.fillStyle = '#7c4dff';
+      ctx.fillText('Lanes: SPLIT (locked)', 120, milY - 8);
+    } else {
+      ctx.fillText(`Lane tap: ${this.laneModeLabel()}`, 120, milY - 8);
+    }
     if (this.quickChatToast && Date.now() < this.quickChatToast.until) {
       ctx.fillStyle = 'rgba(20,20,20,0.9)';
       ctx.fillRect(W / 2 - 120, milY - 30, 240, 22);
@@ -1637,6 +1868,12 @@ export class InputHandler {
     if (this.buildingPopup.isOpen()) {
       this.buildingPopup.draw(ctx, this.camera, this.game.state, this.ui,
         W, this.canvas.clientHeight, player.gold, player.wood, player.stone, this.sprites);
+    }
+
+    // Research popup
+    if (this.researchPopup.isOpen()) {
+      this.researchPopup.draw(ctx, this.camera, this.game.state, this.ui,
+        W, this.canvas.clientHeight, player.gold, player.wood, player.stone);
     }
 
     ctx.textAlign = 'start';
@@ -1753,17 +1990,28 @@ export class InputHandler {
       case BuildingType.RangedSpawner: return 'Ranged Barracks';
       case BuildingType.CasterSpawner: return 'Caster Barracks';
       case BuildingType.Tower: return 'Tower';
-      default: return type;
+      case BuildingType.Research: return 'Research';
+      default: { const s = type as string; return s.charAt(0).toUpperCase() + s.slice(1).replace(/_/g, ' '); }
     }
   }
 
-  private getBuildingTooltip(building: { type: BuildingType; hp: number; maxHp: number; lane: Lane; upgradePath: string[]; id: number }): string {
+  private getBuildingTooltip(building: { type: BuildingType; hp: number; maxHp: number; lane: Lane; upgradePath: string[]; id: number; playerId: number }): string {
     let tip = `${this.getBuildingLabel(building.type)}  HP: ${building.hp}/${building.maxHp}`;
     if (building.type === BuildingType.HarvesterHut) {
       const h = this.game.state.harvesters.find(h => h.hutId === building.id);
       if (h) tip += `  [${ASSIGNMENT_LABELS[h.assignment]}]`;
     } else if (building.type !== BuildingType.Tower) {
-      tip += `  Lane: ${building.lane}`;
+      const race = this.game.state.players[building.playerId]?.race;
+      const isOozlings = race === Race.Oozlings;
+      if (isOozlings) {
+        tip += `  Lane: BOTH`;
+      } else {
+        const isPortrait = this.game.state.mapDef.shapeAxis === 'y';
+        const laneLabel = building.lane === Lane.Left
+          ? (isPortrait ? 'LEFT' : 'TOP')
+          : (isPortrait ? 'RIGHT' : 'BOT');
+        tip += `  Lane: ${laneLabel}`;
+      }
     }
     if (building.upgradePath.length > 1) {
       tip += `  Tier ${building.upgradePath.length - 1}`;
@@ -2153,9 +2401,46 @@ export class InputHandler {
   }
 
   private drawBuildTooltip(ctx: CanvasRenderingContext2D, _renderer: Renderer): void {
-    if (!this.selectedBuilding) return;
+    if (!this.selectedBuilding && !this.abilityTargeting) return;
     const player = this.game.state.players[this.pid];
     const race = player.race;
+
+    // Ability tooltip (targeting or placing)
+    if (this.abilityTargeting || this.abilityPlacing) {
+      const abilityInfo = RACE_ABILITY_INFO[race];
+      const raceColor = RACE_COLORS[race]?.primary ?? '#fff';
+      const { milY } = this.getTrayLayout();
+      const lines = [abilityInfo.name, abilityInfo.desc];
+
+      const lineH = 16;
+      const padX = 12;
+      const padY = 8;
+      const boxH = lines.length * lineH + padY * 2;
+      ctx.font = '12px monospace';
+      let maxW = 0;
+      for (const line of lines) { const m = ctx.measureText(line).width; if (m > maxW) maxW = m; }
+      const boxW = maxW + padX * 2;
+      const boxX = (this.canvas.clientWidth - boxW) / 2;
+      const boxY = milY - boxH - 8;
+
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.92)';
+      ctx.fillRect(boxX, boxY, boxW, boxH);
+      ctx.strokeStyle = raceColor;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(boxX, boxY, boxW, boxH);
+      ctx.textAlign = 'center';
+      const centerX = boxX + boxW / 2;
+      ctx.fillStyle = raceColor;
+      ctx.font = 'bold 13px monospace';
+      ctx.fillText(lines[0], centerX, boxY + padY + lineH - 3);
+      ctx.fillStyle = '#ccc';
+      ctx.font = '12px monospace';
+      ctx.fillText(lines[1], centerX, boxY + padY + lineH * 2 - 3);
+      ctx.textAlign = 'start';
+      return;
+    }
+
+    if (!this.selectedBuilding) return;
     const type = this.selectedBuilding;
 
     let name: string;
@@ -2266,6 +2551,309 @@ export class InputHandler {
   }
 
   /** True when the nuke is locked out (first 60s of the match). */
+  private activateAbility(player: { race: Race; abilityCooldown: number }): void {
+    const def = RACE_ABILITY_DEFS[player.race];
+    if (player.abilityCooldown > 0) {
+      const secsLeft = Math.ceil(player.abilityCooldown / TICK_RATE);
+      this.laneToast = { text: `${def.name} — ${secsLeft}s cooldown`, until: Date.now() + 1500 };
+      return;
+    }
+    if (def.targetMode === AbilityTargetMode.Instant) {
+      this.game.sendCommand({ type: 'use_ability', playerId: this.pid });
+      this.abilityTargeting = false;
+      this.abilityPlacing = false;
+    } else if (def.targetMode === AbilityTargetMode.Targeted) {
+      this.abilityTargeting = !this.abilityTargeting;
+      this.abilityPlacing = false;
+    } else {
+      // BuildSlot — enter placement mode (reuse tower alley grid selection)
+      if (this.abilityPlacing) {
+        // Toggle off
+        this.abilityPlacing = false;
+        this.selectedBuilding = null;
+      } else {
+        this.abilityPlacing = true;
+        this.selectedBuilding = BuildingType.Tower; // reuse tower placement grid
+        if (this.cameraSnapOnSelect) this.panToBuildArea(BuildingType.Tower);
+      }
+      this.abilityTargeting = false;
+    }
+  }
+
+  /** Draw a canvas-rendered icon for each race's ability. */
+  private drawAbilityIcon(ctx: CanvasRenderingContext2D, race: Race, cx: number, cy: number, size: number): void {
+    const s = size;
+    const hs = s / 2;
+    ctx.save();
+    ctx.translate(cx, cy + hs);
+
+    switch (race) {
+      case Race.Crown: {
+        // Gold coin with $ symbol
+        ctx.beginPath();
+        ctx.arc(0, 0, hs * 0.85, 0, Math.PI * 2);
+        ctx.fillStyle = '#ffd700';
+        ctx.fill();
+        ctx.strokeStyle = '#b8860b';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+        ctx.fillStyle = '#8b6914';
+        ctx.font = `bold ${Math.round(s * 0.6)}px monospace`;
+        ctx.textAlign = 'center';
+        ctx.fillText('$', 0, s * 0.22);
+        break;
+      }
+      case Race.Horde: {
+        // War axe
+        ctx.fillStyle = '#8d6e63';
+        ctx.fillRect(-1.5, -hs * 0.7, 3, s * 0.85); // handle
+        ctx.beginPath();
+        ctx.moveTo(-hs * 0.7, -hs * 0.65);
+        ctx.quadraticCurveTo(-hs * 0.8, -hs * 0.1, -hs * 0.15, hs * 0.1);
+        ctx.lineTo(hs * 0.15, hs * 0.1);
+        ctx.quadraticCurveTo(hs * 0.8, -hs * 0.1, hs * 0.7, -hs * 0.65);
+        ctx.closePath();
+        ctx.fillStyle = '#9e9e9e';
+        ctx.fill();
+        ctx.strokeStyle = '#616161';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        break;
+      }
+      case Race.Goblins: {
+        // Potion bottle
+        ctx.fillStyle = '#69f0ae';
+        ctx.beginPath();
+        ctx.moveTo(-hs * 0.2, -hs * 0.5);
+        ctx.lineTo(hs * 0.2, -hs * 0.5);
+        ctx.lineTo(hs * 0.2, -hs * 0.3);
+        ctx.lineTo(hs * 0.55, hs * 0.05);
+        ctx.quadraticCurveTo(hs * 0.65, hs * 0.7, 0, hs * 0.8);
+        ctx.quadraticCurveTo(-hs * 0.65, hs * 0.7, -hs * 0.55, hs * 0.05);
+        ctx.lineTo(-hs * 0.2, -hs * 0.3);
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = '#2e7d32';
+        ctx.lineWidth = 1.2;
+        ctx.stroke();
+        // Cork
+        ctx.fillStyle = '#8d6e63';
+        ctx.fillRect(-hs * 0.25, -hs * 0.7, hs * 0.5, hs * 0.25);
+        break;
+      }
+      case Race.Oozlings: {
+        // Ooze blob
+        ctx.beginPath();
+        ctx.moveTo(-hs * 0.6, hs * 0.2);
+        ctx.quadraticCurveTo(-hs * 0.7, -hs * 0.5, 0, -hs * 0.6);
+        ctx.quadraticCurveTo(hs * 0.7, -hs * 0.5, hs * 0.5, hs * 0.2);
+        ctx.quadraticCurveTo(hs * 0.3, hs * 0.7, 0, hs * 0.6);
+        ctx.quadraticCurveTo(-hs * 0.4, hs * 0.7, -hs * 0.6, hs * 0.2);
+        ctx.fillStyle = '#7c4dff';
+        ctx.fill();
+        ctx.strokeStyle = '#4a148c';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        // Eye
+        ctx.beginPath();
+        ctx.arc(hs * 0.1, -hs * 0.05, hs * 0.18, 0, Math.PI * 2);
+        ctx.fillStyle = '#e8eaf6';
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(hs * 0.13, -hs * 0.05, hs * 0.08, 0, Math.PI * 2);
+        ctx.fillStyle = '#1a237e';
+        ctx.fill();
+        break;
+      }
+      case Race.Demon: {
+        // Fireball
+        ctx.beginPath();
+        ctx.arc(0, 0, hs * 0.55, 0, Math.PI * 2);
+        ctx.fillStyle = '#ff6600';
+        ctx.fill();
+        // Outer flame tongues
+        const flames = 6;
+        for (let i = 0; i < flames; i++) {
+          const a = (i / flames) * Math.PI * 2 - Math.PI / 2;
+          const fx = Math.cos(a) * hs * 0.5;
+          const fy = Math.sin(a) * hs * 0.5;
+          const tx = Math.cos(a) * hs * 0.95;
+          const ty = Math.sin(a) * hs * 0.95;
+          ctx.beginPath();
+          ctx.moveTo(fx - Math.sin(a) * 3, fy + Math.cos(a) * 3);
+          ctx.lineTo(tx, ty);
+          ctx.lineTo(fx + Math.sin(a) * 3, fy - Math.cos(a) * 3);
+          ctx.fillStyle = i % 2 === 0 ? '#ff9800' : '#ffeb3b';
+          ctx.fill();
+        }
+        // Inner glow
+        ctx.beginPath();
+        ctx.arc(0, 0, hs * 0.3, 0, Math.PI * 2);
+        ctx.fillStyle = '#ffeb3b';
+        ctx.fill();
+        break;
+      }
+      case Race.Deep: {
+        // Raindrop / wave
+        // Three raindrops
+        for (let i = -1; i <= 1; i++) {
+          const dx = i * hs * 0.45;
+          const dy = i === 0 ? -hs * 0.15 : hs * 0.15;
+          ctx.beginPath();
+          ctx.moveTo(dx, dy - hs * 0.4);
+          ctx.quadraticCurveTo(dx + hs * 0.25, dy + hs * 0.1, dx, dy + hs * 0.35);
+          ctx.quadraticCurveTo(dx - hs * 0.25, dy + hs * 0.1, dx, dy - hs * 0.4);
+          ctx.fillStyle = i === 0 ? '#4fc3f7' : '#81d4fa';
+          ctx.fill();
+        }
+        break;
+      }
+      case Race.Wild: {
+        // Claw marks (3 diagonal slashes)
+        ctx.strokeStyle = '#ff5722';
+        ctx.lineWidth = 2.5;
+        ctx.lineCap = 'round';
+        for (let i = -1; i <= 1; i++) {
+          const dx = i * hs * 0.35;
+          ctx.beginPath();
+          ctx.moveTo(dx - hs * 0.2, -hs * 0.6);
+          ctx.lineTo(dx + hs * 0.2, hs * 0.6);
+          ctx.stroke();
+        }
+        ctx.lineCap = 'butt';
+        break;
+      }
+      case Race.Geists: {
+        // Skull
+        ctx.beginPath();
+        ctx.arc(0, -hs * 0.1, hs * 0.55, 0, Math.PI * 2);
+        ctx.fillStyle = '#e0e0e0';
+        ctx.fill();
+        // Jaw
+        ctx.beginPath();
+        ctx.moveTo(-hs * 0.35, hs * 0.2);
+        ctx.quadraticCurveTo(0, hs * 0.75, hs * 0.35, hs * 0.2);
+        ctx.fillStyle = '#bdbdbd';
+        ctx.fill();
+        // Eyes
+        ctx.fillStyle = '#4a148c';
+        ctx.beginPath();
+        ctx.ellipse(-hs * 0.2, -hs * 0.15, hs * 0.14, hs * 0.18, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.ellipse(hs * 0.2, -hs * 0.15, hs * 0.14, hs * 0.18, 0, 0, Math.PI * 2);
+        ctx.fill();
+        // Nose
+        ctx.beginPath();
+        ctx.moveTo(-hs * 0.06, hs * 0.05);
+        ctx.lineTo(hs * 0.06, hs * 0.05);
+        ctx.lineTo(0, hs * 0.18);
+        ctx.closePath();
+        ctx.fillStyle = '#616161';
+        ctx.fill();
+        break;
+      }
+      case Race.Tenders: {
+        // Seed / sprout
+        // Seed body
+        ctx.beginPath();
+        ctx.ellipse(0, hs * 0.15, hs * 0.4, hs * 0.35, 0, 0, Math.PI * 2);
+        ctx.fillStyle = '#8d6e63';
+        ctx.fill();
+        ctx.strokeStyle = '#5d4037';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        // Sprout
+        ctx.beginPath();
+        ctx.moveTo(0, -hs * 0.15);
+        ctx.quadraticCurveTo(-hs * 0.3, -hs * 0.6, -hs * 0.15, -hs * 0.8);
+        ctx.strokeStyle = '#4caf50';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        // Leaf
+        ctx.beginPath();
+        ctx.moveTo(-hs * 0.15, -hs * 0.7);
+        ctx.quadraticCurveTo(-hs * 0.5, -hs * 0.9, -hs * 0.1, -hs * 0.55);
+        ctx.fillStyle = '#66bb6a';
+        ctx.fill();
+        // Second leaf
+        ctx.beginPath();
+        ctx.moveTo(-hs * 0.05, -hs * 0.45);
+        ctx.quadraticCurveTo(hs * 0.35, -hs * 0.7, hs * 0.05, -hs * 0.35);
+        ctx.fillStyle = '#81c784';
+        ctx.fill();
+        break;
+      }
+    }
+
+    ctx.restore();
+  }
+
+  private drawAbilityOverlay(ctx: CanvasRenderingContext2D): void {
+    const cam = this.camera;
+    const player = this.game.state.players[this.pid];
+    if (!player) return;
+    const def = RACE_ABILITY_DEFS[player.race];
+    const cw = this.canvas.clientWidth;
+
+    // Race-specific targeting colors
+    const colors: Record<Race, { fill: string; stroke: string; text: string }> = {
+      [Race.Demon]:  { fill: 'rgba(255, 80, 0, 0.15)',  stroke: 'rgba(255, 120, 0, 0.7)',  text: '#ff8a65' },
+      [Race.Wild]:   { fill: 'rgba(255, 100, 30, 0.12)', stroke: 'rgba(255, 150, 50, 0.6)', text: '#ffab91' },
+      [Race.Geists]: { fill: 'rgba(160, 80, 220, 0.15)', stroke: 'rgba(180, 130, 255, 0.6)', text: '#ce93d8' },
+      [Race.Crown]:  { fill: 'rgba(180, 120, 255, 0.15)', stroke: 'rgba(180, 120, 255, 0.6)', text: '#e1bee7' },
+      [Race.Horde]:  { fill: 'rgba(180, 120, 255, 0.15)', stroke: 'rgba(180, 120, 255, 0.6)', text: '#e1bee7' },
+      [Race.Goblins]: { fill: 'rgba(180, 120, 255, 0.15)', stroke: 'rgba(180, 120, 255, 0.6)', text: '#e1bee7' },
+      [Race.Oozlings]: { fill: 'rgba(180, 120, 255, 0.15)', stroke: 'rgba(180, 120, 255, 0.6)', text: '#e1bee7' },
+      [Race.Deep]:   { fill: 'rgba(80, 150, 220, 0.15)', stroke: 'rgba(100, 180, 255, 0.6)', text: '#81d4fa' },
+      [Race.Tenders]: { fill: 'rgba(100, 180, 100, 0.15)', stroke: 'rgba(130, 200, 130, 0.6)', text: '#a5d6a7' },
+    };
+    const c = colors[player.race];
+
+    // Draw radius circle at cursor
+    if (def.aoeRadius) {
+      const radiusScreen = def.aoeRadius * TILE_SIZE * cam.zoom;
+      // Pulsing ring
+      const pulse = 0.7 + 0.3 * Math.sin(Date.now() * 0.005);
+      ctx.beginPath();
+      ctx.arc(this.pointerX, this.pointerY, radiusScreen, 0, Math.PI * 2);
+      ctx.fillStyle = c.fill;
+      ctx.fill();
+      ctx.strokeStyle = c.stroke;
+      ctx.lineWidth = 2 * pulse;
+      ctx.stroke();
+      // Inner crosshair
+      ctx.strokeStyle = c.stroke;
+      ctx.lineWidth = 1;
+      const cross = 6;
+      ctx.beginPath();
+      ctx.moveTo(this.pointerX - cross, this.pointerY);
+      ctx.lineTo(this.pointerX + cross, this.pointerY);
+      ctx.moveTo(this.pointerX, this.pointerY - cross);
+      ctx.lineTo(this.pointerX, this.pointerY + cross);
+      ctx.stroke();
+    }
+
+    // Instruction banner with icon
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
+    ctx.fillRect(0, 38, cw, 52);
+    // Draw ability icon in the banner
+    this.drawAbilityIcon(ctx, player.race, cw / 2 - 100, 50, 16);
+    ctx.fillStyle = c.text;
+    ctx.font = 'bold 14px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(`CAST ${def.name.toUpperCase()}`, cw / 2, 60);
+    ctx.fillStyle = '#999';
+    ctx.font = '11px monospace';
+    ctx.fillText('Click to cast  •  ESC / Right-click to cancel', cw / 2, 78);
+    if (def.requiresVision) {
+      ctx.fillStyle = '#ff8a65';
+      ctx.font = 'italic 10px monospace';
+      ctx.fillText('(requires vision)', cw / 2 + 120, 78);
+    }
+    ctx.textAlign = 'start';
+  }
+
   private isNukeLocked(): boolean {
     const state = this.game.state;
     return state.tick < NUKE_LOCKOUT_SECONDS * TICK_RATE;

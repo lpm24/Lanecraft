@@ -239,6 +239,7 @@ export enum BuildingType {
   CasterSpawner = 'caster_spawner',
   Tower = 'tower',
   HarvesterHut = 'harvester_hut',
+  Research = 'research',
 }
 
 export enum ResourceType {
@@ -252,6 +253,7 @@ export enum HarvesterAssignment {
   Wood = 'wood',
   Stone = 'stone',
   Center = 'center', // mine gold cells, then compete for diamond once exposed
+  Mana = 'mana',     // Demon: harvester generates mana instead of resources
 }
 
 // === Status Effects ===
@@ -262,6 +264,7 @@ export enum StatusType {
   Haste = 'haste',     // 1.3x speed, 3s, no stack, refreshes
   Shield = 'shield',   // absorbs 12 damage, 4s, 1 instance
   Frenzy = 'frenzy',   // Wild kill bonus: +30% damage, 3s, refreshes on kills
+  Wound = 'wound',     // -50% healing received, 4s, max 1 stack, refreshes
 }
 
 export interface StatusEffect {
@@ -275,6 +278,24 @@ export interface StatusEffect {
 export interface Vec2 {
   x: number;
   y: number;
+}
+
+export interface ResearchUpgradeState {
+  meleeAtkLevel: number;
+  rangedAtkLevel: number;
+  casterAtkLevel: number;
+  meleeDefLevel: number;
+  rangedDefLevel: number;
+  casterDefLevel: number;
+  raceUpgrades: Record<string, boolean>;
+}
+
+export function createResearchUpgradeState(): ResearchUpgradeState {
+  return {
+    meleeAtkLevel: 0, rangedAtkLevel: 0, casterAtkLevel: 0,
+    meleeDefLevel: 0, rangedDefLevel: 0, casterDefLevel: 0,
+    raceUpgrades: {},
+  };
 }
 
 export interface PlayerState {
@@ -292,6 +313,47 @@ export interface PlayerState {
   isBot: boolean;
   isEmpty: boolean;  // true = slot is unoccupied (no buildings, no income, no AI)
   hasBuiltTower: boolean;
+  // Race ability state
+  abilityCooldown: number;       // ticks remaining until ability can be used again
+  abilityUseCount: number;       // how many times used (for growing costs)
+  // Special resources (0 for races that don't use them)
+  mana: number;                  // Demon
+  manaFrac?: number;             // fractional accumulator for passive mana gen
+  souls: number;                 // Geists (gained from ANY death)
+  deathEssence: number;          // Oozlings (gained from oozling deaths)
+  researchUpgrades: ResearchUpgradeState;
+}
+
+// Race ability targeting mode
+export enum AbilityTargetMode {
+  Instant = 'instant',       // Deep slow, Horde troll summon
+  Targeted = 'targeted',     // Demon fireball, Wild frenzy, Geist skeletons
+  BuildSlot = 'build_slot',  // Crown gold building, Goblin potion shop, Tenders seeds
+}
+
+// Per-race ability definition (static data)
+export interface RaceAbilityDef {
+  race: Race;
+  name: string;
+  targetMode: AbilityTargetMode;
+  baseCooldownTicks: number;
+  baseCost: { gold?: number; wood?: number; stone?: number; mana?: number; souls?: number; deathEssence?: number };
+  costGrowthFactor?: number;  // multiplier per use (for growing costs)
+  requiresVision?: boolean;   // Demon fireball, Geist skeletons
+  aoeRadius?: number;         // for targeted abilities
+}
+
+// Active ability effect in the game world
+export interface AbilityEffect {
+  id: number;
+  type: string;               // 'deep_rain', 'wild_frenzy', etc.
+  playerId: number;
+  team: Team;
+  x?: number;                 // world position (for targeted effects)
+  y?: number;
+  radius?: number;
+  duration: number;           // ticks remaining
+  data?: Record<string, number>;  // ability-specific payload
 }
 
 export interface BuildingState {
@@ -309,6 +371,12 @@ export interface BuildingState {
   actionTimer: number;
   placedTick: number;
   upgradePath: string[];
+  // Race ability building markers
+  isFoundry?: boolean;     // Crown: gold yield building
+  isPotionShop?: boolean;  // Goblins: potion shop
+  isGlobule?: boolean;     // Oozlings: globule building
+  isSeed?: boolean;        // Tenders: seed pod
+  seedTimer?: number;      // Tenders: ticks until seed pops
 }
 
 export interface UnitState {
@@ -341,6 +409,9 @@ export interface UnitState {
   spawnTick: number;      // tick when unit was created
   nukeImmune?: boolean;   // diamond champion — immune to nuke damage
   isChampion?: boolean;   // diamond champion flag (for rendering/targeting)
+  summonDuration?: number; // ticks remaining for temporary summons (e.g. Geist skeletons)
+  fleeTimer?: number;      // Goblins: ticks remaining in flee state (run away then re-engage)
+  spriteRace?: Race;       // override race for sprite lookup (e.g. Horde troll uses Goblin troll art)
 }
 
 // Snapshot of a notable unit for post-match display
@@ -510,6 +581,8 @@ export type SoundEventType =
   | 'unit_killed' | 'melee_hit' | 'ranged_hit'
   | 'unit_spawn' | 'tower_fire' | 'upgrade_complete'
   | 'ability_leap' | 'ability_cleave'
+  | 'ability_fireball' | 'ability_deluge' | 'ability_frenzy'
+  | 'ability_summon' | 'ability_troll' | 'ability_potion'
   | 'nuke_incoming' | 'nuke_detonated'
   | 'diamond_exposed' | 'diamond_carried' | 'hq_damaged'
   | 'match_start' | 'match_end_win' | 'match_end_lose';
@@ -581,6 +654,7 @@ export interface GameState {
   nukeEffects: NukeEffect[];
   nukeTelegraphs: NukeTelegraph[];
   nukeTeamCooldown: number[];   // per-team cooldown ticks remaining (0 = ready)
+  abilityEffects: AbilityEffect[];  // active race ability effects
   pings: PingState[];
   quickChats: QuickChatState[];
   soundEvents: SoundEvent[];
@@ -607,4 +681,6 @@ export type GameCommand =
   | { type: 'fire_nuke'; playerId: number; x: number; y: number }
   | { type: 'ping'; playerId: number; x: number; y: number }
   | { type: 'quick_chat'; playerId: number; message: string }
-  | { type: 'concede'; playerId: number };
+  | { type: 'concede'; playerId: number }
+  | { type: 'use_ability'; playerId: number; x?: number; y?: number; gridX?: number; gridY?: number }
+  | { type: 'research_upgrade'; playerId: number; upgradeId: string };

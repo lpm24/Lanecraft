@@ -6,7 +6,7 @@ import {
   ZONES,
   HQ_WIDTH, HQ_HEIGHT, HQ_HP,
   BuildingType, Lane, Vec2,
-  StatusType, Race, ResourceType,
+  StatusType, Race, ResourceType, HarvesterAssignment,
   type MapDef,
   type BuildingState, type UnitState, type HarvesterState, type ProjectileState,
 } from '../simulation/types';
@@ -141,7 +141,9 @@ export class Renderer {
   private mapDef: MapDef = DUEL_MAP;
   // Fog of war
   private fogCache: HTMLCanvasElement | null = null;
-  private fogCacheTick = -1;
+  /** Per-tile linger timer (seconds remaining of visibility after losing actual vision) */
+  private fogLinger: Float32Array | null = null;
+  private static readonly FOG_LINGER_DURATION = 2.0; // seconds
   // Resize listener cleanup
   private resizeHandler = () => this.resize();
 
@@ -186,7 +188,7 @@ export class Renderer {
     return this.facing.get(id) ?? defaultLeft;
   }
 
-  /** Check if a world-tile position is visible to the local player's team */
+  /** Check if a world-tile position is visible to the local player's team (includes linger) */
   private isTileVisible(state: GameState, tileX: number, tileY: number): boolean {
     if (!state.fogOfWar) return true;
     const team = state.players[this.localPlayerId]?.team ?? 0;
@@ -195,34 +197,59 @@ export class Renderer {
     const ix = Math.floor(tileX);
     const iy = Math.floor(tileY);
     if (ix < 0 || ix >= state.mapDef.width || iy < 0 || iy >= state.mapDef.height) return false;
-    return vis[iy * state.mapDef.width + ix];
+    const idx = iy * state.mapDef.width + ix;
+    return vis[idx] || (this.fogLinger !== null && this.fogLinger[idx] > 0);
   }
 
   /** Draw fog of war overlay — dark tiles where the team has no vision */
-  private drawFogOfWar(ctx: CanvasRenderingContext2D, state: GameState): void {
+  private drawFogOfWar(ctx: CanvasRenderingContext2D, state: GameState, dt: number): void {
     const team = state.players[this.localPlayerId]?.team ?? 0;
     const vis = state.visibility[team];
     if (!vis) return;
 
     const mw = state.mapDef.width;
     const mh = state.mapDef.height;
+    const totalTiles = mw * mh;
 
-    // Rebuild fog cache when visibility changes
-    if (!this.fogCache || this.fogCacheTick !== state.tick) {
-      this.fogCacheTick = state.tick;
-      if (!this.fogCache) {
-        this.fogCache = document.createElement('canvas');
+    // Init or resize linger array
+    if (!this.fogLinger || this.fogLinger.length !== totalTiles) {
+      this.fogLinger = new Float32Array(totalTiles);
+    }
+
+    // Update linger timers
+    const linger = this.fogLinger;
+    const LINGER = Renderer.FOG_LINGER_DURATION;
+    for (let i = 0; i < totalTiles; i++) {
+      if (vis[i]) {
+        // Currently visible — reset linger to full
+        linger[i] = LINGER;
+      } else if (linger[i] > 0) {
+        // Was visible, now fading out
+        linger[i] = Math.max(0, linger[i] - dt);
       }
+    }
+
+    // Rebuild fog cache every frame (linger fades continuously)
+    if (!this.fogCache) {
+      this.fogCache = document.createElement('canvas');
+    }
+    {
       this.fogCache.width = mw;
       this.fogCache.height = mh;
       const fctx = this.fogCache.getContext('2d')!;
       // Draw black pixels for hidden tiles using ImageData for speed
       const imgData = fctx.createImageData(mw, mh);
       const d = imgData.data;
-      for (let i = 0; i < mw * mh; i++) {
-        if (!vis[i]) {
-          const p = i * 4;
-          d[p + 3] = 180; // semi-transparent black (r,g,b default to 0)
+      const FOG_ALPHA = 180;
+      for (let i = 0; i < totalTiles; i++) {
+        if (vis[i]) continue; // fully visible — no fog
+        const p = i * 4;
+        if (linger[i] > 0) {
+          // Lingering — fade from transparent to full fog
+          const t = 1 - linger[i] / LINGER;
+          d[p + 3] = Math.round(FOG_ALPHA * t);
+        } else {
+          d[p + 3] = FOG_ALPHA; // fully fogged
         }
       }
       fctx.putImageData(imgData, 0, 0);
@@ -259,6 +286,16 @@ export class Renderer {
     this.dayNight = vfxPrefs.dayNight ? getDayNight(elapsedSec) : getDayNight(0.25 * 240); // noon
     if (vfxPrefs.screenShake) this.screenShake.update(dt); else { this.screenShake.offsetX = 0; this.screenShake.offsetY = 0; }
     if (vfxPrefs.weather) this.weather.update(dt, elapsedSec, this.dayNight.phase, this.dayNight.brightness);
+    // Force heavy rain during Deep deluge ability
+    const hasDeluge = state.abilityEffects.some(e => e.type === 'deep_rain');
+    if (hasDeluge && this.weather.type !== 'rain') {
+      this.weather.type = 'rain';
+    }
+    // Screen shake for fireball impact
+    const hasFireball = state.abilityEffects.some(e => e.type === 'demon_fireball' && e.duration > 0.6 * TICK_RATE);
+    if (hasFireball && vfxPrefs.screenShake) {
+      this.screenShake.trigger(6, 0.4);
+    }
     this.projectileTrails.update(dt);
     this.updateDeadUnits(dt);
     if (state.tick !== this.lastConsumedTick) {
@@ -339,10 +376,11 @@ export class Renderer {
     this.drawDeathEffects(ctx);
     this.drawFloatingTexts(ctx, state);
     this.drawNukeEffects(ctx, state);
+    this.drawAbilityEffects(ctx, state);
 
     // Fog of war overlay (world-space, after entities, before day/night)
     if (state.fogOfWar) {
-      this.drawFogOfWar(ctx, state);
+      this.drawFogOfWar(ctx, state, dt);
     }
 
     // Weather particles (world-space)
@@ -1521,10 +1559,10 @@ export class Renderer {
     ctx.save();
     ctx.globalAlpha = alpha;
 
-    // Shadow: grows as unit falls
-    ctx.fillStyle = 'rgba(0,0,0,0.18)';
+    // Shadow: grows as unit falls, responds to day/night
+    ctx.fillStyle = `rgba(0,0,0,${this.dayNight.brightness * 0.2})`;
     ctx.beginPath();
-    ctx.ellipse(cx, py + T - 1, 7 + fallEased * 4, 2.5 + fallEased * 1.5, 0, 0, Math.PI * 2);
+    ctx.ellipse(cx, py + T * 0.70, 7 + fallEased * 4, 2.5 + fallEased * 1.5, 0, 0, Math.PI * 2);
     ctx.fill();
 
     const spriteData = dead.race
@@ -1585,6 +1623,16 @@ export class Renderer {
       const drawH = (drawW / sprite.width) * sprite.height;
       const drawX = px - T;
       const drawY = py + h - drawH;
+
+      // HQ shadow — anchored at visual base (groundY ~0.71 for Tiny Swords)
+      const hqGroundY = drawY + drawH * 0.71;
+      const hqShadowLen = this.dayNight.shadowLength;
+      const hqShadowX = Math.cos(this.dayNight.shadowAngle) * hqShadowLen * 4;
+      ctx.fillStyle = `rgba(0,0,0,${this.dayNight.brightness * 0.15})`;
+      ctx.beginPath();
+      ctx.ellipse(px + w / 2 + hqShadowX, hqGroundY, drawW * 0.38, drawW * 0.08, 0, 0, Math.PI * 2);
+      ctx.fill();
+
       ctx.drawImage(sprite, drawX, drawY, drawW, drawH);
     } else {
       ctx.fillStyle = bg;
@@ -1642,8 +1690,10 @@ export class Renderer {
       if (sprite) {
         // Draw sprite scaled to fit one tile, anchored at bottom-center
         // Scale up slightly per upgrade tier to show leveling
+        // Research: 2x size
+        const researchScale = b.type === BuildingType.Research ? 2.0 : 1.0;
         const tierScale = 1.0 + upgradeTier * 0.08;
-        const baseDrawW = (T + 4) * tierScale;
+        const baseDrawW = (T + 4) * tierScale * researchScale;
         const baseDrawH = (baseDrawW / sprite.width) * sprite.height;
 
         // Construction animation: scale-up bounce
@@ -1653,18 +1703,60 @@ export class Renderer {
         const drawX = px - drawW / 2;
         const drawY = py + half - drawH + 2; // anchor bottom to tile bottom
 
-        // Building shadow (day/night responsive) — anchored at building base
+        // Building shadow (day/night responsive) — anchored at building visual base
+        // Tiny Swords sprites have ~29% transparent padding below the building (groundY=0.71)
+        const bGroundY = drawY + drawH * 0.71;
         const bShadowLen = this.dayNight.shadowLength;
         const bShadowX = Math.cos(this.dayNight.shadowAngle) * bShadowLen * 3;
         ctx.fillStyle = `rgba(0,0,0,${this.dayNight.brightness * 0.15})`;
         ctx.beginPath();
-        ctx.ellipse(px + bShadowX, py + half + 1, drawW * 0.4, drawW * 0.1, 0, 0, Math.PI * 2);
+        ctx.ellipse(px + bShadowX, bGroundY, drawW * 0.4, drawW * 0.1, 0, 0, Math.PI * 2);
         ctx.fill();
 
         ctx.drawImage(sprite, drawX, drawY, drawW, drawH);
 
-        // Tower: range indicator + ranged unit sprite on top
-        if (b.type === BuildingType.Tower) {
+        // Tenders huts: green tint to indicate passive resource generation
+        if (b.type === BuildingType.HarvesterHut && player.race === Race.Tenders) {
+          ctx.globalAlpha = 0.2;
+          ctx.fillStyle = '#4caf50';
+          ctx.fillRect(drawX, drawY, drawW, drawH);
+          ctx.globalAlpha = 1;
+          ctx.fillStyle = '#81c784';
+          ctx.font = 'bold 7px monospace';
+          ctx.textAlign = 'center';
+          ctx.fillText('GROVE', px, drawY - 2);
+          ctx.textAlign = 'start';
+        }
+
+        // Special ability buildings — tint overlay + label (skip normal tower rendering)
+        if (b.isFoundry || b.isPotionShop || b.isGlobule || b.isSeed) {
+          const label = b.isFoundry ? 'FOUNDRY' : b.isPotionShop ? 'POTIONS' : b.isGlobule ? 'GLOBULE' : 'SEED';
+          const tint = b.isFoundry ? '#ffd700' : b.isPotionShop ? '#69f0ae' : b.isGlobule ? '#7c4dff' : '#81c784';
+          // Colored tint overlay
+          ctx.globalAlpha = 0.25;
+          ctx.fillStyle = tint;
+          ctx.fillRect(drawX, drawY, drawW, drawH);
+          ctx.globalAlpha = 1;
+          // Label
+          ctx.fillStyle = tint;
+          ctx.font = 'bold 8px monospace';
+          ctx.textAlign = 'center';
+          ctx.fillText(label, px, drawY - 2);
+          ctx.textAlign = 'start';
+          // Seed progress bar
+          if (b.isSeed && b.seedTimer != null) {
+            const maxTime = 15 * TICK_RATE;
+            const pct = 1 - b.seedTimer / maxTime;
+            const barW = drawW * 0.8;
+            const barH = 3;
+            const barX = px - barW / 2;
+            const barY = drawY - 6;
+            ctx.fillStyle = '#333';
+            ctx.fillRect(barX, barY, barW, barH);
+            ctx.fillStyle = '#81c784';
+            ctx.fillRect(barX, barY, barW * pct, barH);
+          }
+        } else if (b.type === BuildingType.Tower) {
           const towerStats = TOWER_STATS[player.race];
           const towerUpgrade = getUnitUpgradeMultipliers(b.upgradePath, player.race, BuildingType.Tower);
           const towerRangeBonus = towerUpgrade.special.towerRangeBonus ?? 0;
@@ -1785,6 +1877,21 @@ export class Renderer {
                 this.ui.drawIcon(ctx, iconMap[harv.assignment] || 'gold', iconX, iconY2, iconSz);
               }
             }
+            break;
+          }
+          case BuildingType.Research: {
+            // Fallback if sprite not loaded: simple box with "R"
+            const bh = h2 * 1.4;
+            ctx.fillRect(px - bh, py - bh * 0.8, bh * 2, bh * 1.6);
+            ctx.strokeStyle = '#c0a060';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(px - bh, py - bh * 0.8, bh * 2, bh * 1.6);
+            ctx.fillStyle = '#e8d5b7';
+            ctx.font = `bold ${Math.max(9, Math.round(half * 0.8))}px monospace`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('R', px, py);
+            ctx.textBaseline = 'alphabetic';
             break;
           }
         }
@@ -2003,13 +2110,15 @@ export class Renderer {
       const px = u.x * T, py = u.y * T;
       const laneColor = u.lane === Lane.Left ? LANE_LEFT_COLOR : LANE_RIGHT_COLOR;
       const r = u.range > 2 ? 3 : 4;
-
-      // Drop shadow — simple oval (cheaper than ellipse path)
       const cx = px + T / 2;
-      const cy = py + T / 2;
+      const tierScale = u.isChampion ? 3.0 : 1.0 + (u.upgradeTier ?? 0) * 0.15;
+
+      // Drop shadow — ellipse at feet level
       const shadowAlpha = this.dayNight.brightness * 0.2;
       ctx.fillStyle = `rgba(0,0,0,${shadowAlpha})`;
-      ctx.fillRect(cx - 5, cy + 3, 10, 3);
+      ctx.beginPath();
+      ctx.ellipse(cx, py + T * 0.70, 5 * tierScale, 2, 0, 0, Math.PI * 2);
+      ctx.fill();
 
       // Champion glow aura
       if (u.isChampion) {
@@ -2025,7 +2134,7 @@ export class Renderer {
       }
 
       // Try sprite first, fall back to procedural shapes
-      const race = state.players[u.playerId]?.race;
+      const race = u.spriteRace ?? state.players[u.playerId]?.race;
       const cat = u.category as 'melee' | 'ranged' | 'caster';
       const attackCooldownTicks = Math.round(u.attackSpeed * TICK_RATE);
       const justFired = u.attackTimer > attackCooldownTicks * 0.5;
@@ -2034,7 +2143,6 @@ export class Renderer {
       const isRangedOnCooldown = u.targetId !== null && u.attackTimer > 0 && !justFired
         && (cat === 'ranged' || cat === 'caster');
       const spriteData = race ? this.sprites.getUnitSprite(race, cat, u.playerId, isAttacking, u.upgradeNode) : null;
-      const tierScale = u.isChampion ? 3.0 : 1.0 + (u.upgradeTier ?? 0) * 0.15; // champions are 3x size
       if (spriteData) {
         const [img, def] = spriteData;
         const spriteScale = def.scale ?? 1.0;
@@ -2045,8 +2153,12 @@ export class Renderer {
         // Ranged/caster units stand still when attacking without a dedicated attack sprite
         const idleWhileAttacking = isAttacking && (cat === 'ranged' || cat === 'caster')
           && race != null && !this.sprites.hasAttackSprite(race, cat, u.upgradeNode);
+        // Check if unit is actually moving (compare to last frame position)
+        const lastPos = this.lastUnitPositions.get(u.id);
+        const isStationary = lastPos != null
+          && Math.abs(u.x - lastPos.x) < 0.05 && Math.abs(u.y - lastPos.y) < 0.05;
         // Normalize animation: ~1 cycle per second (20 ticks) regardless of frame count
-        const frame = (idleWhileAttacking || isRangedOnCooldown) ? 0 : getSpriteFrame(state.tick, def);
+        const frame = (idleWhileAttacking || isRangedOnCooldown || (isStationary && !isAttacking)) ? 0 : getSpriteFrame(state.tick, def);
         // Anchor feet at consistent ground level
         const feetY = py + T * 0.70;
         const drawY = feetY - drawH * (def.groundY ?? 0.71);
@@ -2579,8 +2691,8 @@ export class Renderer {
     {
       const px = h.x * T, py = h.y * T;
 
-      // Drop shadow
-      ctx.fillStyle = 'rgba(0,0,0,0.18)';
+      // Drop shadow (day/night responsive)
+      ctx.fillStyle = `rgba(0,0,0,${this.dayNight.brightness * 0.18})`;
       ctx.beginPath();
       ctx.ellipse(px, py + 2, 4, 2, 0, 0, Math.PI * 2);
       ctx.fill();
@@ -2656,6 +2768,15 @@ export class Renderer {
           drawSpriteFrame(ctx, fxImg, fxDef as SpriteDef, fxTick + h.id * 3, px - fxSize / 2, py - fxSize * 0.6, fxSize, fxSize);
           ctx.globalAlpha = 1;
         }
+      }
+
+      // Mana harvester glow (Demon)
+      if (h.assignment === HarvesterAssignment.Mana) {
+        const glowPulse = 0.4 + 0.3 * Math.sin(state.tick * 0.15 + h.id);
+        ctx.beginPath();
+        ctx.arc(px, py - 2, 6, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(124, 77, 255, ${glowPulse})`;
+        ctx.fill();
       }
 
       // HP bar
@@ -3070,7 +3191,34 @@ export class Renderer {
         ctx.strokeText(ft.text, textX, py);
         ctx.fillStyle = ft.color;
         ctx.fillText(ft.text, textX, py);
-        this.ui.drawIcon(ctx, ft.icon as any, textX + textW / 2 + 1, py - iconSz / 2 - 1, iconSz);
+        const iconX = textX + textW / 2 + 1;
+        const iconCy = py - iconSz / 2 - 1;
+        // Try standard icon, fall back to canvas-drawn special resource icons
+        if (!this.ui.drawIcon(ctx, ft.icon as any, iconX, iconCy, iconSz)) {
+          const icx = iconX + iconSz / 2, icy = iconCy + iconSz / 2;
+          const ihr = iconSz * 0.4;
+          if (ft.icon === 'mana') {
+            ctx.fillStyle = '#7c4dff';
+            ctx.beginPath();
+            ctx.moveTo(icx, icy - ihr); ctx.lineTo(icx + ihr * 0.7, icy);
+            ctx.lineTo(icx, icy + ihr); ctx.lineTo(icx - ihr * 0.7, icy);
+            ctx.closePath(); ctx.fill();
+          } else if (ft.icon === 'soul') {
+            ctx.fillStyle = '#ce93d8';
+            ctx.beginPath(); ctx.arc(icx, icy - ihr * 0.2, ihr * 0.55, 0, Math.PI * 2); ctx.fill();
+            ctx.beginPath();
+            ctx.moveTo(icx - ihr * 0.3, icy + ihr * 0.2);
+            ctx.quadraticCurveTo(icx + ihr * 0.2, icy + ihr * 0.4, icx - ihr * 0.1, icy + ihr * 0.8);
+            ctx.strokeStyle = '#ce93d8'; ctx.lineWidth = 1.5; ctx.stroke();
+          } else if (ft.icon === 'ooze') {
+            ctx.fillStyle = '#69f0ae';
+            ctx.beginPath();
+            ctx.moveTo(icx, icy - ihr);
+            ctx.quadraticCurveTo(icx + ihr * 0.8, icy + ihr * 0.3, icx, icy + ihr);
+            ctx.quadraticCurveTo(icx - ihr * 0.8, icy + ihr * 0.3, icx, icy - ihr);
+            ctx.fill();
+          }
+        }
       } else {
         ctx.strokeText(ft.text, px, py);
         ctx.fillStyle = ft.color;
@@ -3130,6 +3278,141 @@ export class Renderer {
     }
   }
 
+  private drawAbilityEffects(ctx: CanvasRenderingContext2D, state: GameState): void {
+    const tick = state.tick;
+    for (const eff of state.abilityEffects) {
+      // Fade in/out multiplier
+      const maxDur = eff.type === 'deep_rain' ? 8 * TICK_RATE : 6 * TICK_RATE;
+      const fadeIn = Math.min(1, (maxDur - eff.duration) / TICK_RATE);
+      const fadeOut = Math.min(1, eff.duration / TICK_RATE);
+      const fade = Math.min(fadeIn, fadeOut);
+
+      if (eff.type === 'deep_rain') {
+        const md = state.mapDef;
+        const mapW = md.width * T, mapH = md.height * T;
+        // Dark blue-grey overlay
+        ctx.fillStyle = `rgba(40, 60, 90, ${fade * 0.12})`;
+        ctx.fillRect(0, 0, mapW, mapH);
+        // Dense rain lines falling at an angle
+        const lineCount = 120;
+        ctx.strokeStyle = `rgba(160, 190, 230, ${fade * 0.3})`;
+        ctx.lineWidth = 0.8;
+        for (let i = 0; i < lineCount; i++) {
+          const seed = i * 7919 + 13;
+          const rx = ((tick * 2.5 + seed) % mapW);
+          const ry = ((tick * 9 + seed * 3) % mapH);
+          const len = 8 + (seed % 8);
+          ctx.beginPath();
+          ctx.moveTo(rx, ry);
+          ctx.lineTo(rx - 2, ry + len);
+          ctx.stroke();
+        }
+        // Occasional lightning flash
+        if (eff.duration % (3 * TICK_RATE) < 2) {
+          ctx.fillStyle = `rgba(200, 220, 255, ${fade * 0.06})`;
+          ctx.fillRect(0, 0, mapW, mapH);
+        }
+      } else if (eff.type === 'wild_frenzy' && eff.x != null && eff.y != null && eff.radius != null) {
+        const px = eff.x * T, py = eff.y * T;
+        const r = eff.radius * T;
+        const pulse = 0.6 + 0.4 * Math.sin(tick * 0.25);
+
+        // Radial gradient fill
+        const grad = ctx.createRadialGradient(px, py, 0, px, py, r);
+        grad.addColorStop(0, `rgba(255, 80, 0, ${fade * 0.15 * pulse})`);
+        grad.addColorStop(0.7, `rgba(255, 130, 30, ${fade * 0.08 * pulse})`);
+        grad.addColorStop(1, `rgba(255, 60, 0, 0)`);
+        ctx.beginPath();
+        ctx.arc(px, py, r, 0, Math.PI * 2);
+        ctx.fillStyle = grad;
+        ctx.fill();
+
+        // Rotating dashed ring
+        ctx.save();
+        ctx.translate(px, py);
+        ctx.rotate(tick * 0.05);
+        ctx.beginPath();
+        ctx.arc(0, 0, r * 0.95, 0, Math.PI * 2);
+        ctx.setLineDash([8, 12]);
+        ctx.strokeStyle = `rgba(255, 200, 50, ${fade * 0.4})`;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.restore();
+
+        // Inner sparks
+        for (let i = 0; i < 6; i++) {
+          const a = (tick * 0.08 + i * Math.PI / 3) % (Math.PI * 2);
+          const sr = r * (0.3 + 0.5 * ((i * 31 + tick) % 20) / 20);
+          const sx = px + Math.cos(a) * sr;
+          const sy = py + Math.sin(a) * sr;
+          ctx.beginPath();
+          ctx.arc(sx, sy, 2, 0, Math.PI * 2);
+          ctx.fillStyle = `rgba(255, 220, 100, ${fade * 0.5})`;
+          ctx.fill();
+        }
+      } else if (eff.type === 'demon_fireball' && eff.x != null && eff.y != null && eff.radius != null) {
+        const maxDurFB = Math.round(0.8 * TICK_RATE);
+        const progress = 1 - eff.duration / maxDurFB;
+        const px = eff.x * T, py = eff.y * T;
+        const r = eff.radius * T;
+
+        // Expanding fire ring
+        const ringR = r * (0.3 + progress * 0.7);
+        const ringAlpha = Math.max(0, 1 - progress);
+        ctx.beginPath();
+        ctx.arc(px, py, ringR, 0, Math.PI * 2);
+        const fireGrad = ctx.createRadialGradient(px, py, 0, px, py, ringR);
+        fireGrad.addColorStop(0, `rgba(255, 220, 50, ${ringAlpha * 0.4})`);
+        fireGrad.addColorStop(0.4, `rgba(255, 120, 0, ${ringAlpha * 0.3})`);
+        fireGrad.addColorStop(1, `rgba(200, 30, 0, 0)`);
+        ctx.fillStyle = fireGrad;
+        ctx.fill();
+
+        // Explosion sprite if available
+        const explData = this.sprites.getFxSprite('explosion');
+        if (explData && progress < 0.6) {
+          const [explImg, explDef] = explData;
+          const explSize = r * 1.5;
+          const explFrame = Math.min(Math.floor(progress / 0.6 * explDef.cols), explDef.cols - 1);
+          ctx.globalAlpha = 0.8 * (1 - progress / 0.6);
+          drawSpriteFrame(ctx, explImg, explDef as SpriteDef, explFrame, px - explSize / 2, py - explSize / 2, explSize, explSize);
+          ctx.globalAlpha = 1;
+        }
+
+        // Scorched ground
+        ctx.beginPath();
+        ctx.arc(px, py, r * 0.8, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(40, 10, 0, ${ringAlpha * 0.2})`;
+        ctx.fill();
+
+        // Ember particles
+        for (let i = 0; i < 8; i++) {
+          const a = (tick * 0.15 + i * Math.PI / 4) % (Math.PI * 2);
+          const er = ringR * (0.5 + 0.5 * ((i * 17 + tick * 2) % 30) / 30);
+          const ex = px + Math.cos(a) * er;
+          const ey = py + Math.sin(a) * er - progress * 15;
+          ctx.beginPath();
+          ctx.arc(ex, ey, 1.5, 0, Math.PI * 2);
+          ctx.fillStyle = `rgba(255, ${150 + i * 10}, 0, ${ringAlpha * 0.6})`;
+          ctx.fill();
+        }
+      }
+    }
+
+    // Draw fleeing goblin indicator (exclamation mark above head)
+    for (const u of state.units) {
+      if (u.fleeTimer != null && u.fleeTimer > 0) {
+        const px = u.x * T, py = u.y * T;
+        ctx.fillStyle = '#ffeb3b';
+        ctx.font = 'bold 10px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('!!', px + T / 2, py - 4);
+        ctx.textAlign = 'start';
+      }
+    }
+  }
+
   // === HUD ===
 
   private drawHUD(ctx: CanvasRenderingContext2D, state: GameState, networkLatencyMs?: number, desyncDetected?: boolean, peerDisconnected?: boolean, waitingForAllyMs?: number): void {
@@ -3184,6 +3467,59 @@ export class Renderer {
     if (used.gold) drawRes('gold', player.gold, '#ffd700', goldRate);
     if (used.wood) drawRes('wood', player.wood, '#4caf50', woodRate);
     if (used.stone) drawRes('meat', player.stone, '#e57373', stoneRate);
+
+    // Race-specific special resources with canvas-drawn icons
+    const drawSpecialRes = (val: number, color: string, drawIcon: () => void) => {
+      drawIcon();
+      x += iconSz + 1;
+      ctx.fillStyle = color;
+      ctx.fillText(`${val}`, x, y1 + fontSize * 0.35);
+      x += ctx.measureText(`${val}`).width + (compact ? 4 : 8);
+    };
+    if (player.race === Race.Demon) drawSpecialRes(player.mana, '#7c4dff', () => {
+      // Mana crystal icon
+      const cx_ = x + iconSz / 2, cy_ = iconY + iconSz / 2;
+      ctx.fillStyle = '#7c4dff';
+      ctx.beginPath();
+      ctx.moveTo(cx_, cy_ - iconSz * 0.45);
+      ctx.lineTo(cx_ + iconSz * 0.3, cy_);
+      ctx.lineTo(cx_, cy_ + iconSz * 0.45);
+      ctx.lineTo(cx_ - iconSz * 0.3, cy_);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = '#b388ff';
+      ctx.beginPath();
+      ctx.moveTo(cx_, cy_ - iconSz * 0.25);
+      ctx.lineTo(cx_ + iconSz * 0.12, cy_);
+      ctx.lineTo(cx_, cy_ + iconSz * 0.1);
+      ctx.closePath();
+      ctx.fill();
+    });
+    if (player.race === Race.Geists) drawSpecialRes(player.souls, '#ce93d8', () => {
+      // Soul wisp icon
+      const cx_ = x + iconSz / 2, cy_ = iconY + iconSz / 2;
+      ctx.fillStyle = '#ce93d8';
+      ctx.beginPath();
+      ctx.arc(cx_, cy_ - iconSz * 0.1, iconSz * 0.25, 0, Math.PI * 2);
+      ctx.fill();
+      // Wisp tail
+      ctx.beginPath();
+      ctx.moveTo(cx_ - iconSz * 0.15, cy_ + iconSz * 0.1);
+      ctx.quadraticCurveTo(cx_ + iconSz * 0.1, cy_ + iconSz * 0.2, cx_ - iconSz * 0.05, cy_ + iconSz * 0.4);
+      ctx.strokeStyle = '#ce93d8';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    });
+    if (player.race === Race.Oozlings) drawSpecialRes(player.deathEssence, '#69f0ae', () => {
+      // Ooze droplet icon
+      const cx_ = x + iconSz / 2, cy_ = iconY + iconSz / 2;
+      ctx.fillStyle = '#69f0ae';
+      ctx.beginPath();
+      ctx.moveTo(cx_, cy_ - iconSz * 0.4);
+      ctx.quadraticCurveTo(cx_ + iconSz * 0.35, cy_ + iconSz * 0.1, cx_, cy_ + iconSz * 0.4);
+      ctx.quadraticCurveTo(cx_ - iconSz * 0.35, cy_ + iconSz * 0.1, cx_, cy_ - iconSz * 0.4);
+      ctx.fill();
+    });
 
     // Timer + ping — right-aligned, left of settings/info buttons (which are ~70px from right edge)
     const hudRightEdge = networkLatencyMs !== undefined ? W - 80 : W - pad;

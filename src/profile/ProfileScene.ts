@@ -60,6 +60,8 @@ export class ProfileScene implements Scene {
   private touchStartY = 0;
   private touchDragged = false;
   private enterTime = 0;
+  private scrollVelocity = 0;
+  private overscroll = 0; // positive = past bottom, negative = past top
 
   constructor(manager: SceneManager, canvas: HTMLCanvasElement, ui: UIAssets, sprites: SpriteLoader) {
     this.manager = manager;
@@ -72,6 +74,8 @@ export class ProfileScene implements Scene {
     this.profile = loadProfile();
     this.playerName = loadPlayerName();
     this.scrollY = 0;
+    this.scrollVelocity = 0;
+    this.overscroll = 0;
     this.tab = 'stats';
     this.enterTime = Date.now();
 
@@ -81,6 +85,8 @@ export class ProfileScene implements Scene {
       const rect = this.canvas.getBoundingClientRect();
       this.handleClick(e.clientX - rect.left, e.clientY - rect.top);
     };
+    let touchTime = 0;
+    let prevTouchY = 0;
     this.touchHandler = (e: TouchEvent) => {
       const touch = e.touches[0];
       if (!touch) return;
@@ -88,11 +94,36 @@ export class ProfileScene implements Scene {
         this.touchLastY = touch.clientY;
         this.touchStartY = touch.clientY;
         this.touchDragged = false;
+        this.scrollVelocity = 0; // stop momentum on new touch
+        prevTouchY = touch.clientY;
+        touchTime = Date.now();
       } else if (e.type === 'touchmove') {
         e.preventDefault();
         const dy = this.touchLastY - touch.clientY;
         this.touchLastY = touch.clientY;
-        this.scrollY = Math.max(0, Math.min(this.maxScrollY, this.scrollY + dy));
+
+        // Track velocity from recent movement
+        const now = Date.now();
+        const dt = now - touchTime;
+        if (dt > 0) {
+          this.scrollVelocity = (prevTouchY - touch.clientY) / dt * 16; // px per frame
+          prevTouchY = touch.clientY;
+          touchTime = now;
+        }
+
+        // Allow overscroll with rubber-band resistance
+        const newScroll = this.scrollY + dy * 1.3; // 1.3x multiplier for more responsive feel
+        if (newScroll < 0) {
+          this.overscroll = newScroll * 0.4; // rubber band at top
+          this.scrollY = 0;
+        } else if (newScroll > this.maxScrollY) {
+          this.overscroll = (newScroll - this.maxScrollY) * 0.4; // rubber band at bottom
+          this.scrollY = this.maxScrollY;
+        } else {
+          this.overscroll = 0;
+          this.scrollY = newScroll;
+        }
+
         if (Math.abs(touch.clientY - this.touchStartY) > 8) this.touchDragged = true;
       }
     };
@@ -106,6 +137,8 @@ export class ProfileScene implements Scene {
         const rect = this.canvas.getBoundingClientRect();
         this.handleClick(t.clientX - rect.left, t.clientY - rect.top);
       }
+      // If overscrolled, velocity should be zero (bounce back handles it)
+      if (this.overscroll !== 0) this.scrollVelocity = 0;
     };
     this.wheelHandler = (e: WheelEvent) => {
       this.scrollY = Math.max(0, Math.min(this.maxScrollY, this.scrollY + e.deltaY * 0.5));
@@ -135,7 +168,34 @@ export class ProfileScene implements Scene {
     this.wheelHandler = null; this.keyHandler = null;
   }
 
-  update(dt: number): void { this.animTime += dt; }
+  update(dt: number): void {
+    this.animTime += dt;
+
+    // Bounce back from overscroll
+    if (this.overscroll !== 0) {
+      this.overscroll *= 0.85; // spring back
+      if (Math.abs(this.overscroll) < 0.5) this.overscroll = 0;
+    }
+
+    // Momentum scrolling (only when not touching)
+    if (Math.abs(this.scrollVelocity) > 0.3) {
+      const newScroll = this.scrollY + this.scrollVelocity;
+      if (newScroll < 0) {
+        this.overscroll = newScroll * 0.3;
+        this.scrollY = 0;
+        this.scrollVelocity = 0;
+      } else if (newScroll > this.maxScrollY) {
+        this.overscroll = (newScroll - this.maxScrollY) * 0.3;
+        this.scrollY = this.maxScrollY;
+        this.scrollVelocity = 0;
+      } else {
+        this.scrollY = newScroll;
+      }
+      this.scrollVelocity *= 0.95; // friction
+    } else {
+      this.scrollVelocity = 0;
+    }
+  }
 
   // ─── Simple panel background (dark rounded rect) ───
 
@@ -195,6 +255,8 @@ export class ProfileScene implements Scene {
         if (cx >= tx && cx <= tx + tabW) {
           this.tab = tabs[i];
           this.scrollY = 0;
+          this.scrollVelocity = 0;
+          this.overscroll = 0;
           return;
         }
       }
@@ -250,9 +312,15 @@ export class ProfileScene implements Scene {
     ctx.rect(0, headerH, W, H - headerH);
     ctx.clip();
 
+    // Apply overscroll offset for bounce effect
+    const savedScrollY = this.scrollY;
+    this.scrollY -= this.overscroll;
+
     if (this.tab === 'stats') this.renderStats(ctx, W, H, headerH);
     else if (this.tab === 'achievements') this.renderAchievements(ctx, W, H, headerH);
     else if (this.tab === 'avatars') this.renderAvatars(ctx, W, H, headerH);
+
+    this.scrollY = savedScrollY;
 
     // Clamp scroll after content height is computed
     this.scrollY = Math.min(this.scrollY, Math.max(0, this.maxScrollY));
