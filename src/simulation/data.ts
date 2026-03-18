@@ -147,6 +147,9 @@ export function HARVESTER_HUT_COST(hutIndex: number): number {
   return Math.floor(50 * Math.pow(HUT_COST_SCALE, hutIndex));
 }
 
+// Tower costs escalate faster than other slots (each subsequent tower costs more)
+export const TOWER_COST_SCALE = 1.65;
+
 // Harvester yields per trip (must match GameState.ts tickHarvesters)
 export const GOLD_YIELD_PER_TRIP = 5;
 export const WOOD_YIELD_PER_TRIP = 10;

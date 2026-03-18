@@ -19,7 +19,7 @@ import {
   HARVESTER_RESPAWN_TICKS, HARVESTER_MIN_SEPARATION,
   UPGRADE_TREES, UpgradeNodeDef, RACE_UPGRADE_COSTS, getBuildingCost,
   getRaceUsedResources, getNodeUpgradeCost,
-  HUT_COST_SCALE, GOLD_YIELD_PER_TRIP, WOOD_YIELD_PER_TRIP, STONE_YIELD_PER_TRIP,
+  HUT_COST_SCALE, TOWER_COST_SCALE, GOLD_YIELD_PER_TRIP, WOOD_YIELD_PER_TRIP, STONE_YIELD_PER_TRIP,
   RACE_ABILITY_DEFS,
   getAllResearchUpgrades, getResearchUpgradeCost,
 } from './data';
@@ -976,8 +976,22 @@ function placeBuilding(state: GameState, cmd: Extract<GameCommand, { type: 'plac
 
   // First tower is free for each player (one-time only)
   const isFirstTower = cmd.buildingType === BuildingType.Tower && !player.hasBuiltTower;
+
+  // Towers escalate faster than other slots — each additional tower after the first costs more
+  let effectiveCost = cost;
+  if (cmd.buildingType === BuildingType.Tower && !isFirstTower) {
+    const myTowers = state.buildings.filter(b => b.playerId === cmd.playerId && b.type === BuildingType.Tower).length;
+    const mult = Math.pow(TOWER_COST_SCALE, Math.max(0, myTowers - 1));
+    effectiveCost = {
+      gold: Math.floor(cost.gold * mult),
+      wood: Math.floor(cost.wood * mult),
+      stone: Math.floor(cost.stone * mult),
+      hp: cost.hp,
+    };
+  }
+
   if (!isFirstTower) {
-    if (player.gold < cost.gold || player.wood < cost.wood || player.stone < cost.stone) return;
+    if (player.gold < effectiveCost.gold || player.wood < effectiveCost.wood || player.stone < effectiveCost.stone) return;
   }
 
   const isAlley = cmd.gridType === 'alley';
@@ -1006,7 +1020,7 @@ function placeBuilding(state: GameState, cmd: Extract<GameCommand, { type: 'plac
         b.gridX === cmd.gridX && b.gridY === cmd.gridY)) return;
     const origin = getTeamAlleyOrigin(playerTeam, state.mapDef);
     const world = { x: origin.x + cmd.gridX, y: origin.y + cmd.gridY };
-    if (!isFirstTower) { player.gold -= cost.gold; player.wood -= cost.wood; player.stone -= cost.stone; }
+    if (!isFirstTower) { player.gold -= effectiveCost.gold; player.wood -= effectiveCost.wood; player.stone -= effectiveCost.stone; }
     state.buildings.push({
       id: genId(state), type: cmd.buildingType, playerId: cmd.playerId, buildGrid: 'alley',
       gridX: cmd.gridX, gridY: cmd.gridY, worldX: world.x, worldY: world.y,
@@ -1348,7 +1362,7 @@ function demonAbility(state: GameState, player: PlayerState, cmd: Extract<GameCo
   for (const u of state.units) {
     if (u.team === player.team) continue;
     if ((u.x - cmd.x) ** 2 + (u.y - cmd.y) ** 2 > r2) continue;
-    u.hp -= totalDamage;
+    dealDamage(state, u, totalDamage, true, player.id);
     if (state.playerStats[player.id]) state.playerStats[player.id].abilityDamageDealt += totalDamage;
     // Apply burn
     const existing = u.statusEffects.find(s => s.type === StatusType.Burn);
@@ -1762,12 +1776,8 @@ function trackDeathResources(state: GameState, deadUnit: UnitState): void {
     for (const u of state.units) {
       if (u.team === deadUnit.team || u.hp <= 0) continue;
       if ((u.x - deadUnit.x) ** 2 + (u.y - deadUnit.y) ** 2 > r2) continue;
-      u.hp -= dmg;
-      if (burnStacks > 0) {
-        const existing = u.statusEffects.find(s => s.type === StatusType.Burn);
-        if (existing) { existing.stacks = Math.min(5, existing.stacks + burnStacks); existing.duration = 3 * TICK_RATE; }
-        else u.statusEffects.push({ type: StatusType.Burn, stacks: burnStacks, duration: 3 * TICK_RATE });
-      }
+      dealDamage(state, u, dmg, true, deadUnit.playerId);
+      if (burnStacks > 0) applyStatus(u, StatusType.Burn, burnStacks);
     }
     addDeathParticles(state, deadUnit.x, deadUnit.y, '#7c4dff', 8);
     addFloatingText(state, deadUnit.x, deadUnit.y, `💥${dmg}`, '#7c4dff');
@@ -2415,6 +2425,9 @@ function dealDamage(state: GameState, target: UnitState, amount: number, showFlo
     if (sourcePlayerId !== undefined && state.playerStats[sourcePlayerId]) {
       state.playerStats[sourcePlayerId].totalDamageDealt += amount;
       if (isTowerShot) state.playerStats[sourcePlayerId].towerDamageDealt += amount;
+      // Credit kill when no unit ID is present (tower, explosion, AoE death effects)
+      // Unit-kill credit is handled separately in the sourceUnitId block below
+      if (target.hp <= 0 && sourceUnitId === undefined) state.playerStats[sourcePlayerId].enemyUnitsKilled++;
       // Check if near own HQ (within 20 tiles)
       const team = state.players[sourcePlayerId].team;
       const hq = getHQPosition(team, state.mapDef);
@@ -2431,6 +2444,7 @@ function dealDamage(state: GameState, target: UnitState, amount: number, showFlo
         target.lastDamagedByName = killer.type;
         if (target.hp <= 0) {
           killer.kills++;
+          if (state.playerStats[killer.playerId]) state.playerStats[killer.playerId].enemyUnitsKilled++;
           // Gold on kill (pirate upgrade path)
           const gok = killer.upgradeSpecial?.goldOnKill ?? 0;
           if (gok > 0) {
@@ -3669,6 +3683,7 @@ function tickCombat(state: GameState): void {
           category: u.category, upgradeTier: u.upgradeTier, upgradeNode: u.upgradeNode,
           upgradeSpecial: {}, kills: 0, lastDamagedByName: '', spawnTick: state.tick,
         });
+        if (state.playerStats[u.playerId]) state.playerStats[u.playerId].unitsSpawned++;
         addFloatingText(state, u.x, u.y, '🧬', '#76ff03', undefined, true);
       }
       // Oozlings Acid Pool: ranged death AoE — 5 dmg to enemies within 1.5 tiles
@@ -4170,10 +4185,14 @@ function tickStatusEffects(state: GameState): void {
         const hasSlowCombo = unit.statusEffects.some(e => e.type === StatusType.Slow);
         const baseBurnDmg = 2 * eff.stacks;
         const burnDmg = hasSlowCombo ? Math.round(baseBurnDmg * 1.5) : baseBurnDmg;
-        dealDamage(state, unit, burnDmg, true);
-        // Track burn damage — attribute to first active enemy player
+        // Attribute burn to first active enemy player (correct in 1v1, approximate in team modes)
+        let burnSourceId: number | undefined;
         for (const ep of state.players) {
-          if (ep.team !== unit.team && !ep.isEmpty) { state.playerStats[ep.id].burnDamageDealt += burnDmg; break; }
+          if (ep.team !== unit.team && !ep.isEmpty) { burnSourceId = ep.id; break; }
+        }
+        dealDamage(state, unit, burnDmg, true, burnSourceId);
+        if (burnSourceId !== undefined && state.playerStats[burnSourceId]) {
+          state.playerStats[burnSourceId].burnDamageDealt += burnDmg;
         }
         if (hasSlowCombo) {
           addDeathParticles(state, unit.x, unit.y, '#ff6600', 1);
@@ -4496,7 +4515,10 @@ function executeNukeDetonation(state: GameState, playerId: number, x: number, y:
     }
     return true;
   });
-  if (state.playerStats[playerId]) state.playerStats[playerId].nukeKills += nukeKills;
+  if (state.playerStats[playerId]) {
+    state.playerStats[playerId].nukeKills += nukeKills;
+    state.playerStats[playerId].enemyUnitsKilled += nukeKills;
+  }
 
   for (const h of state.harvesters) {
     if (h.team !== enemyTeam || h.state === 'dead') continue;

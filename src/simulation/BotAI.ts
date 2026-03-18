@@ -3,7 +3,7 @@ import {
   HarvesterAssignment, HQ_HP, MapDef, TICK_RATE, NUKE_RADIUS,
   AbilityTargetMode, ResearchUpgradeState,
 } from './types';
-import { RACE_BUILDING_COSTS, UPGRADE_TREES, UpgradeNodeDef, UNIT_STATS, SPAWN_INTERVAL_TICKS, TOWER_STATS, getNodeUpgradeCost, HUT_COST_SCALE, GOLD_YIELD_PER_TRIP, WOOD_YIELD_PER_TRIP, STONE_YIELD_PER_TRIP, RACE_ABILITY_DEFS, getAllResearchUpgrades, getResearchUpgradeCost } from './data';
+import { RACE_BUILDING_COSTS, UPGRADE_TREES, UpgradeNodeDef, UNIT_STATS, SPAWN_INTERVAL_TICKS, TOWER_STATS, getNodeUpgradeCost, HUT_COST_SCALE, TOWER_COST_SCALE, GOLD_YIELD_PER_TRIP, WOOD_YIELD_PER_TRIP, STONE_YIELD_PER_TRIP, RACE_ABILITY_DEFS, getAllResearchUpgrades, getResearchUpgradeCost } from './data';
 import { getHQPosition, getUnitUpgradeMultipliers, PASSIVE_INCOME } from './GameState';
 
 // --- Bot Difficulty System ---
@@ -1152,6 +1152,16 @@ function botCanAfford(state: GameState, playerId: number, type: BuildingType): b
   return player.gold >= cost.gold && player.wood >= cost.wood && player.stone >= cost.stone;
 }
 
+function botCanAffordTower(state: GameState, playerId: number, towerCount: number): boolean {
+  const player = state.players[playerId];
+  if (!player.hasBuiltTower) return true; // first tower is free
+  const baseCost = RACE_BUILDING_COSTS[player.race][BuildingType.Tower];
+  const mult = Math.pow(TOWER_COST_SCALE, Math.max(0, towerCount - 1));
+  return player.gold >= Math.floor(baseCost.gold * mult)
+    && player.wood >= Math.floor(baseCost.wood * mult)
+    && player.stone >= Math.floor(baseCost.stone * mult);
+}
+
 function botCanAffordHut(state: GameState, playerId: number, hutCount: number): boolean {
   const player = state.players[playerId];
   const hutRes = RACE_BUILDING_COSTS[player.race][BuildingType.HarvesterHut];
@@ -1854,7 +1864,7 @@ function runSingleBotAI(state: GameState, ctx: BotContext, playerId: number, emi
       // Do nothing — simulates inattention
     } else if (atSpawnerCap && atHutCap) {
       // At all caps — only towers possible
-      if (towerCount + alleyTowerCount < 3 && botCanAfford(state, playerId, BuildingType.Tower)) {
+      if (towerCount + alleyTowerCount < 3 && botCanAffordTower(state, playerId, towerCount + alleyTowerCount)) {
         built = botPlaceAlleyTower(state, playerId, emit);
       }
     } else if (totalSpawners === 0 && gameMinutes > 0.3) {
@@ -2100,7 +2110,9 @@ function botValueBasedBuild(
   const totalTowers = towerCount + alleyTowerCount;
   if (totalTowers < profile.lateTowers + profile.alleyTowers) {
     const ts = TOWER_STATS[race];
-    const towerCost = costs[BuildingType.Tower];
+    const towerBaseCost = costs[BuildingType.Tower];
+    const towerMult = totalTowers > 0 ? Math.pow(TOWER_COST_SCALE, Math.max(0, totalTowers - 1)) : 1;
+    const towerCost = { gold: Math.floor(towerBaseCost.gold * towerMult), wood: Math.floor(towerBaseCost.wood * towerMult), stone: Math.floor(towerBaseCost.stone * towerMult) };
     const totalCostT = towerCost.gold + towerCost.wood + towerCost.stone;
     const towerDPS = ts.damage / ts.attackSpeed;
     let towerVal = totalCostT > 0 ? (towerDPS + ts.hp * 0.005) / totalCostT : 0;
@@ -2110,7 +2122,7 @@ function botValueBasedBuild(
     else if (armyAdv < 0.9) towerVal *= 1.2;
     // First tower is free — massive value
     if (totalTowers === 0) towerVal *= 5;
-    const canAffordTower = botCanAfford(state, playerId, BuildingType.Tower);
+    const canAffordTower = botCanAffordTower(state, playerId, totalTowers);
     if (alleyTowerCount < profile.alleyTowers) {
       options.push({ action: 'alley_tower', value: towerVal, affordable: canAffordTower, waitSecs: 0 });
     } else if (towerCount < profile.lateTowers) {
@@ -2240,7 +2252,7 @@ function botDoBuildOrder(
   const tryBuild = (type: BuildingType): boolean => {
     // Towers must go in the tower alley, not the military grid
     if (type === BuildingType.Tower) {
-      if (botCanAfford(state, playerId, type)) return botPlaceAlleyTower(state, playerId, emit);
+      if (botCanAffordTower(state, playerId, towerCount + alleyTowerCount)) return botPlaceAlleyTower(state, playerId, emit);
       return false;
     }
     // Enforce spawner cap for spawner types
@@ -2308,7 +2320,7 @@ function botDoBuildOrder(
 
     if (hutCount < profile.midHuts && hutCount < profile.maxHuts && tryHut()) return true;
     if (towerCount < profile.midTowers && tryBuild(BuildingType.Tower)) return true;
-    if (alleyTowerCount < 1 && botCanAfford(state, playerId, BuildingType.Tower)) {
+    if (alleyTowerCount < 1 && botCanAffordTower(state, playerId, towerCount + alleyTowerCount)) {
       if (botPlaceAlleyTower(state, playerId, emit)) return true;
     }
     // Keep building spawners beyond profile targets if we haven't hit our cap
@@ -2333,12 +2345,12 @@ function botDoBuildOrder(
 
   // Turtle strategy: prioritize towers
   if (strategy === 'turtle') {
-    if (alleyTowerCount < profile.alleyTowers + 1 && botCanAfford(state, playerId, BuildingType.Tower)) {
+    if (alleyTowerCount < profile.alleyTowers + 1 && botCanAffordTower(state, playerId, towerCount + alleyTowerCount)) {
       if (botPlaceAlleyTower(state, playerId, emit)) return true;
     }
     if (towerCount < profile.lateTowers + 1 && tryBuild(BuildingType.Tower)) return true;
   } else {
-    if (alleyTowerCount < profile.alleyTowers && botCanAfford(state, playerId, BuildingType.Tower)) {
+    if (alleyTowerCount < profile.alleyTowers && botCanAffordTower(state, playerId, towerCount + alleyTowerCount)) {
       if (botPlaceAlleyTower(state, playerId, emit)) return true;
     }
     if (towerCount < profile.lateTowers && tryBuild(BuildingType.Tower)) return true;
@@ -2378,7 +2390,7 @@ function botDoBuildOrder(
 
   // Very late: fill alley with towers
   if (gameMinutes > 7 && alleyTowerCount < state.mapDef.towerAlleyCols * state.mapDef.towerAlleyRows
-      && botCanAfford(state, playerId, BuildingType.Tower)) {
+      && botCanAffordTower(state, playerId, towerCount + alleyTowerCount)) {
     if (botPlaceAlleyTower(state, playerId, emit)) return true;
   }
   return false;

@@ -174,8 +174,8 @@ export class PostMatchScene implements Scene {
       innerL + innerW * 0.32,   // gold
       innerL + innerW * 0.44,   // wood
       innerL + innerW * 0.55,   // stone
-      innerL + innerW * 0.66,   // spawned
-      innerL + innerW * 0.78,   // killed
+      innerL + innerW * 0.66,   // enemy kills (sword)
+      innerL + innerW * 0.78,   // units lost
       innerL + innerW * 0.92,   // damage
     ];
 
@@ -191,7 +191,7 @@ export class PostMatchScene implements Scene {
     this.ui.drawIcon(ctx, 'meat', colX[3] - hdrIconSz, tableY - hdrIconSz + 2, hdrIconSz);
     this.ui.drawIcon(ctx, 'sword', colX[4] - hdrIconSz, tableY - hdrIconSz + 2, hdrIconSz);
     ctx.fillStyle = '#5c4020';
-    ctx.fillText('KILLED', colX[5], tableY);
+    ctx.fillText('LOST', colX[5], tableY);
     ctx.fillText('DMG', colX[6], tableY);
 
     // Header separator line
@@ -260,10 +260,11 @@ export class PostMatchScene implements Scene {
       ctx.fillText(`${ps?.totalGoldEarned ?? 0}`, colX[1], y);
       ctx.fillText(`${ps?.totalWoodEarned ?? 0}`, colX[2], y);
       ctx.fillText(`${ps?.totalStoneEarned ?? 0}`, colX[3], y);
-      ctx.fillText(`${ps?.unitsSpawned ?? 0}`, colX[4], y);
+      ctx.fillText(`${ps?.enemyUnitsKilled ?? 0}`, colX[4], y);
       ctx.fillText(`${ps?.unitsLost ?? 0}`, colX[5], y);
       ctx.font = `bold ${tableFontSize}px monospace`;
-      ctx.fillText(`${ps?.totalDamageDealt ?? 0}`, colX[6], y);
+      const totalDmg = (ps?.totalDamageDealt ?? 0) + (ps?.abilityDamageDealt ?? 0) + (ps?.nukeDamageDealt ?? 0);
+      ctx.fillText(`${totalDmg}`, colX[6], y);
     }
 
     // HQ HP — compact centered row: [US hp bar]  [ENEMY hp bar]
@@ -320,7 +321,7 @@ export class PostMatchScene implements Scene {
     const awards = this.computeAwards(pStats);
     const awardIcons: Record<string, IconName> = {
       'MVP Damage': 'sword', 'Best Economy': 'gold', 'Best Defender': 'shield',
-      'Most Spawned': 'sword', 'Nuke Master': 'sword', 'Diamond Runner': 'gold',
+      'Top Killer': 'sword', 'Nuke Master': 'sword', 'Diamond Runner': 'gold',
       'Tower Damage': 'shield', 'Most Healing': 'meat', 'Most Tanked': 'shield',
     };
     const gap = Math.round(fontSize * 0.4); // consistent spacing unit
@@ -535,13 +536,13 @@ export class PostMatchScene implements Scene {
       if (bestVal > 0) awards.push({ label, playerId: bestIdx, value: fmt(bestVal) });
     };
 
-    best(ps => ps.totalDamageDealt, 'MVP Damage', v => `${v} dmg`);
+    best(ps => ps.totalDamageDealt + ps.abilityDamageDealt + ps.nukeDamageDealt, 'MVP Damage', v => `${v} dmg`);
     best(ps => ps.totalGoldEarned + ps.totalWoodEarned + ps.totalStoneEarned, 'Best Economy', v => `${v} resources`);
     best(ps => ps.totalDamageNearHQ, 'Best Defender', v => `${v} dmg near HQ`);
     best(ps => ps.totalDamageTaken, 'Most Tanked', v => `${v} taken`);
     best(ps => ps.towerDamageDealt, 'Tower Damage', v => `${v} dmg`);
     best(ps => ps.totalHealing, 'Most Healing', v => `${v} healed`);
-    best(ps => ps.unitsSpawned, 'Most Spawned', v => `${v} units`);
+    best(ps => ps.enemyUnitsKilled, 'Top Killer', v => `${v} kills`);
     best(ps => ps.nukeKills, 'Nuke Master', v => `${v} kills`);
 
     return awards;

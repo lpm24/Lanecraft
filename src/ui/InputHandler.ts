@@ -7,7 +7,7 @@ import {
   AbilityTargetMode,
 } from '../simulation/types';
 import { getBuildGridOrigin, getTeamAlleyOrigin, getHutGridOrigin } from '../simulation/GameState';
-import { RACE_BUILDING_COSTS, UNIT_STATS, TOWER_STATS, RACE_COLORS, getRaceUsedResources, UPGRADE_TREES, RACE_ABILITY_INFO, RACE_ABILITY_DEFS } from '../simulation/data';
+import { RACE_BUILDING_COSTS, UNIT_STATS, TOWER_STATS, RACE_COLORS, getRaceUsedResources, UPGRADE_TREES, RACE_ABILITY_INFO, RACE_ABILITY_DEFS, TOWER_COST_SCALE } from '../simulation/data';
 import { TICK_RATE } from '../simulation/types';
 import { UIAssets } from '../rendering/UIAssets';
 import { SpriteLoader, drawSpriteFrame, getSpriteFrame } from '../rendering/SpriteLoader';
@@ -1707,8 +1707,22 @@ export class InputHandler {
       const item = BUILD_TRAY[i];
       const bx = (i + 1) * milW;
       const isSelected = this.selectedBuilding === item.type;
-      const cost = RACE_BUILDING_COSTS[race][item.type];
+      const baseCost = RACE_BUILDING_COSTS[race][item.type];
       const isFirstTowerFree = item.type === BuildingType.Tower && !player.hasBuiltTower;
+
+      // Escalating tower cost: each tower after the first costs TOWER_COST_SCALE more
+      let cost = baseCost;
+      if (item.type === BuildingType.Tower && !isFirstTowerFree) {
+        const myTowers = this.game.state.buildings.filter(b => b.playerId === this.pid && b.type === BuildingType.Tower).length;
+        const mult = Math.pow(TOWER_COST_SCALE, Math.max(0, myTowers - 1));
+        cost = {
+          gold: Math.floor(baseCost.gold * mult),
+          wood: Math.floor(baseCost.wood * mult),
+          stone: Math.floor(baseCost.stone * mult),
+          hp: baseCost.hp,
+        };
+      }
+
       const canAfford = isFirstTowerFree || (player.gold >= cost.gold && player.wood >= cost.wood && player.stone >= cost.stone);
 
       let unitName: string;

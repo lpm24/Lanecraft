@@ -613,6 +613,7 @@ export interface PlayerStats {
   totalHealing: number;
   unitsSpawned: number;
   unitsLost: number;
+  enemyUnitsKilled: number;
   nukeKills: number;
   diamondPickups: number;
   diamondTimeHeld: number; // ticks carrying diamond
@@ -625,7 +626,7 @@ export function createPlayerStats(): PlayerStats {
     totalDamageTaken: 0, towerDamageDealt: 0,
     burnDamageDealt: 0, abilityDamageDealt: 0, nukeDamageDealt: 0,
     totalHealing: 0,
-    unitsSpawned: 0, unitsLost: 0, nukeKills: 0,
+    unitsSpawned: 0, unitsLost: 0, enemyUnitsKilled: 0, nukeKills: 0,
     diamondPickups: 0, diamondTimeHeld: 0,
   };
 }
