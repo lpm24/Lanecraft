@@ -102,7 +102,7 @@ export const BOT_DIFFICULTY_PRESETS: Record<BotDifficultyLevel, BotDifficulty> =
   [BotDifficultyLevel.Nightmare]: {
     buildSpeed: 10,           // 0.5 seconds between builds — relentless
     upgradeSpeed: 20,         // upgrades every 1.0 seconds — aggressive upgrade tempo
-    upgradeThreshold: 4,      // start upgrading after 4 spawners — earlier power spikes
+    upgradeThreshold: 5,      // start upgrading after 5 spawners — need army mass before multiplying it
     nukeMinTime: 1.0,
     laneIQ: 'threat',
     counterBuild: true,
@@ -1204,8 +1204,8 @@ function totalResources(state: GameState, playerId: number): number {
   return p.gold + p.wood + p.stone;
 }
 
-function resourceBundleTotal(cost: { gold: number; wood: number; stone: number }): number {
-  return cost.gold + cost.wood + cost.stone;
+function resourceBundleTotal(cost: { gold: number; wood: number; stone: number; deathEssence?: number }): number {
+  return cost.gold + cost.wood + cost.stone + (cost.deathEssence ?? 0);
 }
 
 function buildingCategory(type: BuildingType): 'melee' | 'ranged' | 'caster' | null {
@@ -1379,8 +1379,11 @@ function estimateUpgradeValue(
   const choice = botPickUpgrade(state, ctx, building, profile, race, enemyRaces, diff);
   const tier = getNodeUpgradeCost(race, building.type, building.upgradePath.length, choice);
   const totalCost = resourceBundleTotal(tier);
-  if (totalCost <= 0) return { value: 0, choice: 'B' };
+  if (totalCost <= 0 && !(tier.deathEssence ?? 0)) return { value: 0, choice: 'B' };
   if (player.gold < tier.gold || player.wood < tier.wood || player.stone < tier.stone) {
+    return { value: 0, choice };
+  }
+  if ((tier.deathEssence ?? 0) > 0 && player.deathEssence < (tier.deathEssence ?? 0)) {
     return { value: 0, choice };
   }
 
@@ -1896,10 +1899,15 @@ function runSingleBotAI(state: GameState, ctx: BotContext, playerId: number, emi
   }
 
   // 2. Upgrades — gated by difficulty threshold
-  const upgradeInterval = Math.max(20, Math.floor(diff.upgradeSpeed / urgency));
-  if (state.tick - (ctx.lastUpgradeTick[playerId] ?? 0) >= upgradeInterval) {
-    if (botUpgradeBuildings(state, ctx, playerId, profile, myBuildings, enemyRaces, gameMinutes, diff, emit)) {
-      ctx.lastUpgradeTick[playerId] = state.tick;
+  // When useValueFunction is true, upgrades are already competed inside botValueBasedBuild.
+  // Running botUpgradeBuildings separately would double-drain resources (especially bad for
+  // multi-resource races like Horde where upgrades cost all 3 resources simultaneously).
+  if (!diff.useValueFunction) {
+    const upgradeInterval = Math.max(20, Math.floor(diff.upgradeSpeed / urgency));
+    if (state.tick - (ctx.lastUpgradeTick[playerId] ?? 0) >= upgradeInterval) {
+      if (botUpgradeBuildings(state, ctx, playerId, profile, myBuildings, enemyRaces, gameMinutes, diff, emit)) {
+        ctx.lastUpgradeTick[playerId] = state.tick;
+      }
     }
   }
 
@@ -2009,6 +2017,7 @@ function botValueBasedBuild(
     value: number;
     affordable: boolean;
     waitSecs: number;  // seconds to afford (0 if affordable now)
+    resourceTypes: number; // how many distinct resource types this costs (1, 2, or 3)
     type?: BuildingType;
     building?: GameState['buildings'][0];
     upgradeChoice?: string;
@@ -2028,7 +2037,8 @@ function botValueBasedBuild(
     const cost = costs[type];
     const canAfford = botCanAfford(state, playerId, type);
     const wait = canAfford ? 0 : timeToAfford(player, cost, plan);
-    options.push({ action: 'spawner', value: sv + shiftBonus, affordable: canAfford, waitSecs: wait, type });
+    const spRT = (cost.gold > 0 ? 1 : 0) + (cost.wood > 0 ? 1 : 0) + (cost.stone > 0 ? 1 : 0);
+    options.push({ action: 'spawner', value: sv + shiftBonus, affordable: canAfford, waitSecs: wait, resourceTypes: spRT, type });
   }
 
   // --- Upgrade options (both affordable and unaffordable) ---
@@ -2039,7 +2049,8 @@ function botValueBasedBuild(
     for (const b of upgradeable) {
       const choice = botPickUpgrade(state, ctx, b, profile, race, enemyRaces, diff);
       const tier = getNodeUpgradeCost(race, b.type, b.upgradePath.length, choice);
-      const canAfford = player.gold >= tier.gold && player.wood >= tier.wood && player.stone >= tier.stone;
+      const canAfford = player.gold >= tier.gold && player.wood >= tier.wood && player.stone >= tier.stone
+        && ((tier.deathEssence ?? 0) <= 0 || player.deathEssence >= (tier.deathEssence ?? 0));
 
       // Compute value even if can't afford (for save-for comparison)
       let uv: number;
@@ -2075,8 +2086,9 @@ function botValueBasedBuild(
 
       if (uv > 0) {
         const wait = canAfford ? 0 : timeToAfford(player, tier, plan);
+        const upRT = (tier.gold > 0 ? 1 : 0) + (tier.wood > 0 ? 1 : 0) + (tier.stone > 0 ? 1 : 0);
         options.push({
-          action: 'upgrade', value: uv, affordable: canAfford, waitSecs: wait,
+          action: 'upgrade', value: uv, affordable: canAfford, waitSecs: wait, resourceTypes: upRT,
           building: b, upgradeChoice: choice,
         });
       }
@@ -2113,7 +2125,9 @@ function botValueBasedBuild(
       hv += pressureBonus;
       if (hv > 0) {
         const canAffordHut = botCanAffordHut(state, playerId, hutCount);
-        options.push({ action: 'hut', value: hv, affordable: canAffordHut, waitSecs: 0 });
+        const hutBase2 = costs[BuildingType.HarvesterHut];
+        const hutRT = (hutBase2.gold > 0 ? 1 : 0) + (hutBase2.wood > 0 ? 1 : 0) + (hutBase2.stone > 0 ? 1 : 0);
+        options.push({ action: 'hut', value: hv, affordable: canAffordHut, waitSecs: 0, resourceTypes: hutRT });
       }
     }
   }
@@ -2136,9 +2150,11 @@ function botValueBasedBuild(
     if (totalTowers === 0) towerVal *= 5;
     const canAffordTower = botCanAffordTower(state, playerId, totalTowers);
     if (alleyTowerCount < profile.alleyTowers) {
-      options.push({ action: 'alley_tower', value: towerVal, affordable: canAffordTower, waitSecs: 0 });
+      const twRT = (towerCost.gold > 0 ? 1 : 0) + (towerCost.wood > 0 ? 1 : 0) + (towerCost.stone > 0 ? 1 : 0);
+      options.push({ action: 'alley_tower', value: towerVal, affordable: canAffordTower, waitSecs: 0, resourceTypes: twRT });
     } else if (towerCount < profile.lateTowers) {
-      options.push({ action: 'tower', value: towerVal, affordable: canAffordTower, waitSecs: 0, type: BuildingType.Tower });
+      const twRT2 = (towerCost.gold > 0 ? 1 : 0) + (towerCost.wood > 0 ? 1 : 0) + (towerCost.stone > 0 ? 1 : 0);
+      options.push({ action: 'tower', value: towerVal, affordable: canAffordTower, waitSecs: 0, resourceTypes: twRT2, type: BuildingType.Tower });
     }
   }
 
@@ -2165,8 +2181,9 @@ function botValueBasedBuild(
       const rv = estimateResearchValue(state, ctx, playerId, rDef.id, race, bu, intel, myBuildings);
       if (rv > 0) {
         const waitR = canAffordR ? 0 : timeToAfford(player, rCost, plan);
+        const rRT = (rCost.gold > 0 ? 1 : 0) + (rCost.wood > 0 ? 1 : 0) + (rCost.stone > 0 ? 1 : 0);
         options.push({
-          action: 'research', value: rv, affordable: canAffordR, waitSecs: waitR,
+          action: 'research', value: rv, affordable: canAffordR, waitSecs: waitR, resourceTypes: rRT,
           researchId: rDef.id,
         });
       }
@@ -2194,8 +2211,10 @@ function botValueBasedBuild(
   const bestAffordable = affordableOptions[0];
   const bestUnaffordable = unaffordableOptions[0];
 
-  // If a much better option is almost affordable, save for it
-  if (bestUnaffordable && bestAffordable) {
+  // If a much better option is almost affordable, save for it.
+  // Only applies to single-resource targets — multi-resource costs (e.g. Horde upgrades at 30g+20w+20s)
+  // drain all channels simultaneously and can't be meaningfully "saved for" without starving spawners.
+  if (bestUnaffordable && bestAffordable && bestUnaffordable.resourceTypes <= 1) {
     const valueRatio = bestUnaffordable.value / Math.max(0.001, bestAffordable.value);
     // Save if: unaffordable is 80%+ better AND we can afford it within 6 seconds
     if (valueRatio > 1.8 && bestUnaffordable.waitSecs <= 6) {
@@ -2499,6 +2518,7 @@ function botUpgradeBuildings(
     const uv = estimateUpgradeValue(state, ctx, playerId, b, profile, enemyRaces, diff);
     const cost = getNodeUpgradeCost(player.race, b.type, b.upgradePath.length, uv.choice);
     if (player.gold < cost.gold || player.wood < cost.wood || player.stone < cost.stone) continue;
+    if ((cost.deathEssence ?? 0) > 0 && player.deathEssence < (cost.deathEssence ?? 0)) continue;
 
     // Don't spend all resources on upgrades if we need buildings
     const resAfter = (player.gold - cost.gold) + (player.wood - cost.wood) + (player.stone - cost.stone);

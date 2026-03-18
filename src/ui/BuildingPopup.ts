@@ -7,7 +7,7 @@ import { getUnitUpgradeMultipliers } from '../simulation/GameState';
 
 export interface UpgradeOption {
   choice: string;
-  cost: { gold: number; wood: number; stone: number };
+  cost: { gold: number; wood: number; stone: number; deathEssence?: number };
   name?: string;
   desc?: string;
 }
@@ -251,7 +251,10 @@ export class BuildingPopup {
         const opt = options[i];
         const bx = px + PAD + (i > 0 ? btnW + GAP : 0);
         const by = curY;
-        const canAfford = playerGold >= opt.cost.gold && playerWood >= opt.cost.wood && playerStone >= opt.cost.stone;
+        const essenceCost = opt.cost.deathEssence ?? 0;
+        const playerEssence = state.players[building.playerId]?.deathEssence ?? 0;
+        const canAfford = playerGold >= opt.cost.gold && playerWood >= opt.cost.wood && playerStone >= opt.cost.stone
+          && (essenceCost <= 0 || playerEssence >= essenceCost);
 
         this.upgradeBtnRects.push({ x: bx, y: by, w: btnW, h: UPGRADE_BTN_H, choice: opt.choice });
         this.drawUpgradeButton(ctx, ui, bx, by, btnW, UPGRADE_BTN_H, opt, canAfford,
@@ -497,6 +500,24 @@ export class BuildingPopup {
     if (opt.cost.gold > 0) drawCostItem('gold', opt.cost.gold, '#ffd740', '#665500');
     if (opt.cost.wood > 0) drawCostItem('wood', opt.cost.wood, '#81c784', '#2e5530');
     if (opt.cost.stone > 0) drawCostItem('meat', opt.cost.stone, '#e57373', '#6d2828');
+    if ((opt.cost.deathEssence ?? 0) > 0) {
+      // Ooze droplet icon (drawn inline, no sprite)
+      const oozeSz = iconSize;
+      const oozeCx = costX + oozeSz / 2, oozeCy = costY - oozeSz / 2 + 1;
+      ctx.globalAlpha = canAfford ? 1 : 0.4;
+      ctx.fillStyle = '#69f0ae';
+      ctx.beginPath();
+      ctx.moveTo(oozeCx, oozeCy - oozeSz * 0.4);
+      ctx.quadraticCurveTo(oozeCx + oozeSz * 0.35, oozeCy + oozeSz * 0.1, oozeCx, oozeCy + oozeSz * 0.4);
+      ctx.quadraticCurveTo(oozeCx - oozeSz * 0.35, oozeCy + oozeSz * 0.1, oozeCx, oozeCy - oozeSz * 0.4);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.textAlign = 'left';
+      shadowText(`${opt.cost.deathEssence}`, costX + oozeSz + 1, costY);
+      ctx.fillStyle = canAfford ? '#69f0ae' : '#1b5e20';
+      ctx.fillText(`${opt.cost.deathEssence}`, costX + oozeSz + 1, costY);
+      costX += oozeSz + ctx.measureText(`${opt.cost.deathEssence}`).width + 6;
+    }
   }
 
   private drawStatsPanel(

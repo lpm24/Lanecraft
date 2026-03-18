@@ -103,7 +103,7 @@ function isValidUpgradeChoice(path: string[], choice: string): choice is Upgrade
   return false;
 }
 
-function getUpgradeCost(path: string[], race: Race, buildingType?: BuildingType, choice?: string): { gold: number; wood: number; stone: number } | null {
+function getUpgradeCost(path: string[], race: Race, buildingType?: BuildingType, choice?: string): { gold: number; wood: number; stone: number; deathEssence?: number } | null {
   if (path.length === 1 || path.length === 2) {
     if (buildingType != null) return getNodeUpgradeCost(race, buildingType, path.length, choice);
     const costs = RACE_UPGRADE_COSTS[race];
@@ -277,18 +277,25 @@ const _combatGrid = new SpatialGrid(8);
 // === Visual effect helpers ===
 
 function addFloatingText(state: GameState, x: number, y: number, text: string, color: string, icon?: string, big?: boolean,
-  opts?: { ftType?: 'damage' | 'heal' | 'resource' | 'status' | 'kill' | 'ability'; magnitude?: number; miniIcon?: string }
+  opts?: { ftType?: 'damage' | 'heal' | 'resource' | 'status' | 'ability'; magnitude?: number; miniIcon?: string }
 ): void {
   const rng1 = state.rng();
-  const rng2 = state.rng();
-  const isDmg = opts?.ftType === 'damage' || opts?.ftType === 'kill';
-  // Damage/kill texts arc to left or right; others use small random spread
-  const vx = isDmg ? (rng1 < 0.5 ? -1 : 1) * (0.04 + rng2 * 0.04) : 0;
-  const xOff = isDmg ? 0 : (rng1 - 0.5) * 1.2;
+  const isDmg = opts?.ftType === 'damage';
+  // Damage texts arc to left or right; others use small random spread
+  let vx: number | undefined;
+  let vy: number | undefined;
+  let xOff: number;
+  if (isDmg) {
+    const rng2 = state.rng(); // only consume 2nd rng for damage (preserves old sequence for non-damage)
+    vx = (rng1 < 0.5 ? -1 : 1) * (0.04 + rng2 * 0.04);
+    vy = -0.12;
+    xOff = 0;
+  } else {
+    xOff = (rng1 - 0.5) * 1.2;
+  }
   state.floatingTexts.push({
     x, y, text, color, icon, age: 0, maxAge: TICK_RATE * 1.5, xOff, big,
-    vx: vx || undefined,
-    vy: isDmg ? -0.12 : undefined,
+    vx, vy,
     ftType: opts?.ftType,
     magnitude: opts?.magnitude,
     miniIcon: opts?.miniIcon,
@@ -959,10 +966,12 @@ function purchaseUpgrade(state: GameState, cmd: Extract<GameCommand, { type: 'pu
   const cost = getUpgradeCost(building.upgradePath, player.race, building.type, cmd.choice);
   if (!cost) return;
   if (player.gold < cost.gold || player.wood < cost.wood || player.stone < cost.stone) return;
+  if ((cost.deathEssence ?? 0) > 0 && player.deathEssence < (cost.deathEssence ?? 0)) return;
 
   player.gold -= cost.gold;
   player.wood -= cost.wood;
   player.stone -= cost.stone;
+  if (cost.deathEssence) player.deathEssence -= cost.deathEssence;
   building.upgradePath.push(cmd.choice);
 
   // Apply HP upgrade to tower (scales maxHp, preserves ratio, then heals 30%)
@@ -1011,10 +1020,12 @@ function processResearchUpgrade(state: GameState, cmd: Extract<GameCommand, { ty
 
   const cost = getResearchUpgradeCost(cmd.upgradeId, currentLevel, player.race);
   if (player.gold < cost.gold || player.wood < cost.wood || player.stone < cost.stone) return;
+  if (cost.mana !== undefined && player.mana < cost.mana) return;
 
   player.gold -= cost.gold;
   player.wood -= cost.wood;
   player.stone -= cost.stone;
+  if (cost.mana !== undefined) player.mana -= cost.mana;
 
   // Apply upgrade
   if (def.oneShot) {
@@ -1141,14 +1152,14 @@ function sellBuilding(state: GameState, cmd: Extract<GameCommand, { type: 'sell_
   const cost = getBuildingCost(player.race, building.type);
 
   // Calculate total invested: base cost + upgrade costs (respecting per-node overrides)
-  let totalGold = cost.gold, totalWood = cost.wood, totalStone = cost.stone;
+  let totalGold = cost.gold, totalWood = cost.wood, totalStone = cost.stone, totalEssence = 0;
   if (building.upgradePath.length >= 2) {
     const t1Cost = getUpgradeCost(['A'], player.race, building.type, building.upgradePath[1]);
-    if (t1Cost) { totalGold += t1Cost.gold; totalWood += t1Cost.wood; totalStone += t1Cost.stone; }
+    if (t1Cost) { totalGold += t1Cost.gold; totalWood += t1Cost.wood; totalStone += t1Cost.stone; totalEssence += t1Cost.deathEssence ?? 0; }
   }
   if (building.upgradePath.length >= 3) {
     const t2Cost = getUpgradeCost(['A', building.upgradePath[1]], player.race, building.type, building.upgradePath[2]);
-    if (t2Cost) { totalGold += t2Cost.gold; totalWood += t2Cost.wood; totalStone += t2Cost.stone; }
+    if (t2Cost) { totalGold += t2Cost.gold; totalWood += t2Cost.wood; totalStone += t2Cost.stone; totalEssence += t2Cost.deathEssence ?? 0; }
   }
 
   // Refund 50% of total invested resources
@@ -1158,6 +1169,7 @@ function sellBuilding(state: GameState, cmd: Extract<GameCommand, { type: 'sell_
   player.gold += refundGold;
   player.wood += refundWood;
   player.stone += refundStone;
+  if (totalEssence > 0) player.deathEssence += Math.floor(totalEssence * 0.5);
 
   // If it's a hut, remove the associated harvester
   if (building.type === BuildingType.HarvesterHut) {
@@ -1431,7 +1443,7 @@ function demonAbility(state: GameState, player: PlayerState, cmd: Extract<GameCo
   const def = RACE_ABILITY_DEFS[player.race];
   const totalMana = (def.baseCost.mana ?? 30) + extraMana;
   const radius = def.aoeRadius ?? 6;
-  const baseDamage = 40;
+  const baseDamage = 20;
   const damagePerMana = 1.5;
   const totalDamage = Math.round(baseDamage + totalMana * damagePerMana);
   const buildingDamageReduction = 0.3; // buildings take 30% damage
@@ -2519,7 +2531,13 @@ function dealDamage(state: GameState, target: UnitState, amount: number, showFlo
   if (amount > 0) {
     target.hp -= amount;
     if (showFloat && amount >= 5) {
-      const miniIcon = isTowerShot ? 'arrow' : (target.range && target.range > 2 ? 'arrow' : 'sword');
+      let miniIcon = 'sword';
+      if (isTowerShot) {
+        miniIcon = 'arrow';
+      } else if (sourceUnitId !== undefined) {
+        const src = state.units.find(u => u.id === sourceUnitId);
+        if (src && src.range > 2) miniIcon = 'arrow';
+      }
       addFloatingText(state, target.x, target.y, `${amount}`, '#ff6666', undefined, undefined,
         { ftType: 'damage', magnitude: amount, miniIcon });
     }
@@ -3724,7 +3742,7 @@ function tickCombat(state: GameState): void {
         unit.attackTimer = Math.round(unit.attackSpeed * TICK_RATE);
         if (nearestTower.hp <= 0) {
           addFloatingText(state, nearestTower.worldX, nearestTower.worldY, 'DESTROYED', '#ff0000', undefined, undefined,
-          { ftType: 'kill' });
+          { ftType: 'status' });
           addSound(state, 'building_destroyed', nearestTower.worldX, nearestTower.worldY);
         }
       }
@@ -4066,7 +4084,7 @@ function tickProjectiles(state: GameState): void {
                 { ftType: 'damage', magnitude: bldDmg, miniIcon: 'sword' });
               if (b.hp <= 0) {
                 addFloatingText(state, b.worldX, b.worldY, 'DESTROYED', '#ff0000', undefined, undefined,
-                  { ftType: 'kill' });
+                  { ftType: 'status' });
                 addSound(state, 'building_destroyed', b.worldX, b.worldY);
               }
             }
@@ -4244,7 +4262,7 @@ function tickProjectiles(state: GameState): void {
               { ftType: 'damage', magnitude: bldDmg, miniIcon: 'sword' });
             if (b.hp <= 0) {
               addFloatingText(state, b.worldX, b.worldY, 'DESTROYED', '#ff0000', undefined, undefined,
-                { ftType: 'kill' });
+                { ftType: 'status' });
               addSound(state, 'building_destroyed', b.worldX, b.worldY);
             }
           }
@@ -4983,7 +5001,8 @@ function tickCenterHarvester(state: GameState, h: HarvesterState, movePerTick: n
       h.fightTargetId = enemyCarrier.id;
       if (state.tick % TICK_RATE === 0) {
         enemyCarrier.hp -= h.damage;
-        addFloatingText(state, enemyCarrier.x, enemyCarrier.y, `-${h.damage}`, '#ff8800');
+        addFloatingText(state, enemyCarrier.x, enemyCarrier.y, `${h.damage}`, '#ff8800', undefined, undefined,
+          { ftType: 'damage', magnitude: h.damage, miniIcon: 'sword' });
         if (enemyCarrier.hp <= 0) {
           killHarvester(state, enemyCarrier);
         }

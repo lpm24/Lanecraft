@@ -1735,12 +1735,6 @@ export class Renderer {
           } else {
             ctx.drawImage(sprite, drawX, drawY, drawW, drawH);
           }
-          // Label
-          ctx.fillStyle = '#81c784';
-          ctx.font = 'bold 8px monospace';
-          ctx.textAlign = 'center';
-          ctx.fillText('SEED', px, bGroundY - drawH * 0.45);
-          ctx.textAlign = 'start';
           // Seed progress bar
           if (b.seedTimer != null) {
             const maxTime = 15 * TICK_RATE;
@@ -1766,28 +1760,15 @@ export class Renderer {
           ctx.fillStyle = '#4caf50';
           ctx.fillRect(drawX, drawY, drawW, drawH);
           ctx.globalAlpha = 1;
-          ctx.fillStyle = '#81c784';
-          ctx.font = 'bold 7px monospace';
-          ctx.textAlign = 'center';
-          ctx.fillText('GROVE', px, drawY - 2);
-          ctx.textAlign = 'start';
         }
 
-        // Special ability buildings (non-seed) — tint overlay + label
+        // Special ability buildings (non-seed) — tint overlay only, no floating label
         if (b.isFoundry || b.isPotionShop || b.isGlobule) {
-          const label = b.isFoundry ? 'FOUNDRY' : b.isPotionShop ? 'POTIONS' : 'GLOBULE';
           const tint = b.isFoundry ? '#ffd700' : b.isPotionShop ? '#69f0ae' : '#7c4dff';
-          // Colored tint overlay
           ctx.globalAlpha = 0.25;
           ctx.fillStyle = tint;
           ctx.fillRect(drawX, drawY, drawW, drawH);
           ctx.globalAlpha = 1;
-          // Label
-          ctx.fillStyle = tint;
-          ctx.font = 'bold 8px monospace';
-          ctx.textAlign = 'center';
-          ctx.fillText(label, px, drawY - 2);
-          ctx.textAlign = 'start';
         } else if (b.type === BuildingType.Tower) {
           const towerStats = TOWER_STATS[player.race];
           const towerUpgrade = getUnitUpgradeMultipliers(b.upgradePath, player.race, BuildingType.Tower);
@@ -3199,23 +3180,47 @@ export class Renderer {
   private drawFloatingTexts(ctx: CanvasRenderingContext2D, state: GameState): void {
     for (const ft of state.floatingTexts) {
       const t = ft.age / ft.maxAge; // 0→1 progress
+      const isDmg = ft.ftType === 'damage';
+      const isHeal = ft.ftType === 'heal';
 
-      // Eased alpha: hold full opacity longer, then quick fade out
+      // Alpha: hold full opacity longer, then quick fade out
       const alpha = t < 0.6 ? 1 : 1 - ((t - 0.6) / 0.4) * ((t - 0.6) / 0.4);
 
-      // Vertical: fast initial rise that decelerates (easeOut)
-      const yOff = -(1 - (1 - t) * (1 - t)) * 24;
+      // Movement depends on type
+      let xOff: number, yOff: number;
+      if (isDmg && ft.vx) {
+        // Arc trajectory: horizontal drift + gravity curve
+        xOff = ft.vx * ft.age * T * 1.5;
+        const initVy = ft.vy ?? -0.12;
+        yOff = (initVy * ft.age + 0.004 * ft.age * ft.age) * T; // gravity arc
+      } else if (isHeal) {
+        // Healing floats gently upward
+        xOff = ft.xOff * T;
+        yOff = -(1 - (1 - t) * (1 - t)) * 30;
+      } else {
+        // Default: easeOut rise
+        xOff = ft.xOff * T;
+        yOff = -(1 - (1 - t) * (1 - t)) * 24;
+      }
 
-      // Horizontal: random X offset from spawn
-      const xOff = ft.xOff * T;
-
-      // Pop-in scale for big/icon texts: start at 1.6x, settle to 1x in first 20%
+      // Scale: magnitude-based for damage, pop-in for big/status
       let scale = 1;
-      if (ft.big) {
+      if (isDmg && ft.magnitude) {
+        // Damage scales: 5→1.0x, 20→1.2x, 50+→1.5x
+        const magScale = Math.min(1.5, 1 + (ft.magnitude - 5) * 0.011);
+        // Pop on spawn then settle
+        const popT = Math.min(t / 0.1, 1);
+        scale = magScale * (1 + 0.4 * (1 - popT));
+      } else if (ft.big) {
         scale = t < 0.15 ? 1.6 - (t / 0.15) * 0.6 : 1;
       }
 
-      const fontSize = ft.big ? 14 : 10;
+      // Font size: base 10, big 14, damage magnitude-adjusted
+      let fontSize = ft.big ? 14 : 10;
+      if (isDmg && ft.magnitude) {
+        fontSize = Math.min(16, 9 + Math.floor(ft.magnitude / 10));
+      }
+
       ctx.globalAlpha = Math.max(0, alpha);
       ctx.font = `bold ${fontSize}px monospace`;
       ctx.textAlign = 'center';
@@ -3232,8 +3237,32 @@ export class Renderer {
       // Dark outline for readability
       ctx.strokeStyle = 'rgba(0,0,0,0.7)';
       ctx.lineWidth = 2.5;
-      if (ft.icon) {
-        // Draw text shifted left to make room for icon
+
+      // Determine if we have a mini icon to draw
+      const mi = ft.miniIcon;
+      const hasText = ft.text.length > 0;
+
+      if (mi && !ft.icon) {
+        // Draw mini icon + text (icon on left, text on right)
+        const iconSz = fontSize + 2;
+        const textW = hasText ? ctx.measureText(ft.text).width : 0;
+        const gap = hasText ? 2 : 0;
+        const totalW = iconSz + gap + textW;
+        const iconX = px - totalW / 2;
+        const iconCy = py - iconSz / 2 - 1;
+
+        // Draw the mini icon
+        this.drawMiniIcon(ctx, mi, iconX, iconCy, iconSz, ft.color);
+
+        // Draw text to the right of icon
+        if (hasText) {
+          const textX = iconX + iconSz + gap + textW / 2;
+          ctx.strokeText(ft.text, textX, py);
+          ctx.fillStyle = ft.color;
+          ctx.fillText(ft.text, textX, py);
+        }
+      } else if (ft.icon) {
+        // Resource icon (gold, wood, etc.) - existing behavior
         const textW = ctx.measureText(ft.text).width;
         const iconSz = fontSize;
         const totalW = textW + iconSz + 1;
@@ -3243,7 +3272,6 @@ export class Renderer {
         ctx.fillText(ft.text, textX, py);
         const iconX = textX + textW / 2 + 1;
         const iconCy = py - iconSz / 2 - 1;
-        // Try standard icon, fall back to canvas-drawn special resource icons
         if (!this.ui.drawIcon(ctx, ft.icon as any, iconX, iconCy, iconSz)) {
           const icx = iconX + iconSz / 2, icy = iconCy + iconSz / 2;
           const ihr = iconSz * 0.4;
@@ -3278,6 +3306,153 @@ export class Renderer {
     }
     ctx.globalAlpha = 1;
     ctx.textAlign = 'start';
+  }
+
+  /** Draw a small canvas icon for floating text (sword, arrow, fire, etc.) */
+  private drawMiniIcon(ctx: CanvasRenderingContext2D, icon: string, x: number, y: number, sz: number, color: string): void {
+    const cx = x + sz / 2, cy = y + sz / 2;
+    const r = sz * 0.4;
+    ctx.fillStyle = color;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.5;
+    ctx.lineCap = 'round';
+
+    switch (icon) {
+      case 'sword': {
+        // Simple sword: blade line + crossguard
+        ctx.beginPath();
+        ctx.moveTo(cx - r * 0.7, cy + r * 0.7);
+        ctx.lineTo(cx + r * 0.7, cy - r * 0.7);
+        ctx.stroke();
+        // Crossguard
+        ctx.beginPath();
+        ctx.moveTo(cx - r * 0.4, cy - r * 0.2);
+        ctx.lineTo(cx + r * 0.2, cy + r * 0.4);
+        ctx.stroke();
+        // Pommel dot
+        ctx.beginPath();
+        ctx.arc(cx - r * 0.7, cy + r * 0.7, r * 0.15, 0, Math.PI * 2);
+        ctx.fill();
+        break;
+      }
+      case 'arrow': {
+        // Arrow pointing down-right
+        ctx.beginPath();
+        ctx.moveTo(cx - r * 0.7, cy - r * 0.5);
+        ctx.lineTo(cx + r * 0.7, cy + r * 0.5);
+        ctx.stroke();
+        // Arrowhead
+        ctx.beginPath();
+        ctx.moveTo(cx + r * 0.7, cy + r * 0.5);
+        ctx.lineTo(cx + r * 0.2, cy + r * 0.3);
+        ctx.moveTo(cx + r * 0.7, cy + r * 0.5);
+        ctx.lineTo(cx + r * 0.5, cy);
+        ctx.stroke();
+        break;
+      }
+      case 'fire': {
+        // Flame shape
+        ctx.fillStyle = '#ff8c00';
+        ctx.beginPath();
+        ctx.moveTo(cx, cy - r);
+        ctx.quadraticCurveTo(cx + r * 0.8, cy - r * 0.2, cx + r * 0.4, cy + r * 0.6);
+        ctx.quadraticCurveTo(cx, cy + r * 0.2, cx - r * 0.4, cy + r * 0.6);
+        ctx.quadraticCurveTo(cx - r * 0.8, cy - r * 0.2, cx, cy - r);
+        ctx.fill();
+        // Inner flame
+        ctx.fillStyle = '#ffeb3b';
+        ctx.beginPath();
+        ctx.moveTo(cx, cy - r * 0.4);
+        ctx.quadraticCurveTo(cx + r * 0.35, cy + r * 0.1, cx + r * 0.15, cy + r * 0.5);
+        ctx.quadraticCurveTo(cx, cy + r * 0.3, cx - r * 0.15, cy + r * 0.5);
+        ctx.quadraticCurveTo(cx - r * 0.35, cy + r * 0.1, cx, cy - r * 0.4);
+        ctx.fill();
+        break;
+      }
+      case 'skull': {
+        // Mini skull
+        ctx.beginPath();
+        ctx.arc(cx, cy - r * 0.15, r * 0.55, 0, Math.PI * 2);
+        ctx.fill();
+        // Eyes (dark)
+        ctx.fillStyle = 'rgba(0,0,0,0.8)';
+        ctx.beginPath();
+        ctx.arc(cx - r * 0.2, cy - r * 0.2, r * 0.12, 0, Math.PI * 2);
+        ctx.arc(cx + r * 0.2, cy - r * 0.2, r * 0.12, 0, Math.PI * 2);
+        ctx.fill();
+        // Jaw
+        ctx.fillStyle = color;
+        ctx.fillRect(cx - r * 0.3, cy + r * 0.3, r * 0.6, r * 0.25);
+        break;
+      }
+      case 'shield_icon': {
+        // Shield shape
+        ctx.beginPath();
+        ctx.moveTo(cx, cy - r * 0.7);
+        ctx.lineTo(cx + r * 0.6, cy - r * 0.3);
+        ctx.lineTo(cx + r * 0.5, cy + r * 0.4);
+        ctx.lineTo(cx, cy + r * 0.7);
+        ctx.lineTo(cx - r * 0.5, cy + r * 0.4);
+        ctx.lineTo(cx - r * 0.6, cy - r * 0.3);
+        ctx.closePath();
+        ctx.fill();
+        // Inner highlight
+        ctx.fillStyle = 'rgba(255,255,255,0.3)';
+        ctx.beginPath();
+        ctx.moveTo(cx, cy - r * 0.4);
+        ctx.lineTo(cx + r * 0.3, cy - r * 0.1);
+        ctx.lineTo(cx + r * 0.25, cy + r * 0.2);
+        ctx.lineTo(cx, cy + r * 0.4);
+        ctx.lineTo(cx - r * 0.25, cy + r * 0.2);
+        ctx.lineTo(cx - r * 0.3, cy - r * 0.1);
+        ctx.closePath();
+        ctx.fill();
+        break;
+      }
+      case 'lightning': {
+        // Lightning bolt
+        ctx.fillStyle = '#ffeb3b';
+        ctx.beginPath();
+        ctx.moveTo(cx + r * 0.1, cy - r * 0.8);
+        ctx.lineTo(cx - r * 0.3, cy + r * 0.05);
+        ctx.lineTo(cx + r * 0.05, cy + r * 0.05);
+        ctx.lineTo(cx - r * 0.15, cy + r * 0.8);
+        ctx.lineTo(cx + r * 0.4, cy - r * 0.1);
+        ctx.lineTo(cx + r * 0.05, cy - r * 0.1);
+        ctx.closePath();
+        ctx.fill();
+        break;
+      }
+      case 'poison': {
+        // Poison drop
+        ctx.fillStyle = '#9c27b0';
+        ctx.beginPath();
+        ctx.moveTo(cx, cy - r * 0.6);
+        ctx.quadraticCurveTo(cx + r * 0.7, cy + r * 0.2, cx, cy + r * 0.7);
+        ctx.quadraticCurveTo(cx - r * 0.7, cy + r * 0.2, cx, cy - r * 0.6);
+        ctx.fill();
+        // Skull dots inside
+        ctx.fillStyle = 'rgba(0,0,0,0.4)';
+        ctx.beginPath();
+        ctx.arc(cx - r * 0.15, cy + r * 0.1, r * 0.08, 0, Math.PI * 2);
+        ctx.arc(cx + r * 0.15, cy + r * 0.1, r * 0.08, 0, Math.PI * 2);
+        ctx.fill();
+        break;
+      }
+      case 'heart': {
+        // Heart shape
+        ctx.fillStyle = '#44ff44';
+        ctx.beginPath();
+        ctx.moveTo(cx, cy + r * 0.5);
+        ctx.quadraticCurveTo(cx - r * 0.8, cy - r * 0.1, cx - r * 0.4, cy - r * 0.5);
+        ctx.quadraticCurveTo(cx, cy - r * 0.8, cx, cy - r * 0.2);
+        ctx.quadraticCurveTo(cx, cy - r * 0.8, cx + r * 0.4, cy - r * 0.5);
+        ctx.quadraticCurveTo(cx + r * 0.8, cy - r * 0.1, cx, cy + r * 0.5);
+        ctx.fill();
+        break;
+      }
+    }
+    ctx.lineCap = 'butt';
   }
 
   private drawNukeEffects(ctx: CanvasRenderingContext2D, state: GameState): void {

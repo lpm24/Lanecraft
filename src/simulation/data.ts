@@ -14,9 +14,9 @@ export const RACE_BUILDING_COSTS: Record<Race, Record<BuildingType, { gold: numb
   },
   // Horde: All 3 resources. Melee=meat, Ranged=wood, Caster=gold. Collect one of each T3 for auras.
   [Race.Horde]: {
-    [BuildingType.MeleeSpawner]:  { gold: 0,   wood: 0,  stone: 60, hp: 350 },
-    [BuildingType.RangedSpawner]: { gold: 0,   wood: 63, stone: 0,  hp: 300 },
-    [BuildingType.CasterSpawner]: { gold: 77,  wood: 0,  stone: 0,  hp: 250 },
+    [BuildingType.MeleeSpawner]:  { gold: 0,   wood: 0,  stone: 40, hp: 350 },
+    [BuildingType.RangedSpawner]: { gold: 0,   wood: 40, stone: 0,  hp: 300 },
+    [BuildingType.CasterSpawner]: { gold: 100, wood: 0,  stone: 0,  hp: 250 },
     [BuildingType.Tower]:         { gold: 50,  wood: 30, stone: 30, hp: 280 },
     [BuildingType.HarvesterHut]:  { gold: 30,  wood: 10, stone: 10, hp: 180 },
     [BuildingType.Research]:      { gold: 0,   wood: 0,  stone: 0,  hp: 500 },
@@ -95,11 +95,11 @@ export function getBuildingCost(race: Race, type: BuildingType) {
 export const BUILDING_COSTS = RACE_BUILDING_COSTS[Race.Crown];
 
 // Race-specific upgrade costs
-export const RACE_UPGRADE_COSTS: Record<Race, { tier1: { gold: number; wood: number; stone: number }; tier2: { gold: number; wood: number; stone: number } }> = {
+export const RACE_UPGRADE_COSTS: Record<Race, { tier1: { gold: number; wood: number; stone: number; deathEssence?: number }; tier2: { gold: number; wood: number; stone: number; deathEssence?: number } }> = {
   [Race.Crown]:    { tier1: { gold: 55,  wood: 0,  stone: 0 },  tier2: { gold: 90,  wood: 30, stone: 0 } },
   [Race.Horde]:    { tier1: { gold: 30,  wood: 20, stone: 20 }, tier2: { gold: 60,  wood: 40, stone: 40 } },
   [Race.Goblins]:  { tier1: { gold: 45,  wood: 15, stone: 0 },  tier2: { gold: 90,  wood: 30, stone: 0 } },
-  [Race.Oozlings]: { tier1: { gold: 50,  wood: 0,  stone: 15 }, tier2: { gold: 100, wood: 0,  stone: 30 } },
+  [Race.Oozlings]: { tier1: { gold: 0,   wood: 0,  stone: 0, deathEssence: 15 }, tier2: { gold: 0, wood: 0, stone: 0, deathEssence: 30 } },
   [Race.Demon]:    { tier1: { gold: 0,   wood: 15, stone: 35 }, tier2: { gold: 0,   wood: 30, stone: 70 } },
   [Race.Deep]:     { tier1: { gold: 20,  wood: 35, stone: 0 },  tier2: { gold: 40,  wood: 70, stone: 0 } },
   [Race.Wild]:     { tier1: { gold: 0,   wood: 25, stone: 15 }, tier2: { gold: 0,   wood: 50, stone: 30 } },
@@ -113,7 +113,7 @@ export const UPGRADE_COSTS = RACE_UPGRADE_COSTS[Race.Crown];
 // Get upgrade cost for a specific node, respecting per-node cost overrides
 export function getNodeUpgradeCost(
   race: Race, buildingType: BuildingType, currentPathLen: number, choice?: string
-): { gold: number; wood: number; stone: number } {
+): { gold: number; wood: number; stone: number; deathEssence?: number } {
   const costs = RACE_UPGRADE_COSTS[race];
   // Check per-node cost override
   if (choice) {
@@ -766,7 +766,7 @@ export const RACE_ABILITY_DEFS: Record<Race, RaceAbilityDef> = {
     race: Race.Demon, name: 'Fireball',
     targetMode: AbilityTargetMode.Targeted,
     baseCooldownTicks: 30 * TICK_RATE,
-    baseCost: { mana: 30 },
+    baseCost: { mana: 50 },
     requiresVision: true,
     aoeRadius: 6,
   },
@@ -908,11 +908,13 @@ export function getAllResearchUpgrades(race: Race): ResearchUpgradeDef[] {
 }
 
 /** Get cost for a research upgrade. Attack/defense: 80g base x 1.5^level. One-shots: 150g flat. */
-export function getResearchUpgradeCost(id: string, level: number, race: Race): { gold: number; wood: number; stone: number } {
+export function getResearchUpgradeCost(id: string, level: number, race: Race): { gold: number; wood: number; stone: number; mana?: number } {
   const allDefs = getAllResearchUpgrades(race);
   const def = allDefs.find(d => d.id === id);
   if (!def) return { gold: 999, wood: 999, stone: 999 };
   if (def.oneShot) {
+    // Demon racial one-shots cost mana instead of resources
+    if (race === Race.Demon && id.startsWith('demon_')) return { gold: 0, wood: 0, stone: 0, mana: 40 };
     // One-shot: flat cost scaled to race economy
     const used = getRaceUsedResources(race);
     if (!used.gold && used.stone && used.wood) return { gold: 0, wood: 80, stone: 70 };
