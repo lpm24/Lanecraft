@@ -14,9 +14,9 @@ export const RACE_BUILDING_COSTS: Record<Race, Record<BuildingType, { gold: numb
   },
   // Horde: All 3 resources. Melee=meat, Ranged=wood, Caster=gold. Collect one of each T3 for auras.
   [Race.Horde]: {
-    [BuildingType.MeleeSpawner]:  { gold: 0,   wood: 0,  stone: 85, hp: 350 },
-    [BuildingType.RangedSpawner]: { gold: 0,   wood: 90, stone: 0,  hp: 300 },
-    [BuildingType.CasterSpawner]: { gold: 110, wood: 0,  stone: 0,  hp: 250 },
+    [BuildingType.MeleeSpawner]:  { gold: 0,   wood: 0,  stone: 60, hp: 350 },
+    [BuildingType.RangedSpawner]: { gold: 0,   wood: 63, stone: 0,  hp: 300 },
+    [BuildingType.CasterSpawner]: { gold: 77,  wood: 0,  stone: 0,  hp: 250 },
     [BuildingType.Tower]:         { gold: 50,  wood: 30, stone: 30, hp: 280 },
     [BuildingType.HarvesterHut]:  { gold: 30,  wood: 10, stone: 10, hp: 180 },
     [BuildingType.Research]:      { gold: 0,   wood: 0,  stone: 0,  hp: 500 },
@@ -747,7 +747,7 @@ export const RACE_ABILITY_DEFS: Record<Race, RaceAbilityDef> = {
     race: Race.Horde, name: 'War Troll',
     targetMode: AbilityTargetMode.Instant,
     baseCooldownTicks: 60 * TICK_RATE,
-    baseCost: { gold: 200, wood: 50, stone: 100 },
+    baseCost: { gold: 100, wood: 50, stone: 50 },
     costGrowthFactor: 1.5,
   },
   [Race.Goblins]: {
