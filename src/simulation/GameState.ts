@@ -51,10 +51,10 @@ export const PASSIVE_INCOME: Record<Race, { gold: number; wood: number; stone: n
   [Race.Horde]:    { gold: 1,   wood: 0.5, stone: 0.5 },  // all 3 resources, gold-leaning
   [Race.Goblins]:  { gold: 2,   wood: 0.5, stone: 0 },    // gold primary, wood secondary
   [Race.Oozlings]: { gold: 2,   wood: 0,   stone: 0.5 },  // gold primary, stone secondary
-  [Race.Demon]:    { gold: 0,   wood: 0.5, stone: 1 },    // stone primary, wood secondary
+  [Race.Demon]:    { gold: 0,   wood: 0.75, stone: 1.5 },  // stone primary, wood secondary
   [Race.Deep]:     { gold: 1,   wood: 1,   stone: 0 },    // wood primary, gold secondary
-  [Race.Wild]:     { gold: 0,   wood: 1,   stone: 0.5 },  // wood primary, stone secondary
-  [Race.Geists]:   { gold: 1,   wood: 0,   stone: 1 },    // stone primary, gold secondary
+  [Race.Wild]:     { gold: 0,   wood: 1.5, stone: 0.75 }, // wood primary, stone secondary
+  [Race.Geists]:   { gold: 1.5, wood: 0,   stone: 1.5 },  // stone primary, gold secondary
   [Race.Tenders]:  { gold: 1,   wood: 1,   stone: 0 },    // wood primary, gold secondary
 };
 
@@ -1971,6 +1971,34 @@ function trackDeathResources(state: GameState, deadUnit: UnitState): void {
     }
   }
 
+  // Geist Soul Gorger: gain soul stacks from any nearby death (friend or foe)
+  for (const gorger of state.units) {
+    if (gorger.hp <= 0 || gorger.id === deadUnit.id) continue;
+    if (!gorger.upgradeSpecial?.soulHarvest) continue;
+    const maxStacks = gorger.upgradeSpecial.soulMaxStacks ?? 20;
+    const stacks = gorger.soulStacks ?? 0;
+    if (stacks >= maxStacks) continue;
+    const harvestR = gorger.upgradeSpecial.soulHarvestRadius ?? 8;
+    const dx = deadUnit.x - gorger.x, dy = deadUnit.y - gorger.y;
+    if (dx * dx + dy * dy > harvestR * harvestR) continue;
+    gorger.soulStacks = stacks + 1;
+    // Store original base stats on first stack (avoids rounding drift)
+    if (stacks === 0) {
+      gorger.upgradeSpecial = { ...gorger.upgradeSpecial, _baseDmg: gorger.damage, _baseMaxHp: gorger.maxHp };
+    }
+    // +4% damage and +4% maxHP per stack, computed from original base
+    const baseDmg = gorger.upgradeSpecial._baseDmg ?? gorger.damage;
+    gorger.damage = Math.round(baseDmg * (1 + 0.04 * (stacks + 1)));
+    const baseMaxHp = gorger.upgradeSpecial._baseMaxHp ?? gorger.maxHp;
+    const newMaxHp = Math.round(baseMaxHp * (1 + 0.04 * (stacks + 1)));
+    const hpGain = newMaxHp - gorger.maxHp;
+    gorger.maxHp = newMaxHp;
+    gorger.hp = Math.min(gorger.maxHp, gorger.hp + hpGain); // heal the gained HP
+    addFloatingText(state, gorger.x, gorger.y - 0.5, `Soul ${stacks + 1}`, '#ce93d8', undefined, undefined,
+      { ftType: 'status' });
+    addDeathParticles(state, gorger.x, gorger.y, '#ce93d8', 2);
+  }
+
   // Oozlings baneling: explode on death dealing AoE damage
   if (deadUnit.upgradeSpecial?.explodeOnDeath) {
     const dmg = deadUnit.upgradeSpecial.explodeDamage ?? 30;
@@ -2286,19 +2314,29 @@ function tickUnitMovement(state: GameState): void {
   for (const unit of state.units) {
     if (unit.targetId !== null) continue;
 
-    // Stop marching when an enemy tower is within attack range — attack it instead of running past.
+    // Stop marching when an enemy alley building or HQ is within attack range.
     // Siege units skip this; they have their own building-targeting logic.
     if (!unit.upgradeSpecial?.isSiegeUnit) {
       const tRange = unit.range + 1.5;
-      let towerInRange = false;
+      let stopForBuilding = false;
       for (const b of state.buildings) {
-        if (b.type !== BuildingType.Tower || b.hp <= 0) continue;
+        if (b.buildGrid !== 'alley' || b.hp <= 0) continue;
         const bp = state.players[b.playerId];
         if (!bp || bp.team === unit.team) continue;
         const td = Math.sqrt((b.worldX + 0.5 - unit.x) ** 2 + (b.worldY + 0.5 - unit.y) ** 2);
-        if (td <= tRange) { towerInRange = true; break; }
+        if (td <= tRange) { stopForBuilding = true; break; }
       }
-      if (towerInRange) continue;
+      if (!stopForBuilding) {
+        // Also stop for enemy HQ
+        const enemyTeam = unit.team === Team.Bottom ? Team.Top : Team.Bottom;
+        const hq = getHQPosition(enemyTeam, state.mapDef);
+        const hqCx = hq.x + HQ_WIDTH / 2;
+        const hqCy = hq.y + HQ_HEIGHT / 2;
+        const hqRadius = Math.max(HQ_WIDTH, HQ_HEIGHT) * 0.5;
+        const distToHq = Math.sqrt((unit.x - hqCx) ** 2 + (unit.y - hqCy) ** 2);
+        if (distToHq <= unit.range + hqRadius) stopForBuilding = true;
+      }
+      if (stopForBuilding) continue;
     }
 
     const speed = getEffectiveSpeed(unit);
@@ -2664,7 +2702,7 @@ function dealDamage(state: GameState, target: UnitState, amount: number, showFlo
         const src = state.units.find(u => u.id === sourceUnitId);
         if (src && src.range > 2) miniIcon = 'arrow';
       }
-      addFloatingText(state, target.x, target.y, `${amount}`, '#ff6666', undefined, undefined,
+      addFloatingText(state, target.x, target.y, `${amount}`, '#ffffff', undefined, undefined,
         { ftType: 'damage', magnitude: amount, miniIcon });
     }
     // Track damage stats
@@ -2708,6 +2746,21 @@ function dealDamage(state: GameState, target: UnitState, amount: number, showFlo
           // Research: Demon Soul Siphon — +2 mana on melee kill
           if (killPlayer && killer.category === 'melee' && killPlayer.researchUpgrades.raceUpgrades['demon_melee_2']) {
             killPlayer.mana += 2;
+          }
+          // Demon kill-scaling: +dmg per kill (Bloodfire Berserker, Inferno Reaper, Soul Pyre)
+          if (killer.upgradeSpecial?.killScaling) {
+            const maxKillStacks = killer.upgradeSpecial.killMaxStacks ?? 10;
+            if (killer.kills <= maxKillStacks) {
+              // Store original base damage on first kill (avoids rounding drift)
+              if (killer.kills === 1) {
+                killer.upgradeSpecial = { ...killer.upgradeSpecial, _baseDmg: killer.damage };
+              }
+              const pct = killer.upgradeSpecial.killDmgPct ?? 0.05;
+              const baseDmg = killer.upgradeSpecial._baseDmg ?? killer.damage;
+              killer.damage = Math.round(baseDmg * (1 + pct * killer.kills));
+              addFloatingText(state, killer.x, killer.y - 0.5, `+DMG`, '#ff6600', undefined, undefined,
+                { ftType: 'status' });
+            }
           }
           // Wild Kill Frenzy: on kill, heal 15% maxHP, nearby Wild allies gain Frenzy (+50% dmg) and Haste
           const killerRace = state.players[killer.playerId]?.race;
@@ -2913,27 +2966,24 @@ function applyCasterSupport(state: GameState, caster: UnitState, race: Race, sp:
       break;
     }
     case Race.Tenders: {
-      // Regen aura: heal nearby allies
+      // Focused heal: restore the most-injured ally
       let tenderHealAmt = 1 + healBonus;
       // Research: Bloom Burst +2 heal amount
       const tendersP = state.players[caster.playerId];
       if (tendersP?.researchUpgrades.raceUpgrades['tenders_caster_1']) tenderHealAmt += 2;
-      let healedAny = false;
-      let tendersHealVfx = 0;
-      for (const a of allies) {
-        if (a.hp < a.maxHp) {
-          // Research: Life Link — double heal if target <30% HP
-          let thisHeal = tenderHealAmt;
-          if (tendersP?.researchUpgrades.raceUpgrades['tenders_caster_2'] && a.hp < a.maxHp * 0.30) thisHeal *= 2;
-          const ah = healUnit(a, thisHeal);
-          if (ah > 0) trackHealing(state, caster, ah);
-          addDeathParticles(state, a.x, a.y, '#33691e', 1);
-          if (tendersHealVfx < 4) { addCombatEvent(state, { type: 'heal', x: a.x, y: a.y, color: '#66bb6a' }); tendersHealVfx++; }
-          healedAny = true;
-        }
-      }
-      if (healedAny) {
-        addFloatingText(state, caster.x, caster.y - 0.5, `+${tenderHealAmt}`, '#33691e', undefined, undefined,
+      const injured = allies
+        .filter(a => a.hp < a.maxHp)
+        .sort((a, b) => (a.hp / a.maxHp) - (b.hp / b.maxHp) || a.id - b.id);
+      const target = injured[0];
+      if (target) {
+        // Research: Life Link — double heal if target <30% HP
+        let thisHeal = tenderHealAmt;
+        if (tendersP?.researchUpgrades.raceUpgrades['tenders_caster_2'] && target.hp < target.maxHp * 0.30) thisHeal *= 2;
+        const ah = healUnit(target, thisHeal);
+        if (ah > 0) trackHealing(state, caster, ah);
+        addDeathParticles(state, target.x, target.y, '#33691e', 1);
+        addCombatEvent(state, { type: 'heal', x: target.x, y: target.y, color: '#66bb6a' });
+        addFloatingText(state, caster.x, caster.y - 0.5, `+${thisHeal}`, '#33691e', undefined, undefined,
           { ftType: 'heal', miniIcon: 'heart' });
         addCombatEvent(state, { type: 'pulse', x: caster.x, y: caster.y, radius: supportRange, color: '#66bb6a' });
       }
@@ -3012,8 +3062,8 @@ function applyOnHitEffects(state: GameState, attacker: UnitState, target: UnitSt
       // Wraith Bow: 20% ranged lifesteal is applied via projectile hit logic (tickProjectiles)
       break;
     case Race.Tenders:
-      // Treant: slow on melee hit (entangling roots)
-      if (isMelee) applyStatus(target, StatusType.Slow, 1 + (sp?.extraSlowStacks ?? 0));
+      // Treant: slow on melee hit only when upgraded (entangling roots — Radish King G-tier)
+      if (isMelee && (sp?.extraSlowStacks ?? 0) > 0) applyStatus(target, StatusType.Slow, sp!.extraSlowStacks!);
       break;
   }
 
@@ -3864,7 +3914,7 @@ function tickCombat(state: GameState): void {
         const tDmg = getEffectiveDamage(unit);
         nearestTower.hp -= tDmg;
         if (state.playerStats[unit.playerId]) state.playerStats[unit.playerId].totalDamageDealt += tDmg;
-        addFloatingText(state, nearestTower.worldX, nearestTower.worldY, `${tDmg}`, '#ff6600', undefined, undefined,
+        addFloatingText(state, nearestTower.worldX, nearestTower.worldY, `${tDmg}`, '#ffffff', undefined, undefined,
           { ftType: 'damage', magnitude: tDmg, miniIcon: 'sword' });
         unit.attackTimer = Math.round(unit.attackSpeed * TICK_RATE);
         if (nearestTower.hp <= 0) {
@@ -3887,7 +3937,7 @@ function tickCombat(state: GameState): void {
         const hDmg = getEffectiveDamage(unit);
         state.hqHp[enemyTeam] -= hDmg;
         if (state.playerStats[unit.playerId]) state.playerStats[unit.playerId].totalDamageDealt += hDmg;
-        addFloatingText(state, hqCx, hqCy, `${hDmg}`, '#ff0000', undefined, undefined,
+        addFloatingText(state, hqCx, hqCy, `${hDmg}`, '#ffffff', undefined, undefined,
           { ftType: 'damage', magnitude: hDmg, miniIcon: 'sword' });
         addSound(state, 'hq_damaged', hqCx, hqCy);
         unit.attackTimer = Math.round(unit.attackSpeed * TICK_RATE);
@@ -4056,7 +4106,7 @@ function tickHQDefense(state: GameState): void {
     if (!closestHarv) continue;
 
     closestHarv.hp -= HQ_DAMAGE;
-    addFloatingText(state, closestHarv.x, closestHarv.y, `${HQ_DAMAGE}`, '#ffaa00', undefined, undefined,
+    addFloatingText(state, closestHarv.x, closestHarv.y, `${HQ_DAMAGE}`, '#ffffff', undefined, undefined,
       { ftType: 'damage', magnitude: HQ_DAMAGE, miniIcon: 'sword' });
     if (closestHarv.hp <= 0) {
       addDeathParticles(state, closestHarv.x, closestHarv.y, '#ffaa00', 4);
@@ -4154,7 +4204,7 @@ function tickTowers(state: GameState): void {
     }
     if (closestHarv) {
       closestHarv.hp -= stats.damage;
-      addFloatingText(state, closestHarv.x, closestHarv.y, `${stats.damage}`, '#ffaa00', undefined, undefined,
+      addFloatingText(state, closestHarv.x, closestHarv.y, `${stats.damage}`, '#ffffff', undefined, undefined,
         { ftType: 'damage', magnitude: stats.damage, miniIcon: 'arrow' });
       if (closestHarv.hp <= 0) {
         addDeathParticles(state, closestHarv.x, closestHarv.y, '#ffaa00', 4);
@@ -4209,7 +4259,7 @@ function tickProjectiles(state: GameState): void {
               const bldDmg = Math.round(p.damage * p.buildingDamageMult);
               b.hp = Math.max(0, b.hp - bldDmg);
               if (state.playerStats[p.sourcePlayerId]) state.playerStats[p.sourcePlayerId].totalDamageDealt += bldDmg;
-              addFloatingText(state, b.worldX, b.worldY - 0.5, `${bldDmg}`, '#ff6600', undefined, undefined,
+              addFloatingText(state, b.worldX, b.worldY - 0.5, `${bldDmg}`, '#ffffff', undefined, undefined,
                 { ftType: 'damage', magnitude: bldDmg, miniIcon: 'sword' });
               if (b.hp <= 0) {
                 addFloatingText(state, b.worldX, b.worldY, 'DESTROYED', '#ff0000', undefined, undefined,
@@ -4227,7 +4277,7 @@ function tickProjectiles(state: GameState): void {
             const hqBldDmg = Math.round(p.damage * p.buildingDamageMult * 0.5);
             state.hqHp[enemyTeam] = Math.max(0, state.hqHp[enemyTeam] - hqBldDmg);
             if (state.playerStats[p.sourcePlayerId]) state.playerStats[p.sourcePlayerId].totalDamageDealt += hqBldDmg;
-            addFloatingText(state, hqCx, hqCy, `${hqBldDmg}`, '#ff0000', undefined, undefined,
+            addFloatingText(state, hqCx, hqCy, `${hqBldDmg}`, '#ffffff', undefined, undefined,
               { ftType: 'damage', magnitude: hqBldDmg, miniIcon: 'sword' });
           }
         }
@@ -4388,7 +4438,7 @@ function tickProjectiles(state: GameState): void {
           if (bd <= bldAoe) {
             const bldDmg = Math.round(p.damage * p.buildingDamageMult * (p.splashDamagePct ?? 0.60));
             b.hp = Math.max(0, b.hp - bldDmg);
-            addFloatingText(state, b.worldX, b.worldY - 0.5, `${bldDmg}`, '#ff6600', undefined, undefined,
+            addFloatingText(state, b.worldX, b.worldY - 0.5, `${bldDmg}`, '#ffffff', undefined, undefined,
               { ftType: 'damage', magnitude: bldDmg, miniIcon: 'sword' });
             if (b.hp <= 0) {
               addFloatingText(state, b.worldX, b.worldY, 'DESTROYED', '#ff0000', undefined, undefined,
@@ -5126,7 +5176,7 @@ function tickCenterHarvester(state: GameState, h: HarvesterState, movePerTick: n
       h.fightTargetId = enemyCarrier.id;
       if (state.tick % TICK_RATE === 0) {
         enemyCarrier.hp -= h.damage;
-        addFloatingText(state, enemyCarrier.x, enemyCarrier.y, `${h.damage}`, '#ff8800', undefined, undefined,
+        addFloatingText(state, enemyCarrier.x, enemyCarrier.y, `${h.damage}`, '#ffffff', undefined, undefined,
           { ftType: 'damage', magnitude: h.damage, miniIcon: 'sword' });
         if (enemyCarrier.hp <= 0) {
           killHarvester(state, enemyCarrier);

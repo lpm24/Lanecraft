@@ -416,6 +416,7 @@ export interface UnitState {
   fleeTimer?: number;      // Goblins: ticks remaining in flee state (run away then re-engage)
   spriteRace?: Race;       // override race for sprite lookup (e.g. Horde troll uses Goblin troll art)
   stuckTicks?: number;     // consecutive ticks without moving — triggers path-snap escape
+  soulStacks?: number;     // Geist Soul Gorger: stacks gained from nearby deaths (max 20)
 }
 
 // Snapshot of a notable unit for post-match display

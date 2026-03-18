@@ -95,6 +95,7 @@ export class Renderer {
   placingBuilding: BuildingType | null = null;
   /** Isometric rendering mode */
   isometric = false;
+  private isoTerrainCache: HTMLCanvasElement | null = null;
   private terrainCache: HTMLCanvasElement | null = null;
   private waterCache: HTMLCanvasElement | null = null;
   private terrainReady = false;
@@ -253,7 +254,7 @@ export class Renderer {
     }
 
     if (this.isometric) {
-      // Isometric fog: draw diamond-shaped fog per tile (viewport-culled)
+      // Isometric fog: batch solid fog diamonds into one path, draw linger tiles individually
       const FOG_ALPHA = 180;
       const vpX0 = this.camera.x - T;
       const vpY0 = this.camera.y - T;
@@ -261,21 +262,40 @@ export class Renderer {
       const vpY1 = this.camera.y + this.canvas.clientHeight / this.camera.zoom + T;
       const hw = ISO_TILE_W / 2;
       const hh = ISO_TILE_H / 2;
+      // Batch fully-fogged tiles into one path for a single fill call
+      ctx.beginPath();
+      let hasLinger = false;
       for (let ty = 0; ty < mh; ty++) {
         for (let tx = 0; tx < mw; tx++) {
           const idx = ty * mw + tx;
           if (vis[idx]) continue;
           const { px: cx, py: cy } = this.tp(tx + 0.5, ty + 0.5);
           if (cx + hw < vpX0 || cx - hw > vpX1 || cy + hh < vpY0 || cy - hh > vpY1) continue;
-          let alpha: number;
           if (linger[idx] > 0) {
-            const t = 1 - linger[idx] / LINGER;
-            alpha = (FOG_ALPHA / 255) * t;
-          } else {
-            alpha = FOG_ALPHA / 255;
+            hasLinger = true;
+            continue; // handle linger tiles separately
           }
-          ctx.fillStyle = `rgba(0,0,0,${alpha})`;
-          this.drawIsoDiamond(ctx, cx, cy);
+          ctx.moveTo(cx, cy - hh);
+          ctx.lineTo(cx + hw, cy);
+          ctx.lineTo(cx, cy + hh);
+          ctx.lineTo(cx - hw, cy);
+          ctx.closePath();
+        }
+      }
+      ctx.fillStyle = `rgba(0,0,0,${FOG_ALPHA / 255})`;
+      ctx.fill();
+      // Draw lingering tiles individually (they have varying alpha)
+      if (hasLinger) {
+        for (let ty = 0; ty < mh; ty++) {
+          for (let tx = 0; tx < mw; tx++) {
+            const idx = ty * mw + tx;
+            if (vis[idx] || linger[idx] <= 0) continue;
+            const { px: cx, py: cy } = this.tp(tx + 0.5, ty + 0.5);
+            if (cx + hw < vpX0 || cx - hw > vpX1 || cy + hh < vpY0 || cy - hh > vpY1) continue;
+            const t = 1 - linger[idx] / LINGER;
+            ctx.fillStyle = `rgba(0,0,0,${(FOG_ALPHA / 255) * t})`;
+            this.drawIsoDiamond(ctx, cx, cy);
+          }
         }
       }
       return;
@@ -982,27 +1002,40 @@ export class Renderer {
 
   private drawZones(ctx: CanvasRenderingContext2D, tick: number): void {
     if (this.isometric) {
-      // Isometric mode: skip terrain cache, draw solid colored ground per-tile
-      const bounds = isoWorldBounds(this.mapW, this.mapH);
-      ctx.fillStyle = '#5b9a8b';
-      ctx.fillRect(bounds.minX - T, bounds.minY - T, bounds.width + T * 2, bounds.height + T * 2);
-      // Viewport culling bounds
-      const vpX0 = this.camera.x - T;
-      const vpY0 = this.camera.y - T;
-      const vpX1 = this.camera.x + this.canvas.clientWidth / this.camera.zoom + T;
-      const vpY1 = this.camera.y + this.canvas.clientHeight / this.camera.zoom + T;
-      const hw = ISO_TILE_W / 2;
-      const hh = ISO_TILE_H / 2;
-      // Draw playable tiles as green diamonds (viewport-culled)
-      ctx.fillStyle = '#3a6b3a';
-      for (let ty = 0; ty < this.mapH; ty++) {
-        for (let tx = 0; tx < this.mapW; tx++) {
-          if (!this.mapDef.isPlayable(tx, ty)) continue;
-          const { px: cx, py: cy } = this.tp(tx + 0.5, ty + 0.5);
-          if (cx + hw < vpX0 || cx - hw > vpX1 || cy + hh < vpY0 || cy - hh > vpY1) continue;
-          this.drawIsoDiamond(ctx, cx, cy);
+      // Isometric mode: build terrain cache on first frame, then blit
+      if (!this.isoTerrainCache) {
+        const bounds = isoWorldBounds(this.mapW, this.mapH);
+        const pad = T;
+        const cw = Math.ceil(bounds.width + pad * 2);
+        const ch = Math.ceil(bounds.height + pad * 2);
+        const offscreen = document.createElement('canvas');
+        offscreen.width = cw;
+        offscreen.height = ch;
+        const oc = offscreen.getContext('2d')!;
+        // Offset so bounds.minX maps to pad
+        oc.translate(-bounds.minX + pad, -bounds.minY + pad);
+        // Water background
+        oc.fillStyle = '#5b9a8b';
+        oc.fillRect(bounds.minX - pad, bounds.minY - pad, cw, ch);
+        // Playable tiles as green diamonds
+        oc.fillStyle = '#3a6b3a';
+        for (let ty = 0; ty < this.mapH; ty++) {
+          for (let tx = 0; tx < this.mapW; tx++) {
+            if (!this.mapDef.isPlayable(tx, ty)) continue;
+            const { px: cx, py: cy } = this.tp(tx + 0.5, ty + 0.5);
+            oc.beginPath();
+            oc.moveTo(cx, cy - ISO_TILE_H / 2);
+            oc.lineTo(cx + ISO_TILE_W / 2, cy);
+            oc.lineTo(cx, cy + ISO_TILE_H / 2);
+            oc.lineTo(cx - ISO_TILE_W / 2, cy);
+            oc.closePath();
+            oc.fill();
+          }
         }
+        this.isoTerrainCache = offscreen;
       }
+      const bounds = isoWorldBounds(this.mapW, this.mapH);
+      ctx.drawImage(this.isoTerrainCache, bounds.minX - T, bounds.minY - T);
       return;
     }
 
@@ -1036,20 +1069,24 @@ export class Renderer {
   // === Lane Paths ===
 
   private drawLanePaths(ctx: CanvasRenderingContext2D): void {
-    const tp = (x: number, y: number) => this.tp(x, y);
-    const drawPath = (points: readonly Vec2[], color: string) => {
-      const p0 = tp(points[0].x, points[0].y);
+    // Helper that extracts values immediately (tp returns a shared object)
+    const tpx = (x: number, y: number) => { const r = this.tp(x, y); return [r.px, r.py]; };
+    const drawCurvedPath = (points: readonly Vec2[], ctx: CanvasRenderingContext2D) => {
+      const [sx, sy] = tpx(points[0].x, points[0].y);
       ctx.beginPath();
-      ctx.moveTo(p0.px, p0.py);
+      ctx.moveTo(sx, sy);
       for (let i = 1; i < points.length; i++) {
-        const pi = tp(points[i].x, points[i].y);
+        const [piX, piY] = tpx(points[i].x, points[i].y);
         if (i < points.length - 1) {
-          const mid = tp((points[i].x + points[i + 1].x) / 2, (points[i].y + points[i + 1].y) / 2);
-          ctx.quadraticCurveTo(pi.px, pi.py, mid.px, mid.py);
+          const [midX, midY] = tpx((points[i].x + points[i + 1].x) / 2, (points[i].y + points[i + 1].y) / 2);
+          ctx.quadraticCurveTo(piX, piY, midX, midY);
         } else {
-          ctx.lineTo(pi.px, pi.py);
+          ctx.lineTo(piX, piY);
         }
       }
+    };
+    const drawPath = (points: readonly Vec2[], color: string) => {
+      drawCurvedPath(points, ctx);
       ctx.strokeStyle = color;
       ctx.lineWidth = 5;
       ctx.globalAlpha = 0.45;
@@ -1058,16 +1095,7 @@ export class Renderer {
       ctx.setLineDash([8, 12]);
       ctx.lineWidth = 2;
       ctx.globalAlpha = 0.6;
-      const p0b = tp(points[0].x, points[0].y);
-      ctx.beginPath();
-      ctx.moveTo(p0b.px, p0b.py);
-      for (let i = 1; i < points.length; i++) {
-        const pi = tp(points[i].x, points[i].y);
-        if (i < points.length - 1) {
-          const mid = tp((points[i].x + points[i + 1].x) / 2, (points[i].y + points[i + 1].y) / 2);
-          ctx.quadraticCurveTo(pi.px, pi.py, mid.px, mid.py);
-        } else ctx.lineTo(pi.px, pi.py);
-      }
+      drawCurvedPath(points, ctx);
       ctx.stroke();
       ctx.setLineDash([]);
       ctx.globalAlpha = 1;
@@ -1085,16 +1113,16 @@ export class Renderer {
     ctx.textAlign = 'center';
     if (this.mapDef.shapeAxis === 'y') {
       // Portrait: L on left, R on right (relative to diamond center)
-      const { px: llPx, py: llPy } = tp(dc.x - 20, dc.y);
-      const { px: lrPx, py: lrPy } = tp(dc.x + 20, dc.y);
+      const [llPx, llPy] = tpx(dc.x - 20, dc.y);
+      const [lrPx, lrPy] = tpx(dc.x + 20, dc.y);
       ctx.fillStyle = LANE_LEFT_COLOR;
       ctx.fillText('L', llPx, llPy);
       ctx.fillStyle = LANE_RIGHT_COLOR;
       ctx.fillText('R', lrPx, lrPy);
     } else {
       // Landscape: L on top, R on bottom
-      const { px: ltPx, py: ltPy } = tp(dc.x, dc.y - 14);
-      const { px: lbPx, py: lbPy } = tp(dc.x, dc.y + 14);
+      const [ltPx, ltPy] = tpx(dc.x, dc.y - 14);
+      const [lbPx, lbPy] = tpx(dc.x, dc.y + 14);
       ctx.fillStyle = LANE_LEFT_COLOR;
       ctx.fillText('L', ltPx, ltPy);
       ctx.fillStyle = LANE_RIGHT_COLOR;
@@ -1941,6 +1969,14 @@ export class Renderer {
               const dSz = iconSz * 1.8;
               const dOff = (dSz - iconSz) / 2;
               if (diamondSprite) ctx.drawImage(diamondSprite[0], iconX - dOff, iconY2 - dOff, dSz, dSz);
+            } else if (harv.assignment === 'base_gold' && player.race === Race.Demon) {
+              // Demon miners gather mana — draw mana crystal icon
+              const cx_ = iconX + iconSz / 2, cy_ = iconY2 + iconSz / 2, r = iconSz * 0.42;
+              ctx.fillStyle = '#7c4dff';
+              ctx.beginPath();
+              ctx.moveTo(cx_, cy_ - r); ctx.lineTo(cx_ + r * 0.65, cy_);
+              ctx.lineTo(cx_, cy_ + r); ctx.lineTo(cx_ - r * 0.65, cy_);
+              ctx.closePath(); ctx.fill();
             } else {
               const iconMap: Record<string, 'gold' | 'wood' | 'meat'> = { base_gold: 'gold', wood: 'wood', stone: 'meat' };
               this.ui.drawIcon(ctx, iconMap[harv.assignment] || 'gold', iconX, iconY2, iconSz);
@@ -2246,7 +2282,9 @@ export class Renderer {
       const laneColor = u.lane === Lane.Left ? LANE_LEFT_COLOR : LANE_RIGHT_COLOR;
       const r = u.range > 2 ? 3 : 4;
       const cx = px + T / 2;
-      const tierScale = u.isChampion ? 3.0 : 1.0 + (u.upgradeTier ?? 0) * 0.15;
+      // Soul Gorger: grows up to 40% bigger with soul stacks (20 max)
+      const soulScale = (u.soulStacks ?? 0) > 0 ? 1 + Math.min(u.soulStacks!, 20) * (0.4 / 20) : 1;
+      const tierScale = (u.isChampion ? 3.0 : 1.0 + (u.upgradeTier ?? 0) * 0.15) * soulScale;
 
       // Drop shadow — ellipse at feet level
       const shadowAlpha = this.dayNight.brightness * 0.2;
@@ -3358,8 +3396,8 @@ export class Renderer {
       }
 
       // Dark outline for readability
-      ctx.strokeStyle = 'rgba(0,0,0,0.7)';
-      ctx.lineWidth = 2.5;
+      ctx.strokeStyle = isDmg ? 'rgba(0,0,0,0.9)' : 'rgba(0,0,0,0.7)';
+      ctx.lineWidth = isDmg ? 3 : 2.5;
 
       // Determine if we have a mini icon to draw
       const mi = ft.miniIcon;
@@ -4207,6 +4245,8 @@ export class Renderer {
     // In isometric mode, the minimap maps tile coords through tp() then scales into the minimap box
     // We use a helper to convert tile coords to minimap screen coords
     let mmW: number, mmH: number, mx: number, my: number;
+    // Shared output object for tileToMM (avoids allocating per call)
+    const _mm = { mx: 0, my: 0 };
     let tileToMM: (tx: number, ty: number) => { mx: number; my: number };
 
     if (this.isometric) {
@@ -4222,7 +4262,8 @@ export class Renderer {
       const bMinX = bounds.minX, bMinY = bounds.minY;
       tileToMM = (tx: number, ty: number) => {
         const { px: wpx, py: wpy } = this.tp(tx, ty);
-        return { mx: mx + (wpx - bMinX) * sX, my: my + (wpy - bMinY) * sY };
+        _mm.mx = mx + (wpx - bMinX) * sX; _mm.my = my + (wpy - bMinY) * sY;
+        return _mm;
       };
     } else {
       const aspect = mW / mH;
@@ -4231,7 +4272,7 @@ export class Renderer {
       mx = this.canvas.clientWidth - mmW - 10;
       my = (compact ? 46 : 60) + getSafeTop();
       const scaleX = mmW / mW, scaleY = mmH / mH;
-      tileToMM = (tx: number, ty: number) => ({ mx: mx + tx * scaleX, my: my + ty * scaleY });
+      tileToMM = (tx: number, ty: number) => { _mm.mx = mx + tx * scaleX; _mm.my = my + ty * scaleY; return _mm; };
     }
 
     // Background — water color
@@ -4279,15 +4320,19 @@ export class Renderer {
       ctx.fillStyle = 'rgba(200, 170, 20, 0.6)';
       const dHW = state.mapDef.diamondHalfW;
       const dHH = state.mapDef.diamondHalfH;
-      const dcTop = tileToMM(dc.x, dc.y - dHH);
-      const dcRight = tileToMM(dc.x + dHW, dc.y);
-      const dcBottom = tileToMM(dc.x, dc.y + dHH);
-      const dcLeft = tileToMM(dc.x - dHW, dc.y);
+      let p = tileToMM(dc.x, dc.y - dHH);
+      const dcTx = p.mx, dcTy = p.my;
+      p = tileToMM(dc.x + dHW, dc.y);
+      const dcRx = p.mx, dcRy = p.my;
+      p = tileToMM(dc.x, dc.y + dHH);
+      const dcBx = p.mx, dcBy = p.my;
+      p = tileToMM(dc.x - dHW, dc.y);
+      const dcLx = p.mx, dcLy = p.my;
       ctx.beginPath();
-      ctx.moveTo(dcTop.mx, dcTop.my);
-      ctx.lineTo(dcRight.mx, dcRight.my);
-      ctx.lineTo(dcBottom.mx, dcBottom.my);
-      ctx.lineTo(dcLeft.mx, dcLeft.my);
+      ctx.moveTo(dcTx, dcTy);
+      ctx.lineTo(dcRx, dcRy);
+      ctx.lineTo(dcBx, dcBy);
+      ctx.lineTo(dcLx, dcLy);
       ctx.closePath();
       ctx.fill();
       ctx.strokeStyle = 'rgba(255, 220, 120, 0.85)';
@@ -4338,8 +4383,9 @@ export class Renderer {
           for (let tx = 0; tx < mW; tx += step) {
             if (!vis[ty * mW + tx]) {
               const fp = tileToMM(tx, ty);
+              const fmx = fp.mx, fmy = fp.my;
               const fp2 = tileToMM(tx + step, ty + step);
-              ctx.fillRect(fp.mx, fp.my, fp2.mx - fp.mx + 1, fp2.my - fp.my + 1);
+              ctx.fillRect(fmx, fmy, fp2.mx - fmx + 1, fp2.my - fmy + 1);
             }
           }
         }
@@ -4391,8 +4437,9 @@ export class Renderer {
       const hq = getHQPosition(team, state.mapDef);
       ctx.fillStyle = team === Team.Bottom ? '#2979ff' : '#ff1744';
       const hqp1 = tileToMM(hq.x, hq.y);
+      const h1mx = hqp1.mx, h1my = hqp1.my;
       const hqp2 = tileToMM(hq.x + HQ_WIDTH, hq.y + HQ_HEIGHT);
-      ctx.fillRect(hqp1.mx, hqp1.my, hqp2.mx - hqp1.mx, hqp2.my - hqp1.my);
+      ctx.fillRect(h1mx, h1my, hqp2.mx - h1mx, hqp2.my - h1my);
     }
 
     // Recent quick-chat badges near team HQ

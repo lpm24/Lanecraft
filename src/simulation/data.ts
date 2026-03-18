@@ -151,7 +151,7 @@ export function HARVESTER_HUT_COST(hutIndex: number): number {
 export const TOWER_COST_SCALE = 1.65;
 
 // Harvester yields per trip (must match GameState.ts tickHarvesters)
-export const GOLD_YIELD_PER_TRIP = 5;
+export const GOLD_YIELD_PER_TRIP = 4;
 export const WOOD_YIELD_PER_TRIP = 10;
 export const STONE_YIELD_PER_TRIP = 10;
 
@@ -371,6 +371,14 @@ export interface UpgradeSpecial {
   auraDamageBonus?: number;      // +flat damage to nearby allies
   auraSpeedBonus?: number;       // +% move speed to nearby allies (0.1 = +10%)
   auraArmorBonus?: number;       // +% damage reduction to nearby allies (0.1 = 10%)
+  // Geist Soul Gorger: grows stronger from nearby deaths
+  soulHarvest?: boolean;           // enable soul harvest mechanic
+  soulHarvestRadius?: number;      // radius to detect deaths (default 8)
+  soulMaxStacks?: number;          // max stacks (default 20)
+  // Demon kill-scaling: damage increases per kill
+  killScaling?: boolean;           // enable kill-scaling mechanic
+  killDmgPct?: number;            // +dmg% per kill (default 0.05 = 5%)
+  killMaxStacks?: number;         // max kills that count (default 10)
 }
 
 export interface UpgradeNodeDef {
@@ -551,7 +559,7 @@ export const UPGRADE_TREES: Record<Race, Partial<Record<BuildingType, Record<Upg
       B: { name: 'Inferno Smasher', desc: '+30% HP, +35% dmg', hpMult: 1.30, damageMult: 1.35, spawnSpeedMult: 0.88 },
       C: { name: 'Blaze Smasher', desc: '+25% speed, faster atk', moveSpeedMult: 1.25, attackSpeedMult: 0.85, spawnSpeedMult: 0.88 },
       D: { name: 'Doom Smasher', desc: '+50% dmg, +2 burn', damageMult: 1.50, special: { extraBurnStacks: 2 }, spawnSpeedMult: 0.82 },
-      E: { name: 'Firestorm', desc: '+60% dmg, faster atk', damageMult: 1.60, attackSpeedMult: 0.80, spawnSpeedMult: 0.82 },
+      E: { name: 'Bloodfire Berserker', desc: '+20% dmg, +5% dmg per kill (max 10)', damageMult: 1.20, spawnSpeedMult: 0.82, special: { killScaling: true, killDmgPct: 0.05, killMaxStacks: 10 } },
       F: { name: 'Phoenix Blade', desc: '+20% dmg, +30% speed, revive 60%', damageMult: 1.20, moveSpeedMult: 1.30, special: { reviveHpPct: 0.60 }, spawnSpeedMult: 0.82 },
       G: { name: 'Magma Smasher', desc: '+55% dmg, +3 burn', damageMult: 1.55, special: { extraBurnStacks: 3 }, spawnSpeedMult: 0.82 },
     },
@@ -559,7 +567,7 @@ export const UPGRADE_TREES: Record<Race, Partial<Record<BuildingType, Record<Upg
       B: { name: 'Flame Sniper', desc: '+35% dmg, +20% range', damageMult: 1.35, rangeMult: 1.20, spawnSpeedMult: 0.88 },
       C: { name: 'Rapid Eye', desc: 'Faster atk, +15% speed', attackSpeedMult: 0.80, moveSpeedMult: 1.15, spawnSpeedMult: 0.88 },
       D: { name: 'Meteor Eye', desc: '+45% dmg, splash 2t', damageMult: 1.45, special: { splashRadius: 2, splashDamagePct: 0.60 }, spawnSpeedMult: 0.82 },
-      E: { name: 'Scorch Eye', desc: '+40% dmg, +2 burn', damageMult: 1.40, special: { extraBurnStacks: 2 }, spawnSpeedMult: 0.82 },
+      E: { name: 'Inferno Reaper', desc: '+20% dmg, +5% dmg per kill (max 10)', damageMult: 1.20, spawnSpeedMult: 0.82, special: { killScaling: true, killDmgPct: 0.05, killMaxStacks: 10 } },
       F: { name: 'Blitz Eye', desc: 'Very fast, +30% range', attackSpeedMult: 0.70, rangeMult: 1.30, spawnSpeedMult: 0.82 },
       G: { name: 'Brimstone Cannon', desc: 'SIEGE: 14 range, slow, devastating vs buildings + burns', hpMult: 0.50, damageMult: 2.16, attackSpeedMult: 3.20, moveSpeedMult: 0.35, rangeMult: 1.75, spawnSpeedMult: 0.82, special: { isSiegeUnit: true, buildingDamageMult: 4.0, splashRadius: 3.5, splashDamagePct: 0.65, extraBurnStacks: 2 } },
     },
@@ -569,7 +577,7 @@ export const UPGRADE_TREES: Record<Race, Partial<Record<BuildingType, Record<Upg
       D: { name: 'Apocalypse Lord', desc: '+50% dmg, +3 burn', damageMult: 1.50, special: { extraBurnStacks: 3 }, spawnSpeedMult: 0.82 },
       E: { name: 'Eruption Lord', desc: '+45% dmg, +1 AoE', damageMult: 1.45, special: { aoeRadiusBonus: 1 }, spawnSpeedMult: 0.82 },
       F: { name: 'Flame Conduit', desc: 'Very fast, +1 AoE', attackSpeedMult: 0.65, special: { aoeRadiusBonus: 1 }, spawnSpeedMult: 0.82 },
-      G: { name: 'Phoenix Lord', desc: '+60% dmg, +30% range', damageMult: 1.60, rangeMult: 1.30, spawnSpeedMult: 0.82 },
+      G: { name: 'Soul Pyre', desc: '+20% dmg, +5% dmg per kill (max 10)', damageMult: 1.20, spawnSpeedMult: 0.82, special: { killScaling: true, killDmgPct: 0.05, killMaxStacks: 10 } },
     },
     [BuildingType.Tower]: {
       B: { name: 'Demon Turret', desc: '+45% HP, +40% dmg', hpMult: 1.45, damageMult: 1.40 },
@@ -629,7 +637,7 @@ export const UPGRADE_TREES: Record<Race, Partial<Record<BuildingType, Record<Upg
       B: { name: 'Chameleon', desc: '+30% HP, +30% dmg', hpMult: 1.30, damageMult: 1.30, spawnSpeedMult: 0.88 },
       C: { name: 'Spitting Snake', desc: 'Faster atk, +2 slow', attackSpeedMult: 0.80, special: { extraSlowStacks: 2 }, spawnSpeedMult: 0.88 },
       D: { name: 'Stalker', desc: '+40% dmg, splash 2t', damageMult: 1.40, special: { splashRadius: 2, splashDamagePct: 0.50 }, spawnSpeedMult: 0.82 },
-      E: { name: 'Catapult Beast', desc: 'SIEGE: 12 range, slow, devastating vs buildings + burns', hpMult: 0.50, damageMult: 1.92, attackSpeedMult: 3.00, moveSpeedMult: 0.40, rangeMult: 2.00, spawnSpeedMult: 0.82, special: { isSiegeUnit: true, buildingDamageMult: 3.5, splashRadius: 3, splashDamagePct: 0.60, extraBurnStacks: 1 } },
+      E: { name: 'Catapult Beast', desc: 'SIEGE: 10 range, slow, devastating vs buildings + burns', hpMult: 0.70, damageMult: 1.92, attackSpeedMult: 3.00, moveSpeedMult: 0.40, rangeMult: 1.66, spawnSpeedMult: 0.82, special: { isSiegeUnit: true, buildingDamageMult: 3.5, splashRadius: 3, splashDamagePct: 0.60, extraBurnStacks: 1 } },
       F: { name: 'Venom Serpent', desc: 'Much faster, +25% range, +2 burn', attackSpeedMult: 0.70, rangeMult: 1.25, special: { extraBurnStacks: 2 }, spawnSpeedMult: 0.82 },
       G: { name: 'Hydra Spit', desc: '+45% dmg, splash 3t, +2 slow', damageMult: 1.45, special: { splashRadius: 3, splashDamagePct: 0.50, extraSlowStacks: 2 }, spawnSpeedMult: 0.82 },
     },
@@ -658,7 +666,7 @@ export const UPGRADE_TREES: Record<Race, Partial<Record<BuildingType, Record<Upg
       D: { name: 'Death Knight', desc: '+50% dmg, +2 burn', damageMult: 1.50, special: { extraBurnStacks: 2 }, spawnSpeedMult: 0.85 },
       E: { name: 'Soul Eater', desc: '+45% HP/40% dmg, regen 3/s', hpMult: 1.45, damageMult: 1.40, special: { regenPerSec: 3 }, spawnSpeedMult: 0.85 },
       F: { name: 'Snapping Mimic', desc: '+25% dmg, +35% speed, 35% dodge', damageMult: 1.25, moveSpeedMult: 1.35, special: { dodgeChance: 0.35 }, spawnSpeedMult: 0.85 },
-      G: { name: 'Devourer', desc: '+55% dmg, faster atk', damageMult: 1.55, attackSpeedMult: 0.80, spawnSpeedMult: 0.85 },
+      G: { name: 'Soul Gorger', desc: 'Grows stronger from nearby deaths (max 20)', damageMult: 1.20, hpMult: 1.30, spawnSpeedMult: 0.85, special: { soulHarvest: true, soulHarvestRadius: 8, soulMaxStacks: 20 } },
     },
     [BuildingType.RangedSpawner]: {
       B: { name: 'Venom Wraith', desc: '+35% dmg, +2 burn', damageMult: 1.35, special: { extraBurnStacks: 2 }, spawnSpeedMult: 0.90 },
@@ -701,14 +709,14 @@ export const UPGRADE_TREES: Record<Race, Partial<Record<BuildingType, Record<Upg
       D: { name: 'Blight Tinker', desc: '+40% dmg, splash 2t', damageMult: 1.40, special: { splashRadius: 2, splashDamagePct: 0.50 }, spawnSpeedMult: 0.85, cost: { gold: 90, wood: 0, stone: 0 } },
       E: { name: 'Grand Tinker', desc: '+45% dmg, splash 3t', damageMult: 1.45, special: { splashRadius: 3, splashDamagePct: 0.45 }, spawnSpeedMult: 0.85, cost: { gold: 90, wood: 0, stone: 0 } },
       F: { name: 'Toxic Hurler', desc: '+35% dmg, +2 burn', damageMult: 1.35, special: { extraBurnStacks: 2 }, spawnSpeedMult: 0.85, cost: { gold: 0, wood: 0, stone: 90 } },
-      G: { name: 'Vine Siege', desc: 'SIEGE: 13 range, slow, devastating vs buildings + slows', hpMult: 0.50, damageMult: 2.16, attackSpeedMult: 3.20, moveSpeedMult: 0.38, rangeMult: 1.85, spawnSpeedMult: 0.85, cost: { gold: 0, wood: 0, stone: 90 }, special: { isSiegeUnit: true, buildingDamageMult: 4.0, splashRadius: 3, splashDamagePct: 0.65, extraSlowStacks: 2 } },
+      G: { name: 'Vine Siege', desc: 'SIEGE: 10 range, slow, devastating vs buildings + slows', hpMult: 0.50, damageMult: 2.16, attackSpeedMult: 3.20, moveSpeedMult: 0.38, rangeMult: 1.42, spawnSpeedMult: 0.85, cost: { gold: 0, wood: 0, stone: 90 }, special: { isSiegeUnit: true, buildingDamageMult: 3.0, splashRadius: 3, splashDamagePct: 0.65, extraSlowStacks: 2 } },
     },
     [BuildingType.CasterSpawner]: {
       B: { name: 'Deep Root', desc: '+35% HP, +5 heal', hpMult: 1.35, special: { healBonus: 5 }, spawnSpeedMult: 0.90, cost: { gold: 0, wood: 0, stone: 45 } },
       C: { name: 'Spore Weaver', desc: 'Faster atk, +3 slow', attackSpeedMult: 0.80, special: { extraSlowStacks: 3 }, spawnSpeedMult: 0.90, cost: { gold: 0, wood: 45, stone: 0 } },
       D: { name: 'Fungal Hulk', desc: '+35% dmg, +8 heal, +2 slow', damageMult: 1.35, special: { healBonus: 8, extraSlowStacks: 2 }, spawnSpeedMult: 0.85, cost: { gold: 0, wood: 0, stone: 90 } },
       E: { name: 'Bloom Shaper', desc: '+40% dmg, +2 AoE', damageMult: 1.40, special: { aoeRadiusBonus: 2 }, spawnSpeedMult: 0.85, cost: { gold: 0, wood: 0, stone: 90 } },
-      F: { name: 'Mycelium Sage', desc: 'Very fast, +4 heal', attackSpeedMult: 0.65, special: { healBonus: 4 }, spawnSpeedMult: 0.85, cost: { gold: 0, wood: 90, stone: 0 } },
+      F: { name: 'Mycelium Sage', desc: 'Very fast, +6 heal', attackSpeedMult: 0.65, special: { healBonus: 6 }, spawnSpeedMult: 0.85, cost: { gold: 0, wood: 90, stone: 0 } },
       G: { name: 'Fungal Lord', desc: '+50% dmg, +35% range', damageMult: 1.50, rangeMult: 1.35, spawnSpeedMult: 0.85, cost: { gold: 0, wood: 90, stone: 0 } },
     },
     [BuildingType.Tower]: {
@@ -932,17 +940,21 @@ export function getResearchUpgradeCost(id: string, level: number, race: Race): {
       return { gold: 0, wood: 0, stone: 0, mana: demonManaCosts[id] ?? 120 };
     }
     // One-shot: flat cost scaled to race economy
+    // Non-gold races pay half raw amounts since wood/stone are worth 2× gold
     const used = getRaceUsedResources(race);
-    if (!used.gold && used.stone && used.wood) return { gold: 0, wood: 80, stone: 70 };
-    if (!used.gold && used.stone) return { gold: 0, wood: 0, stone: 150 };
-    if (!used.gold && used.wood) return { gold: 0, wood: 150, stone: 0 };
+    if (!used.gold && used.stone && used.wood) return { gold: 0, wood: 40, stone: 35 };
+    if (!used.gold && used.stone) return { gold: 0, wood: 0, stone: 75 };
+    if (!used.gold && used.wood) return { gold: 0, wood: 75, stone: 0 };
     return { gold: 150, wood: 0, stone: 0 };
   }
   // Infinite scaling: 80 base x 1.5^level
+  // Gold races pay in gold (80g = 40 eff). Non-gold races pay half raw in wood/stone
+  // so effective cost is equal (e.g. 20w+20s = 40 eff ≈ 80g/2 = 40 eff).
   const cost = Math.round(80 * Math.pow(1.5, level));
   const used = getRaceUsedResources(race);
-  if (!used.gold && used.stone && used.wood) return { gold: 0, wood: Math.round(cost * 0.5), stone: Math.round(cost * 0.5) };
-  if (!used.gold && used.stone) return { gold: 0, wood: 0, stone: cost };
-  if (!used.gold && used.wood) return { gold: 0, wood: cost, stone: 0 };
+  const half = Math.round(cost / 2); // non-gold races pay half raw (wood/stone worth 2× gold)
+  if (!used.gold && used.stone && used.wood) return { gold: 0, wood: Math.round(half * 0.5), stone: Math.round(half * 0.5) };
+  if (!used.gold && used.stone) return { gold: 0, wood: 0, stone: half };
+  if (!used.gold && used.wood) return { gold: 0, wood: half, stone: 0 };
   return { gold: cost, wood: 0, stone: 0 };
 }
