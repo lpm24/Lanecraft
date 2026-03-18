@@ -298,7 +298,7 @@ export class ResearchPopup {
           if (cost.gold > 0) {
             if (!ui.drawIcon(ctx, 'gold', costX, costY - costIconSz + 1, costIconSz)) {
               ctx.fillStyle = '#ffd700';
-              ctx.fillText('*', costX, costY);
+              ctx.beginPath(); ctx.arc(costX + costIconSz / 2, costY - costIconSz / 2, costIconSz / 2, 0, Math.PI * 2); ctx.fill();
             }
             costX += costIconSz + 1;
             ctx.fillStyle = canAfford || playerGold >= cost.gold ? '#ffd54f' : '#ff6666';
@@ -309,7 +309,7 @@ export class ResearchPopup {
           if (cost.wood > 0) {
             if (!ui.drawIcon(ctx, 'wood', costX, costY - costIconSz + 1, costIconSz)) {
               ctx.fillStyle = '#8bc34a';
-              ctx.fillText('W', costX, costY);
+              ctx.beginPath(); ctx.arc(costX + costIconSz / 2, costY - costIconSz / 2, costIconSz / 2, 0, Math.PI * 2); ctx.fill();
             }
             costX += costIconSz + 1;
             ctx.fillStyle = canAfford || playerWood >= cost.wood ? '#a5d6a7' : '#ff6666';
@@ -320,7 +320,7 @@ export class ResearchPopup {
           if (cost.stone > 0) {
             if (!ui.drawIcon(ctx, 'meat', costX, costY - costIconSz + 1, costIconSz)) {
               ctx.fillStyle = '#ef9a9a';
-              ctx.fillText('M', costX, costY);
+              ctx.beginPath(); ctx.arc(costX + costIconSz / 2, costY - costIconSz / 2, costIconSz / 2, 0, Math.PI * 2); ctx.fill();
             }
             costX += costIconSz + 1;
             ctx.fillStyle = canAfford || playerStone >= cost.stone ? '#ef9a9a' : '#ff6666';

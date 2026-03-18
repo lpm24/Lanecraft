@@ -258,6 +258,7 @@ export function createInitialState(
   mapDef?: MapDef,
   fogOfWar = false,
 ): GameState {
+  _debugPrevPositions.clear(); // prevent stale ID collisions from previous games
   const map = mapDef ?? DUEL_MAP;
   const rngSeed = seed ?? (Date.now() ^ (Math.random() * 0xffffffff));
   const rng = createSeededRng(rngSeed);
@@ -1663,15 +1664,17 @@ function tickAbilityEffects(state: GameState): void {
 
     // Per-tick effect logic
     if (eff.type === 'deep_rain') {
-      // Apply slow to all enemy units
       for (const u of state.units) {
-        if (u.team === eff.team) continue;
-        // Add slow status (1 stack, short duration refreshed each tick)
-        const existing = u.statusEffects.find(s => s.type === StatusType.Slow);
-        if (existing) {
-          existing.duration = Math.max(existing.duration, TICK_RATE);
+        if (u.team === eff.team) {
+          // Deep allies: Haste (move faster)
+          const haste = u.statusEffects.find(s => s.type === StatusType.Haste);
+          if (haste) { haste.duration = Math.max(haste.duration, TICK_RATE); }
+          else u.statusEffects.push({ type: StatusType.Haste, stacks: 1, duration: TICK_RATE });
         } else {
-          u.statusEffects.push({ type: StatusType.Slow, stacks: 1, duration: TICK_RATE });
+          // Enemies: Slow (move slower)
+          const slow = u.statusEffects.find(s => s.type === StatusType.Slow);
+          if (slow) { slow.duration = Math.max(slow.duration, TICK_RATE); }
+          else u.statusEffects.push({ type: StatusType.Slow, stacks: 1, duration: TICK_RATE });
         }
       }
     } else if (eff.type === 'wild_frenzy') {
@@ -2008,7 +2011,7 @@ function tickSpawners(state: GameState): void {
         if (bu.raceUpgrades['crown_melee_2']) raceHpMult *= 1.15;
         if (bu.raceUpgrades['horde_melee_2']) raceHpMult *= 1.20;
         if (bu.raceUpgrades['deep_melee_1']) raceHpMult *= 1.15;
-        if (bu.raceUpgrades['goblins_melee_2']) raceMoveSpeedMult *= 1.20;
+        if (bu.raceUpgrades['goblins_melee_2']) raceMoveSpeedMult *= 1.35;
       }
       const count = upgrade.special.spawnCount ?? stats.spawnCount ?? 1;
       // Oozlings Mass Division: spawn 3 instead of 2 for casters
@@ -2090,6 +2093,7 @@ function tickUnitMovement(state: GameState): void {
     // Phase 2: Following lane path
     const path = getLanePath(unit.team, unit.lane, state.mapDef);
     const pathLen = getCachedPathLength(unit.team, unit.lane, state.mapDef);
+    const preX = unit.x, preY = unit.y;
 
     // Ranged + caster units prefer to stay behind nearest allied melee — but only near enemies
     if (unit.category === 'ranged' || unit.category === 'caster') {
@@ -2212,6 +2216,22 @@ function tickUnitMovement(state: GameState): void {
         unit.y = pos.y;
       }
     }
+
+    // Stuck detection: if the unit didn't move at all this tick despite having speed,
+    // count consecutive stuck ticks and snap to the lane path after 3.
+    const moved = (unit.x - preX) ** 2 + (unit.y - preY) ** 2 > 0.0001;
+    if (!moved && movePerTick > 0.001 && unit.pathProgress < 1) {
+      unit.stuckTicks = (unit.stuckTicks ?? 0) + 1;
+      if (unit.stuckTicks >= 3) {
+        // Snap back to the lane path at current progress — always in valid, obstacle-free space
+        const snapPos = interpolatePath(path, unit.pathProgress);
+        unit.x = snapPos.x;
+        unit.y = snapPos.y;
+        unit.stuckTicks = 0;
+      }
+    } else {
+      unit.stuckTicks = 0;
+    }
   }
 }
 
@@ -2293,6 +2313,20 @@ function trackHealing(state: GameState, unit: UnitState, amount: number): void {
   if (ps) ps.totalHealing += amount;
 }
 
+const WOUND_DURATION_TICKS = 6 * TICK_RATE;
+function applyWound(target: UnitState): void {
+  const existing = target.statusEffects.find(e => e.type === StatusType.Wound);
+  if (existing) { existing.duration = WOUND_DURATION_TICKS; }
+  else { target.statusEffects.push({ type: StatusType.Wound, stacks: 1, duration: WOUND_DURATION_TICKS }); }
+}
+
+const VULNERABLE_DURATION_TICKS = 3 * TICK_RATE;
+function applyVulnerable(target: UnitState): void {
+  const existing = target.statusEffects.find(e => e.type === StatusType.Vulnerable);
+  if (existing) { existing.duration = VULNERABLE_DURATION_TICKS; }
+  else { target.statusEffects.push({ type: StatusType.Vulnerable, stacks: 1, duration: VULNERABLE_DURATION_TICKS }); }
+}
+
 /** Heal a unit, respecting Wound status (-50% healing). Returns actual HP healed. */
 function healUnit(unit: UnitState, amount: number): number {
   if (amount <= 0 || unit.hp >= unit.maxHp) return 0;
@@ -2342,11 +2376,14 @@ function dealDamage(state: GameState, target: UnitState, amount: number, showFlo
       const drBonus = Math.floor(missingPct / 0.25) * 0.05;
       if (drBonus > 0) amount = Math.max(1, Math.round(amount * (1 - drBonus)));
     }
-    // Goblins Jinx Cloud: slowed targets take +15% damage from Goblin team
+    // Vulnerable: target takes +20% damage from all sources
+    if (target.statusEffects.some(e => e.type === StatusType.Vulnerable))
+      amount = Math.max(1, Math.round(amount * 1.20));
+    // Goblins Jinx Cloud: slowed targets receive Wound (anti-heal) from Goblin team hits
     if (sourcePlayerId !== undefined) {
       const srcPlayer = state.players[sourcePlayerId];
       if (srcPlayer && srcPlayer.researchUpgrades.raceUpgrades['goblins_caster_2'] && target.statusEffects.some(e => e.type === StatusType.Slow)) {
-        amount = Math.max(1, Math.round(amount * 1.15));
+        applyWound(target);
       }
     }
     // Tenders Thorned Vines: reflect 3 dmg to melee attackers
@@ -2410,11 +2447,11 @@ function dealDamage(state: GameState, target: UnitState, amount: number, showFlo
           if (killPlayer && killer.category === 'melee' && killPlayer.researchUpgrades.raceUpgrades['demon_melee_2']) {
             killPlayer.mana += 2;
           }
-          // Wild Kill Frenzy: on kill, heal 25% maxHP, nearby Wild allies gain Frenzy (+50% dmg) and Haste
+          // Wild Kill Frenzy: on kill, heal 15% maxHP, nearby Wild allies gain Frenzy (+50% dmg) and Haste
           const killerRace = state.players[killer.playerId]?.race;
           if (killerRace === Race.Wild) {
             // Heal killer on kill (bloodthirst)
-            const healAmt = Math.round(killer.maxHp * 0.25);
+            const healAmt = Math.round(killer.maxHp * 0.15);
             const actualHeal = healUnit(killer, healAmt);
             if (actualHeal > 0) trackHealing(state, killer, actualHeal);
             const frenzyRadius = 6;
@@ -2526,9 +2563,10 @@ function applyCasterSupport(state: GameState, caster: UnitState, race: Race, sp:
         Math.sqrt((u.x - caster.x) ** 2 + (u.y - caster.y) ** 2) <= supportRange
       );
       const gobP = state.players[caster.playerId];
-      const extraHex = gobP?.researchUpgrades.raceUpgrades['goblins_caster_1'] ? 1 : 0;
       for (const e of enemies) {
-        applyStatus(e, StatusType.Slow, 1 + (sp?.extraSlowStacks ?? 0) + extraHex);
+        applyStatus(e, StatusType.Slow, 1 + (sp?.extraSlowStacks ?? 0));
+        // Potent Hex: +1 Burn on caster AoE
+        if (gobP?.researchUpgrades.raceUpgrades['goblins_caster_1']) applyStatus(e, StatusType.Burn, 1);
       }
       if (enemies.length > 0) {
         addFloatingText(state, caster.x, caster.y - 0.5, '🔮', '#2e7d32', undefined, true);
@@ -2611,7 +2649,7 @@ function applyCasterSupport(state: GameState, caster: UnitState, race: Race, sp:
     }
     case Race.Tenders: {
       // Regen aura: heal nearby allies
-      let tenderHealAmt = 3 + healBonus;
+      let tenderHealAmt = 2 + healBonus;
       // Research: Bloom Burst +2 heal amount
       const tendersP = state.players[caster.playerId];
       if (tendersP?.researchUpgrades.raceUpgrades['tenders_caster_1']) tenderHealAmt += 2;
@@ -2669,6 +2707,7 @@ function applyOnHitEffects(state: GameState, attacker: UnitState, target: UnitSt
     case Race.Goblins:
       // Sticker: 15% dodge is passive (handled in damage calc)
       // Knifer burn is applied via projectile hit logic (tickProjectiles)
+      applyWound(target); // all Goblin attacks apply Wound
       break;
     case Race.Oozlings:
       // Globule: 15% chance haste on melee hit
@@ -2679,7 +2718,10 @@ function applyOnHitEffects(state: GameState, attacker: UnitState, target: UnitSt
       break;
     case Race.Demon:
       // Smasher: burn on every hit (melee)
-      if (isMelee) applyStatus(target, StatusType.Burn, 1 + (sp?.extraBurnStacks ?? 0));
+      if (isMelee) {
+        applyStatus(target, StatusType.Burn, 1 + (sp?.extraBurnStacks ?? 0));
+        applyWound(target); // Demon melee applies Wound
+      }
       break;
     case Race.Deep:
       // Shell Guard: slow on melee hit
@@ -2691,9 +2733,10 @@ function applyOnHitEffects(state: GameState, attacker: UnitState, target: UnitSt
       if (isMelee) applyStatus(target, StatusType.Burn, 1 + (sp?.extraBurnStacks ?? 0));
       break;
     case Race.Geists:
-      // Bone Knight: burn (soul drain) on melee hit + lifesteal 15%
+      // Bone Knight: burn (soul drain) on melee hit + lifesteal 15% + Wound
       if (isMelee) {
         applyStatus(target, StatusType.Burn, 1 + (sp?.extraBurnStacks ?? 0));
+        applyWound(target); // Geists melee applies Wound
         const geistMeleeSteal = Math.round(attacker.damage * 0.15);
         const geistAh = healUnit(attacker, geistMeleeSteal);
         if (geistAh > 0) trackHealing(state, attacker, geistAh);
@@ -2723,11 +2766,11 @@ function applyOnHitEffects(state: GameState, attacker: UnitState, target: UnitSt
       applyStatus(target, StatusType.Slow, 1);
     }
     // Horde Heavy Bolts: +1 Slow on ranged hit
-    if (!isMelee && bu.raceUpgrades['horde_ranged_1']) applyStatus(target, StatusType.Slow, 1);
+    if (!isMelee && bu.raceUpgrades['horde_ranged_1']) applyWound(target); // Heavy Bolts: Wound on ranged hit
     // Deep Frozen Harpoons: +1 Slow on ranged hit
     if (!isMelee && bu.raceUpgrades['deep_ranged_1']) applyStatus(target, StatusType.Slow, 1);
-    // Wild Venomous Fangs: +1 Burn on ranged hit
-    if (!isMelee && bu.raceUpgrades['wild_ranged_1']) applyStatus(target, StatusType.Burn, 1);
+    // Wild Venomous Fangs: +1 Burn + Wound on ranged hit
+    if (!isMelee && bu.raceUpgrades['wild_ranged_1']) { applyStatus(target, StatusType.Burn, 1); applyWound(target); }
     // Tenders Root Snare: 20% chance +1 Slow on ranged hit
     if (!isMelee && bu.raceUpgrades['tenders_ranged_2'] && state.rng() < 0.20) applyStatus(target, StatusType.Slow, 1);
     // Geists Death Grip: lifesteal 15->25% (melee)
@@ -3092,6 +3135,7 @@ function tickCombat(state: GameState): void {
       }
       if (best) {
         unit.targetId = best.id;
+        unit.stuckTicks = 0; // clear stuck counter — unit is now actively engaging
         attackerCount.set(best.id, (attackerCount.get(best.id) ?? 0) + 1);
       }
     }
@@ -3197,6 +3241,40 @@ function tickCombat(state: GameState): void {
       }
     }
 
+    // Siege units: always prioritize building targets — fire cannonball at nearest enemy building in range
+    if (unit.upgradeSpecial?.isSiegeUnit && unit.attackTimer <= 0 && unit.range > 2) {
+      const sp = unit.upgradeSpecial;
+      let bestSiegeBuilding: BuildingState | null = null;
+      let bestSiegeDist = Infinity;
+      for (const b of state.buildings) {
+        if (b.type === BuildingType.HarvesterHut || b.type === BuildingType.Research) continue;
+        const bPlayer = state.players[b.playerId];
+        if (!bPlayer || bPlayer.team === unit.team) continue;
+        if (b.hp <= 0) continue;
+        const bd = Math.sqrt((b.worldX - unit.x) ** 2 + (b.worldY - unit.y) ** 2);
+        if (bd <= unit.range + 0.15 && bd < bestSiegeDist) { bestSiegeBuilding = b; bestSiegeDist = bd; }
+      }
+      if (bestSiegeBuilding) {
+        const effDmg = getEffectiveDamage(unit);
+        state.projectiles.push({
+          id: genId(state), x: unit.x, y: unit.y,
+          targetId: 0,
+          targetX: bestSiegeBuilding.worldX,
+          targetY: bestSiegeBuilding.worldY,
+          damage: effDmg,
+          speed: 8, aoeRadius: sp?.splashRadius ?? 3, team: unit.team, visual: 'cannonball',
+          sourcePlayerId: unit.playerId, sourceUnitId: unit.id,
+          splashDamagePct: sp?.splashDamagePct ?? 0.60,
+          buildingDamageMult: sp?.buildingDamageMult ?? 3.0,
+          extraBurnStacks: sp?.extraBurnStacks,
+          extraSlowStacks: sp?.extraSlowStacks,
+        });
+        unit.attackTimer = Math.round(unit.attackSpeed * TICK_RATE);
+        addSound(state, 'ranged_hit', unit.x, unit.y);
+        continue; // skip regular attack this tick
+      }
+    }
+
     // Attack — tolerance of 0.15 tiles so units that are clamped/blocked
     // just outside nominal range can still attack (prevents whiff bug).
     if (unit.targetId !== null && unit.attackTimer <= 0) {
@@ -3295,6 +3373,8 @@ function tickCombat(state: GameState): void {
             if (rbu.raceUpgrades['horde_ranged_2'] && rangedAoe === 0) { rangedAoe = 2.5; rangedSplashPct = 0.30; }
             // Horde Berserker Howl: +15% ranged damage while hasted
             if (rbu.raceUpgrades['horde_caster_2'] && unit.statusEffects.some(e => e.type === StatusType.Haste)) effDmg = Math.round(effDmg * 1.15);
+            // Deep Anchor Shot: +50% damage for siege units
+            if (rbu.raceUpgrades['deep_ranged_2'] && (sp?.isSiegeUnit ?? false)) effDmg = Math.round(effDmg * 1.50);
           }
           const isSiege = sp?.isSiegeUnit ?? false;
           state.projectiles.push({
@@ -3429,7 +3509,7 @@ function tickCombat(state: GameState): void {
             if (mbu.raceUpgrades['demon_melee_1'] && target.statusEffects.some(e => e.type === StatusType.Burn)) meleeDmg = Math.round(meleeDmg * 1.25);
             // Deep Crushing Depths: +20% vs slowed
             if (mbu.raceUpgrades['deep_melee_2'] && target.statusEffects.some(e => e.type === StatusType.Slow)) meleeDmg = Math.round(meleeDmg * 1.20);
-            // Wild Pack Hunter: +10% per nearby ally, max +30%
+            // Wild Pack Hunter: +5% per nearby ally, max +40%
             if (mbu.raceUpgrades['wild_melee_2']) {
               let nearAllies = 0;
               for (const a of state.units) {
@@ -3437,7 +3517,7 @@ function tickCombat(state: GameState): void {
                 const ad = Math.sqrt((a.x - unit.x) ** 2 + (a.y - unit.y) ** 2);
                 if (ad <= 4) nearAllies++;
               }
-              meleeDmg = Math.round(meleeDmg * (1 + Math.min(0.30, nearAllies * 0.10)));
+              meleeDmg = Math.round(meleeDmg * (1 + Math.min(0.40, nearAllies * 0.05)));
             }
             // Wild Savage Frenzy: +10% extra damage during frenzy
             if (mbu.raceUpgrades['wild_melee_1'] && unit.statusEffects.some(e => e.type === StatusType.Frenzy)) meleeDmg = Math.round(meleeDmg * 1.10);
@@ -3477,39 +3557,6 @@ function tickCombat(state: GameState): void {
         }
 
         unit.attackTimer = Math.round(unit.attackSpeed * TICK_RATE);
-      }
-    }
-
-    // Siege units: fire cannonball at any enemy building in range when no unit target
-    if (unit.upgradeSpecial?.isSiegeUnit && unit.targetId === null && unit.attackTimer <= 0 && unit.range > 2) {
-      const sp = unit.upgradeSpecial;
-      let bestSiegeBuilding: BuildingState | null = null;
-      let bestSiegeDist = Infinity;
-      for (const b of state.buildings) {
-        if (b.type === BuildingType.HarvesterHut || b.type === BuildingType.Research) continue;
-        const bPlayer = state.players[b.playerId];
-        if (!bPlayer || bPlayer.team === unit.team) continue;
-        if (b.hp <= 0) continue;
-        const bd = Math.sqrt((b.worldX - unit.x) ** 2 + (b.worldY - unit.y) ** 2);
-        if (bd <= unit.range + 0.15 && bd < bestSiegeDist) { bestSiegeBuilding = b; bestSiegeDist = bd; }
-      }
-      if (bestSiegeBuilding) {
-        const effDmg = getEffectiveDamage(unit);
-        state.projectiles.push({
-          id: genId(state), x: unit.x, y: unit.y,
-          targetId: 0,  // unused — position-targeted via targetX/targetY
-          targetX: bestSiegeBuilding.worldX,
-          targetY: bestSiegeBuilding.worldY,
-          damage: effDmg,
-          speed: 8, aoeRadius: sp?.splashRadius ?? 3, team: unit.team, visual: 'cannonball',
-          sourcePlayerId: unit.playerId, sourceUnitId: unit.id,
-          splashDamagePct: sp?.splashDamagePct ?? 0.60,
-          buildingDamageMult: sp?.buildingDamageMult ?? 3.0,
-          extraBurnStacks: sp?.extraBurnStacks,
-          extraSlowStacks: sp?.extraSlowStacks,
-        });
-        unit.attackTimer = Math.round(unit.attackSpeed * TICK_RATE);
-        addSound(state, 'ranged_hit', unit.x, unit.y);
       }
     }
 
@@ -3554,7 +3601,18 @@ function tickCombat(state: GameState): void {
       }
     }
 
-    if (unit.attackTimer > 0) unit.attackTimer--;
+    // Deluge: Deep allies attack 2x faster, enemies attack at half speed
+    const delugeEff = state.abilityEffects.find(e => e.type === 'deep_rain');
+    if (delugeEff) {
+      const isDeepAlly = unit.team === delugeEff.team && state.players[unit.playerId]?.race === Race.Deep;
+      if (isDeepAlly) {
+        if (unit.attackTimer > 0) unit.attackTimer = Math.max(0, unit.attackTimer - 2);
+      } else if (state.tick % 2 === 0) {
+        if (unit.attackTimer > 0) unit.attackTimer--;
+      }
+    } else {
+      if (unit.attackTimer > 0) unit.attackTimer--;
+    }
   }
 
   // Remove dead units with particles (check revive first)
@@ -3914,7 +3972,9 @@ function tickProjectiles(state: GameState): void {
         // Burn races: Demon, Geists, Wild, Goblins (Knifer poison)
         if (race === Race.Demon || race === Race.Geists || race === Race.Wild || race === Race.Goblins)
           applyStatus(target, StatusType.Burn, (p.aoeRadius > 0 ? 2 : 1) + extraBurn);
-        // Anti-heal: Goblin toxins and Demon flames on ranged hits
+        // Anti-heal: Wound on ranged/caster hits for Goblins, Demon, Geists, Wild, Horde
+        if (race === Race.Goblins || race === Race.Demon || race === Race.Geists || race === Race.Wild || race === Race.Horde)
+          applyWound(target);
         // Geists Wraith Bow: ranged lifesteal
         if (p.lifestealPct && p.lifestealPct > 0) {
           const source = state.units.find(u => u.id === p.sourceUnitId);
@@ -3935,8 +3995,8 @@ function tickProjectiles(state: GameState): void {
         if (pbu.raceUpgrades['demon_ranged_1']) applyStatus(target, StatusType.Burn, 1);
         // Demon Flame Conduit: +1 AoE burn stack on caster projectiles
         if (pbu.raceUpgrades['demon_caster_1'] && p.aoeRadius > 0) applyStatus(target, StatusType.Burn, 1);
-        // Oozlings Corrosive Spit: +1 Slow on ranged hit
-        if (pbu.raceUpgrades['oozlings_ranged_1']) applyStatus(target, StatusType.Slow, 1);
+        // Oozlings Corrosive Spit: Vulnerable (+20% dmg taken) on ranged hit
+        if (pbu.raceUpgrades['oozlings_ranged_1']) applyVulnerable(target);
         // Crown Piercing Arrows: ignore 20% def (applied as bonus damage)
         // Geists Soul Arrows: +10% lifesteal on ranged
         if (pbu.raceUpgrades['geists_ranged_1']) {
@@ -3993,7 +4053,12 @@ function tickProjectiles(state: GameState): void {
               // Demon Flame Conduit: +1 AoE burn stack on caster projectiles
               if (sourcePlayer.researchUpgrades.raceUpgrades['demon_caster_1'] && p.aoeRadius > 0) applyStatus(u, StatusType.Burn, 1);
               if (race === Race.Oozlings) applyStatus(u, StatusType.Slow, 1);
-              // Anti-heal on AoE
+              // Anti-heal on AoE: Wound for Goblins, Demon, Geists, Wild, Horde
+              if (race === Race.Goblins || race === Race.Demon || race === Race.Geists || race === Race.Wild || race === Race.Horde)
+                applyWound(u);
+              // Oozlings caster_2 (Mass Division → Corrosive Aura): AoE applies Wound
+              if (race === Race.Oozlings && sourcePlayer.researchUpgrades.raceUpgrades['oozlings_caster_2'])
+                applyWound(u);
               // AoE lifesteal
               if (p.lifestealPct && p.lifestealPct > 0) {
                 const source = state.units.find(s => s.id === p.sourceUnitId);

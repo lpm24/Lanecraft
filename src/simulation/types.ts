@@ -263,8 +263,9 @@ export enum StatusType {
   Burn = 'burn',       // 2 dmg/sec per stack for 3s, max 5
   Haste = 'haste',     // 1.3x speed, 3s, no stack, refreshes
   Shield = 'shield',   // absorbs 12 damage, 4s, 1 instance
-  Frenzy = 'frenzy',   // Wild kill bonus: +30% damage, 3s, refreshes on kills
-  Wound = 'wound',     // -50% healing received, 4s, max 1 stack, refreshes
+  Frenzy = 'frenzy',       // Wild kill bonus: +30% damage, 3s, refreshes on kills
+  Wound = 'wound',         // -50% healing received, 6s, max 1 stack, refreshes
+  Vulnerable = 'vulnerable', // +20% damage taken, 3s, max 1 stack, refreshes
 }
 
 export interface StatusEffect {
@@ -412,6 +413,7 @@ export interface UnitState {
   summonDuration?: number; // ticks remaining for temporary summons (e.g. Geist skeletons)
   fleeTimer?: number;      // Goblins: ticks remaining in flee state (run away then re-engage)
   spriteRace?: Race;       // override race for sprite lookup (e.g. Horde troll uses Goblin troll art)
+  stuckTicks?: number;     // consecutive ticks without moving — triggers path-snap escape
 }
 
 // Snapshot of a notable unit for post-match display

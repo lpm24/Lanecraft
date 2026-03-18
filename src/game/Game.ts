@@ -491,8 +491,9 @@ export class Game {
   private render(): void {
     this.renderer.camera.tick();
     this.renderer.placingBuilding = this.input.placingBuilding;
-    this.renderer.render(this.state, this.isMultiplayer ? this.networkLatencyMs : undefined, this.desyncDetected, this.peerDisconnected, this.waitingForAllyMs);
-    this.input.render(this.renderer);
+    const latencyMs = this.isMultiplayer ? this.networkLatencyMs : undefined;
+    this.renderer.render(this.state, latencyMs, this.desyncDetected, this.peerDisconnected, this.waitingForAllyMs);
+    this.input.render(this.renderer, latencyMs);
   }
 
   private runBotAI(): void {

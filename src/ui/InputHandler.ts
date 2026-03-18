@@ -107,6 +107,7 @@ export class InputHandler {
   private devOverlayOpen = false;
   private abortController = new AbortController();
   private currentRenderer: Renderer | null = null;
+  private networkLatencyMs: number | undefined = undefined;
   private ui: UIAssets;
   private sprites: SpriteLoader | null = null;
   private buildingPopup = new BuildingPopup();
@@ -640,6 +641,16 @@ export class InputHandler {
         this.selectedUnitId = null;
         const player = this.game.state.players[this.pid];
         if (player) this.activateAbility(player);
+        return;
+      }
+      // Research shortcut
+      if (e.key === 'r' || e.key === 'R') {
+        const st = this.game.state;
+        const resBuilding = st.buildings.find(b => b.playerId === this.pid && b.type === BuildingType.Research);
+        if (resBuilding) {
+          if (this.researchPopup.isOpen()) { this.researchPopup.close(); }
+          else { this.buildingPopup.close(); this.researchPopup.open(resBuilding.id); this.selectedBuildingId = resBuilding.id; }
+        }
         return;
       }
       if (e.key === 'Escape') {
@@ -1186,19 +1197,17 @@ export class InputHandler {
 
   }
 
-  /**
-   * BUTTON LAYOUT:
-   *   - Settings ⚙ is the ONLY button in the top-right corner. It NEVER moves.
-   *   - There is NO separate info button in the HUD.
-   *   - Tutorial/help is accessed via Settings > "Help / Controls" row.
-   *
-   * DO NOT add an info/help button next to the settings button. This has been
-   * broken and fixed multiple times — having two buttons in the top-right corner
-   * causes the settings button to shift position, which confuses players.
-   */
+  // Top-right layout (right to left): [⚙ settings] [ℹ info] [ping]
+  // Gap between buttons: 8px. Ping displayed as text to the left of info button.
   private getSettingsButtonRect(): { x: number; y: number; w: number; h: number } {
     const size = 30;
     return { x: this.canvas.clientWidth - size - 10, y: 10 + getSafeTop(), w: size, h: size };
+  }
+
+  private getInfoButtonRect(): { x: number; y: number; w: number; h: number } {
+    const size = 30;
+    const sr = this.getSettingsButtonRect();
+    return { x: sr.x - size - 12, y: sr.y, w: size, h: size };
   }
 
   private handleHelpButtonClick(e: MouseEvent): boolean {
@@ -1206,7 +1215,7 @@ export class InputHandler {
     const cx = e.clientX - rect.left;
     const cy = e.clientY - rect.top;
 
-    // Settings button (far-right corner, only button)
+    // Settings button (far-right corner)
     const sr = this.getSettingsButtonRect();
     if (cx >= sr.x && cx <= sr.x + sr.w && cy >= sr.y && cy <= sr.y + sr.h) {
       this.settingsOpen = !this.settingsOpen;
@@ -1214,11 +1223,19 @@ export class InputHandler {
       return true;
     }
 
+    // Info button (to the left of settings)
+    const ir = this.getInfoButtonRect();
+    if (cx >= ir.x && cx <= ir.x + ir.w && cy >= ir.y && cy <= ir.y + ir.h) {
+      this.showTutorial = !this.showTutorial;
+      this.settingsOpen = false;
+      return true;
+    }
+
     return false;
   }
 
   private drawHelpButton(ctx: CanvasRenderingContext2D): void {
-    // Settings button (far-right corner, never moves)
+    // Settings button (far-right corner)
     const sr = this.getSettingsButtonRect();
     if (this.settingsOpen) {
       ctx.fillStyle = 'rgba(41,121,255,0.35)';
@@ -1237,9 +1254,38 @@ export class InputHandler {
       ctx.textAlign = 'start';
     }
 
-    // Info button — drawn to the left of the tutorial panel, not next to settings.
-    // Only visible when tutorial panel is open (it's contextual to the panel).
-    // When tutorial is closed, the settings panel has a "Help" row to reopen it.
+    // Info button (to the left of settings)
+    const ir = this.getInfoButtonRect();
+    if (this.showTutorial) {
+      ctx.fillStyle = 'rgba(41,121,255,0.35)';
+      ctx.fillRect(ir.x, ir.y, ir.w, ir.h);
+    }
+    if (!this.ui.drawIcon(ctx, 'info', ir.x, ir.y, ir.w)) {
+      ctx.fillStyle = 'rgba(18,18,18,0.92)';
+      ctx.fillRect(ir.x, ir.y, ir.w, ir.h);
+      ctx.strokeStyle = '#9bb7ff';
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(ir.x, ir.y, ir.w, ir.h);
+      ctx.fillStyle = '#e3f2fd';
+      ctx.font = 'bold 16px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('ℹ', ir.x + ir.w / 2, ir.y + 21);
+      ctx.textAlign = 'start';
+    }
+
+    // Ping display (to the left of info button, right-aligned)
+    if (this.networkLatencyMs !== undefined) {
+      const latText = `${this.networkLatencyMs}ms`;
+      const latColor = this.networkLatencyMs < 80 ? '#4caf50' : this.networkLatencyMs < 200 ? '#ff9800' : '#f44336';
+      ctx.font = 'bold 12px monospace';
+      const latW = ctx.measureText(latText).width;
+      const pingX = ir.x - latW - 12;
+      const pingY = ir.y + ir.h / 2 + 4;
+      ctx.fillStyle = 'rgba(0,0,0,0.5)';
+      ctx.fillRect(pingX - 4, ir.y + 4, latW + 8, ir.h - 8);
+      ctx.fillStyle = latColor;
+      ctx.fillText(latText, pingX, pingY);
+    }
   }
 
   private getTrayLayout() {
@@ -1256,7 +1302,9 @@ export class InputHandler {
     const nukeX = Math.round((milW - nukeW) / 2);
     const nukeY = milY - nukeH - 4;
     const nukeRect = { x: nukeX, y: nukeY, w: nukeW, h: nukeH };
-    return { W, H, milH, milY, milW, safeBottom, nukeRect };
+    // Floating research button above ability (col 5) — mirrors nuke
+    const researchRect = { x: Math.round(5 * milW + (milW - nukeW) / 2), y: nukeY, w: nukeW, h: nukeH };
+    return { W, H, milH, milY, milW, safeBottom, nukeRect, researchRect };
   }
 
   private processQueuedQuickChat(): void {
@@ -1370,12 +1418,26 @@ export class InputHandler {
     if (cy >= milY + milH) return true;
 
     // Floating nuke button (above miner)
-    const { nukeRect } = this.getTrayLayout();
+    const { nukeRect, researchRect } = this.getTrayLayout();
     if (cx >= nukeRect.x && cx < nukeRect.x + nukeRect.w &&
         cy >= nukeRect.y && cy < nukeRect.y + nukeRect.h) {
       if (player.nukeAvailable && !this.isNukeLocked()) {
         this.selectedBuilding = null;
         this.nukeTargeting = !this.nukeTargeting;
+      }
+      return true;
+    }
+
+    // Floating research button (above ability)
+    if (cx >= researchRect.x && cx < researchRect.x + researchRect.w &&
+        cy >= researchRect.y && cy < researchRect.y + researchRect.h) {
+      const resBuilding = this.game.state.buildings.find(
+        b => b.playerId === this.pid && b.type === BuildingType.Research
+      );
+      if (resBuilding) {
+        this.buildingPopup.close();
+        this.researchPopup.open(resBuilding.id);
+        this.selectedBuildingId = resBuilding.id;
       }
       return true;
     }
@@ -1419,8 +1481,9 @@ export class InputHandler {
     return false;
   }
 
-  render(renderer: Renderer): void {
+  render(renderer: Renderer, networkLatencyMs?: number): void {
     this.currentRenderer = renderer;
+    this.networkLatencyMs = networkLatencyMs;
     if (!this.sprites) this.sprites = renderer.sprites;
     this.trayTick++;
     this.processQueuedQuickChat();
@@ -1494,7 +1557,7 @@ export class InputHandler {
   }
 
   private drawBuildTray(ctx: CanvasRenderingContext2D): void {
-    const { W, milH, milY, milW, safeBottom, nukeRect } = this.getTrayLayout();
+    const { W, milH, milY, milW, safeBottom, nukeRect, researchRect } = this.getTrayLayout();
     const player = this.game.state.players[this.pid];
     const quickChatCdMs = Math.max(0, this.quickChatCooldownUntil - Date.now());
 
@@ -1731,25 +1794,50 @@ export class InputHandler {
       ctx.fillText(abilityInfo.name, abCx, adjY + 38);
       ctx.globalAlpha = 1;
 
-      // Cost display
+      // Cost display — icons + numbers, no letter abbreviations
       if (!onCooldown) {
-        ctx.font = 'bold 9px monospace';
-        const costParts: string[] = [];
-        if (abCostGold > 0) costParts.push(`${abCostGold}g`);
-        if (abCostWood > 0) costParts.push(`${abCostWood}w`);
-        if (abCostStone > 0) costParts.push(`${abCostStone}m`);
+        type AbCostEntry = { val: number; canAf: boolean; drawIcon: (ix: number, iy: number, sz: number) => void };
+        const abCostEntries: AbCostEntry[] = [];
+        if (abCostGold > 0) abCostEntries.push({ val: abCostGold, canAf: player.gold >= abCostGold,
+          drawIcon: (ix, iy, sz) => { this.ui.drawIcon(ctx, 'gold', ix, iy, sz) || (ctx.fillStyle = '#ffd700', ctx.beginPath(), ctx.arc(ix + sz / 2, iy + sz / 2, sz / 2, 0, Math.PI * 2), ctx.fill()); } });
+        if (abCostWood > 0) abCostEntries.push({ val: abCostWood, canAf: player.wood >= abCostWood,
+          drawIcon: (ix, iy, sz) => { this.ui.drawIcon(ctx, 'wood', ix, iy, sz) || (ctx.fillStyle = '#8bc34a', ctx.beginPath(), ctx.arc(ix + sz / 2, iy + sz / 2, sz / 2, 0, Math.PI * 2), ctx.fill()); } });
+        if (abCostStone > 0) abCostEntries.push({ val: abCostStone, canAf: player.stone >= abCostStone,
+          drawIcon: (ix, iy, sz) => { this.ui.drawIcon(ctx, 'meat', ix, iy, sz) || (ctx.fillStyle = '#ef9a9a', ctx.beginPath(), ctx.arc(ix + sz / 2, iy + sz / 2, sz / 2, 0, Math.PI * 2), ctx.fill()); } });
         if (abCostMana > 0) {
-          if (race === Race.Demon) {
-            // Show current mana (what will be consumed) or min cost if can't afford
-            costParts.push(player.mana >= abCostMana ? `${player.mana}mp` : `${abCostMana}mp`);
-          } else {
-            costParts.push(`${abCostMana}mp`);
-          }
+          const manaDisplay = race === Race.Demon && player.mana >= abCostMana ? player.mana : abCostMana;
+          abCostEntries.push({ val: manaDisplay, canAf: player.mana >= abCostMana,
+            drawIcon: (ix, iy, sz) => { const cx_ = ix + sz / 2, cy_ = iy + sz / 2, r = sz * 0.42; ctx.fillStyle = '#7c4dff'; ctx.beginPath(); ctx.moveTo(cx_, cy_ - r); ctx.lineTo(cx_ + r * 0.65, cy_); ctx.lineTo(cx_, cy_ + r); ctx.lineTo(cx_ - r * 0.65, cy_); ctx.closePath(); ctx.fill(); } });
         }
-        if (abCostSouls > 0) costParts.push(`${abCostSouls}s`);
-        if (abCostEssence > 0) costParts.push(`${abCostEssence}e`);
-        ctx.fillStyle = canAffordAbility ? '#aaa' : '#664';
-        if (costParts.length > 0) ctx.fillText(costParts.join(' '), abCx, adjY + 50);
+        if (abCostSouls > 0) abCostEntries.push({ val: abCostSouls, canAf: player.souls >= abCostSouls,
+          drawIcon: (ix, iy, sz) => { const cx_ = ix + sz / 2, cy_ = iy + sz / 2, r = sz * 0.38; ctx.fillStyle = '#ce93d8'; ctx.beginPath(); ctx.arc(cx_, cy_, r, 0, Math.PI * 2); ctx.fill(); } });
+        if (abCostEssence > 0) abCostEntries.push({ val: abCostEssence, canAf: player.deathEssence >= abCostEssence,
+          drawIcon: (ix, iy, sz) => { const cx_ = ix + sz / 2, cy_ = iy + sz / 2, r = sz * 0.38; ctx.fillStyle = '#69f0ae'; ctx.beginPath(); ctx.arc(cx_, cy_, r, 0, Math.PI * 2); ctx.fill(); } });
+        if (abCostEntries.length > 0) {
+          const iconSz = 10;
+          const gap = 3;
+          ctx.font = 'bold 9px monospace';
+          const valStrs = abCostEntries.map(e => `${e.val}`);
+          let totalW = 0;
+          for (let i = 0; i < abCostEntries.length; i++) {
+            totalW += iconSz + 1 + ctx.measureText(valStrs[i]).width;
+            if (i < abCostEntries.length - 1) totalW += gap;
+          }
+          let dx = abCx - totalW / 2;
+          const dy = adjY + 50;
+          for (let i = 0; i < abCostEntries.length; i++) {
+            const e = abCostEntries[i];
+            ctx.globalAlpha = canAffordAbility ? 1 : 0.45;
+            e.drawIcon(dx, dy - iconSz, iconSz);
+            ctx.globalAlpha = 1;
+            dx += iconSz + 1;
+            ctx.fillStyle = e.canAf ? '#ccc' : '#ff6666';
+            ctx.textAlign = 'left';
+            ctx.fillText(valStrs[i], dx, dy);
+            dx += ctx.measureText(valStrs[i]).width + gap;
+          }
+          ctx.textAlign = 'center';
+        }
       }
 
       // Cooldown timer or key hint
@@ -1798,6 +1886,30 @@ export class InputHandler {
         ctx.font = '8px monospace';
         ctx.fillText('[N]', nr.x + nr.w / 2, nr.y + nr.h - 2);
       }
+    }
+
+    // === Floating Research button (above ability, col 5) ===
+    {
+      const rr = researchRect;
+      const pad = 2;
+      const hasResearch = this.game.state.buildings.some(
+        b => b.playerId === this.pid && b.type === BuildingType.Research
+      );
+      const isOpen = this.researchPopup.isOpen();
+      ctx.globalAlpha = hasResearch ? 1 : 0.35;
+      if (!this.ui.drawBigBlueButton(ctx, rr.x + pad, rr.y + pad, rr.w - pad * 2, rr.h - pad * 2, isOpen)) {
+        // Fallback: teal-filled rect
+        ctx.fillStyle = isOpen ? '#00bcd4' : '#006064';
+        ctx.fillRect(rr.x + pad, rr.y + pad, rr.w - pad * 2, rr.h - pad * 2);
+      }
+      ctx.globalAlpha = 1;
+      ctx.textAlign = 'center';
+      ctx.fillStyle = hasResearch ? '#fff' : '#888';
+      ctx.font = 'bold 10px monospace';
+      ctx.fillText('RESEARCH', rr.x + rr.w / 2, rr.y + rr.h / 2 + 2);
+      ctx.fillStyle = '#888';
+      ctx.font = '8px monospace';
+      ctx.fillText('[R]', rr.x + rr.w / 2, rr.y + rr.h - 2);
     }
 
     if (quickChatCdMs > 0) {

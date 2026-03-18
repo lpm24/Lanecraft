@@ -47,58 +47,58 @@ export interface BotDifficulty {
 }
 
 export const BOT_DIFFICULTY_PRESETS: Record<BotDifficultyLevel, BotDifficulty> = {
-  // Easy: capped army, slow builds, no upgrades/nukes — clearly inferior economy & army
+  // Easy: all systems active but slow, capped, and very mistake-prone
   [BotDifficultyLevel.Easy]: {
     buildSpeed: 60,           // 3 seconds between builds
-    upgradeSpeed: 999999,     // never upgrades
-    upgradeThreshold: 99,
-    nukeMinTime: 99,          // never nukes
+    upgradeSpeed: 150,        // upgrades every 7.5 seconds — slow but present
+    upgradeThreshold: 4,      // start upgrading after 4 spawners
+    nukeMinTime: 8.0,         // nukes late and rarely
     laneIQ: 'random',
     counterBuild: false,
     useValueFunction: false,
     useDynamicShift: false,
-    useSmartUpgrades: false,
+    useSmartUpgrades: false,  // random upgrade picks (high mistake rate covers randomness)
     useNightmareProfiles: false,
-    mistakeRate: 0.10,
-    maxSpawners: 3,           // hard cap: only 3 spawners total
-    maxHuts: 2,               // hard cap: only 2 huts
+    mistakeRate: 0.30,        // 30% chance to make a wrong decision
+    maxSpawners: 4,
+    maxHuts: 3,
     nukeDefensiveOnly: false,
   },
-  // Medium: moderate caps, moderate speed, no upgrades
+  // Medium: all systems active, moderate pace, some mistakes
   [BotDifficultyLevel.Medium]: {
     buildSpeed: 35,           // 1.75 seconds between builds
-    upgradeSpeed: 999999,     // no upgrades — army mass wins over upgrades
-    upgradeThreshold: 99,
+    upgradeSpeed: 80,         // upgrades every 4 seconds
+    upgradeThreshold: 5,      // start upgrading after 5 spawners
     nukeMinTime: 4.0,
     laneIQ: 'basic',
     counterBuild: false,
     useValueFunction: false,
     useDynamicShift: false,
-    useSmartUpgrades: false,
+    useSmartUpgrades: true,   // uses matchup-aware upgrades, but mistake rate blunts it
     useNightmareProfiles: false,
-    mistakeRate: 0.03,
-    maxSpawners: 5,           // moderate cap: 5 spawners
-    maxHuts: 4,               // moderate cap: 4 huts
+    mistakeRate: 0.12,        // 12% mistake rate — noticeably imperfect
+    maxSpawners: 5,
+    maxHuts: 4,
     nukeDefensiveOnly: false,
   },
-  // Hard: moderate caps, fast builds, upgrades after 6 spawners, nukes
+  // Hard: all systems active, fast, few mistakes
   [BotDifficultyLevel.Hard]: {
     buildSpeed: 25,           // 1.25 seconds between builds
-    upgradeSpeed: 50,         // upgrades every 2.5 seconds
-    upgradeThreshold: 7,      // start upgrading after hitting spawner cap
+    upgradeSpeed: 40,         // upgrades every 2 seconds
+    upgradeThreshold: 5,      // start upgrading after 5 spawners
     nukeMinTime: 2.0,
     laneIQ: 'threat',
     counterBuild: false,
-    useValueFunction: false,
-    useDynamicShift: false,
-    useSmartUpgrades: false,
+    useValueFunction: true,
+    useDynamicShift: true,
+    useSmartUpgrades: true,
     useNightmareProfiles: false,
-    mistakeRate: 0,
-    maxSpawners: 7,           // high cap: 7 spawners
-    maxHuts: 6,               // high cap: 6 huts
+    mistakeRate: 0.05,        // 5% mistake rate — nearly optimal
+    maxSpawners: 7,
+    maxHuts: 6,
     nukeDefensiveOnly: false,
   },
-  // Nightmare: unlimited, fastest builds, upgrades after 6 spawners
+  // Nightmare: all systems, fastest, perfect decisions, counter-builds
   [BotDifficultyLevel.Nightmare]: {
     buildSpeed: 10,           // 0.5 seconds between builds — relentless
     upgradeSpeed: 20,         // upgrades every 1.0 seconds — aggressive upgrade tempo
@@ -112,7 +112,7 @@ export const BOT_DIFFICULTY_PRESETS: Record<BotDifficultyLevel, BotDifficulty> =
     useNightmareProfiles: false,  // standard profiles — nightmare profiles hurt in testing
     mistakeRate: 0,
     maxSpawners: 99,          // unlimited
-    maxHuts: 8,               // more huts = economy advantage over hard
+    maxHuts: 8,
     nukeDefensiveOnly: true,  // hold nuke until enemies push near HQ
   },
 };

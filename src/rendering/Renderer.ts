@@ -1749,13 +1749,7 @@ export class Renderer {
             ctx.fillRect(barX, barY, barW * pct, barH);
           }
         } else if (b.type !== BuildingType.Research) {
-          // 45° rotation test for isometric art evaluation
-          const cx = px, cy = drawY + drawH / 2;
-          ctx.save();
-          ctx.translate(cx, cy);
-          ctx.rotate(Math.PI / 4);
-          ctx.drawImage(sprite, -drawW / 2, -drawH / 2, drawW, drawH);
-          ctx.restore();
+          ctx.drawImage(sprite, drawX, drawY, drawW, drawH);
         } else {
           ctx.drawImage(sprite, drawX, drawY, drawW, drawH);
         }
@@ -3465,7 +3459,7 @@ export class Renderer {
 
   // === HUD ===
 
-  private drawHUD(ctx: CanvasRenderingContext2D, state: GameState, networkLatencyMs?: number, desyncDetected?: boolean, peerDisconnected?: boolean, waitingForAllyMs?: number): void {
+  private drawHUD(ctx: CanvasRenderingContext2D, state: GameState, _networkLatencyMs?: number, desyncDetected?: boolean, peerDisconnected?: boolean, waitingForAllyMs?: number): void {
     const player = state.players[this.localPlayerId];
     if (!player) return;
     const W = this.canvas.clientWidth;
@@ -3571,23 +3565,12 @@ export class Renderer {
       ctx.fill();
     });
 
-    // Timer + ping — right-aligned, left of info/settings buttons (which are ~70px from right edge)
-    const hudRightEdge = networkLatencyMs !== undefined ? W - 80 : W - pad;
+    // Timer — right-aligned but leaving room for top-right buttons (ping + info + settings ~120px)
+    const hudRightEdge = W - 120;
     const secs = Math.floor(state.tick / 20);
     const timerText = `${Math.floor(secs / 60)}:${(secs % 60).toString().padStart(2, '0')}`;
     ctx.fillStyle = '#888';
-    let timerX = hudRightEdge;
-    // Ping indicator (to the right of timer, left of buttons)
-    if (networkLatencyMs !== undefined) {
-      const latText = `${networkLatencyMs}ms`;
-      const latColor = networkLatencyMs < 80 ? '#4caf50' : networkLatencyMs < 200 ? '#ff9800' : '#f44336';
-      const latW = ctx.measureText(latText).width;
-      ctx.fillStyle = latColor;
-      ctx.fillText(latText, timerX - latW, y1 + fontSize * 0.35);
-      timerX -= latW + 8;
-      ctx.fillStyle = '#888';
-    }
-    ctx.fillText(timerText, timerX - ctx.measureText(timerText).width, y1 + fontSize * 0.35);
+    ctx.fillText(timerText, hudRightEdge - ctx.measureText(timerText).width, y1 + fontSize * 0.35);
 
     // Row 2: HQ bars (centered horizontally) + diamond + units
     const y2 = safeTop + (compact ? 32 : 42);
