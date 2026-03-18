@@ -1,4 +1,5 @@
 import { MAP_WIDTH, MAP_HEIGHT, TILE_SIZE } from '../simulation/types';
+import { isoWorldBounds } from './Projection';
 
 export class Camera {
   x = 0;
@@ -8,14 +9,22 @@ export class Camera {
   // Configurable world size (set via setWorldSize for non-default maps)
   worldTilesW = MAP_WIDTH;
   worldTilesH = MAP_HEIGHT;
+  isometric = false;
   // Smooth pan target
   private panTargetX: number | null = null;
   private panTargetY: number | null = null;
   private panTargetZoom: number | null = null;
 
   private get minZoom(): number {
-    const worldW = this.worldTilesW * TILE_SIZE;
-    const worldH = this.worldTilesH * TILE_SIZE;
+    let worldW: number, worldH: number;
+    if (this.isometric) {
+      const bounds = isoWorldBounds(this.worldTilesW, this.worldTilesH);
+      worldW = bounds.width;
+      worldH = bounds.height;
+    } else {
+      worldW = this.worldTilesW * TILE_SIZE;
+      worldH = this.worldTilesH * TILE_SIZE;
+    }
     // 5% padding on each side → view = world * 1.10
     return Math.min(this.canvas.clientWidth / (worldW * 1.10), this.canvas.clientHeight / (worldH * 1.10));
   }
@@ -128,13 +137,24 @@ export class Camera {
   }
 
   private clamp(): void {
-    const worldW = this.worldTilesW * TILE_SIZE;
-    const worldH = this.worldTilesH * TILE_SIZE;
+    let minX: number, minY: number, maxX: number, maxY: number;
+    if (this.isometric) {
+      const bounds = isoWorldBounds(this.worldTilesW, this.worldTilesH);
+      minX = bounds.minX;
+      minY = bounds.minY;
+      maxX = bounds.maxX;
+      maxY = bounds.maxY;
+    } else {
+      minX = 0;
+      minY = 0;
+      maxX = this.worldTilesW * TILE_SIZE;
+      maxY = this.worldTilesH * TILE_SIZE;
+    }
     const viewW = this.canvas.clientWidth / this.zoom;
     const viewH = this.canvas.clientHeight / this.zoom;
     const margin = 100;
-    this.x = Math.max(-margin, Math.min(worldW - viewW + margin, this.x));
-    this.y = Math.max(-margin, Math.min(worldH - viewH + margin, this.y));
+    this.x = Math.max(minX - margin, Math.min(maxX - viewW + margin, this.x));
+    this.y = Math.max(minY - margin, Math.min(maxY - viewH + margin, this.y));
   }
 
   /** Smoothly pan camera to center on a world-pixel position at a given zoom. */

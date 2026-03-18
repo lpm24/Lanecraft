@@ -20,6 +20,7 @@ import {
 } from './VisualEffects';
 import { getSafeTop, getSafeBottom } from '../ui/SafeArea';
 import { getVisualSettings } from './VisualSettings';
+import { tileToPixel, isoWorldBounds, ISO_TILE_W, ISO_TILE_H } from './Projection';
 
 const T = TILE_SIZE;
 const LANE_LEFT_COLOR = '#4fc3f7';
@@ -92,6 +93,8 @@ export class Renderer {
   localPlayerId = 0;
   /** Set by InputHandler — the building type the player is currently placing, or null. */
   placingBuilding: BuildingType | null = null;
+  /** Isometric rendering mode */
+  isometric = false;
   private terrainCache: HTMLCanvasElement | null = null;
   private waterCache: HTMLCanvasElement | null = null;
   private terrainReady = false;
@@ -105,6 +108,9 @@ export class Renderer {
   // Track unit/building IDs from last frame to detect removals
   private lastUnitIds = new Set<number>();
   private lastUnitPositions = new Map<number, { x: number; y: number; team: number; race?: Race }>();
+  // Per-game-tick position snapshot for walk/idle detection (compare across ticks, not render frames)
+  private prevTickUnitPos = new Map<number, { x: number; y: number }>();
+  private prevTickSeen = -1;
   private lastUnitRenders = new Map<number, UnitRenderSnapshot>();
   private lastBuildingIds = new Set<number>();
   private lastBuildingPositions = new Map<number, { x: number; y: number; hpPct: number }>();
@@ -164,6 +170,22 @@ export class Renderer {
 
   destroy(): void {
     window.removeEventListener('resize', this.resizeHandler);
+  }
+
+  /** Convert tile coordinates to world-pixel coordinates (isometric-aware) */
+  tp(tileX: number, tileY: number): { px: number; py: number } {
+    return tileToPixel(tileX, tileY, this.isometric);
+  }
+
+  /** Draw a filled isometric diamond tile centered at (cx, cy). */
+  private drawIsoDiamond(ctx: CanvasRenderingContext2D, cx: number, cy: number): void {
+    ctx.beginPath();
+    ctx.moveTo(cx, cy - ISO_TILE_H / 2);
+    ctx.lineTo(cx + ISO_TILE_W / 2, cy);
+    ctx.lineTo(cx, cy + ISO_TILE_H / 2);
+    ctx.lineTo(cx - ISO_TILE_W / 2, cy);
+    ctx.closePath();
+    ctx.fill();
   }
 
   private resize(): void {
@@ -230,6 +252,35 @@ export class Renderer {
       }
     }
 
+    if (this.isometric) {
+      // Isometric fog: draw diamond-shaped fog per tile (viewport-culled)
+      const FOG_ALPHA = 180;
+      const vpX0 = this.camera.x - T;
+      const vpY0 = this.camera.y - T;
+      const vpX1 = this.camera.x + this.canvas.clientWidth / this.camera.zoom + T;
+      const vpY1 = this.camera.y + this.canvas.clientHeight / this.camera.zoom + T;
+      const hw = ISO_TILE_W / 2;
+      const hh = ISO_TILE_H / 2;
+      for (let ty = 0; ty < mh; ty++) {
+        for (let tx = 0; tx < mw; tx++) {
+          const idx = ty * mw + tx;
+          if (vis[idx]) continue;
+          const { px: cx, py: cy } = this.tp(tx + 0.5, ty + 0.5);
+          if (cx + hw < vpX0 || cx - hw > vpX1 || cy + hh < vpY0 || cy - hh > vpY1) continue;
+          let alpha: number;
+          if (linger[idx] > 0) {
+            const t = 1 - linger[idx] / LINGER;
+            alpha = (FOG_ALPHA / 255) * t;
+          } else {
+            alpha = FOG_ALPHA / 255;
+          }
+          ctx.fillStyle = `rgba(0,0,0,${alpha})`;
+          this.drawIsoDiamond(ctx, cx, cy);
+        }
+      }
+      return;
+    }
+
     // Rebuild fog cache every frame (linger fades continuously)
     if (!this.fogCache) {
       this.fogCache = document.createElement('canvas');
@@ -280,6 +331,12 @@ export class Renderer {
     this.lastFrameTime = now;
     const elapsedSec = (now - this.matchStartTime) / 1000;
 
+    // Snapshot positions once per game tick for walk/idle animation detection
+    if (state.tick !== this.prevTickSeen) {
+      for (const u of state.units) this.prevTickUnitPos.set(u.id, { x: u.x, y: u.y });
+      this.prevTickSeen = state.tick;
+    }
+
     // Detect deaths: compare current IDs to last frame
     this.detectDeaths(state);
     // Detect new buildings for construction animation
@@ -305,7 +362,7 @@ export class Renderer {
     this.projectileTrails.update(dt);
     this.updateDeadUnits(dt);
     if (state.tick !== this.lastConsumedTick) {
-      this.combatVfx.consume(state.combatEvents);
+      this.combatVfx.consume(state.combatEvents, this.isometric ? (x, y) => this.tp(x, y) : undefined);
       this.lastConsumedTick = state.tick;
     }
     this.combatVfx.update(dt);
@@ -334,12 +391,19 @@ export class Renderer {
     for (const u of state.units) {
       if (u.targetId !== null) combatZones.push({ x: u.x, y: u.y });
     }
-    this.ambientParticles.update(dt, combatZones);
+    this.ambientParticles.update(dt, combatZones, this.isometric ? (x, y) => this.tp(x, y) : undefined);
 
     // Spawn race-themed ambient particles near units
     for (const u of state.units) {
       const race = state.players[u.playerId]?.race;
-      if (race) this.ambientParticles.spawnRaceParticle(u.x, u.y, race);
+      if (race) {
+        if (this.isometric) {
+          const { px: rpx, py: rpy } = this.tp(u.x, u.y);
+          this.ambientParticles.spawnRaceParticlePx(rpx, rpy, race);
+        } else {
+          this.ambientParticles.spawnRaceParticle(u.x, u.y, race);
+        }
+      }
     }
 
     // Record projectile trail points (every 3rd frame to limit volume)
@@ -347,7 +411,8 @@ export class Renderer {
       for (const p of state.projectiles) {
         const race = state.players[p.sourcePlayerId]?.race;
         const color = race ? (RACE_COLORS[race]?.primary ?? '#fff') : '#fff';
-        this.projectileTrails.addPoint(p.x, p.y, color);
+        const { px: tpx, py: tpy } = this.tp(p.x + 0.5, p.y + 0.5);
+        this.projectileTrails.addPointPx(tpx, tpy, color);
       }
     }
 
@@ -916,6 +981,31 @@ export class Renderer {
   }
 
   private drawZones(ctx: CanvasRenderingContext2D, tick: number): void {
+    if (this.isometric) {
+      // Isometric mode: skip terrain cache, draw solid colored ground per-tile
+      const bounds = isoWorldBounds(this.mapW, this.mapH);
+      ctx.fillStyle = '#5b9a8b';
+      ctx.fillRect(bounds.minX - T, bounds.minY - T, bounds.width + T * 2, bounds.height + T * 2);
+      // Viewport culling bounds
+      const vpX0 = this.camera.x - T;
+      const vpY0 = this.camera.y - T;
+      const vpX1 = this.camera.x + this.canvas.clientWidth / this.camera.zoom + T;
+      const vpY1 = this.camera.y + this.canvas.clientHeight / this.camera.zoom + T;
+      const hw = ISO_TILE_W / 2;
+      const hh = ISO_TILE_H / 2;
+      // Draw playable tiles as green diamonds (viewport-culled)
+      ctx.fillStyle = '#3a6b3a';
+      for (let ty = 0; ty < this.mapH; ty++) {
+        for (let tx = 0; tx < this.mapW; tx++) {
+          if (!this.mapDef.isPlayable(tx, ty)) continue;
+          const { px: cx, py: cy } = this.tp(tx + 0.5, ty + 0.5);
+          if (cx + hw < vpX0 || cx - hw > vpX1 || cy + hh < vpY0 || cy - hh > vpY1) continue;
+          this.drawIsoDiamond(ctx, cx, cy);
+        }
+      }
+      return;
+    }
+
     // Try to build terrain cache if not ready
     if (!this.terrainReady) {
       this.buildTerrainCache();
@@ -946,16 +1036,18 @@ export class Renderer {
   // === Lane Paths ===
 
   private drawLanePaths(ctx: CanvasRenderingContext2D): void {
+    const tp = (x: number, y: number) => this.tp(x, y);
     const drawPath = (points: readonly Vec2[], color: string) => {
+      const p0 = tp(points[0].x, points[0].y);
       ctx.beginPath();
-      ctx.moveTo(points[0].x * T, points[0].y * T);
+      ctx.moveTo(p0.px, p0.py);
       for (let i = 1; i < points.length; i++) {
+        const pi = tp(points[i].x, points[i].y);
         if (i < points.length - 1) {
-          const mx = (points[i].x + points[i + 1].x) / 2 * T;
-          const my = (points[i].y + points[i + 1].y) / 2 * T;
-          ctx.quadraticCurveTo(points[i].x * T, points[i].y * T, mx, my);
+          const mid = tp((points[i].x + points[i + 1].x) / 2, (points[i].y + points[i + 1].y) / 2);
+          ctx.quadraticCurveTo(pi.px, pi.py, mid.px, mid.py);
         } else {
-          ctx.lineTo(points[i].x * T, points[i].y * T);
+          ctx.lineTo(pi.px, pi.py);
         }
       }
       ctx.strokeStyle = color;
@@ -966,14 +1058,15 @@ export class Renderer {
       ctx.setLineDash([8, 12]);
       ctx.lineWidth = 2;
       ctx.globalAlpha = 0.6;
+      const p0b = tp(points[0].x, points[0].y);
       ctx.beginPath();
-      ctx.moveTo(points[0].x * T, points[0].y * T);
+      ctx.moveTo(p0b.px, p0b.py);
       for (let i = 1; i < points.length; i++) {
+        const pi = tp(points[i].x, points[i].y);
         if (i < points.length - 1) {
-          const mx = (points[i].x + points[i + 1].x) / 2 * T;
-          const my = (points[i].y + points[i + 1].y) / 2 * T;
-          ctx.quadraticCurveTo(points[i].x * T, points[i].y * T, mx, my);
-        } else ctx.lineTo(points[i].x * T, points[i].y * T);
+          const mid = tp((points[i].x + points[i + 1].x) / 2, (points[i].y + points[i + 1].y) / 2);
+          ctx.quadraticCurveTo(pi.px, pi.py, mid.px, mid.py);
+        } else ctx.lineTo(pi.px, pi.py);
       }
       ctx.stroke();
       ctx.setLineDash([]);
@@ -992,16 +1085,20 @@ export class Renderer {
     ctx.textAlign = 'center';
     if (this.mapDef.shapeAxis === 'y') {
       // Portrait: L on left, R on right (relative to diamond center)
+      const { px: llPx, py: llPy } = tp(dc.x - 20, dc.y);
+      const { px: lrPx, py: lrPy } = tp(dc.x + 20, dc.y);
       ctx.fillStyle = LANE_LEFT_COLOR;
-      ctx.fillText('L', (dc.x - 20) * T, dc.y * T);
+      ctx.fillText('L', llPx, llPy);
       ctx.fillStyle = LANE_RIGHT_COLOR;
-      ctx.fillText('R', (dc.x + 20) * T, dc.y * T);
+      ctx.fillText('R', lrPx, lrPy);
     } else {
       // Landscape: L on top, R on bottom
+      const { px: ltPx, py: ltPy } = tp(dc.x, dc.y - 14);
+      const { px: lbPx, py: lbPy } = tp(dc.x, dc.y + 14);
       ctx.fillStyle = LANE_LEFT_COLOR;
-      ctx.fillText('L', dc.x * T, (dc.y - 14) * T);
+      ctx.fillText('L', ltPx, ltPy);
       ctx.fillStyle = LANE_RIGHT_COLOR;
-      ctx.fillText('R', dc.x * T, (dc.y + 14) * T);
+      ctx.fillText('R', lbPx, lbPy);
     }
     ctx.textAlign = 'start';
     ctx.globalAlpha = 1;
@@ -1013,8 +1110,7 @@ export class Renderer {
     const goldStoneData = this.sprites.getResourceSprite('goldStone');
 
     for (const cell of state.diamondCells) {
-      const px = cell.tileX * T;
-      const py = cell.tileY * T;
+      const { px, py } = this.tp(cell.tileX, cell.tileY);
 
       if (cell.gold > 0) {
         if (goldStoneData) {
@@ -1046,14 +1142,13 @@ export class Renderer {
       }
     }
 
-    const cx = state.mapDef.diamondCenter.x * T;
-    const cy = state.mapDef.diamondCenter.y * T;
+    const { px: dcx, py: dcy } = this.tp(state.mapDef.diamondCenter.x, state.mapDef.diamondCenter.y);
     if (!state.diamond.exposed) {
       ctx.fillStyle = 'rgba(40, 35, 10, 0.8)';
-      ctx.fillRect(cx, cy, T, T);
+      ctx.fillRect(dcx, dcy, T, T);
       ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
       ctx.lineWidth = 1;
-      ctx.strokeRect(cx, cy, T, T);
+      ctx.strokeRect(dcx, dcy, T, T);
     }
   }
 
@@ -1061,7 +1156,7 @@ export class Renderer {
 
   private drawResourceNodes(ctx: CanvasRenderingContext2D, state: GameState): void {
     const drawNodeFallback = (x: number, y: number, label: string, color: string) => {
-      const px = x * T, py = y * T;
+      const { px, py } = this.tp(x, y);
       ctx.beginPath();
       ctx.arc(px, py, T * 1.2, 0, Math.PI * 2);
       ctx.fillStyle = color;
@@ -1075,8 +1170,7 @@ export class Renderer {
 
     const woodResData = this.sprites.getResourceSprite('woodResource');
     const drawWoodPile = (x: number, y: number, amount: number) => {
-      const px = x * T;
-      const py = y * T;
+      const { px, py } = this.tp(x, y);
       const size = Math.min(1.0, 0.5 + amount * 0.05) * T;
       // Shadow
       ctx.fillStyle = 'rgba(0,0,0,0.14)';
@@ -1102,8 +1196,7 @@ export class Renderer {
     const tree2Data = this.sprites.getResourceSprite('tree2');
     const tree3Data = this.sprites.getResourceSprite('tree3');
     if (tree1Data && woodNode) {
-      const cx = woodNode.x * T;
-      const cy = woodNode.y * T;
+      const { px: cx, py: cy } = this.tp(woodNode.x, woodNode.y);
       const now = Date.now() / 1000;
       const forestSeed = Math.floor(woodNode.x * 97 + woodNode.y * 131 + state.mapDef.width * 17);
       const rand = seededRand(forestSeed);
@@ -1187,7 +1280,7 @@ export class Renderer {
         )});
       }
       for (const pile of nearbyPiles) {
-        items.push({ sortY: pile.y * T, draw: () => drawWoodPile(pile.x, pile.y, pile.amount) });
+        items.push({ sortY: this.tp(pile.x, pile.y).py, draw: () => drawWoodPile(pile.x, pile.y, pile.amount) });
       }
       items.sort((a, b) => a.sortY - b.sortY);
       for (const item of items) item.draw();
@@ -1203,7 +1296,7 @@ export class Renderer {
     const sheepData = this.sprites.getResourceSprite('sheep');
     const sheepGrassData = this.sprites.getResourceSprite('sheepGrass');
     if (sheepData && stoneNode) {
-      const cx = stoneNode.x * T, cy = stoneNode.y * T;
+      const { px: cx, py: cy } = this.tp(stoneNode.x, stoneNode.y);
       const drawSize = T * 1.8;
       const tick = Math.floor(Date.now() / 200);
       const [img, def] = sheepData;
@@ -1243,12 +1336,12 @@ export class Renderer {
       let bx: number, by: number, tx: number, ty: number;
       if (state.mapDef.shapeAxis === 'x') {
         // Landscape: gold mines offset horizontally from HQ
-        bx = (bHQ.x + HQ_WIDTH + 6) * T; by = (bHQ.y + HQ_HEIGHT / 2) * T;
-        tx = (tHQ.x - 6) * T; ty = (tHQ.y + HQ_HEIGHT / 2) * T;
+        ({ px: bx, py: by } = this.tp(bHQ.x + HQ_WIDTH + 6, bHQ.y + HQ_HEIGHT / 2));
+        ({ px: tx, py: ty } = this.tp(tHQ.x - 6, tHQ.y + HQ_HEIGHT / 2));
       } else {
         // Portrait: gold mines offset vertically from HQ
-        bx = (bHQ.x + HQ_WIDTH / 2) * T; by = (bHQ.y - 6) * T;
-        tx = (tHQ.x + HQ_WIDTH / 2) * T; ty = (tHQ.y + HQ_HEIGHT + 6) * T;
+        ({ px: bx, py: by } = this.tp(bHQ.x + HQ_WIDTH / 2, bHQ.y - 6));
+        ({ px: tx, py: ty } = this.tp(tHQ.x + HQ_WIDTH / 2, tHQ.y + HQ_HEIGHT + 6));
       }
       drawSpriteFrame(ctx, img, def, 0, bx - drawSize / 2, by - drawSize / 2, drawSize, drawSize);
       drawSpriteFrame(ctx, img, def, 0, tx - drawSize / 2, ty - drawSize / 2, drawSize, drawSize);
@@ -1287,34 +1380,41 @@ export class Renderer {
       ctx.fillStyle = tc + '0.18)';
       const bgCols = state.mapDef.buildGridCols;
       const bgRows = state.mapDef.buildGridRows;
-      ctx.fillRect(origin.x * T, origin.y * T, bgCols * T, bgRows * T);
+      const { px: ogPx, py: ogPy } = this.tp(origin.x, origin.y);
+      const { px: ogPx2, py: ogPy2 } = this.tp(origin.x + bgCols, origin.y + bgRows);
+      const gridW = ogPx2 - ogPx, gridH = ogPy2 - ogPy;
+      ctx.fillRect(ogPx, ogPy, gridW, gridH);
 
       ctx.strokeStyle = tc + '0.35)';
       ctx.lineWidth = 0.5;
       for (let gx = 0; gx <= bgCols; gx++) {
+        const { px: lx1, py: ly1 } = this.tp(origin.x + gx, origin.y);
+        const { px: lx2, py: ly2 } = this.tp(origin.x + gx, origin.y + bgRows);
         ctx.beginPath();
-        ctx.moveTo((origin.x + gx) * T, origin.y * T);
-        ctx.lineTo((origin.x + gx) * T, (origin.y + bgRows) * T);
+        ctx.moveTo(lx1, ly1);
+        ctx.lineTo(lx2, ly2);
         ctx.stroke();
       }
       for (let gy = 0; gy <= bgRows; gy++) {
+        const { px: lx1, py: ly1 } = this.tp(origin.x, origin.y + gy);
+        const { px: lx2, py: ly2 } = this.tp(origin.x + bgCols, origin.y + gy);
         ctx.beginPath();
-        ctx.moveTo(origin.x * T, (origin.y + gy) * T);
-        ctx.lineTo((origin.x + bgCols) * T, (origin.y + gy) * T);
+        ctx.moveTo(lx1, ly1);
+        ctx.lineTo(lx2, ly2);
         ctx.stroke();
       }
 
       ctx.strokeStyle = tc + '0.6)';
       ctx.lineWidth = 2;
-      ctx.strokeRect(origin.x * T, origin.y * T, bgCols * T, bgRows * T);
+      ctx.strokeRect(ogPx, ogPy, gridW, gridH);
 
       ctx.fillStyle = tc + '0.85)';
       ctx.font = 'bold 11px monospace';
       // Label position: below for bottom/left team, above for top/right team
       const teamIdx = state.mapDef.playerSlots[p]?.teamIndex ?? (p < 2 ? 0 : 1);
       const labelBelow = teamIdx === 0;
-      const ly = labelBelow ? (origin.y + bgRows + 1.2) * T : (origin.y - 0.5) * T;
-      ctx.fillText(`P${p + 1} [${player.race}]`, origin.x * T, ly);
+      const { py: lyVal } = labelBelow ? this.tp(origin.x, origin.y + bgRows + 1.2) : this.tp(origin.x, origin.y - 0.5);
+      ctx.fillText(`P${p + 1} [${player.race}]`, ogPx, lyVal);
     }
   }
 
@@ -1336,32 +1436,39 @@ export class Renderer {
 
       const hCols = state.mapDef.hutGridCols;
       const hRows = state.mapDef.hutGridRows;
+      const { px: hOgPx, py: hOgPy } = this.tp(origin.x, origin.y);
+      const { px: hOgPx2, py: hOgPy2 } = this.tp(origin.x + hCols, origin.y + hRows);
+      const hGridW = hOgPx2 - hOgPx, hGridH = hOgPy2 - hOgPy;
       ctx.fillStyle = tc + '0.15)';
-      ctx.fillRect(origin.x * T, origin.y * T, hCols * T, hRows * T);
+      ctx.fillRect(hOgPx, hOgPy, hGridW, hGridH);
       ctx.strokeStyle = tc + '0.4)';
       ctx.lineWidth = 1;
       for (let gx = 0; gx <= hCols; gx++) {
+        const { px: lx1, py: ly1 } = this.tp(origin.x + gx, origin.y);
+        const { px: lx2, py: ly2 } = this.tp(origin.x + gx, origin.y + hRows);
         ctx.beginPath();
-        ctx.moveTo((origin.x + gx) * T, origin.y * T);
-        ctx.lineTo((origin.x + gx) * T, (origin.y + hRows) * T);
+        ctx.moveTo(lx1, ly1);
+        ctx.lineTo(lx2, ly2);
         ctx.stroke();
       }
       for (let gy = 0; gy <= hRows; gy++) {
+        const { px: lx1, py: ly1 } = this.tp(origin.x, origin.y + gy);
+        const { px: lx2, py: ly2 } = this.tp(origin.x + hCols, origin.y + gy);
         ctx.beginPath();
-        ctx.moveTo(origin.x * T, (origin.y + gy) * T);
-        ctx.lineTo((origin.x + hCols) * T, (origin.y + gy) * T);
+        ctx.moveTo(lx1, ly1);
+        ctx.lineTo(lx2, ly2);
         ctx.stroke();
       }
       ctx.strokeStyle = tc + '0.6)';
       ctx.lineWidth = 2;
-      ctx.strokeRect(origin.x * T, origin.y * T, hCols * T, hRows * T);
+      ctx.strokeRect(hOgPx, hOgPy, hGridW, hGridH);
 
       ctx.fillStyle = tc + '0.8)';
       ctx.font = 'bold 9px monospace';
       const teamIdx = state.mapDef.playerSlots[p]?.teamIndex ?? (p < 2 ? 0 : 1);
       const labelBelow = teamIdx === 0;
-      const ly = labelBelow ? (origin.y + hRows + 0.8) * T : (origin.y - 0.4) * T;
-      ctx.fillText(`P${p + 1} HUTS`, origin.x * T, ly);
+      const { py: hLy } = labelBelow ? this.tp(origin.x, origin.y + hRows + 0.8) : this.tp(origin.x, origin.y - 0.4);
+      ctx.fillText(`P${p + 1} HUTS`, hOgPx, hLy);
     }
   }
 
@@ -1380,33 +1487,40 @@ export class Renderer {
 
       const aCols = state.mapDef.towerAlleyCols;
       const aRows = state.mapDef.towerAlleyRows;
+      const { px: aOgPx, py: aOgPy } = this.tp(origin.x, origin.y);
+      const { px: aOgPx2, py: aOgPy2 } = this.tp(origin.x + aCols, origin.y + aRows);
+      const aGridW = aOgPx2 - aOgPx, aGridH = aOgPy2 - aOgPy;
       ctx.fillStyle = `rgba(${color},0.15)`;
-      ctx.fillRect(origin.x * T, origin.y * T, aCols * T, aRows * T);
+      ctx.fillRect(aOgPx, aOgPy, aGridW, aGridH);
 
       ctx.strokeStyle = `rgba(${color},0.35)`;
       ctx.lineWidth = 0.5;
       for (let gx = 0; gx <= aCols; gx++) {
+        const { px: lx1, py: ly1 } = this.tp(origin.x + gx, origin.y);
+        const { px: lx2, py: ly2 } = this.tp(origin.x + gx, origin.y + aRows);
         ctx.beginPath();
-        ctx.moveTo((origin.x + gx) * T, origin.y * T);
-        ctx.lineTo((origin.x + gx) * T, (origin.y + aRows) * T);
+        ctx.moveTo(lx1, ly1);
+        ctx.lineTo(lx2, ly2);
         ctx.stroke();
       }
       for (let gy = 0; gy <= aRows; gy++) {
+        const { px: lx1, py: ly1 } = this.tp(origin.x, origin.y + gy);
+        const { px: lx2, py: ly2 } = this.tp(origin.x + aCols, origin.y + gy);
         ctx.beginPath();
-        ctx.moveTo(origin.x * T, (origin.y + gy) * T);
-        ctx.lineTo((origin.x + aCols) * T, (origin.y + gy) * T);
+        ctx.moveTo(lx1, ly1);
+        ctx.lineTo(lx2, ly2);
         ctx.stroke();
       }
 
       ctx.strokeStyle = `rgba(${color},0.65)`;
       ctx.lineWidth = 2;
-      ctx.strokeRect(origin.x * T, origin.y * T, aCols * T, aRows * T);
+      ctx.strokeRect(aOgPx, aOgPy, aGridW, aGridH);
 
       ctx.fillStyle = `rgba(${color},0.8)`;
       ctx.font = 'bold 9px monospace';
       const isBottom = team === Team.Bottom;
-      const ly = isBottom ? (origin.y + aRows + 1.2) * T : (origin.y - 0.4) * T;
-      ctx.fillText('TOWER ALLEY', origin.x * T, ly);
+      const { py: aLy } = isBottom ? this.tp(origin.x, origin.y + aRows + 1.2) : this.tp(origin.x, origin.y - 0.4);
+      ctx.fillText('TOWER ALLEY', aOgPx, aLy);
     }
   }
 
@@ -1433,33 +1547,33 @@ export class Renderer {
     // HQs — always draw (only 2)
     for (let ti = 0; ti < 2; ti++) {
       const pos = getHQPosition(ti as Team, state.mapDef);
-      const sy = (pos.y + HQ_HEIGHT) * T;
-      if (n < buf.length) { buf[n].y = sy; buf[n].kind = 0; buf[n].idx = ti; }
-      else buf.push({ y: sy, kind: 0, idx: ti });
+      const { py: hqPy } = this.tp(pos.x, pos.y + HQ_HEIGHT);
+      if (n < buf.length) { buf[n].y = hqPy; buf[n].kind = 0; buf[n].idx = ti; }
+      else buf.push({ y: hqPy, kind: 0, idx: ti });
       n++;
     }
 
     // Buildings — cull off-screen + fog filter
     for (let i = 0; i < state.buildings.length; i++) {
       const b = state.buildings[i];
-      const px = b.worldX * T, py = b.worldY * T;
-      if (px < vpX0 || px > vpX1 || py < vpY0 || py > vpY1) continue;
+      const { px: bpx, py: bpy } = this.tp(b.worldX, b.worldY);
+      if (bpx < vpX0 || bpx > vpX1 || bpy < vpY0 || bpy > vpY1) continue;
       // Fog: hide enemy buildings in unseen tiles
       if (fog && state.players[b.playerId]?.team !== localTeam && !this.isTileVisible(state, b.worldX, b.worldY)) continue;
-      const sy = (b.worldY + 1) * T;
-      if (n < buf.length) { buf[n].y = sy; buf[n].kind = 1; buf[n].idx = i; }
-      else buf.push({ y: sy, kind: 1, idx: i });
+      const { py: bsy } = this.tp(b.worldX, b.worldY + 1);
+      if (n < buf.length) { buf[n].y = bsy; buf[n].kind = 1; buf[n].idx = i; }
+      else buf.push({ y: bsy, kind: 1, idx: i });
       n++;
     }
 
     // Projectiles — cull off-screen + fog filter
     for (let i = 0; i < state.projectiles.length; i++) {
       const p = state.projectiles[i];
-      const px = p.x * T, py = p.y * T;
-      if (px < vpX0 || px > vpX1 || py < vpY0 || py > vpY1) continue;
+      const { px: ppx, py: ppy } = this.tp(p.x, p.y);
+      if (ppx < vpX0 || ppx > vpX1 || ppy < vpY0 || ppy > vpY1) continue;
       if (fog && !this.isTileVisible(state, p.x, p.y)) continue;
-      if (n < buf.length) { buf[n].y = py; buf[n].kind = 2; buf[n].idx = i; }
-      else buf.push({ y: py, kind: 2, idx: i });
+      if (n < buf.length) { buf[n].y = ppy; buf[n].kind = 2; buf[n].idx = i; }
+      else buf.push({ y: ppy, kind: 2, idx: i });
       n++;
     }
 
@@ -1467,23 +1581,23 @@ export class Renderer {
     for (let i = 0; i < state.units.length; i++) {
       const u = state.units[i];
       if (u.hp <= 0) continue;
-      const px = u.x * T, py = u.y * T;
-      if (px < vpX0 || px > vpX1 || py < vpY0 || py > vpY1) continue;
+      const { px: upx, py: upy } = this.tp(u.x, u.y);
+      if (upx < vpX0 || upx > vpX1 || upy < vpY0 || upy > vpY1) continue;
       // Fog: hide enemy units in unseen tiles
       if (fog && u.team !== localTeam && !this.isTileVisible(state, u.x, u.y)) continue;
-      if (n < buf.length) { buf[n].y = py; buf[n].kind = 3; buf[n].idx = i; }
-      else buf.push({ y: py, kind: 3, idx: i });
+      if (n < buf.length) { buf[n].y = upy; buf[n].kind = 3; buf[n].idx = i; }
+      else buf.push({ y: upy, kind: 3, idx: i });
       n++;
     }
 
     // Dead units — cull off-screen + fog filter
     for (let i = 0; i < this.deadUnits.length; i++) {
       const d = this.deadUnits[i];
-      const px = d.x * T, py = d.y * T;
-      if (px < vpX0 || px > vpX1 || py < vpY0 || py > vpY1) continue;
+      const { px: dpx, py: dpy } = this.tp(d.x, d.y);
+      if (dpx < vpX0 || dpx > vpX1 || dpy < vpY0 || dpy > vpY1) continue;
       if (fog && d.team !== localTeam && !this.isTileVisible(state, d.x, d.y)) continue;
-      if (n < buf.length) { buf[n].y = py; buf[n].kind = 4; buf[n].idx = i; }
-      else buf.push({ y: py, kind: 4, idx: i });
+      if (n < buf.length) { buf[n].y = dpy; buf[n].kind = 4; buf[n].idx = i; }
+      else buf.push({ y: dpy, kind: 4, idx: i });
       n++;
     }
 
@@ -1491,11 +1605,11 @@ export class Renderer {
     for (let i = 0; i < state.harvesters.length; i++) {
       const h = state.harvesters[i];
       if (h.state === 'dead') continue;
-      const px = h.x * T, py = h.y * T;
-      if (px < vpX0 || px > vpX1 || py < vpY0 || py > vpY1) continue;
+      const { px: hpx, py: hpy } = this.tp(h.x, h.y);
+      if (hpx < vpX0 || hpx > vpX1 || hpy < vpY0 || hpy > vpY1) continue;
       if (fog && state.players[h.playerId]?.team !== localTeam && !this.isTileVisible(state, h.x, h.y)) continue;
-      if (n < buf.length) { buf[n].y = py; buf[n].kind = 5; buf[n].idx = i; }
-      else buf.push({ y: py, kind: 5, idx: i });
+      if (n < buf.length) { buf[n].y = hpy; buf[n].kind = 5; buf[n].idx = i; }
+      else buf.push({ y: hpy, kind: 5, idx: i });
       n++;
     }
 
@@ -1537,8 +1651,7 @@ export class Renderer {
 
 
   private drawDeadUnit(ctx: CanvasRenderingContext2D, dead: DeadUnitSnapshot): void {
-    const px = dead.x * T;
-    const py = dead.y * T;
+    const { px, py } = this.tp(dead.x, dead.y);
     const cx = px + T / 2;
     const feetY = py + T * 0.70;
     const progress = Math.min(1, dead.ageSec / DEAD_UNIT_LIFETIME_SEC);
@@ -1618,7 +1731,7 @@ export class Renderer {
     const color = team === Team.Bottom ? '#2979ff' : '#ff1744';
     const bg = team === Team.Bottom ? 'rgba(41, 121, 255, 0.15)' : 'rgba(255, 23, 68, 0.15)';
 
-    const px = pos.x * T, py = pos.y * T;
+    const { px, py } = this.tp(pos.x, pos.y);
     const w = HQ_WIDTH * T, h = HQ_HEIGHT * T;
 
     // Map team to a player on that team for sprite lookup
@@ -1686,12 +1799,13 @@ export class Renderer {
       const player = state.players[b.playerId];
       const rc = RACE_COLORS[player.race];
       const playerColor = PLAYER_COLORS[b.playerId] || '#888';
-      const px = b.worldX * T + T / 2;
-      const py = b.worldY * T + T / 2;
+      const { px: _bpx, py: _bpy } = this.tp(b.worldX + 0.5, b.worldY + 0.5);
+      const px = _bpx;
+      const py = _bpy;
       const half = T / 2 - 2;
 
       const upgradeTier = b.upgradePath.length - 1; // 0=base, 1=tier1, 2=tier2
-      const sprite = this.sprites.getBuildingSprite(b.type, b.playerId);
+      const sprite = this.sprites.getBuildingSprite(b.type, b.playerId, this.isometric);
 
       if (sprite) {
         // Draw sprite scaled to fit one tile, anchored at bottom-center
@@ -1719,12 +1833,14 @@ export class Renderer {
         ctx.ellipse(px + bShadowX, bGroundY, drawW * 0.4, drawW * 0.1, 0, 0, Math.PI * 2);
         ctx.fill();
 
-        // Seed buildings: draw plant sprite instead of normal building
+        // Seed buildings: draw plant sprite scaled by tier
         if (b.isSeed) {
+          const tier = b.seedTier ?? 0;
+          const tierScale = [1, 1.4, 1.9][tier]; // T1 normal, T2 bigger, T3 biggest
           const seedData = this.sprites.getSeedSprite();
           if (seedData) {
             const [seedImg, seedDef] = seedData;
-            const seedSize = T * 1.8 * buildScale;
+            const seedSize = T * 1.8 * buildScale * tierScale;
             const seedAspect = seedDef.frameW / seedDef.frameH;
             const seedW = seedSize * seedAspect;
             const seedH = seedSize;
@@ -1735,9 +1851,10 @@ export class Renderer {
           } else {
             ctx.drawImage(sprite, drawX, drawY, drawW, drawH);
           }
-          // Seed progress bar
+          // Seed progress bar (color by tier)
           if (b.seedTimer != null) {
-            const maxTime = 15 * TICK_RATE;
+            const seedGrowTimes = [30 * TICK_RATE, 60 * TICK_RATE, 120 * TICK_RATE];
+            const maxTime = seedGrowTimes[tier];
             const pct = 1 - b.seedTimer / maxTime;
             const barW = drawW * 0.8;
             const barH = 3;
@@ -1745,7 +1862,8 @@ export class Renderer {
             const barY = bGroundY - drawH * 0.5;
             ctx.fillStyle = '#333';
             ctx.fillRect(barX, barY, barW, barH);
-            ctx.fillStyle = '#81c784';
+            const tierColors = ['#81c784', '#ffd740', '#ff8a65'];
+            ctx.fillStyle = tierColors[tier];
             ctx.fillRect(barX, barY, barW * pct, barH);
           }
         } else if (b.type !== BuildingType.Research) {
@@ -1993,7 +2111,8 @@ export class Renderer {
         }
       }
     }
-    const px = p.x * T + T / 2, py = p.y * T + pyOffset;
+    const { px: _ppx, py: _ppy } = this.tp(p.x + 0.5, p.y);
+    const px = _ppx, py = _ppy + pyOffset;
 
     // Animation frame — loop through the bright middle portion of the lifecycle
     // Orbs: 30 frames, circles: 48 frames. Frames ~5-15 are the brightest.
@@ -2123,7 +2242,7 @@ export class Renderer {
   private drawOneUnit(ctx: CanvasRenderingContext2D, state: GameState, u: UnitState): void {
     {
       const playerColor = PLAYER_COLORS[u.playerId] || '#888';
-      const px = u.x * T, py = u.y * T;
+      const { px, py } = this.tp(u.x, u.y);
       const laneColor = u.lane === Lane.Left ? LANE_LEFT_COLOR : LANE_RIGHT_COLOR;
       const r = u.range > 2 ? 3 : 4;
       const cx = px + T / 2;
@@ -2169,10 +2288,11 @@ export class Renderer {
         // Ranged/caster units stand still when attacking without a dedicated attack sprite
         const idleWhileAttacking = isAttacking && (cat === 'ranged' || cat === 'caster')
           && race != null && !this.sprites.hasAttackSprite(race, cat, u.upgradeNode);
-        // Check if unit is actually moving (compare to last frame position)
-        const lastPos = this.lastUnitPositions.get(u.id);
-        const isStationary = lastPos != null
-          && Math.abs(u.x - lastPos.x) < 0.05 && Math.abs(u.y - lastPos.y) < 0.05;
+        // Check if unit is actually moving — compare against previous game tick position
+        // (not previous render frame) so walk/idle doesn't flicker at 60fps vs 20tps
+        const lastTickPos = this.prevTickUnitPos.get(u.id);
+        const isStationary = lastTickPos == null
+          || (Math.abs(u.x - lastTickPos.x) < 0.04 && Math.abs(u.y - lastTickPos.y) < 0.04);
         // Normalize animation: ~1 cycle per second (20 ticks) regardless of frame count
         const frame = (idleWhileAttacking || isRangedOnCooldown || (isStationary && !isAttacking)) ? 0 : getSpriteFrame(state.tick, def);
         // Anchor feet at consistent ground level
@@ -2720,7 +2840,7 @@ export class Renderer {
 
   private drawOneHarvester(ctx: CanvasRenderingContext2D, state: GameState, h: HarvesterState): void {
     {
-      const px = h.x * T, py = h.y * T;
+      const { px, py } = this.tp(h.x, h.y);
 
       // Drop shadow (day/night responsive)
       ctx.fillStyle = `rgba(0,0,0,${this.dayNight.brightness * 0.18})`;
@@ -2831,8 +2951,7 @@ export class Renderer {
 
     // Respawning: show a faded timer at center
     if (d.state === 'respawning') {
-      const px = d.x * T + T / 2;
-      const py = d.y * T + T / 2;
+      const { px, py } = this.tp(d.x + 0.5, d.y + 0.5);
       const secs = Math.ceil(d.respawnTimer / 20);
       ctx.save();
       ctx.globalAlpha = 0.4 + 0.2 * Math.sin(Date.now() / 500);
@@ -2852,8 +2971,7 @@ export class Renderer {
       return;
     }
 
-    const px = d.x * T + T / 2;
-    const py = d.y * T + T / 2;
+    const { px, py } = this.tp(d.x + 0.5, d.y + 0.5);
     const size = 10;
     const pulse = 0.7 + 0.3 * Math.sin(Date.now() / 300);
 
@@ -2933,9 +3051,11 @@ export class Renderer {
       const race = state.players[p.sourcePlayerId]?.race;
       const color = race ? (RACE_COLORS[race]?.primary ?? '#fff') : '#fff';
       ctx.strokeStyle = color + '30';
+      const { px: talPx1, py: talPy1 } = this.tp(p.x + 0.5, p.y + 0.5);
+      const { px: talPx2, py: talPy2 } = this.tp(target.x + 0.5, target.y + 0.5);
       ctx.beginPath();
-      ctx.moveTo(p.x * T + T / 2, p.y * T + T / 2);
-      ctx.lineTo(target.x * T + T / 2, target.y * T + T / 2);
+      ctx.moveTo(talPx1, talPy1);
+      ctx.lineTo(talPx2, talPy2);
       ctx.stroke();
     }
   }
@@ -2944,7 +3064,7 @@ export class Renderer {
 
   private drawNukeTelegraphs(ctx: CanvasRenderingContext2D, state: GameState): void {
     for (const tel of state.nukeTelegraphs) {
-      const px = tel.x * T, py = tel.y * T;
+      const { px, py } = this.tp(tel.x, tel.y);
       const r = tel.radius * T;
       const pulse = 0.5 + 0.5 * Math.sin(Date.now() / 100);
       const progress = 1 - tel.timer / Math.round(1.25 * 20); // 0 -> 1 as it nears detonation
@@ -2986,8 +3106,7 @@ export class Renderer {
       if (p.team !== localTeam) continue;
       const progress = p.age / p.maxAge;
       const alpha = Math.max(0, 1 - progress);
-      const px = p.x * T;
-      const py = p.y * T;
+      const { px, py } = this.tp(p.x, p.y);
       const baseR = 10 + progress * 16;
 
       ctx.beginPath();
@@ -3020,7 +3139,8 @@ export class Renderer {
       ctx.globalAlpha = alpha;
       ctx.fillStyle = p.color;
       ctx.beginPath();
-      ctx.arc(p.x * T, p.y * T, size, 0, Math.PI * 2);
+      const { px: partPx, py: partPy } = this.tp(p.x, p.y);
+      ctx.arc(partPx, partPy, size, 0, Math.PI * 2);
       ctx.fill();
     }
     ctx.globalAlpha = 1;
@@ -3030,6 +3150,7 @@ export class Renderer {
     for (let i = this.deathEffects.length - 1; i >= 0; i--) {
       const d = this.deathEffects[i];
       const progress = d.frame / d.maxFrames;
+      const { px: dePx, py: dePy } = this.tp(d.x, d.y);
 
       if (d.type === 'race_burst' && d.race != null) {
         // Race-colored OVERBURN circle burst on unit death
@@ -3042,7 +3163,7 @@ export class Renderer {
           const scale = 1 + progress * 0.5; // expand slightly
           const s = d.size * scale;
           ctx.globalAlpha = alpha;
-          drawGridFrame(ctx, img, def, sprFrame, d.x * T - s / 2, d.y * T - s / 2, s, s);
+          drawGridFrame(ctx, img, def, sprFrame, dePx - s / 2, dePy - s / 2, s, s);
           ctx.globalAlpha = 1;
         } else {
           // Fallback to dust if sprite not loaded
@@ -3051,7 +3172,7 @@ export class Renderer {
             const [img, def] = fxData;
             const sprFrame = Math.min(Math.floor(progress * def.cols), def.cols - 1);
             ctx.globalAlpha = 1 - progress * 0.5;
-            drawSpriteFrame(ctx, img, def as SpriteDef, sprFrame, d.x * T - d.size / 2, d.y * T - d.size / 2, d.size, d.size);
+            drawSpriteFrame(ctx, img, def as SpriteDef, sprFrame, dePx - d.size / 2, dePy - d.size / 2, d.size, d.size);
             ctx.globalAlpha = 1;
           }
         }
@@ -3066,7 +3187,7 @@ export class Renderer {
           const alpha = 1 - progress * 0.5;
           ctx.globalAlpha = alpha;
           const s = d.size;
-          drawSpriteFrame(ctx, img, def as SpriteDef, sprFrame, d.x * T - s / 2, d.y * T - s / 2, s, s);
+          drawSpriteFrame(ctx, img, def as SpriteDef, sprFrame, dePx - s / 2, dePy - s / 2, s, s);
           ctx.globalAlpha = 1;
         }
       }
@@ -3131,6 +3252,7 @@ export class Renderer {
         this.prevX.delete(id);
         this.facing.delete(id);
         this.smoothHp.delete(id);
+        this.prevTickUnitPos.delete(id);
       }
     }
     this.lastUnitIds = currentUnitIds;
@@ -3224,8 +3346,9 @@ export class Renderer {
       ctx.globalAlpha = Math.max(0, alpha);
       ctx.font = `bold ${fontSize}px monospace`;
       ctx.textAlign = 'center';
-      const px = ft.x * T + xOff;
-      const py = ft.y * T + yOff;
+      const { px: ftBasePx, py: ftBasePy } = this.tp(ft.x, ft.y);
+      const px = ftBasePx + xOff;
+      const py = ftBasePy + yOff;
 
       ctx.save();
       if (scale !== 1) {
@@ -3458,7 +3581,7 @@ export class Renderer {
   private drawNukeEffects(ctx: CanvasRenderingContext2D, state: GameState): void {
     for (const n of state.nukeEffects) {
       const progress = n.age / n.maxAge;
-      const px = n.x * T, py = n.y * T;
+      const { px, py } = this.tp(n.x, n.y);
       const r = n.radius * T;
 
       // Scorched ground (persists throughout)
@@ -3514,7 +3637,7 @@ export class Renderer {
 
       if (eff.type === 'deep_rain') {
         const md = state.mapDef;
-        const mapW = md.width * T, mapH = md.height * T;
+        const { px: mapW, py: mapH } = this.tp(md.width, md.height);
         // Dark blue-grey overlay
         ctx.fillStyle = `rgba(40, 60, 90, ${fade * 0.12})`;
         ctx.fillRect(0, 0, mapW, mapH);
@@ -3538,7 +3661,7 @@ export class Renderer {
           ctx.fillRect(0, 0, mapW, mapH);
         }
       } else if (eff.type === 'wild_frenzy' && eff.x != null && eff.y != null && eff.radius != null) {
-        const px = eff.x * T, py = eff.y * T;
+        const { px, py } = this.tp(eff.x, eff.y);
         const r = eff.radius * T;
         const pulse = 0.6 + 0.4 * Math.sin(tick * 0.25);
 
@@ -3576,10 +3699,101 @@ export class Renderer {
           ctx.fillStyle = `rgba(255, 220, 100, ${fade * 0.5})`;
           ctx.fill();
         }
+      } else if (eff.type === 'demon_fireball_telegraph' && eff.x != null && eff.y != null && eff.radius != null) {
+        const { px, py } = this.tp(eff.x, eff.y);
+        const r = eff.radius * T;
+        const pulse = 0.5 + 0.5 * Math.sin(tick * 0.4);
+        const warn = 1.0; // always fully visible — it's a warning
+
+        // Scorched ground target indicator
+        ctx.beginPath();
+        ctx.arc(px, py, r * 0.85, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(60, 10, 0, ${warn * 0.18})`;
+        ctx.fill();
+
+        // Outer pulsing ring
+        ctx.beginPath();
+        ctx.arc(px, py, r, 0, Math.PI * 2);
+        ctx.strokeStyle = `rgba(255, 80, 0, ${warn * (0.5 + 0.5 * pulse)})`;
+        ctx.lineWidth = 2.5;
+        ctx.stroke();
+
+        // Inner ring (rotates)
+        ctx.save();
+        ctx.translate(px, py);
+        ctx.rotate(tick * 0.07);
+        ctx.beginPath();
+        ctx.arc(0, 0, r * 0.65, 0, Math.PI * 2);
+        ctx.setLineDash([6, 10]);
+        ctx.strokeStyle = `rgba(255, 200, 50, ${warn * 0.55})`;
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.restore();
+
+        // Cross-hair lines
+        ctx.strokeStyle = `rgba(255, 100, 0, ${warn * 0.35})`;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(px - r, py); ctx.lineTo(px + r, py);
+        ctx.moveTo(px, py - r); ctx.lineTo(px, py + r);
+        ctx.stroke();
+
+      } else if (eff.type === 'demon_fireball_inbound' && eff.data != null) {
+        const { px: cx, py: cy } = this.tp(eff.data.curX, eff.data.curY);
+        const orbR = 14;
+
+        // Glow halo
+        const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, orbR * 2.5);
+        glow.addColorStop(0, 'rgba(255, 220, 80, 0.45)');
+        glow.addColorStop(0.5, 'rgba(255, 80, 0, 0.2)');
+        glow.addColorStop(1, 'rgba(200, 20, 0, 0)');
+        ctx.beginPath();
+        ctx.arc(cx, cy, orbR * 2.5, 0, Math.PI * 2);
+        ctx.fillStyle = glow;
+        ctx.fill();
+
+        // Fire trail — draw several fading circles behind current position
+        if (eff.x != null && eff.y != null) {
+          const { px: tx, py: ty } = this.tp(eff.x, eff.y);
+          const totalDx = tx - cx, totalDy = ty - cy;
+          const totalDist = Math.sqrt(totalDx * totalDx + totalDy * totalDy) || 1;
+          const trailSteps = 6;
+          for (let ti = 0; ti < trailSteps; ti++) {
+            const t = (ti + 1) / trailSteps;
+            const trailX = cx - (totalDx / totalDist) * t * orbR * 2;
+            const trailY = cy - (totalDy / totalDist) * t * orbR * 2;
+            const alpha = (1 - t) * 0.35;
+            const tr = orbR * (1 - t * 0.6);
+            ctx.beginPath();
+            ctx.arc(trailX, trailY, tr, 0, Math.PI * 2);
+            ctx.fillStyle = `rgba(255, ${80 + Math.round(t * 80)}, 0, ${alpha})`;
+            ctx.fill();
+          }
+        }
+
+        // Core orb
+        const core = ctx.createRadialGradient(cx - orbR * 0.3, cy - orbR * 0.3, 1, cx, cy, orbR);
+        core.addColorStop(0, 'rgba(255, 255, 200, 1)');
+        core.addColorStop(0.35, 'rgba(255, 200, 50, 0.95)');
+        core.addColorStop(0.7, 'rgba(255, 80, 0, 0.9)');
+        core.addColorStop(1, 'rgba(180, 20, 0, 0.8)');
+        ctx.beginPath();
+        ctx.arc(cx, cy, orbR, 0, Math.PI * 2);
+        ctx.fillStyle = core;
+        ctx.fill();
+
+        // Outer shimmer
+        ctx.beginPath();
+        ctx.arc(cx, cy, orbR + 3, 0, Math.PI * 2);
+        ctx.strokeStyle = `rgba(255, 160, 0, ${0.5 + 0.3 * Math.sin(tick * 0.5)})`;
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+
       } else if (eff.type === 'demon_fireball' && eff.x != null && eff.y != null && eff.radius != null) {
         const maxDurFB = Math.round(0.8 * TICK_RATE);
         const progress = 1 - eff.duration / maxDurFB;
-        const px = eff.x * T, py = eff.y * T;
+        const { px, py } = this.tp(eff.x, eff.y);
         const r = eff.radius * T;
 
         // Expanding fire ring
@@ -3628,7 +3842,7 @@ export class Renderer {
     // Draw fleeing goblin indicator (exclamation mark above head)
     for (const u of state.units) {
       if (u.fleeTimer != null && u.fleeTimer > 0) {
-        const px = u.x * T, py = u.y * T;
+        const { px, py } = this.tp(u.x, u.y);
         ctx.fillStyle = '#ffeb3b';
         ctx.font = 'bold 10px monospace';
         ctx.textAlign = 'center';
@@ -3953,6 +4167,21 @@ export class Renderer {
   /** If screen coords (sx, sy) are inside the minimap, return world-pixel coords. */
   minimapHitTest(sx: number, sy: number): { worldX: number; worldY: number } | null {
     const compact = this.canvas.clientWidth < 600;
+    if (this.isometric) {
+      const bounds = isoWorldBounds(this.mapW, this.mapH);
+      const isoW = bounds.maxX - bounds.minX;
+      const isoH = bounds.maxY - bounds.minY;
+      const isoAspect = isoW / isoH;
+      let mmW: number, mmH: number;
+      if (isoAspect >= 1) { mmW = compact ? 120 : 180; mmH = Math.round(mmW / isoAspect); }
+      else { mmH = compact ? 120 : 180; mmW = Math.round(mmH * isoAspect); }
+      const mmx = this.canvas.clientWidth - mmW - 10;
+      const mmy = (compact ? 46 : 60) + getSafeTop();
+      if (sx < mmx || sx > mmx + mmW || sy < mmy || sy > mmy + mmH) return null;
+      const worldPx = bounds.minX + ((sx - mmx) / mmW) * isoW;
+      const worldPy = bounds.minY + ((sy - mmy) / mmH) * isoH;
+      return { worldX: worldPx, worldY: worldPy };
+    }
     const aspect = this.mapW / this.mapH;
     let mmW: number, mmH: number;
     if (aspect >= 1) {
@@ -3974,22 +4203,36 @@ export class Renderer {
     const compact = this.canvas.clientWidth < 600;
     const mW = this.mapW;
     const mH = this.mapH;
-    // Minimap aspect ratio matches the actual map
-    const aspect = mW / mH;
-    let mmW: number, mmH: number;
-    if (aspect >= 1) {
-      // Landscape map: wider minimap
-      mmW = compact ? 120 : 180;
-      mmH = Math.round(mmW / aspect);
+
+    // In isometric mode, the minimap maps tile coords through tp() then scales into the minimap box
+    // We use a helper to convert tile coords to minimap screen coords
+    let mmW: number, mmH: number, mx: number, my: number;
+    let tileToMM: (tx: number, ty: number) => { mx: number; my: number };
+
+    if (this.isometric) {
+      const bounds = isoWorldBounds(mW, mH);
+      const isoW = bounds.maxX - bounds.minX;
+      const isoH = bounds.maxY - bounds.minY;
+      const isoAspect = isoW / isoH;
+      if (isoAspect >= 1) { mmW = compact ? 120 : 180; mmH = Math.round(mmW / isoAspect); }
+      else { mmH = compact ? 120 : 180; mmW = Math.round(mmH * isoAspect); }
+      mx = this.canvas.clientWidth - mmW - 10;
+      my = (compact ? 46 : 60) + getSafeTop();
+      const sX = mmW / isoW, sY = mmH / isoH;
+      const bMinX = bounds.minX, bMinY = bounds.minY;
+      tileToMM = (tx: number, ty: number) => {
+        const { px: wpx, py: wpy } = this.tp(tx, ty);
+        return { mx: mx + (wpx - bMinX) * sX, my: my + (wpy - bMinY) * sY };
+      };
     } else {
-      // Portrait map: taller minimap
-      mmH = compact ? 120 : 180;
-      mmW = Math.round(mmH * aspect);
+      const aspect = mW / mH;
+      if (aspect >= 1) { mmW = compact ? 120 : 180; mmH = Math.round(mmW / aspect); }
+      else { mmH = compact ? 120 : 180; mmW = Math.round(mmH * aspect); }
+      mx = this.canvas.clientWidth - mmW - 10;
+      my = (compact ? 46 : 60) + getSafeTop();
+      const scaleX = mmW / mW, scaleY = mmH / mH;
+      tileToMM = (tx: number, ty: number) => ({ mx: mx + tx * scaleX, my: my + ty * scaleY });
     }
-    const mx = this.canvas.clientWidth - mmW - 10;
-    const my = (compact ? 46 : 60) + getSafeTop(); // top-right, just below HUD bar
-    const scaleX = mmW / mW;
-    const scaleY = mmH / mH;
 
     // Background — water color
     ctx.fillStyle = 'rgba(60, 110, 100, 0.9)';
@@ -4000,26 +4243,28 @@ export class Renderer {
     ctx.lineWidth = 1;
     ctx.beginPath();
     if (state.mapDef.shapeAxis === 'y') {
-      // Portrait: trace along y-axis, margins on x
       for (let y = 0; y <= mH; y += 4) {
         const range = state.mapDef.getPlayableRange(y);
-        if (y === 0) ctx.moveTo(mx + range.min * scaleX, my + y * scaleY);
-        else ctx.lineTo(mx + range.min * scaleX, my + y * scaleY);
+        const p = tileToMM(range.min, y);
+        if (y === 0) ctx.moveTo(p.mx, p.my);
+        else ctx.lineTo(p.mx, p.my);
       }
       for (let y = mH; y >= 0; y -= 4) {
         const range = state.mapDef.getPlayableRange(y);
-        ctx.lineTo(mx + range.max * scaleX, my + y * scaleY);
+        const p = tileToMM(range.max, y);
+        ctx.lineTo(p.mx, p.my);
       }
     } else {
-      // Landscape: trace along x-axis, margins on y
       for (let x = 0; x <= mW; x += 4) {
         const range = state.mapDef.getPlayableRange(x);
-        if (x === 0) ctx.moveTo(mx + x * scaleX, my + range.min * scaleY);
-        else ctx.lineTo(mx + x * scaleX, my + range.min * scaleY);
+        const p = tileToMM(x, range.min);
+        if (x === 0) ctx.moveTo(p.mx, p.my);
+        else ctx.lineTo(p.mx, p.my);
       }
       for (let x = mW; x >= 0; x -= 4) {
         const range = state.mapDef.getPlayableRange(x);
-        ctx.lineTo(mx + x * scaleX, my + range.max * scaleY);
+        const p = tileToMM(x, range.max);
+        ctx.lineTo(p.mx, p.my);
       }
     }
     ctx.closePath();
@@ -4032,17 +4277,17 @@ export class Renderer {
     const goldRemaining = state.diamondCells.some(c => c.gold > 0);
     if (goldRemaining) {
       ctx.fillStyle = 'rgba(200, 170, 20, 0.6)';
-      const cx = mx + dc.x * scaleX;
-      const cy = my + dc.y * scaleY;
       const dHW = state.mapDef.diamondHalfW;
       const dHH = state.mapDef.diamondHalfH;
-      const rw = dHW * scaleX;
-      const rh = dHH * scaleY;
+      const dcTop = tileToMM(dc.x, dc.y - dHH);
+      const dcRight = tileToMM(dc.x + dHW, dc.y);
+      const dcBottom = tileToMM(dc.x, dc.y + dHH);
+      const dcLeft = tileToMM(dc.x - dHW, dc.y);
       ctx.beginPath();
-      ctx.moveTo(cx, cy - rh);
-      ctx.lineTo(cx + rw, cy);
-      ctx.lineTo(cx, cy + rh);
-      ctx.lineTo(cx - rw, cy);
+      ctx.moveTo(dcTop.mx, dcTop.my);
+      ctx.lineTo(dcRight.mx, dcRight.my);
+      ctx.lineTo(dcBottom.mx, dcBottom.my);
+      ctx.lineTo(dcLeft.mx, dcLeft.my);
       ctx.closePath();
       ctx.fill();
       ctx.strokeStyle = 'rgba(255, 220, 120, 0.85)';
@@ -4076,8 +4321,9 @@ export class Renderer {
       if (c.count < 2) continue;
       const intensity = Math.min(1, c.count / 8);
       const r = 3 + intensity * 4;
+      const cp = tileToMM(c.x, c.y);
       ctx.beginPath();
-      ctx.arc(mx + c.x * scaleX, my + c.y * scaleY, r * (0.8 + pulse * 0.4), 0, Math.PI * 2);
+      ctx.arc(cp.mx, cp.my, r * (0.8 + pulse * 0.4), 0, Math.PI * 2);
       ctx.fillStyle = `rgba(255, 100, 50, ${intensity * 0.3 * (0.6 + pulse * 0.4)})`;
       ctx.fill();
     }
@@ -4087,12 +4333,13 @@ export class Renderer {
       const vis = state.visibility[localTeam];
       if (vis) {
         ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
-        // Draw fogged regions in coarse blocks for performance
         const step = 4;
         for (let ty = 0; ty < mH; ty += step) {
           for (let tx = 0; tx < mW; tx += step) {
             if (!vis[ty * mW + tx]) {
-              ctx.fillRect(mx + tx * scaleX, my + ty * scaleY, step * scaleX + 1, step * scaleY + 1);
+              const fp = tileToMM(tx, ty);
+              const fp2 = tileToMM(tx + step, ty + step);
+              ctx.fillRect(fp.mx, fp.my, fp2.mx - fp.mx + 1, fp2.my - fp.my + 1);
             }
           }
         }
@@ -4103,7 +4350,8 @@ export class Renderer {
     for (const u of state.units) {
       if (fog && u.team !== localTeam && !this.isTileVisible(state, u.x, u.y)) continue;
       ctx.fillStyle = PLAYER_COLORS[u.playerId] || '#888';
-      ctx.fillRect(mx + u.x * scaleX - 1, my + u.y * scaleY - 1, 2, 2);
+      const up = tileToMM(u.x, u.y);
+      ctx.fillRect(up.mx - 1, up.my - 1, 2, 2);
     }
 
     // Team-visible ping markers
@@ -4111,10 +4359,9 @@ export class Renderer {
       if (p.team !== localTeam) continue;
       const pp = p.age / p.maxAge;
       const pr = 2 + 4 * pp;
-      const px = mx + p.x * scaleX;
-      const py = my + p.y * scaleY;
+      const pingP = tileToMM(p.x, p.y);
       ctx.beginPath();
-      ctx.arc(px, py, pr, 0, Math.PI * 2);
+      ctx.arc(pingP.mx, pingP.my, pr, 0, Math.PI * 2);
       ctx.strokeStyle = `rgba(255,235,59,${0.9 - 0.7 * pp})`;
       ctx.lineWidth = 1;
       ctx.stroke();
@@ -4126,7 +4373,8 @@ export class Renderer {
       if (fog && state.players[h.playerId]?.team !== localTeam && !this.isTileVisible(state, h.x, h.y)) continue;
       ctx.fillStyle = PLAYER_COLORS[h.playerId] || '#888';
       ctx.globalAlpha = 0.7;
-      ctx.fillRect(mx + h.x * scaleX, my + h.y * scaleY, 1, 1);
+      const hp = tileToMM(h.x, h.y);
+      ctx.fillRect(hp.mx, hp.my, 1, 1);
       ctx.globalAlpha = 1;
     }
 
@@ -4134,28 +4382,29 @@ export class Renderer {
     for (const b of state.buildings) {
       if (fog && state.players[b.playerId]?.team !== localTeam && !this.isTileVisible(state, b.worldX, b.worldY)) continue;
       ctx.fillStyle = PLAYER_COLORS[b.playerId] || '#888';
-      ctx.fillRect(mx + b.worldX * scaleX - 1, my + b.worldY * scaleY - 1, 3, 2);
+      const bp = tileToMM(b.worldX, b.worldY);
+      ctx.fillRect(bp.mx - 1, bp.my - 1, 3, 2);
     }
 
     // HQs
     for (const team of [Team.Bottom, Team.Top]) {
       const hq = getHQPosition(team, state.mapDef);
       ctx.fillStyle = team === Team.Bottom ? '#2979ff' : '#ff1744';
-      ctx.fillRect(mx + hq.x * scaleX, my + hq.y * scaleY, HQ_WIDTH * scaleX, HQ_HEIGHT * scaleY);
+      const hqp1 = tileToMM(hq.x, hq.y);
+      const hqp2 = tileToMM(hq.x + HQ_WIDTH, hq.y + HQ_HEIGHT);
+      ctx.fillRect(hqp1.mx, hqp1.my, hqp2.mx - hqp1.mx, hqp2.my - hqp1.my);
     }
 
     // Recent quick-chat badges near team HQ
     const recentChats = state.quickChats.filter(c => c.team === localTeam && c.age < 20);
     for (const c of recentChats) {
       const hq = getHQPosition(c.team, state.mapDef);
-      // Offset each chat badge slightly so multiple players' badges don't overlap
-      const chatOffset = (c.playerId % 3 - 1) * 4; // -4, 0, +4
-      const bx = mx + (hq.x + HQ_WIDTH / 2 + chatOffset) * scaleX;
-      const by = my + (hq.y + HQ_HEIGHT / 2) * scaleY;
+      const chatOffset = (c.playerId % 3 - 1) * 4;
+      const cp = tileToMM(hq.x + HQ_WIDTH / 2 + chatOffset, hq.y + HQ_HEIGHT / 2);
       const style = quickChatStyle(c.message);
       ctx.fillStyle = style.color;
       ctx.beginPath();
-      ctx.arc(bx, by, 3.2, 0, Math.PI * 2);
+      ctx.arc(cp.mx, cp.my, 3.2, 0, Math.PI * 2);
       ctx.fill();
     }
 
@@ -4163,14 +4412,29 @@ export class Renderer {
     const vx = this.camera.x, vy = this.camera.y;
     const vw = this.canvas.clientWidth / this.camera.zoom;
     const vh = this.canvas.clientHeight / this.camera.zoom;
-    ctx.strokeStyle = '#fff';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(
-      mx + (vx / T) * scaleX,
-      my + (vy / T) * scaleY,
-      (vw / T) * scaleX,
-      (vh / T) * scaleY
-    );
+    if (this.isometric) {
+      const bounds = isoWorldBounds(mW, mH);
+      const isoW = bounds.maxX - bounds.minX;
+      const isoH = bounds.maxY - bounds.minY;
+      const sX = mmW / isoW, sY = mmH / isoH;
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(
+        mx + (vx - bounds.minX) * sX,
+        my + (vy - bounds.minY) * sY,
+        vw * sX,
+        vh * sY
+      );
+    } else {
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(
+        mx + (vx / T) * (mmW / mW),
+        my + (vy / T) * (mmH / mH),
+        (vw / T) * (mmW / mW),
+        (vh / T) * (mmH / mH)
+      );
+    }
 
     // Minimap label intentionally omitted for a cleaner HUD.
   }

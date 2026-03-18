@@ -248,7 +248,7 @@ export const UNIT_STATS: Record<Race, RaceUnits> = {
   // === WILD (Beasts) — Aggression & Poison ===
   [Race.Wild]: {
     [BuildingType.MeleeSpawner]: {
-      name: 'Lurker', hp: 72, damage: 8, attackSpeed: 1.0, moveSpeed: 3.0, range: 1, ascii: '%#',
+      name: 'Lurker', hp: 90, damage: 8, attackSpeed: 1.0, moveSpeed: 3.0, range: 1, ascii: '%#',
     },
     [BuildingType.RangedSpawner]: {
       name: 'Bonechucker', hp: 38, damage: 14, attackSpeed: 1.1, moveSpeed: 3.6, range: 6, ascii: '.@',
@@ -260,7 +260,7 @@ export const UNIT_STATS: Record<Race, RaceUnits> = {
   // === GEISTS (Undead) — Undying Attrition ===
   [Race.Geists]: {
     [BuildingType.MeleeSpawner]: {
-      name: 'Bone Knight', hp: 94, damage: 8, attackSpeed: 1.1, moveSpeed: 3.5, range: 1, ascii: '~^',
+      name: 'Bone Knight', hp: 115, damage: 8, attackSpeed: 1.1, moveSpeed: 3.5, range: 1, ascii: '~^',
     },
     [BuildingType.RangedSpawner]: {
       name: 'Wraith Bow', hp: 29, damage: 13, attackSpeed: 1.2, moveSpeed: 3.8, range: 7, ascii: '~>',
@@ -619,11 +619,11 @@ export const UPGRADE_TREES: Record<Race, Partial<Record<BuildingType, Record<Upg
   [Race.Wild]: {
     [BuildingType.MeleeSpawner]: {
       B: { name: 'Cave Bear', desc: '+40% HP, +25% dmg', hpMult: 1.40, damageMult: 1.25, spawnSpeedMult: 0.88 },
-      C: { name: 'Spider Brood', desc: 'Spawn 3 small spiders, +25% speed', hpMult: 0.40, damageMult: 0.40, moveSpeedMult: 1.25, attackSpeedMult: 0.85, special: { spawnCount: 3 }, spawnSpeedMult: 0.88 },
+      C: { name: 'Spider Brood', desc: 'Spawn 3 spiders, +25% speed', hpMult: 0.65, damageMult: 0.60, moveSpeedMult: 1.25, attackSpeedMult: 0.85, special: { spawnCount: 3 }, spawnSpeedMult: 0.88 },
       D: { name: 'Minotaur', desc: '+55% HP, +40% dmg, cleave 2', hpMult: 1.55, damageMult: 1.40, special: { cleaveTargets: 2 }, spawnSpeedMult: 0.82 },
       E: { name: 'Dire Bear', desc: '+65% HP, +35% dmg, 20% dmg reduction', hpMult: 1.65, damageMult: 1.35, special: { damageReductionPct: 0.20 }, spawnSpeedMult: 0.82 },
-      F: { name: 'Viper Nest', desc: 'Spawn 3 snakes, +35% speed, +2 slow', hpMult: 0.45, damageMult: 0.45, moveSpeedMult: 1.35, special: { spawnCount: 3, extraSlowStacks: 2 }, spawnSpeedMult: 0.82 },
-      G: { name: 'Spider Swarm', desc: 'Spawn 5 spiders, faster atk, +2 slow', attackSpeedMult: 0.80, damageMult: 0.45, hpMult: 0.30, special: { spawnCount: 5, extraSlowStacks: 2 }, spawnSpeedMult: 0.82 },
+      F: { name: 'Viper Nest', desc: 'Spawn 3 snakes, +35% speed, +2 slow', hpMult: 0.65, damageMult: 0.65, moveSpeedMult: 1.35, special: { spawnCount: 3, extraSlowStacks: 2 }, spawnSpeedMult: 0.82 },
+      G: { name: 'Spider Swarm', desc: 'Spawn 5 spiders, faster atk, +2 slow', attackSpeedMult: 0.80, damageMult: 0.65, hpMult: 0.50, special: { spawnCount: 5, extraSlowStacks: 2 }, spawnSpeedMult: 0.82 },
     },
     [BuildingType.RangedSpawner]: {
       B: { name: 'Chameleon', desc: '+30% HP, +30% dmg', hpMult: 1.30, damageMult: 1.30, spawnSpeedMult: 0.88 },
@@ -688,11 +688,11 @@ export const UPGRADE_TREES: Record<Race, Partial<Record<BuildingType, Record<Upg
   // ============ TENDERS (Nature) — Regen & Heal [TALL] ============
   [Race.Tenders]: {
     [BuildingType.MeleeSpawner]: {
-      B: { name: 'Young Ent', desc: '+55% HP, +20% dmg', hpMult: 1.55, damageMult: 1.20, spawnSpeedMult: 0.90, cost: { gold: 0, wood: 45, stone: 0 } },
-      C: { name: 'Wild Radish', desc: '+35% HP, regen 3/s', hpMult: 1.35, special: { regenPerSec: 3 }, spawnSpeedMult: 0.90, cost: { gold: 90, wood: 0, stone: 0 } },
-      D: { name: 'Elder Ent', desc: '+75% HP, 20% dmg reduction', hpMult: 1.75, special: { damageReductionPct: 0.20 }, spawnSpeedMult: 0.85, cost: { gold: 0, wood: 90, stone: 0 } },
+      B: { name: 'Young Ent', desc: '+35% HP, +20% dmg', hpMult: 1.35, damageMult: 1.20, spawnSpeedMult: 0.90, cost: { gold: 0, wood: 45, stone: 0 } },
+      C: { name: 'Wild Radish', desc: '+20% HP, regen 2/s', hpMult: 1.20, special: { regenPerSec: 2 }, spawnSpeedMult: 0.90, cost: { gold: 90, wood: 0, stone: 0 } },
+      D: { name: 'Elder Ent', desc: '+45% HP, +20% dmg', hpMult: 1.45, damageMult: 1.20, spawnSpeedMult: 0.85, cost: { gold: 0, wood: 90, stone: 0 } },
       E: { name: 'Ancient Ent', desc: '+50% dmg, knockback/2', damageMult: 1.50, special: { knockbackEveryN: 2 }, spawnSpeedMult: 0.85, cost: { gold: 0, wood: 90, stone: 0 } },
-      F: { name: 'Radish Brute', desc: '+25% dmg, +50% HP, regen 5/s', damageMult: 1.25, hpMult: 1.50, special: { regenPerSec: 5 }, spawnSpeedMult: 0.85, cost: { gold: 180, wood: 0, stone: 0 } },
+      F: { name: 'Radish Brute', desc: '+25% dmg, +20% HP, regen 3/s', damageMult: 1.25, hpMult: 1.20, special: { regenPerSec: 3 }, spawnSpeedMult: 0.85, cost: { gold: 180, wood: 0, stone: 0 } },
       G: { name: 'Radish King', desc: '+40% dmg, +20% speed, +2 slow', damageMult: 1.40, moveSpeedMult: 1.20, special: { extraSlowStacks: 2 }, spawnSpeedMult: 0.85, cost: { gold: 180, wood: 0, stone: 0 } },
     },
     [BuildingType.RangedSpawner]: {
@@ -708,7 +708,7 @@ export const UPGRADE_TREES: Record<Race, Partial<Record<BuildingType, Record<Upg
       C: { name: 'Spore Weaver', desc: 'Faster atk, +3 slow', attackSpeedMult: 0.80, special: { extraSlowStacks: 3 }, spawnSpeedMult: 0.90, cost: { gold: 0, wood: 45, stone: 0 } },
       D: { name: 'Fungal Hulk', desc: '+35% dmg, +8 heal, +2 slow', damageMult: 1.35, special: { healBonus: 8, extraSlowStacks: 2 }, spawnSpeedMult: 0.85, cost: { gold: 0, wood: 0, stone: 90 } },
       E: { name: 'Bloom Shaper', desc: '+40% dmg, +2 AoE', damageMult: 1.40, special: { aoeRadiusBonus: 2 }, spawnSpeedMult: 0.85, cost: { gold: 0, wood: 0, stone: 90 } },
-      F: { name: 'Mycelium Sage', desc: 'Very fast, +7 heal', attackSpeedMult: 0.65, special: { healBonus: 7 }, spawnSpeedMult: 0.85, cost: { gold: 0, wood: 90, stone: 0 } },
+      F: { name: 'Mycelium Sage', desc: 'Very fast, +4 heal', attackSpeedMult: 0.65, special: { healBonus: 4 }, spawnSpeedMult: 0.85, cost: { gold: 0, wood: 90, stone: 0 } },
       G: { name: 'Fungal Lord', desc: '+50% dmg, +35% range', damageMult: 1.50, rangeMult: 1.35, spawnSpeedMult: 0.85, cost: { gold: 0, wood: 90, stone: 0 } },
     },
     [BuildingType.Tower]: {
@@ -741,7 +741,8 @@ export const RACE_ABILITY_DEFS: Record<Race, RaceAbilityDef> = {
     race: Race.Crown, name: 'Gold Foundry',
     targetMode: AbilityTargetMode.BuildSlot,
     baseCooldownTicks: 0,
-    baseCost: { gold: 120, wood: 40 },
+    baseCost: { gold: 50, wood: 50 },
+    costGrowthFactor: 1.4,
   },
   [Race.Horde]: {
     race: Race.Horde, name: 'War Troll',
@@ -796,7 +797,7 @@ export const RACE_ABILITY_DEFS: Record<Race, RaceAbilityDef> = {
   [Race.Tenders]: {
     race: Race.Tenders, name: 'Plant Seed',
     targetMode: AbilityTargetMode.BuildSlot,
-    baseCooldownTicks: 8 * TICK_RATE,
+    baseCooldownTicks: 15 * TICK_RATE,
     baseCost: {},
   },
 };
@@ -919,7 +920,17 @@ export function getResearchUpgradeCost(id: string, level: number, race: Race): {
   }
   if (def.oneShot) {
     // Demon racial one-shots cost mana instead of resources
-    if (race === Race.Demon && id.startsWith('demon_')) return { gold: 0, wood: 0, stone: 0, mana: 120 };
+    if (race === Race.Demon && id.startsWith('demon_')) {
+      const demonManaCosts: Record<string, number> = {
+        demon_melee_1: 60,   // Infernal Rage
+        demon_melee_2: 150,  // Soul Siphon
+        demon_ranged_1: 100, // Hellfire Arrows
+        demon_ranged_2: 120, // Eye of Destruction
+        demon_caster_1: 140, // Flame Conduit
+        demon_caster_2: 140, // Immolation
+      };
+      return { gold: 0, wood: 0, stone: 0, mana: demonManaCosts[id] ?? 120 };
+    }
     // One-shot: flat cost scaled to race economy
     const used = getRaceUsedResources(race);
     if (!used.gold && used.stone && used.wood) return { gold: 0, wood: 80, stone: 70 };

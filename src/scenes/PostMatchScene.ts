@@ -263,7 +263,7 @@ export class PostMatchScene implements Scene {
       ctx.fillText(`${ps?.enemyUnitsKilled ?? 0}`, colX[4], y);
       ctx.fillText(`${ps?.unitsLost ?? 0}`, colX[5], y);
       ctx.font = `bold ${tableFontSize}px monospace`;
-      const totalDmg = (ps?.totalDamageDealt ?? 0) + (ps?.abilityDamageDealt ?? 0) + (ps?.nukeDamageDealt ?? 0);
+      const totalDmg = ps?.totalDamageDealt ?? 0;
       ctx.fillText(`${totalDmg}`, colX[6], y);
     }
 
@@ -546,7 +546,7 @@ export class PostMatchScene implements Scene {
       if (bestVal > 0) awards.push({ label, playerId: bestIdx, value: fmt(bestVal) });
     };
 
-    best(ps => ps.totalDamageDealt + ps.abilityDamageDealt + ps.nukeDamageDealt, 'MVP Damage', v => `${v} dmg`);
+    best(ps => ps.totalDamageDealt, 'MVP Damage', v => `${v} dmg`);
     best(ps => ps.totalGoldEarned + ps.totalWoodEarned + ps.totalStoneEarned, 'Best Economy', v => `${v} resources`);
     best(ps => ps.totalDamageNearHQ, 'Best Defender', v => `${v} dmg near HQ`);
     best(ps => ps.totalDamageTaken, 'Most Tanked', v => `${v} taken`);

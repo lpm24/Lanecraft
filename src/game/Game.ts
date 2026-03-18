@@ -8,6 +8,7 @@ import { SoundManager } from '../audio/SoundManager';
 import { runAllBotAI, createBotContext, BotContext, BotDifficultyLevel, BOT_DIFFICULTY_PRESETS } from '../simulation/BotAI';
 import { UIAssets } from '../rendering/UIAssets';
 import { CommandSync, TICKS_PER_TURN } from '../network/CommandSync';
+import { tileToPixel } from '../rendering/Projection';
 
 export interface GamePartyOptions {
   /** All human players in slot order: { slotIndex, race }.
@@ -23,6 +24,7 @@ export interface GamePartyOptions {
   botDifficulty?: BotDifficultyLevel;
   mapDef?: MapDef;           // map to play on (default: DUEL_MAP)
   fogOfWar?: boolean;        // enable fog of war
+  isometric?: boolean;       // enable isometric rendering
 }
 
 export class Game {
@@ -165,9 +167,11 @@ export class Game {
 
     this.renderer = new Renderer(canvas, ui);
     this.renderer.localPlayerId = this.localPlayerId;
+    this.renderer.isometric = partyOpts?.isometric ?? false;
     // Set camera world size for non-default maps
     this.renderer.camera.worldTilesW = mapDef.width;
     this.renderer.camera.worldTilesH = mapDef.height;
+    this.renderer.camera.isometric = this.renderer.isometric;
     this.input = new InputHandler(this, canvas, this.renderer.camera, ui, this.renderer.sprites);
     this.input.onQuitGame = () => this.handleQuitGame();
     this.input.onConcede = () => this.handleConcede();
@@ -177,8 +181,14 @@ export class Game {
     const localTeam = this.state.players[this.localPlayerId]?.team ?? Team.Bottom;
     const hqPos = getHQPosition(localTeam, mapDef);
     const T = TILE_SIZE;
-    this.renderer.camera.x = hqPos.x * T - canvas.clientWidth / (2 * this.renderer.camera.zoom) + 4 * T;
-    this.renderer.camera.y = hqPos.y * T - canvas.clientHeight / (2 * this.renderer.camera.zoom) + 3 * T;
+    if (this.renderer.isometric) {
+      const { px, py } = tileToPixel(hqPos.x + 4, hqPos.y + 3, true);
+      this.renderer.camera.x = px - canvas.clientWidth / (2 * this.renderer.camera.zoom);
+      this.renderer.camera.y = py - canvas.clientHeight / (2 * this.renderer.camera.zoom);
+    } else {
+      this.renderer.camera.x = hqPos.x * T - canvas.clientWidth / (2 * this.renderer.camera.zoom) + 4 * T;
+      this.renderer.camera.y = hqPos.y * T - canvas.clientHeight / (2 * this.renderer.camera.zoom) + 3 * T;
+    }
 
     this.loop = new GameLoop(
       () => this.tick(),

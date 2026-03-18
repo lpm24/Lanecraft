@@ -292,7 +292,7 @@ export class BuildingPopup {
       let laneLabel: string;
       let laneColor: string;
       if (isOozlings) {
-        laneLabel = 'BOTH';
+        laneLabel = 'RANDOM';
         laneColor = '#b39ddb';
       } else if (building.lane === 'left') {
         laneLabel = isHorizontal ? 'TOP' : 'LEFT';
@@ -305,7 +305,7 @@ export class BuildingPopup {
       ctx.font = 'bold 11px monospace';
       ctx.fillStyle = laneColor;
       ctx.fillText(laneLabel, footerX + footerBtnW / 2, footerY + FOOTER_BTN_H / 2 - 5);
-      ctx.fillText(isOozlings ? 'LANES' : 'LANE', footerX + footerBtnW / 2, footerY + FOOTER_BTN_H / 2 + 9);
+      ctx.fillText('LANE', footerX + footerBtnW / 2, footerY + FOOTER_BTN_H / 2 + 9);
       footerX += footerBtnW + GAP;
     }
 

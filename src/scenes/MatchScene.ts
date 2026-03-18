@@ -21,6 +21,7 @@ export interface PartyConfig {
   /** Per-slot display names (for results screen). */
   slotNames?: { [slot: string]: string };
   fogOfWar?: boolean;
+  isometric?: boolean;
 }
 
 export class MatchScene implements Scene {
@@ -73,6 +74,7 @@ export class MatchScene implements Scene {
         botDifficulty: pc.botDifficulty,
         mapDef: pc.mapDef,
         fogOfWar: pc.fogOfWar,
+        isometric: pc.isometric,
       });
       // Pass display info for results screen
       if (pc.slotNames) this.game.slotNames = pc.slotNames;

@@ -317,6 +317,7 @@ export interface PlayerState {
   // Race ability state
   abilityCooldown: number;       // ticks remaining until ability can be used again
   abilityUseCount: number;       // how many times used (for growing costs)
+  abilityStacks: number;         // Tenders: accumulated seed charges (max 10)
   // Special resources (0 for races that don't use them)
   mana: number;                  // Demon
   manaFrac?: number;             // fractional accumulator for passive mana gen
@@ -378,6 +379,7 @@ export interface BuildingState {
   isGlobule?: boolean;     // Oozlings: globule building
   isSeed?: boolean;        // Tenders: seed pod
   seedTimer?: number;      // Tenders: ticks until seed pops
+  seedTier?: number;       // Tenders: 0=T1, 1=T2, 2=T3
 }
 
 export interface UnitState {
@@ -516,6 +518,11 @@ export interface FloatingText {
   maxAge: number;  // ticks until removed
   xOff: number;    // random x offset in tiles for visual spread
   big?: boolean;   // true = keyword/icon text (larger font, pop-in scale)
+  vx?: number;     // horizontal velocity (tiles/tick) for arc motion
+  vy?: number;     // initial vertical velocity for arc/gravity
+  ftType?: 'damage' | 'heal' | 'resource' | 'status' | 'ability'; // animation variant
+  magnitude?: number; // for scaling text size (e.g. damage amount)
+  miniIcon?: string;  // canvas-drawn mini icon: 'sword', 'arrow', 'fire', 'skull', 'shield_icon', 'lightning', 'poison', 'heart'
 }
 
 export interface Particle {

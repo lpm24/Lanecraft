@@ -36,6 +36,7 @@ const MODE_OPTIONS: ModeOption[] = [
 const LAST_DIFFICULTY_KEY = 'lanecraft.lastDifficulty';
 const LAST_MODE_KEY = 'lanecraft.lastMode';
 const LAST_FOG_KEY = 'lanecraft.lastFogOfWar';
+const LAST_ISO_KEY = 'lanecraft.lastIsometric';
 
 function shadowText(
   ctx: CanvasRenderingContext2D, text: string, x: number, y: number,
@@ -51,13 +52,15 @@ export class DifficultySelectScene implements Scene {
   private manager: SceneManager;
   private canvas: HTMLCanvasElement;
   private ui: UIAssets;
-  private onConfirm: (level: BotDifficultyLevel, mapDef: MapDef, teamSize: number, fogOfWar: boolean) => void;
+  private onConfirm: (level: BotDifficultyLevel, mapDef: MapDef, teamSize: number, fogOfWar: boolean, isometric: boolean) => void;
   private selectedIndex = 1;
   private hoverIndex = -1;
   private modeIndex = 0;
   private modeHoverIndex = -1;
   private fogOfWar = true;
   private fogHover = false;
+  private isometric = false;
+  private isoHover = false;
   private tick = 0;
   private sceneAge = 0;
 
@@ -66,7 +69,7 @@ export class DifficultySelectScene implements Scene {
   private keyHandler: ((e: KeyboardEvent) => void) | null = null;
   private touchHandler: ((e: TouchEvent) => void) | null = null;
 
-  constructor(manager: SceneManager, canvas: HTMLCanvasElement, ui: UIAssets, onConfirm: (level: BotDifficultyLevel, mapDef: MapDef, teamSize: number, fogOfWar: boolean) => void) {
+  constructor(manager: SceneManager, canvas: HTMLCanvasElement, ui: UIAssets, onConfirm: (level: BotDifficultyLevel, mapDef: MapDef, teamSize: number, fogOfWar: boolean, isometric: boolean) => void) {
     this.manager = manager;
     this.canvas = canvas;
     this.ui = ui;
@@ -90,11 +93,16 @@ export class DifficultySelectScene implements Scene {
       if (e.key === 'Tab' || e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
         e.preventDefault();
         const delta = e.key === 'ArrowLeft' ? -1 : 1;
-        this.modeIndex = (this.modeIndex + delta + MODE_OPTIONS.length) % MODE_OPTIONS.length;
+        const maxMode = this.isometric ? 2 : MODE_OPTIONS.length; // iso: only 1v1, 2v2
+        this.modeIndex = (this.modeIndex + delta + maxMode) % maxMode;
         this.saveSelections();
       }
       if (e.key === 'f') {
         this.fogOfWar = !this.fogOfWar;
+        this.saveSelections();
+      }
+      if (e.key === 'i') {
+        this.toggleIsometric();
         this.saveSelections();
       }
       if (e.key === 'Enter' || e.key === ' ') {
@@ -113,8 +121,14 @@ export class DifficultySelectScene implements Scene {
         this.saveSelections();
         return;
       }
+      if (this.isIsoToggleAt(cx, cy)) {
+        this.toggleIsometric();
+        this.saveSelections();
+        return;
+      }
       const modeIdx = this.getModeButtonIndexAt(cx, cy);
       if (modeIdx >= 0) {
+        if (this.isometric && modeIdx > 1) return; // disabled in iso mode
         this.modeIndex = modeIdx;
         this.saveSelections();
         return;
@@ -135,6 +149,7 @@ export class DifficultySelectScene implements Scene {
       this.hoverIndex = this.getCardIndexAt(cx, cy);
       this.modeHoverIndex = this.getModeButtonIndexAt(cx, cy);
       this.fogHover = this.isFogToggleAt(cx, cy);
+      this.isoHover = this.isIsoToggleAt(cx, cy);
     };
 
     this.touchHandler = (e) => {
@@ -149,8 +164,14 @@ export class DifficultySelectScene implements Scene {
         this.saveSelections();
         return;
       }
+      if (this.isIsoToggleAt(cx, cy)) {
+        this.toggleIsometric();
+        this.saveSelections();
+        return;
+      }
       const modeIdx = this.getModeButtonIndexAt(cx, cy);
       if (modeIdx >= 0) {
+        if (this.isometric && modeIdx > 1) return;
         this.modeIndex = modeIdx;
         this.saveSelections();
         return;
@@ -202,6 +223,11 @@ export class DifficultySelectScene implements Scene {
 
       const savedFog = localStorage.getItem(LAST_FOG_KEY);
       this.fogOfWar = savedFog === null ? true : savedFog === 'true';
+
+      const savedIso = localStorage.getItem(LAST_ISO_KEY);
+      this.isometric = savedIso === 'true';
+      // Clamp mode if iso was saved with 3v3/4v4
+      if (this.isometric && this.modeIndex > 1) this.modeIndex = 1;
     } catch {}
   }
 
@@ -210,13 +236,22 @@ export class DifficultySelectScene implements Scene {
       localStorage.setItem(LAST_DIFFICULTY_KEY, DIFFICULTIES[this.selectedIndex].level);
       localStorage.setItem(LAST_MODE_KEY, MODE_OPTIONS[this.modeIndex].label);
       localStorage.setItem(LAST_FOG_KEY, String(this.fogOfWar));
+      localStorage.setItem(LAST_ISO_KEY, String(this.isometric));
     } catch {}
+  }
+
+  private toggleIsometric(): void {
+    this.isometric = !this.isometric;
+    // Isometric only supports 1v1 and 2v2
+    if (this.isometric && this.modeIndex > 1) {
+      this.modeIndex = 1; // fall back to 2v2
+    }
   }
 
   private confirmSelection(): void {
     this.saveSelections();
     const mode = MODE_OPTIONS[this.modeIndex];
-    this.onConfirm(DIFFICULTIES[this.selectedIndex].level, mode.map, mode.teamSize, this.fogOfWar);
+    this.onConfirm(DIFFICULTIES[this.selectedIndex].level, mode.map, mode.teamSize, this.fogOfWar, this.isometric);
   }
 
   // --- Mode buttons layout (horizontal row of 3) ---
@@ -326,16 +361,30 @@ export class DifficultySelectScene implements Scene {
     const lastCard = cards[cards.length - 1];
     const compact = this.compact;
     const toggleH = compact ? 30 : 36;
+    const gap = compact ? 4 : 6;
+    const totalTogglesH = toggleH * 2 + gap;
     const toggleW = Math.min(this.canvas.clientWidth * 0.9, 420);
     const cardBottom = lastCard.y + lastCard.h;
     const { btnY } = this.getButtonRow();
-    // Center the toggle vertically between last card and button row
-    const toggleY = cardBottom + (btnY - cardBottom - toggleH) / 2;
+    // Center both toggles vertically between last card and button row
+    const startY = cardBottom + (btnY - cardBottom - totalTogglesH) / 2;
     return {
       x: (this.canvas.clientWidth - toggleW) / 2,
-      y: toggleY,
+      y: startY,
       w: toggleW,
       h: toggleH,
+    };
+  }
+
+  private getIsoToggleLayout(): { x: number; y: number; w: number; h: number } {
+    const fog = this.getFogToggleLayout();
+    const compact = this.compact;
+    const gap = compact ? 4 : 6;
+    return {
+      x: fog.x,
+      y: fog.y + fog.h + gap,
+      w: fog.w,
+      h: fog.h,
     };
   }
 
@@ -343,6 +392,52 @@ export class DifficultySelectScene implements Scene {
     const t = this.getFogToggleLayout();
     const pad = 4;
     return cx >= t.x - pad && cx <= t.x + t.w + pad && cy >= t.y - pad && cy <= t.y + t.h + pad;
+  }
+
+  private isIsoToggleAt(cx: number, cy: number): boolean {
+    const t = this.getIsoToggleLayout();
+    const pad = 4;
+    return cx >= t.x - pad && cx <= t.x + t.w + pad && cy >= t.y - pad && cy <= t.y + t.h + pad;
+  }
+
+  private drawToggleRow(ctx: CanvasRenderingContext2D, layout: { x: number; y: number; w: number; h: number }, checked: boolean, hovered: boolean, color: string, label: string, desc: string): void {
+    const compact = this.compact;
+    const bgPadX = Math.round(layout.w * 0.075);
+    const bgPadY = Math.round(layout.h * 0.06);
+    this.ui.drawWoodTable(ctx, layout.x - bgPadX, layout.y - bgPadY, layout.w + bgPadX * 2, layout.h + bgPadY * 2);
+
+    if (hovered) {
+      ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(layout.x + 1, layout.y + 1, layout.w - 2, layout.h - 2);
+    }
+
+    const padX = compact ? 10 : 14;
+    const labelSize = compact ? 13 : 16;
+    ctx.font = `bold ${labelSize}px monospace`;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+
+    const cbSize = compact ? 14 : 18;
+    const cbX = layout.x + padX;
+    const cbY = layout.y + (layout.h - cbSize) / 2;
+    ctx.strokeStyle = checked ? color : 'rgba(255,255,255,0.4)';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(cbX, cbY, cbSize, cbSize);
+    if (checked) {
+      ctx.fillStyle = color;
+      ctx.fillRect(cbX + 3, cbY + 3, cbSize - 6, cbSize - 6);
+    }
+
+    shadowText(ctx, label, cbX + cbSize + 8, layout.y + layout.h / 2,
+      checked ? color : 'rgba(255,255,255,0.7)', 'rgba(0,0,0,0.7)');
+
+    const descSize = Math.max(9, labelSize * 0.7);
+    ctx.font = `bold ${labelSize}px monospace`;
+    const boldLabelW = ctx.measureText(label).width;
+    ctx.font = `${descSize}px monospace`;
+    ctx.fillStyle = 'rgba(255,255,255,0.55)';
+    ctx.fillText(desc, cbX + cbSize + 8 + boldLabelW + 12, layout.y + layout.h / 2);
   }
 
   render(ctx: CanvasRenderingContext2D): void {
@@ -376,19 +471,21 @@ export class DifficultySelectScene implements Scene {
       const btn = modeBtns[i];
       const isSelected = i === this.modeIndex;
       const isHover = i === this.modeHoverIndex;
+      const isDisabled = this.isometric && i > 1; // 3v3/4v4 disabled in iso
 
       const bgPadX = Math.round(btn.w * 0.06);
       const bgPadY = Math.round(btn.h * 0.06);
+      if (isDisabled) ctx.globalAlpha = 0.35;
       this.ui.drawWoodTable(ctx, btn.x - bgPadX, btn.y - bgPadY, btn.w + bgPadX * 2, btn.h + bgPadY * 2);
 
-      if (isSelected) {
+      if (isSelected && !isDisabled) {
         ctx.strokeStyle = mode.color;
         ctx.shadowColor = mode.color;
         ctx.shadowBlur = 12;
         ctx.lineWidth = 3;
         ctx.strokeRect(btn.x + 1, btn.y + 1, btn.w - 2, btn.h - 2);
         ctx.shadowBlur = 0;
-      } else if (isHover) {
+      } else if (isHover && !isDisabled) {
         ctx.strokeStyle = 'rgba(255,255,255,0.25)';
         ctx.lineWidth = 1;
         ctx.strokeRect(btn.x + 1, btn.y + 1, btn.w - 2, btn.h - 2);
@@ -398,7 +495,8 @@ export class DifficultySelectScene implements Scene {
       ctx.font = `bold ${labelSize}px monospace`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      shadowText(ctx, mode.label, btn.x + btn.w / 2, btn.y + btn.h / 2, isSelected ? mode.color : 'rgba(255,255,255,0.7)', 'rgba(0,0,0,0.7)');
+      shadowText(ctx, mode.label, btn.x + btn.w / 2, btn.y + btn.h / 2, isSelected && !isDisabled ? mode.color : 'rgba(255,255,255,0.7)', 'rgba(0,0,0,0.7)');
+      if (isDisabled) ctx.globalAlpha = 1;
     }
 
     // --- Difficulty cards (1-line each) ---
@@ -455,48 +553,10 @@ export class DifficultySelectScene implements Scene {
     }
 
     // --- Fog of War toggle ---
-    const fogLayout = this.getFogToggleLayout();
-    {
-      const fl = fogLayout;
-      const compact = this.compact;
-      const bgPadX = Math.round(fl.w * 0.075);
-      const bgPadY = Math.round(fl.h * 0.06);
-      this.ui.drawWoodTable(ctx, fl.x - bgPadX, fl.y - bgPadY, fl.w + bgPadX * 2, fl.h + bgPadY * 2);
+    this.drawToggleRow(ctx, this.getFogToggleLayout(), this.fogOfWar, this.fogHover, '#66d9ef', 'FOG OF WAR', 'Hidden map, revealed by your units');
 
-      if (this.fogHover) {
-        ctx.strokeStyle = 'rgba(255,255,255,0.25)';
-        ctx.lineWidth = 1;
-        ctx.strokeRect(fl.x + 1, fl.y + 1, fl.w - 2, fl.h - 2);
-      }
-
-      const padX = compact ? 10 : 14;
-      const labelSize = compact ? 13 : 16;
-      ctx.font = `bold ${labelSize}px monospace`;
-      ctx.textAlign = 'left';
-      ctx.textBaseline = 'middle';
-
-      // Checkbox
-      const cbSize = compact ? 14 : 18;
-      const cbX = fl.x + padX;
-      const cbY = fl.y + (fl.h - cbSize) / 2;
-      ctx.strokeStyle = this.fogOfWar ? '#66d9ef' : 'rgba(255,255,255,0.4)';
-      ctx.lineWidth = 2;
-      ctx.strokeRect(cbX, cbY, cbSize, cbSize);
-      if (this.fogOfWar) {
-        ctx.fillStyle = '#66d9ef';
-        ctx.fillRect(cbX + 3, cbY + 3, cbSize - 6, cbSize - 6);
-      }
-
-      shadowText(ctx, 'FOG OF WAR', cbX + cbSize + 8, fl.y + fl.h / 2,
-        this.fogOfWar ? '#66d9ef' : 'rgba(255,255,255,0.7)', 'rgba(0,0,0,0.7)');
-
-      const descSize = Math.max(9, labelSize * 0.7);
-      ctx.font = `bold ${labelSize}px monospace`;
-      const boldLabelW = ctx.measureText('FOG OF WAR').width;
-      ctx.font = `${descSize}px monospace`;
-      ctx.fillStyle = 'rgba(255,255,255,0.55)';
-      ctx.fillText('Hidden map, revealed by your units', cbX + cbSize + 8 + boldLabelW + 12, fl.y + fl.h / 2);
-    }
+    // --- Isometric toggle ---
+    this.drawToggleRow(ctx, this.getIsoToggleLayout(), this.isometric, this.isoHover, '#a6e22e', 'ISOMETRIC', 'Diamond grid, 1v1 & 2v2 only');
 
     // Bottom button row
     const { backX, startX, btnW, btnH, btnY } = this.getButtonRow();
@@ -536,6 +596,7 @@ export class DifficultySelectScene implements Scene {
     ctx.textBaseline = 'alphabetic';
     ctx.fillStyle = DIFFICULTIES[this.selectedIndex].color;
     const fogLabel = this.fogOfWar ? '  FOG' : '';
-    ctx.fillText(`${MODE_OPTIONS[this.modeIndex].label}  ${DIFFICULTIES[this.selectedIndex].label}${fogLabel}`, w / 2, hintY);
+    const isoLabel = this.isometric ? '  ISO' : '';
+    ctx.fillText(`${MODE_OPTIONS[this.modeIndex].label}  ${DIFFICULTIES[this.selectedIndex].label}${fogLabel}${isoLabel}`, w / 2, hintY);
   }
 }

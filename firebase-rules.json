@@ -90,6 +90,7 @@
         },
         "turns": {
           "$turn": {
+            ".write": "auth != null && !newData.exists()",
             "$slot": {
               ".write": "auth != null",
               ".validate": "newData.hasChild('t') && newData.child('t').isNumber()"

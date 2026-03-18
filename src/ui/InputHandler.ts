@@ -16,6 +16,7 @@ import { ResearchPopup } from './ResearchPopup';
 import { getSafeBottom, getSafeTop } from './SafeArea';
 import { getAudioSettings, updateAudioSettings } from '../audio/AudioSettings';
 import { getVisualSettings, updateVisualSettings } from '../rendering/VisualSettings';
+import { tileToPixel, pixelToTile } from '../rendering/Projection';
 
 interface BuildTrayItem {
   type: BuildingType;
@@ -135,6 +136,16 @@ export class InputHandler {
   private get pid(): number { return this.game.playerSlot; }
   /** Local player's team. */
   private get myTeam(): Team { return this.game.state.players[this.pid]?.team ?? Team.Bottom; }
+  /** Whether isometric rendering is active. */
+  private get iso(): boolean { return this.currentRenderer?.isometric ?? false; }
+  /** Convert world-pixel coords to tile coords (isometric-aware). */
+  private worldToTile(wpx: number, wpy: number): { tileX: number; tileY: number } {
+    return pixelToTile(wpx, wpy, this.iso);
+  }
+  /** Convert tile coords to world-pixel coords (isometric-aware). */
+  private tp(tileX: number, tileY: number): { px: number; py: number } {
+    return tileToPixel(tileX, tileY, this.iso);
+  }
 
   destroy(): void {
     this.abortController.abort();
@@ -599,7 +610,8 @@ export class InputHandler {
       if (e.key === 'p' || e.key === 'P') {
         const wx = this.camera.x + this.canvas.clientWidth / (2 * this.camera.zoom);
         const wy = this.camera.y + this.canvas.clientHeight / (2 * this.camera.zoom);
-        this.game.sendCommand({ type: 'ping', playerId: this.pid, x: wx / TILE_SIZE, y: wy / TILE_SIZE });
+        const pingTile = this.worldToTile(wx, wy);
+        this.game.sendCommand({ type: 'ping', playerId: this.pid, x: pingTile.tileX, y: pingTile.tileY });
         return;
       }
       if (e.key === 'k' || e.key === 'K') {
@@ -698,8 +710,7 @@ export class InputHandler {
       } else {
         this.hoveredGridSlot = null;
         const world = this.eventToWorld(e);
-        const wx = world.x / TILE_SIZE;
-        const wy = world.y / TILE_SIZE;
+        const { tileX: wx, tileY: wy } = this.worldToTile(world.x, world.y);
 
         // Check for unit hover (closest within 1.2 tiles)
         const unit = this.findUnitNear(wx, wy, 1.2);
@@ -710,7 +721,7 @@ export class InputHandler {
           // Check for building hover
           const tileX = Math.floor(wx);
           const tileY = Math.floor(wy);
-          const building = this.game.state.buildings.find(b =>
+          const building = this.game.state.buildings.find((b: { playerId: number; worldX: number; worldY: number }) =>
             b.playerId === this.pid && b.worldX === tileX && b.worldY === tileY
           );
           if (building) {
@@ -793,8 +804,7 @@ export class InputHandler {
       // Nuke targeting — restricted to own half + mid
       if (this.nukeTargeting) {
         const world = this.eventToWorld(e);
-        const tileX = world.x / TILE_SIZE;
-        const tileY = world.y / TILE_SIZE;
+        const { tileX, tileY } = this.worldToTile(world.x, world.y);
         const team = this.game.state.players[this.pid]?.team ?? Team.Bottom;
         const md = this.game.state.mapDef;
         const nukeZone = md.nukeZone[team];
@@ -802,7 +812,7 @@ export class InputHandler {
         if (nukeAxis < nukeZone.min || nukeAxis > nukeZone.max) return; // click outside nuke zone — ignore
         this.game.sendCommand({
           type: 'fire_nuke', playerId: this.pid,
-          x: world.x / TILE_SIZE, y: tileY,
+          x: tileX, y: tileY,
         });
         this.nukeTargeting = false;
         return;
@@ -811,8 +821,7 @@ export class InputHandler {
       // Ability targeting — targeted abilities (fireball, frenzy, summon)
       if (this.abilityTargeting) {
         const world = this.eventToWorld(e);
-        const tileX = world.x / TILE_SIZE;
-        const tileY = world.y / TILE_SIZE;
+        const { tileX, tileY } = this.worldToTile(world.x, world.y);
         this.game.sendCommand({
           type: 'use_ability', playerId: this.pid,
           x: tileX, y: tileY,
@@ -882,9 +891,10 @@ export class InputHandler {
       if (e.button !== 1 || this.showTutorial) return;
       e.preventDefault();
       const world = this.eventToWorld(e as unknown as MouseEvent);
+      const auxTile = this.worldToTile(world.x, world.y);
       this.game.sendCommand({
         type: 'ping', playerId: this.pid,
-        x: world.x / TILE_SIZE, y: world.y / TILE_SIZE,
+        x: auxTile.tileX, y: auxTile.tileY,
       });
     }, sig);
 
@@ -910,13 +920,11 @@ export class InputHandler {
     if (type === BuildingType.Tower) {
       const team = this.game.state.players[this.pid]?.team ?? Team.Bottom;
       const alley = getTeamAlleyOrigin(team, this.game.state.mapDef);
-      const cx = (alley.x + this.game.state.mapDef.towerAlleyCols / 2) * TILE_SIZE;
-      const cy = (alley.y + this.game.state.mapDef.towerAlleyRows / 2) * TILE_SIZE;
+      const { px: cx, py: cy } = this.tp(alley.x + this.game.state.mapDef.towerAlleyCols / 2, alley.y + this.game.state.mapDef.towerAlleyRows / 2);
       this.camera.panTo(cx, cy, 1.8);
     } else {
       const origin = getBuildGridOrigin(this.pid, this.game.state.mapDef, this.game.state.players);
-      const cx = (origin.x + this.game.state.mapDef.buildGridCols / 2) * TILE_SIZE;
-      const cy = (origin.y + this.game.state.mapDef.buildGridRows / 2) * TILE_SIZE;
+      const { px: cx, py: cy } = this.tp(origin.x + this.game.state.mapDef.buildGridCols / 2, origin.y + this.game.state.mapDef.buildGridRows / 2);
       this.camera.panTo(cx, cy, 1.8);
     }
   }
@@ -924,14 +932,14 @@ export class InputHandler {
   /** Pan camera to the harvester hut area */
   private panToHutArea(): void {
     const origin = getHutGridOrigin(this.pid, this.game.state.mapDef, this.game.state.players);
-    const cx = (origin.x + this.game.state.mapDef.hutGridCols / 2) * TILE_SIZE;
-    const cy = (origin.y + this.game.state.mapDef.hutGridRows / 2) * TILE_SIZE;
+    const { px: cx, py: cy } = this.tp(origin.x + this.game.state.mapDef.hutGridCols / 2, origin.y + this.game.state.mapDef.hutGridRows / 2);
     this.camera.panTo(cx, cy, 1.8);
   }
 
   private worldToGridSlot(playerId: number, worldPixelX: number, worldPixelY: number): { gx: number; gy: number; isAlley: boolean } | null {
-    const tx = Math.floor(worldPixelX / TILE_SIZE);
-    const ty = Math.floor(worldPixelY / TILE_SIZE);
+    const { tileX: txF, tileY: tyF } = this.worldToTile(worldPixelX, worldPixelY);
+    const tx = Math.floor(txF);
+    const ty = Math.floor(tyF);
 
     // Check shared tower alley first (for Tower type or ability BuildSlot placement)
     if (this.selectedBuilding === BuildingType.Tower || this.abilityPlacing) {
@@ -952,8 +960,9 @@ export class InputHandler {
 
   private handleBuildingClick(e: MouseEvent): void {
     const world = this.eventToWorld(e);
-    const tileX = Math.floor(world.x / TILE_SIZE);
-    const tileY = Math.floor(world.y / TILE_SIZE);
+    const { tileX: tileXf, tileY: tileYf } = this.worldToTile(world.x, world.y);
+    const tileX = Math.floor(tileXf);
+    const tileY = Math.floor(tileYf);
     let building = this.game.state.buildings.find(b =>
       b.playerId === this.pid && b.worldX === tileX && b.worldY === tileY
     );
@@ -972,8 +981,8 @@ export class InputHandler {
       if (this.buildingPopup.isOpen()) {
         this.buildingPopup.close();
       }
-      const wx = world.x / TILE_SIZE;
-      const wy = world.y / TILE_SIZE;
+      const wx = tileXf;
+      const wy = tileYf;
       const unit = this.findUnitNear(wx, wy, 1.2);
       this.selectedUnitId = unit ? unit.id : null;
       return;
@@ -1517,8 +1526,9 @@ export class InputHandler {
       if (hu) {
         ctx.save();
         renderer.camera.applyTransform(ctx);
-        const hpx = hu.x * TILE_SIZE + TILE_SIZE / 2;
-        const hpy = hu.y * TILE_SIZE + TILE_SIZE / 2;
+        const { px: hpx0, py: hpy0 } = this.tp(hu.x, hu.y);
+        const hpx = hpx0 + TILE_SIZE / 2;
+        const hpy = hpy0 + TILE_SIZE / 2;
         ctx.beginPath();
         ctx.arc(hpx, hpy, TILE_SIZE * 0.55, 0, Math.PI * 2);
         ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
@@ -1753,10 +1763,12 @@ export class InputHandler {
       const abilityInfo = RACE_ABILITY_INFO[race];
       const abDef = RACE_ABILITY_DEFS[race];
       const abX = (BUILD_TRAY.length + 1) * milW;
-      const onCooldown = player.abilityCooldown > 0;
+      const isTendersSeeds = race === Race.Tenders;
+      const seedStacks = player.abilityStacks ?? 0;
+      const onCooldown = isTendersSeeds ? seedStacks <= 0 : player.abilityCooldown > 0;
       const isActive = this.abilityTargeting || this.abilityPlacing;
 
-      // Calculate current cost for display
+      // Calculate current cost for display (non-Tenders)
       const growMult = abDef.costGrowthFactor ? Math.pow(abDef.costGrowthFactor, player.abilityUseCount) : 1;
       const abCostGold = Math.floor((abDef.baseCost.gold ?? 0) * growMult);
       const abCostWood = Math.floor((abDef.baseCost.wood ?? 0) * growMult);
@@ -1764,9 +1776,9 @@ export class InputHandler {
       const abCostMana = Math.floor((abDef.baseCost.mana ?? 0) * growMult);
       const abCostSouls = Math.floor((abDef.baseCost.souls ?? 0) * growMult);
       const abCostEssence = Math.floor((abDef.baseCost.deathEssence ?? 0) * growMult);
-      const canAffordAbility = !onCooldown &&
+      const canAffordAbility = isTendersSeeds ? seedStacks > 0 : (!onCooldown &&
         player.gold >= abCostGold && player.wood >= abCostWood && player.stone >= abCostStone &&
-        player.mana >= abCostMana && player.souls >= abCostSouls && player.deathEssence >= abCostEssence;
+        player.mana >= abCostMana && player.souls >= abCostSouls && player.deathEssence >= abCostEssence);
 
       const cellY = isActive ? milY - 6 : milY;
       const cellH = isActive ? milH + 6 : milH;
@@ -1808,62 +1820,90 @@ export class InputHandler {
       ctx.fillText(abilityInfo.name, abCx, adjY + 38);
       ctx.globalAlpha = 1;
 
-      // Cost display — icons + numbers, no letter abbreviations
-      if (!onCooldown) {
-        type AbCostEntry = { val: number; canAf: boolean; drawIcon: (ix: number, iy: number, sz: number) => void };
-        const abCostEntries: AbCostEntry[] = [];
-        if (abCostGold > 0) abCostEntries.push({ val: abCostGold, canAf: player.gold >= abCostGold,
-          drawIcon: (ix, iy, sz) => { this.ui.drawIcon(ctx, 'gold', ix, iy, sz) || (ctx.fillStyle = '#ffd700', ctx.beginPath(), ctx.arc(ix + sz / 2, iy + sz / 2, sz / 2, 0, Math.PI * 2), ctx.fill()); } });
-        if (abCostWood > 0) abCostEntries.push({ val: abCostWood, canAf: player.wood >= abCostWood,
-          drawIcon: (ix, iy, sz) => { this.ui.drawIcon(ctx, 'wood', ix, iy, sz) || (ctx.fillStyle = '#8bc34a', ctx.beginPath(), ctx.arc(ix + sz / 2, iy + sz / 2, sz / 2, 0, Math.PI * 2), ctx.fill()); } });
-        if (abCostStone > 0) abCostEntries.push({ val: abCostStone, canAf: player.stone >= abCostStone,
-          drawIcon: (ix, iy, sz) => { this.ui.drawIcon(ctx, 'meat', ix, iy, sz) || (ctx.fillStyle = '#ef9a9a', ctx.beginPath(), ctx.arc(ix + sz / 2, iy + sz / 2, sz / 2, 0, Math.PI * 2), ctx.fill()); } });
-        if (abCostMana > 0) {
-          const manaDisplay = race === Race.Demon && player.mana >= abCostMana ? player.mana : abCostMana;
-          abCostEntries.push({ val: manaDisplay, canAf: player.mana >= abCostMana,
-            drawIcon: (ix, iy, sz) => { const cx_ = ix + sz / 2, cy_ = iy + sz / 2, r = sz * 0.42; ctx.fillStyle = '#7c4dff'; ctx.beginPath(); ctx.moveTo(cx_, cy_ - r); ctx.lineTo(cx_ + r * 0.65, cy_); ctx.lineTo(cx_, cy_ + r); ctx.lineTo(cx_ - r * 0.65, cy_); ctx.closePath(); ctx.fill(); } });
-        }
-        if (abCostSouls > 0) abCostEntries.push({ val: abCostSouls, canAf: player.souls >= abCostSouls,
-          drawIcon: (ix, iy, sz) => { const cx_ = ix + sz / 2, cy_ = iy + sz / 2, r = sz * 0.38; ctx.fillStyle = '#ce93d8'; ctx.beginPath(); ctx.arc(cx_, cy_, r, 0, Math.PI * 2); ctx.fill(); } });
-        if (abCostEssence > 0) abCostEntries.push({ val: abCostEssence, canAf: player.deathEssence >= abCostEssence,
-          drawIcon: (ix, iy, sz) => { const cx_ = ix + sz / 2, cy_ = iy + sz / 2, r = sz * 0.38; ctx.fillStyle = '#69f0ae'; ctx.beginPath(); ctx.arc(cx_, cy_, r, 0, Math.PI * 2); ctx.fill(); } });
-        if (abCostEntries.length > 0) {
-          const iconSz = 10;
-          const gap = 3;
-          ctx.font = 'bold 9px monospace';
-          const valStrs = abCostEntries.map(e => `${e.val}`);
-          let totalW = 0;
-          for (let i = 0; i < abCostEntries.length; i++) {
-            totalW += iconSz + 1 + ctx.measureText(valStrs[i]).width;
-            if (i < abCostEntries.length - 1) totalW += gap;
-          }
-          let dx = abCx - totalW / 2;
-          const dy = adjY + 50;
-          for (let i = 0; i < abCostEntries.length; i++) {
-            const e = abCostEntries[i];
-            ctx.globalAlpha = canAffordAbility ? 1 : 0.45;
-            e.drawIcon(dx, dy - iconSz, iconSz);
-            ctx.globalAlpha = 1;
-            dx += iconSz + 1;
-            ctx.fillStyle = e.canAf ? '#ccc' : '#ff6666';
-            ctx.textAlign = 'left';
-            ctx.fillText(valStrs[i], dx, dy);
-            dx += ctx.measureText(valStrs[i]).width + gap;
-          }
+      // Tenders: show stack count in bottom-left, cooldown timer when 0 stacks
+      if (isTendersSeeds) {
+        if (seedStacks > 0) {
+          // Stack count in bottom-left corner
+          ctx.textAlign = 'left';
+          ctx.font = 'bold 11px monospace';
+          ctx.fillStyle = seedStacks >= 10 ? '#ffd740' : '#81c784';
+          ctx.fillText(`${seedStacks}`, abX + 4, adjY + cellH - 4);
           ctx.textAlign = 'center';
+          // Key hint in bottom-right
+          ctx.fillStyle = '#666';
+          ctx.font = '9px monospace'; ctx.textAlign = 'right';
+          ctx.fillText(`[${abilityInfo.key}]`, abX + milW - 4, adjY + cellH - 4);
+        } else {
+          // No stacks — show countdown timer (like cooldown)
+          const secsLeft = Math.ceil(player.abilityCooldown / TICK_RATE);
+          ctx.fillStyle = '#ff9800';
+          ctx.font = 'bold 10px monospace';
+          ctx.fillText(`${secsLeft}s`, abCx, adjY + cellH - 4);
+          // Stack count "0" in bottom-left
+          ctx.textAlign = 'left';
+          ctx.font = 'bold 11px monospace';
+          ctx.fillStyle = '#666';
+          ctx.fillText('0', abX + 4, adjY + cellH - 4);
         }
-      }
-
-      // Cooldown timer or key hint
-      if (onCooldown) {
-        const secsLeft = Math.ceil(player.abilityCooldown / TICK_RATE);
-        ctx.fillStyle = '#ff9800';
-        ctx.font = 'bold 10px monospace';
-        ctx.fillText(`${secsLeft}s`, abCx, adjY + cellH - 4);
+        ctx.textAlign = 'center';
       } else {
-        ctx.fillStyle = '#666';
-        ctx.font = '9px monospace'; ctx.textAlign = 'right';
-        ctx.fillText(`[${abilityInfo.key}]`, abX + milW - 4, adjY + cellH - 4);
+        // Cost display — icons + numbers, no letter abbreviations
+        if (!onCooldown) {
+          type AbCostEntry = { val: number; canAf: boolean; drawIcon: (ix: number, iy: number, sz: number) => void };
+          const abCostEntries: AbCostEntry[] = [];
+          if (abCostGold > 0) abCostEntries.push({ val: abCostGold, canAf: player.gold >= abCostGold,
+            drawIcon: (ix, iy, sz) => { this.ui.drawIcon(ctx, 'gold', ix, iy, sz) || (ctx.fillStyle = '#ffd700', ctx.beginPath(), ctx.arc(ix + sz / 2, iy + sz / 2, sz / 2, 0, Math.PI * 2), ctx.fill()); } });
+          if (abCostWood > 0) abCostEntries.push({ val: abCostWood, canAf: player.wood >= abCostWood,
+            drawIcon: (ix, iy, sz) => { this.ui.drawIcon(ctx, 'wood', ix, iy, sz) || (ctx.fillStyle = '#8bc34a', ctx.beginPath(), ctx.arc(ix + sz / 2, iy + sz / 2, sz / 2, 0, Math.PI * 2), ctx.fill()); } });
+          if (abCostStone > 0) abCostEntries.push({ val: abCostStone, canAf: player.stone >= abCostStone,
+            drawIcon: (ix, iy, sz) => { this.ui.drawIcon(ctx, 'meat', ix, iy, sz) || (ctx.fillStyle = '#ef9a9a', ctx.beginPath(), ctx.arc(ix + sz / 2, iy + sz / 2, sz / 2, 0, Math.PI * 2), ctx.fill()); } });
+          if (abCostMana > 0) {
+            const manaDisplay = race === Race.Demon && player.mana >= abCostMana ? player.mana : abCostMana;
+            abCostEntries.push({ val: manaDisplay, canAf: player.mana >= abCostMana,
+              drawIcon: (ix, iy, sz) => { const cx_ = ix + sz / 2, cy_ = iy + sz / 2, r = sz * 0.42; ctx.fillStyle = '#7c4dff'; ctx.beginPath(); ctx.moveTo(cx_, cy_ - r); ctx.lineTo(cx_ + r * 0.65, cy_); ctx.lineTo(cx_, cy_ + r); ctx.lineTo(cx_ - r * 0.65, cy_); ctx.closePath(); ctx.fill(); } });
+          }
+          if (abCostSouls > 0) abCostEntries.push({ val: abCostSouls, canAf: player.souls >= abCostSouls,
+            drawIcon: (ix, iy, sz) => { const cx_ = ix + sz / 2, cy_ = iy + sz / 2, r = sz * 0.38; ctx.fillStyle = '#ce93d8'; ctx.beginPath(); ctx.arc(cx_, cy_, r, 0, Math.PI * 2); ctx.fill(); } });
+          if (abCostEssence > 0) abCostEntries.push({ val: abCostEssence, canAf: player.deathEssence >= abCostEssence,
+            drawIcon: (ix, iy, sz) => { const cx_ = ix + sz / 2, cy_ = iy + sz / 2, r = sz * 0.38; ctx.fillStyle = '#69f0ae'; ctx.beginPath(); ctx.arc(cx_, cy_, r, 0, Math.PI * 2); ctx.fill(); } });
+          if (abCostEntries.length > 0) {
+            const iconSz = 10;
+            const gap = 3;
+            ctx.font = 'bold 9px monospace';
+            const valStrs = abCostEntries.map(e => `${e.val}`);
+            let totalW = 0;
+            for (let i = 0; i < abCostEntries.length; i++) {
+              totalW += iconSz + 1 + ctx.measureText(valStrs[i]).width;
+              if (i < abCostEntries.length - 1) totalW += gap;
+            }
+            let dx = abCx - totalW / 2;
+            const dy = adjY + 50;
+            for (let i = 0; i < abCostEntries.length; i++) {
+              const e = abCostEntries[i];
+              ctx.globalAlpha = canAffordAbility ? 1 : 0.45;
+              e.drawIcon(dx, dy - iconSz, iconSz);
+              ctx.globalAlpha = 1;
+              dx += iconSz + 1;
+              ctx.fillStyle = e.canAf ? '#ccc' : '#ff6666';
+              ctx.textAlign = 'left';
+              ctx.fillText(valStrs[i], dx, dy);
+              dx += ctx.measureText(valStrs[i]).width + gap;
+            }
+            ctx.textAlign = 'center';
+          }
+        }
+
+        // Cooldown timer or key hint
+        if (onCooldown) {
+          const secsLeft = Math.ceil(player.abilityCooldown / TICK_RATE);
+          ctx.fillStyle = '#ff9800';
+          ctx.font = 'bold 10px monospace';
+          ctx.fillText(`${secsLeft}s`, abCx, adjY + cellH - 4);
+        } else {
+          ctx.fillStyle = '#666';
+          ctx.font = '9px monospace'; ctx.textAlign = 'right';
+          ctx.fillText(`[${abilityInfo.key}]`, abX + milW - 4, adjY + cellH - 4);
+        }
       }
     }
 
@@ -1990,7 +2030,7 @@ export class InputHandler {
     // Research popup
     if (this.researchPopup.isOpen()) {
       this.researchPopup.draw(ctx, this.camera, this.game.state, this.ui,
-        W, this.canvas.clientHeight, player.gold, player.wood, player.stone);
+        W, this.canvas.clientHeight, player.gold, player.wood, player.stone, player.mana);
     }
 
     ctx.textAlign = 'start';
@@ -2007,8 +2047,9 @@ export class InputHandler {
       // Draw selection ring on the unit in world space
       ctx.save();
       cam.applyTransform(ctx);
-      const px = u.x * TILE_SIZE + TILE_SIZE / 2;
-      const py = u.y * TILE_SIZE + TILE_SIZE / 2;
+      const { px: upx0, py: upy0 } = this.tp(u.x, u.y);
+      const px = upx0 + TILE_SIZE / 2;
+      const py = upy0 + TILE_SIZE / 2;
       const ringR = TILE_SIZE * 0.6;
       ctx.beginPath();
       ctx.arc(px, py, ringR, 0, Math.PI * 2);
@@ -2121,7 +2162,7 @@ export class InputHandler {
       const race = this.game.state.players[building.playerId]?.race;
       const isOozlings = race === Race.Oozlings;
       if (isOozlings) {
-        tip += `  Lane: BOTH`;
+        tip += `  Lane: RANDOM`;
       } else {
         const isPortrait = this.game.state.mapDef.shapeAxis === 'y';
         const laneLabel = building.lane === Lane.Left
@@ -2450,8 +2491,7 @@ export class InputHandler {
       for (let slot = 0; slot < totalSlots; slot++) {
         const sgx = slot % hutCols;
         const sgy = Math.floor(slot / hutCols);
-        const wx = (origin.x + sgx) * TILE_SIZE;
-        const wy = (origin.y + sgy) * TILE_SIZE;
+        const { px: wx, py: wy } = this.tp(origin.x + sgx, origin.y + sgy);
         const occupied = occupiedSlots.has(slot);
         const isNext = slot === nextSlot;
         if (isNext) {
@@ -2476,8 +2516,7 @@ export class InputHandler {
       const origin = getBuildGridOrigin(this.pid, this.game.state.mapDef, this.game.state.players);
       for (let gy = 0; gy < this.game.state.mapDef.buildGridRows; gy++) {
         for (let gx = 0; gx < this.game.state.mapDef.buildGridCols; gx++) {
-          const wx = (origin.x + gx) * TILE_SIZE;
-          const wy = (origin.y + gy) * TILE_SIZE;
+          const { px: wx, py: wy } = this.tp(origin.x + gx, origin.y + gy);
           const occupied = this.game.state.buildings.some(
             b => b.buildGrid === 'military' && b.gridX === gx && b.gridY === gy && b.playerId === this.pid
           );
@@ -2495,8 +2534,7 @@ export class InputHandler {
       const alley = getTeamAlleyOrigin(myTeam, this.game.state.mapDef);
       for (let gy = 0; gy < this.game.state.mapDef.towerAlleyRows; gy++) {
         for (let gx = 0; gx < this.game.state.mapDef.towerAlleyCols; gx++) {
-          const wx = (alley.x + gx) * TILE_SIZE;
-          const wy = (alley.y + gy) * TILE_SIZE;
+          const { px: wx, py: wy } = this.tp(alley.x + gx, alley.y + gy);
           const occupied = this.game.state.buildings.some(
             b => {
               if (b.buildGrid !== 'alley' || b.gridX !== gx || b.gridY !== gy) return false;
@@ -2642,8 +2680,7 @@ export class InputHandler {
     const slot = this.hoveredGridSlot;
 
     const origin = slot.isAlley ? getTeamAlleyOrigin(this.myTeam, this.game.state.mapDef) : getBuildGridOrigin(this.pid, this.game.state.mapDef, this.game.state.players);
-    const worldX = (origin.x + slot.gx) * TILE_SIZE;
-    const worldY = (origin.y + slot.gy) * TILE_SIZE;
+    const { px: worldX, py: worldY } = this.tp(origin.x + slot.gx, origin.y + slot.gy);
 
     const grid = slot.isAlley ? 'alley' : 'military';
     const myTeam = this.myTeam;
@@ -2668,9 +2705,15 @@ export class InputHandler {
   }
 
   /** True when the nuke is locked out (first 60s of the match). */
-  private activateAbility(player: { race: Race; abilityCooldown: number }): void {
+  private activateAbility(player: { race: Race; abilityCooldown: number; abilityStacks?: number }): void {
     const def = RACE_ABILITY_DEFS[player.race];
-    if (player.abilityCooldown > 0) {
+    if (player.race === Race.Tenders) {
+      if ((player.abilityStacks ?? 0) <= 0) {
+        const secsLeft = Math.ceil(player.abilityCooldown / TICK_RATE);
+        this.laneToast = { text: `${def.name} — ${secsLeft}s`, until: Date.now() + 1500 };
+        return;
+      }
+    } else if (player.abilityCooldown > 0) {
       const secsLeft = Math.ceil(player.abilityCooldown / TICK_RATE);
       this.laneToast = { text: `${def.name} — ${secsLeft}s cooldown`, until: Date.now() + 1500 };
       return;
@@ -2989,18 +3032,22 @@ export class InputHandler {
       // Portrait: forbidden zone along y-axis
       const forbidMinY = nukeZone.min > 0 ? 0 : nukeZone.max;
       const forbidMaxY = nukeZone.min > 0 ? nukeZone.min : mapDef.height;
-      forbidScreenX1 = (0 - cam.x) * cam.zoom;
-      forbidScreenY1 = (forbidMinY * TILE_SIZE - cam.y) * cam.zoom;
-      forbidScreenX2 = (mapDef.width * TILE_SIZE - cam.x) * cam.zoom;
-      forbidScreenY2 = (forbidMaxY * TILE_SIZE - cam.y) * cam.zoom;
+      const { px: fx1, py: fy1 } = this.tp(0, forbidMinY);
+      const { px: fx2, py: fy2 } = this.tp(mapDef.width, forbidMaxY);
+      forbidScreenX1 = (fx1 - cam.x) * cam.zoom;
+      forbidScreenY1 = (fy1 - cam.y) * cam.zoom;
+      forbidScreenX2 = (fx2 - cam.x) * cam.zoom;
+      forbidScreenY2 = (fy2 - cam.y) * cam.zoom;
     } else {
       // Landscape: forbidden zone along x-axis
       const forbidMinX = nukeZone.min > 0 ? 0 : nukeZone.max;
       const forbidMaxX = nukeZone.min > 0 ? nukeZone.min : mapDef.width;
-      forbidScreenX1 = (forbidMinX * TILE_SIZE - cam.x) * cam.zoom;
-      forbidScreenY1 = (0 - cam.y) * cam.zoom;
-      forbidScreenX2 = (forbidMaxX * TILE_SIZE - cam.x) * cam.zoom;
-      forbidScreenY2 = (mapDef.height * TILE_SIZE - cam.y) * cam.zoom;
+      const { px: fx1, py: fy1 } = this.tp(forbidMinX, 0);
+      const { px: fx2, py: fy2 } = this.tp(forbidMaxX, mapDef.height);
+      forbidScreenX1 = (fx1 - cam.x) * cam.zoom;
+      forbidScreenY1 = (fy1 - cam.y) * cam.zoom;
+      forbidScreenX2 = (fx2 - cam.x) * cam.zoom;
+      forbidScreenY2 = (fy2 - cam.y) * cam.zoom;
     }
     ctx.fillStyle = 'rgba(255, 0, 0, 0.15)';
     ctx.fillRect(forbidScreenX1, forbidScreenY1, forbidScreenX2 - forbidScreenX1, forbidScreenY2 - forbidScreenY1);

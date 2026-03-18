@@ -1190,14 +1190,14 @@ function sellBuilding(state: GameState, cmd: Extract<GameCommand, { type: 'sell_
 }
 
 function toggleLane(state: GameState, cmd: Extract<GameCommand, { type: 'toggle_lane' }>): void {
-  // Oozlings can't toggle lanes — forced split
+  // Oozlings can't toggle lanes — random assignment at spawn
   if (state.players[cmd.playerId]?.race === Race.Oozlings) return;
   const b = state.buildings.find(b => b.id === cmd.buildingId && b.playerId === cmd.playerId);
   if (b) b.lane = cmd.lane;
 }
 
 function toggleAllLanes(state: GameState, cmd: Extract<GameCommand, { type: 'toggle_all_lanes' }>): void {
-  // Oozlings can't toggle lanes — forced split
+  // Oozlings can't toggle lanes — random assignment at spawn
   if (state.players[cmd.playerId]?.race === Race.Oozlings) return;
   for (const b of state.buildings) {
     if (b.playerId === cmd.playerId && b.type !== BuildingType.Tower) b.lane = cmd.lane;
@@ -1331,7 +1331,15 @@ function useAbility(state: GameState, cmd: Extract<GameCommand, { type: 'use_abi
       const teamBuildings = state.buildings.filter(b =>
         b.buildGrid === 'alley' && (state.players[b.playerId]?.team ?? -1) === player.team
       );
-      if (teamBuildings.some(b => b.gridX === cmd.gridX && b.gridY === cmd.gridY)) return;
+      const occupant = teamBuildings.find(b => b.gridX === cmd.gridX && b.gridY === cmd.gridY);
+      if (occupant) {
+        // Tenders can stack seeds on existing seeds (up to T3)
+        if (isTendersSeeds && occupant.isSeed && (occupant.seedTier ?? 0) < 2) {
+          // Allow — will be upgraded in tendersAbility
+        } else {
+          return; // slot occupied by non-seed or already T3
+        }
+      }
     } else {
       // No slot specified (bot or fallback) — find first open
       if (!findOpenAlleySlot(state, player)) return;
@@ -1445,6 +1453,8 @@ function wildAbility(state: GameState, player: PlayerState, cmd: Extract<GameCom
   addCombatEvent(state, { type: 'pulse', x: cmd.x, y: cmd.y, radius: def.aoeRadius ?? 8, color: '#ff6600' });
 }
 
+const FIREBALL_SPEED = 1.2; // tiles per tick (24 tiles/sec)
+
 function demonAbility(state: GameState, player: PlayerState, cmd: Extract<GameCommand, { type: 'use_ability' }>): void {
   if (cmd.x == null || cmd.y == null) return;
   // Fireball — consumes ALL mana, damage scales with mana spent
@@ -1452,42 +1462,73 @@ function demonAbility(state: GameState, player: PlayerState, cmd: Extract<GameCo
   const extraMana = player.mana;
   player.mana = 0;
   const def = RACE_ABILITY_DEFS[player.race];
-  const totalMana = (def.baseCost.mana ?? 30) + extraMana;
+  const totalMana = (def.baseCost.mana ?? 50) + extraMana;
   const radius = def.aoeRadius ?? 6;
   const baseDamage = 20;
   const damagePerMana = 1.5;
   const totalDamage = Math.round(baseDamage + totalMana * damagePerMana);
-  const buildingDamageReduction = 0.3; // buildings take 30% damage
 
-  // Damage all enemy units in radius
+  // Find Research building as the launch point
+  const research = state.buildings.find(b => b.type === BuildingType.Research && b.playerId === player.id);
+  const srcX = research ? research.worldX + 0.5 : cmd.x;
+  const srcY = research ? research.worldY + 0.5 : cmd.y;
+
+  // Calculate travel time based on distance
+  const dx = cmd.x - srcX, dy = cmd.y - srcY;
+  const dist = Math.sqrt(dx * dx + dy * dy);
+  const travelTicks = Math.max(1, Math.ceil(dist / FIREBALL_SPEED));
+
+  // AoE telegraph ring at target — visible to all, lasts until impact
+  state.abilityEffects.push({
+    id: genId(state), type: 'demon_fireball_telegraph',
+    playerId: player.id, team: player.team,
+    x: cmd.x, y: cmd.y, radius,
+    duration: travelTicks,
+    data: { damage: totalDamage },
+  });
+
+  // In-flight fireball projectile
+  state.abilityEffects.push({
+    id: genId(state), type: 'demon_fireball_inbound',
+    playerId: player.id, team: player.team,
+    x: cmd.x, y: cmd.y, radius,
+    duration: travelTicks + 2, // small buffer so explosion tick runs
+    data: { curX: srcX, curY: srcY, damage: totalDamage, arrived: 0 },
+  });
+
+  addSound(state, 'ability_fireball', srcX, srcY);
+}
+
+function explodeFireball(state: GameState, eff: { playerId: number; team: Team; x?: number; y?: number; radius?: number; data?: Record<string, number> }): void {
+  const targetX = eff.x!, targetY = eff.y!, radius = eff.radius ?? 6;
+  const totalDamage = eff.data?.damage ?? 20;
+  const buildingDamageReduction = 0.3;
   const r2 = radius * radius;
+
   for (const u of state.units) {
-    if (u.team === player.team) continue;
-    if ((u.x - cmd.x) ** 2 + (u.y - cmd.y) ** 2 > r2) continue;
-    dealDamage(state, u, totalDamage, true, player.id);
-    if (state.playerStats[player.id]) state.playerStats[player.id].abilityDamageDealt += totalDamage;
-    // Apply burn
+    if (u.team === eff.team) continue;
+    if ((u.x - targetX) ** 2 + (u.y - targetY) ** 2 > r2) continue;
+    dealDamage(state, u, totalDamage, true, eff.playerId);
     const existing = u.statusEffects.find(s => s.type === StatusType.Burn);
     if (existing) { existing.stacks = Math.min(5, existing.stacks + 2); existing.duration = 3 * TICK_RATE; }
     else u.statusEffects.push({ type: StatusType.Burn, stacks: 2, duration: 3 * TICK_RATE });
   }
 
-  // Damage buildings in radius (reduced)
   for (const b of state.buildings) {
-    if (state.players[b.playerId]?.team === player.team) continue;
-    if ((b.worldX - cmd.x) ** 2 + (b.worldY - cmd.y) ** 2 > r2) continue;
+    if (b.buildGrid !== 'alley') continue; // only alley buildings are damageable
+    if (state.players[b.playerId]?.team === eff.team) continue;
+    if ((b.worldX - targetX) ** 2 + (b.worldY - targetY) ** 2 > r2) continue;
     b.hp -= Math.round(totalDamage * buildingDamageReduction);
   }
 
-  addFloatingText(state, cmd.x, cmd.y, `FIREBALL! (${totalDamage} dmg)`, '#ff4400');
-  addSound(state, 'ability_fireball', cmd.x, cmd.y);
-  addDeathParticles(state, cmd.x, cmd.y, '#ff4400', 12);
-  addCombatEvent(state, { type: 'splash', x: cmd.x, y: cmd.y, radius: radius, color: '#ff6600' });
-  // Add a brief fireball visual effect
+  addFloatingText(state, targetX, targetY, `FIREBALL! (${totalDamage} dmg)`, '#ff4400');
+  addSound(state, 'ability_fireball', targetX, targetY);
+  addDeathParticles(state, targetX, targetY, '#ff4400', 12);
+  addCombatEvent(state, { type: 'splash', x: targetX, y: targetY, radius, color: '#ff6600' });
   state.abilityEffects.push({
     id: genId(state), type: 'demon_fireball',
-    playerId: player.id, team: player.team,
-    x: cmd.x, y: cmd.y, radius,
+    playerId: eff.playerId, team: eff.team,
+    x: targetX, y: targetY, radius,
     duration: Math.round(0.8 * TICK_RATE),
   });
 }
@@ -1559,22 +1600,42 @@ function oozlingsAbility(state: GameState, player: PlayerState, cmd: Extract<Gam
   addSound(state, 'building_placed', world.x, world.y);
 }
 
+const SEED_GROW_TIMES = [30 * TICK_RATE, 60 * TICK_RATE, 120 * TICK_RATE]; // T1=30s, T2=60s, T3=120s
+
 function tendersAbility(state: GameState, player: PlayerState, cmd: Extract<GameCommand, { type: 'use_ability' }>): void {
-  // Plant a seed in the tower alley — after a wait, pops into a random unit
   const slot = (cmd.gridX != null && cmd.gridY != null) ? { gx: cmd.gridX, gy: cmd.gridY } : findOpenAlleySlot(state, player);
   if (!slot) return;
-  const origin = getTeamAlleyOrigin(player.team, state.mapDef);
-  const world = { x: origin.x + slot.gx, y: origin.y + slot.gy };
-  const growTime = 15 * TICK_RATE; // 15 seconds to grow
-  state.buildings.push({
-    id: genId(state), type: BuildingType.Tower, playerId: player.id, buildGrid: 'alley',
-    gridX: slot.gx, gridY: slot.gy, worldX: world.x, worldY: world.y,
-    lane: Lane.Left,
-    hp: 50, maxHp: 50, actionTimer: growTime, placedTick: state.tick, upgradePath: [],
-    isSeed: true, seedTimer: growTime,
-  });
-  addFloatingText(state, world.x, world.y, 'SEED PLANTED', '#81c784');
-  addSound(state, 'building_placed', world.x, world.y);
+
+  // Check for existing seed to upgrade
+  const existing = state.buildings.find(b =>
+    b.isSeed && b.buildGrid === 'alley' && b.gridX === slot.gx && b.gridY === slot.gy &&
+    (state.players[b.playerId]?.team ?? -1) === player.team
+  );
+
+  if (existing) {
+    // Upgrade existing seed to next tier
+    const newTier = (existing.seedTier ?? 0) + 1;
+    if (newTier > 2) return; // already T3
+    existing.seedTier = newTier;
+    existing.seedTimer = SEED_GROW_TIMES[newTier];
+    const tierLabel = ['T2', 'T3'][newTier - 1];
+    addFloatingText(state, existing.worldX, existing.worldY, `SEED → ${tierLabel}`, '#ffd740');
+    addSound(state, 'building_placed', existing.worldX, existing.worldY);
+  } else {
+    // Plant a new T1 seed
+    const origin = getTeamAlleyOrigin(player.team, state.mapDef);
+    const world = { x: origin.x + slot.gx, y: origin.y + slot.gy };
+    const growTime = SEED_GROW_TIMES[0];
+    state.buildings.push({
+      id: genId(state), type: BuildingType.Tower, playerId: player.id, buildGrid: 'alley',
+      gridX: slot.gx, gridY: slot.gy, worldX: world.x, worldY: world.y,
+      lane: Lane.Left,
+      hp: 50, maxHp: 50, actionTimer: growTime, placedTick: state.tick, upgradePath: [],
+      isSeed: true, seedTimer: growTime, seedTier: 0,
+    });
+    addFloatingText(state, world.x, world.y, 'SEED PLANTED', '#81c784');
+    addSound(state, 'building_placed', world.x, world.y);
+  }
 }
 
 function tickAbilityEffects(state: GameState): void {
@@ -1767,20 +1828,26 @@ function tickAbilityEffects(state: GameState): void {
             const btMap: Record<string, BuildingType> = { melee: BuildingType.MeleeSpawner, ranged: BuildingType.RangedSpawner, caster: BuildingType.CasterSpawner };
             const stats = UNIT_STATS[owner.race]?.[btMap[cat]];
             if (stats) {
+              const tier = b.seedTier ?? 0;
+              // Stat multiplier per tier: T1=1x, T2=1.5x, T3=2.2x
+              const tierMult = [1, 1.5, 2.2][tier];
               const lane = state.rng() < 0.5 ? Lane.Left : Lane.Right;
               const seedPath = getLanePath(owner.team, lane, state.mapDef);
               const seedProg = findNearestPathProgress(seedPath, b.worldX, b.worldY);
               state.units.push({
                 id: genId(state), type: stats.name, playerId: b.playerId, team: owner.team,
                 x: b.worldX, y: b.worldY,
-                hp: stats.hp, maxHp: stats.hp, damage: stats.damage,
+                hp: Math.max(1, Math.round(stats.hp * tierMult)),
+                maxHp: Math.max(1, Math.round(stats.hp * tierMult)),
+                damage: Math.max(1, Math.round(stats.damage * tierMult)),
                 attackSpeed: stats.attackSpeed, attackTimer: 0, moveSpeed: stats.moveSpeed, range: stats.range,
                 targetId: null, lane, pathProgress: seedProg, carryingDiamond: false,
                 statusEffects: [], hitCount: 0, shieldHp: 0, category: cat,
-                upgradeTier: 0, upgradeNode: 'A', upgradeSpecial: {},
+                upgradeTier: tier, upgradeNode: 'A', upgradeSpecial: {},
                 kills: 0, lastDamagedByName: '', spawnTick: state.tick,
               });
-              addFloatingText(state, b.worldX, b.worldY, `${stats.name}!`, '#81c784');
+              const tierLabel = tier > 0 ? ` T${tier + 1}` : '';
+              addFloatingText(state, b.worldX, b.worldY, `${stats.name}${tierLabel}!`, '#81c784');
               addSound(state, 'unit_spawn', b.worldX, b.worldY);
             }
           }
@@ -1809,6 +1876,23 @@ function tickAbilityEffects(state: GameState): void {
           const slow = u.statusEffects.find(s => s.type === StatusType.Slow);
           if (slow) { slow.duration = Math.max(slow.duration, TICK_RATE); }
           else u.statusEffects.push({ type: StatusType.Slow, stacks: 1, duration: TICK_RATE });
+        }
+      }
+    } else if (eff.type === 'demon_fireball_inbound' && eff.x != null && eff.y != null && eff.data != null) {
+      if (eff.data.arrived === 0) {
+        const curX = eff.data.curX, curY = eff.data.curY;
+        const dx = eff.x - curX, dy = eff.y - curY;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist <= FIREBALL_SPEED) {
+          // Arrived — trigger explosion
+          eff.data.arrived = 1;
+          explodeFireball(state, eff);
+          eff.duration = 0;
+        } else {
+          // Advance toward target
+          const f = FIREBALL_SPEED / dist;
+          eff.data.curX = curX + dx * f;
+          eff.data.curY = curY + dy * f;
         }
       }
     } else if (eff.type === 'wild_frenzy') {
@@ -2148,9 +2232,9 @@ function tickSpawners(state: GameState): void {
       // Oozlings Mass Division: spawn 3 instead of 2 for casters
       const finalCount = (category === 'caster' && bu.raceUpgrades['oozlings_caster_2'] && count >= 2) ? 3 : count;
       for (let si = 0; si < finalCount; si++) {
-        // Oozlings: forced split lane — alternate left/right per unit in the pair
+        // Oozlings: random lane per unit (supports any number of lanes)
         const unitLane = (player.race === Race.Oozlings && finalCount >= 2)
-          ? (si % 2 === 0 ? Lane.Left : Lane.Right)
+          ? (state.rng() < 0.5 ? Lane.Left : Lane.Right)
           : building.lane;
         state.units.push({
           id: genId(state), type: stats.name, playerId: building.playerId, team: player.team,
@@ -2201,6 +2285,22 @@ function getEffectiveDamage(unit: UnitState): number {
 function tickUnitMovement(state: GameState): void {
   for (const unit of state.units) {
     if (unit.targetId !== null) continue;
+
+    // Stop marching when an enemy tower is within attack range — attack it instead of running past.
+    // Siege units skip this; they have their own building-targeting logic.
+    if (!unit.upgradeSpecial?.isSiegeUnit) {
+      const tRange = unit.range + 1.5;
+      let towerInRange = false;
+      for (const b of state.buildings) {
+        if (b.type !== BuildingType.Tower || b.hp <= 0) continue;
+        const bp = state.players[b.playerId];
+        if (!bp || bp.team === unit.team) continue;
+        const td = Math.sqrt((b.worldX + 0.5 - unit.x) ** 2 + (b.worldY + 0.5 - unit.y) ** 2);
+        if (td <= tRange) { towerInRange = true; break; }
+      }
+      if (towerInRange) continue;
+    }
+
     const speed = getEffectiveSpeed(unit);
     let movePerTick = speed / TICK_RATE;
 
@@ -2814,7 +2914,7 @@ function applyCasterSupport(state: GameState, caster: UnitState, race: Race, sp:
     }
     case Race.Tenders: {
       // Regen aura: heal nearby allies
-      let tenderHealAmt = 2 + healBonus;
+      let tenderHealAmt = 1 + healBonus;
       // Research: Bloom Burst +2 heal amount
       const tendersP = state.players[caster.playerId];
       if (tendersP?.researchUpgrades.raceUpgrades['tenders_caster_1']) tenderHealAmt += 2;
@@ -2900,11 +3000,11 @@ function applyOnHitEffects(state: GameState, attacker: UnitState, target: UnitSt
       if (isMelee) applyStatus(target, StatusType.Burn, 1 + (sp?.extraBurnStacks ?? 0));
       break;
     case Race.Geists:
-      // Bone Knight: burn (soul drain) on melee hit + lifesteal 15% + Wound
+      // Bone Knight: burn (soul drain) on melee hit + lifesteal 20% + Wound
       if (isMelee) {
         applyStatus(target, StatusType.Burn, 1 + (sp?.extraBurnStacks ?? 0));
         applyWound(target); // Geists melee applies Wound
-        const geistMeleeSteal = Math.round(attacker.damage * 0.15);
+        const geistMeleeSteal = Math.round(attacker.damage * 0.20);
         const geistAh = healUnit(attacker, geistMeleeSteal);
         if (geistAh > 0) trackHealing(state, attacker, geistAh);
         if (geistMeleeSteal > 0) addCombatEvent(state, { type: 'lifesteal', x: target.x, y: target.y, x2: attacker.x, y2: attacker.y, color: '#b39ddb' });
@@ -3185,7 +3285,7 @@ function tickUnitCollision(state: GameState): void {
             const angle = ((u.id * 7 + o.id * 13) % 628) / 100; // deterministic pseudo-angle
             dx = Math.cos(angle);
             dy = Math.sin(angle);
-            dist = 0.0001;
+            dist = 1; // dx,dy are already a unit vector — don't re-normalize
           }
 
           const overlap = minSep - dist;
@@ -3425,7 +3525,7 @@ function tickCombat(state: GameState): void {
       let bestSiegeBuilding: BuildingState | null = null;
       let bestSiegeDist = Infinity;
       for (const b of state.buildings) {
-        if (b.type === BuildingType.HarvesterHut || b.type === BuildingType.Research) continue;
+        if (b.buildGrid !== 'alley') continue; // only alley buildings are targetable
         const bPlayer = state.players[b.playerId];
         if (!bPlayer || bPlayer.team === unit.team) continue;
         if (b.hp <= 0) continue;
@@ -3748,12 +3848,12 @@ function tickCombat(state: GameState): void {
       }
     }
 
-    // Attack enemy towers when no unit targets available
+    // Attack enemy alley buildings when no unit targets available
     if (!unit.upgradeSpecial?.isSiegeUnit && unit.targetId === null && unit.attackTimer <= 0) {
       let nearestTower: BuildingState | null = null;
       let ntd = Infinity;
       for (const b of state.buildings) {
-        if (b.type !== BuildingType.Tower) continue;
+        if (b.buildGrid !== 'alley') continue; // only alley buildings are targetable
         const bPlayer = state.players[b.playerId];
         if (!bPlayer || bPlayer.team === unit.team) continue;
         if (b.hp <= 0) continue;
@@ -3763,6 +3863,7 @@ function tickCombat(state: GameState): void {
       if (nearestTower) {
         const tDmg = getEffectiveDamage(unit);
         nearestTower.hp -= tDmg;
+        if (state.playerStats[unit.playerId]) state.playerStats[unit.playerId].totalDamageDealt += tDmg;
         addFloatingText(state, nearestTower.worldX, nearestTower.worldY, `${tDmg}`, '#ff6600', undefined, undefined,
           { ftType: 'damage', magnitude: tDmg, miniIcon: 'sword' });
         unit.attackTimer = Math.round(unit.attackSpeed * TICK_RATE);
@@ -3785,6 +3886,7 @@ function tickCombat(state: GameState): void {
       if (distToHq <= unit.range + hqRadius) {
         const hDmg = getEffectiveDamage(unit);
         state.hqHp[enemyTeam] -= hDmg;
+        if (state.playerStats[unit.playerId]) state.playerStats[unit.playerId].totalDamageDealt += hDmg;
         addFloatingText(state, hqCx, hqCy, `${hDmg}`, '#ff0000', undefined, undefined,
           { ftType: 'damage', magnitude: hDmg, miniIcon: 'sword' });
         addSound(state, 'hq_damaged', hqCx, hqCy);
@@ -4095,17 +4197,18 @@ function tickProjectiles(state: GameState): void {
             }
           }
         }
-        // Impact: building damage
+        // Impact: building damage (alley buildings only)
         if (p.buildingDamageMult && p.buildingDamageMult > 0) {
           const bldAoe = (p.aoeRadius ?? 0) + 1;
           for (const b of state.buildings) {
-            if (b.hp <= 0) continue;
+            if (b.hp <= 0 || b.buildGrid !== 'alley') continue;
             const bPlayer = state.players[b.playerId];
             if (!bPlayer || bPlayer.team === p.team) continue;
             const bd = Math.sqrt((b.worldX - impX) ** 2 + (b.worldY - impY) ** 2);
             if (bd <= bldAoe) {
               const bldDmg = Math.round(p.damage * p.buildingDamageMult);
               b.hp = Math.max(0, b.hp - bldDmg);
+              if (state.playerStats[p.sourcePlayerId]) state.playerStats[p.sourcePlayerId].totalDamageDealt += bldDmg;
               addFloatingText(state, b.worldX, b.worldY - 0.5, `${bldDmg}`, '#ff6600', undefined, undefined,
                 { ftType: 'damage', magnitude: bldDmg, miniIcon: 'sword' });
               if (b.hp <= 0) {
@@ -4123,6 +4226,7 @@ function tickProjectiles(state: GameState): void {
           if (hqDist <= bldAoe + 2) {
             const hqBldDmg = Math.round(p.damage * p.buildingDamageMult * 0.5);
             state.hqHp[enemyTeam] = Math.max(0, state.hqHp[enemyTeam] - hqBldDmg);
+            if (state.playerStats[p.sourcePlayerId]) state.playerStats[p.sourcePlayerId].totalDamageDealt += hqBldDmg;
             addFloatingText(state, hqCx, hqCy, `${hqBldDmg}`, '#ff0000', undefined, undefined,
               { ftType: 'damage', magnitude: hqBldDmg, miniIcon: 'sword' });
           }
@@ -4273,11 +4377,11 @@ function tickProjectiles(state: GameState): void {
           }
         }
       }
-      // Siege projectile: splash also damages nearby enemy buildings
+      // Siege projectile: splash also damages nearby enemy alley buildings
       if (p.buildingDamageMult && p.buildingDamageMult > 0 && p.aoeRadius > 0) {
         const bldAoe = p.aoeRadius + 1;
         for (const b of state.buildings) {
-          if (b.hp <= 0) continue;
+          if (b.hp <= 0 || b.buildGrid !== 'alley') continue;
           const bPlayer = state.players[b.playerId];
           if (!bPlayer || bPlayer.team === p.team) continue;
           const bd = Math.sqrt((b.worldX - target.x) ** 2 + (b.worldY - target.y) ** 2);
@@ -4825,44 +4929,39 @@ function tickHarvesters(state: GameState): void {
       continue;
     }
 
-    // Demon mana assignment: harvester walks to HQ to channel, then returns to hut to deposit mana
+    // Demon mana assignment: harvester walks to Research building and channels there permanently
     if (h.assignment === HarvesterAssignment.Mana) {
-      const hut = state.buildings.find(b => b.id === h.hutId);
-      const hq = getHQPosition(h.team, state.mapDef);
-      // HQ channel point (in front of the castle)
-      const channelX = hq.x + HQ_WIDTH / 2;
-      const channelY = h.team === Team.Bottom ? hq.y - 1 : hq.y + HQ_HEIGHT + 1;
-
-      if (h.carryingResource === ResourceType.Gold) {
-        // Walking home with mana — head to hut
-        if (hut) {
-          const dx = hut.worldX - h.x, dy = hut.worldY - h.y;
-          const dist = Math.sqrt(dx * dx + dy * dy);
-          if (dist < 1.5) {
-            // Deposit mana
-            const manaOwner = state.players[h.playerId];
-            if (manaOwner) {
-              manaOwner.mana += 3;
-              addFloatingText(state, h.x, h.y - 0.3, '+3', '#7c4dff', 'mana');
-            }
-            h.carryingResource = null;
-            h.carryAmount = 0;
-          } else {
-            h.x += (dx / dist) * movePerTick;
-            h.y += (dy / dist) * movePerTick;
-          }
-        }
-      } else {
-        // Walking to HQ to channel
-        const dx = channelX - h.x, dy = channelY - h.y;
+      const MANA_CHANNEL_TICKS = 4 * TICK_RATE; // 2 mana every 4s per channeling worker
+      const research = state.buildings.find(b => b.type === BuildingType.Research && b.playerId === h.playerId);
+      if (!research) {
+        // No research building yet — idle in place
+        h.state = 'mining'; h.miningTimer = MANA_CHANNEL_TICKS;
+        clampToArenaBounds(h, 0.3, state.mapDef);
+        continue;
+      }
+      const targetX = research.worldX + 0.5;
+      const targetY = research.worldY + 0.5;
+      if (h.state === 'walking_to_node' || h.state === 'walking_home') {
+        const dx = targetX - h.x, dy = targetY - h.y;
         const dist = Math.sqrt(dx * dx + dy * dy);
         if (dist < 1.5) {
-          // Channel complete — pick up mana (reuse carryingResource as state flag)
-          h.carryingResource = ResourceType.Gold; // repurpose as "carrying mana"
-          h.carryAmount = 3;
+          h.state = 'mining';
+          h.miningTimer = MANA_CHANNEL_TICKS;
+          h.carryingResource = null;
+          h.carryAmount = 0;
         } else {
           h.x += (dx / dist) * movePerTick;
           h.y += (dy / dist) * movePerTick;
+        }
+      } else if (h.state === 'mining') {
+        h.miningTimer = Math.max(0, h.miningTimer - 1);
+        if (h.miningTimer <= 0) {
+          const manaOwner = state.players[h.playerId];
+          if (manaOwner) {
+            manaOwner.mana += 2;
+            addFloatingText(state, h.x, h.y - 0.3, '+2', '#7c4dff', 'mana');
+          }
+          h.miningTimer = MANA_CHANNEL_TICKS;
         }
       }
       clampToArenaBounds(h, 0.3, state.mapDef);
@@ -5197,7 +5296,7 @@ function getResourceNodePosition(h: HarvesterState, mapDef?: MapDef): { x: numbe
     case HarvesterAssignment.Center:
       return { x: dc.x, y: dc.y };
     case HarvesterAssignment.Mana:
-      // Mana harvesters stay at their hut — return hut position (handled before this call)
+      // Handled inline in tickHarvesters before this function is reached
       return getBaseGoldPosition(h.team, mapDef);
   }
 }

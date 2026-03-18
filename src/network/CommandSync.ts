@@ -63,6 +63,7 @@ export class CommandSync {
   private consecutiveWriteFailures = 0;
   private writesDisabled = false;
   private reauthAttempted = false;
+  private reauthInProgress = false;
   private static readonly MAX_WRITE_FAILURES = 5;
 
   onDesync: DesyncCallback | null = null;
@@ -264,6 +265,9 @@ export class CommandSync {
 
     // Only write to Firebase if there are remote players to sync with
     if (this.remoteSlotIds.length > 0 && !this.writesDisabled) {
+      // Pause writes while re-auth is in progress to avoid flooding failed requests
+      if (this.reauthInProgress) return;
+
       const db = getDb();
       set(ref(db, `games/${this.partyCode}/turns/${turn}/${this.localSlotId}`), data).then(() => {
         this.consecutiveWriteFailures = 0; // reset on success
@@ -274,11 +278,19 @@ export class CommandSync {
         // Try re-auth once before giving up (handles expired token / CORS refresh failure)
         if (this.consecutiveWriteFailures >= 3 && !this.reauthAttempted) {
           this.reauthAttempted = true;
-          console.warn('[CommandSync] Attempting re-auth after write failures');
+          this.reauthInProgress = true;
+          console.warn('[CommandSync] Attempting re-auth after write failures — pausing writes');
           reauth().then(user => {
+            this.reauthInProgress = false;
             if (user) {
               console.log('[CommandSync] Re-auth succeeded, resetting failure counter');
               this.consecutiveWriteFailures = 0;
+            } else {
+              // Re-auth failed — treat as disconnect immediately
+              console.error('[CommandSync] Re-auth failed — treating as disconnect');
+              this.writesDisabled = true;
+              this.connected = false;
+              this.onDisconnect?.();
             }
           });
         }
