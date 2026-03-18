@@ -498,6 +498,10 @@ export interface ProjectileState {
   splashDamagePct?: number;
   lifestealPct?: number;
   isTowerShot?: boolean;
+  // Siege cannonball: fly to a world position instead of chasing a unit
+  targetX?: number;
+  targetY?: number;
+  buildingDamageMult?: number;  // on impact, deal damage * mult to buildings in aoeRadius
 }
 
 export interface FloatingText {
@@ -601,6 +605,9 @@ export interface PlayerStats {
   totalDamageNearHQ: number; // within 20 tiles of own HQ
   totalDamageTaken: number;
   towerDamageDealt: number;
+  burnDamageDealt: number;   // damage from Burn DoT ticks
+  abilityDamageDealt: number; // damage from race abilities (fireball, deluge, etc.)
+  nukeDamageDealt: number;   // damage from nuke detonations
   totalHealing: number;
   unitsSpawned: number;
   unitsLost: number;
@@ -613,7 +620,9 @@ export function createPlayerStats(): PlayerStats {
   return {
     totalGoldEarned: 0, totalWoodEarned: 0, totalStoneEarned: 0,
     totalDamageDealt: 0, totalDamageNearHQ: 0,
-    totalDamageTaken: 0, towerDamageDealt: 0, totalHealing: 0,
+    totalDamageTaken: 0, towerDamageDealt: 0,
+    burnDamageDealt: 0, abilityDamageDealt: 0, nukeDamageDealt: 0,
+    totalHealing: 0,
     unitsSpawned: 0, unitsLost: 0, nukeKills: 0,
     diamondPickups: 0, diamondTimeHeld: 0,
   };

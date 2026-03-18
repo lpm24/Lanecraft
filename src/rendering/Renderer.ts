@@ -1713,7 +1713,52 @@ export class Renderer {
         ctx.ellipse(px + bShadowX, bGroundY, drawW * 0.4, drawW * 0.1, 0, 0, Math.PI * 2);
         ctx.fill();
 
-        ctx.drawImage(sprite, drawX, drawY, drawW, drawH);
+        // Seed buildings: draw plant sprite instead of normal building
+        if (b.isSeed) {
+          const seedData = this.sprites.getSeedSprite();
+          if (seedData) {
+            const [seedImg, seedDef] = seedData;
+            const seedSize = T * 1.8 * buildScale;
+            const seedAspect = seedDef.frameW / seedDef.frameH;
+            const seedW = seedSize * seedAspect;
+            const seedH = seedSize;
+            const seedFeetY = py + half + 2;
+            const seedDrawY = seedFeetY - seedH * (seedDef.groundY ?? 0.95);
+            const seedFrame = getSpriteFrame(state.tick, seedDef);
+            drawSpriteFrame(ctx, seedImg, seedDef, seedFrame, px - seedW / 2, seedDrawY, seedW, seedH);
+          } else {
+            ctx.drawImage(sprite, drawX, drawY, drawW, drawH);
+          }
+          // Label
+          ctx.fillStyle = '#81c784';
+          ctx.font = 'bold 8px monospace';
+          ctx.textAlign = 'center';
+          ctx.fillText('SEED', px, bGroundY - drawH * 0.45);
+          ctx.textAlign = 'start';
+          // Seed progress bar
+          if (b.seedTimer != null) {
+            const maxTime = 15 * TICK_RATE;
+            const pct = 1 - b.seedTimer / maxTime;
+            const barW = drawW * 0.8;
+            const barH = 3;
+            const barX = px - barW / 2;
+            const barY = bGroundY - drawH * 0.5;
+            ctx.fillStyle = '#333';
+            ctx.fillRect(barX, barY, barW, barH);
+            ctx.fillStyle = '#81c784';
+            ctx.fillRect(barX, barY, barW * pct, barH);
+          }
+        } else if (b.type !== BuildingType.Research) {
+          // 45° rotation test for isometric art evaluation
+          const cx = px, cy = drawY + drawH / 2;
+          ctx.save();
+          ctx.translate(cx, cy);
+          ctx.rotate(Math.PI / 4);
+          ctx.drawImage(sprite, -drawW / 2, -drawH / 2, drawW, drawH);
+          ctx.restore();
+        } else {
+          ctx.drawImage(sprite, drawX, drawY, drawW, drawH);
+        }
 
         // Tenders huts: green tint to indicate passive resource generation
         if (b.type === BuildingType.HarvesterHut && player.race === Race.Tenders) {
@@ -1728,10 +1773,10 @@ export class Renderer {
           ctx.textAlign = 'start';
         }
 
-        // Special ability buildings — tint overlay + label (skip normal tower rendering)
-        if (b.isFoundry || b.isPotionShop || b.isGlobule || b.isSeed) {
-          const label = b.isFoundry ? 'FOUNDRY' : b.isPotionShop ? 'POTIONS' : b.isGlobule ? 'GLOBULE' : 'SEED';
-          const tint = b.isFoundry ? '#ffd700' : b.isPotionShop ? '#69f0ae' : b.isGlobule ? '#7c4dff' : '#81c784';
+        // Special ability buildings (non-seed) — tint overlay + label
+        if (b.isFoundry || b.isPotionShop || b.isGlobule) {
+          const label = b.isFoundry ? 'FOUNDRY' : b.isPotionShop ? 'POTIONS' : 'GLOBULE';
+          const tint = b.isFoundry ? '#ffd700' : b.isPotionShop ? '#69f0ae' : '#7c4dff';
           // Colored tint overlay
           ctx.globalAlpha = 0.25;
           ctx.fillStyle = tint;
@@ -1743,19 +1788,6 @@ export class Renderer {
           ctx.textAlign = 'center';
           ctx.fillText(label, px, drawY - 2);
           ctx.textAlign = 'start';
-          // Seed progress bar
-          if (b.isSeed && b.seedTimer != null) {
-            const maxTime = 15 * TICK_RATE;
-            const pct = 1 - b.seedTimer / maxTime;
-            const barW = drawW * 0.8;
-            const barH = 3;
-            const barX = px - barW / 2;
-            const barY = drawY - 6;
-            ctx.fillStyle = '#333';
-            ctx.fillRect(barX, barY, barW, barH);
-            ctx.fillStyle = '#81c784';
-            ctx.fillRect(barX, barY, barW * pct, barH);
-          }
         } else if (b.type === BuildingType.Tower) {
           const towerStats = TOWER_STATS[player.race];
           const towerUpgrade = getUnitUpgradeMultipliers(b.upgradePath, player.race, BuildingType.Tower);
@@ -2035,12 +2067,15 @@ export class Renderer {
         drewSprite = true;
       }
     } else if (p.visual === 'cannonball') {
-      // HQ cannonball — large dark sphere with fiery trail
+      // HQ cannonball or siege cannonball — large dark sphere with fiery trail
       const r = T * 0.5;
       const cbTarget = state.units.find(u => u.id === p.targetId);
-      const cbAngle = cbTarget
-        ? Math.atan2(cbTarget.y - p.y, cbTarget.x - p.x)
-        : isBottom ? -Math.PI / 2 : Math.PI / 2;
+      // Position-targeted siege cannonballs use targetX/targetY for angle
+      const cbAngle = p.targetX !== undefined && p.targetY !== undefined
+        ? Math.atan2(p.targetY - p.y, p.targetX - p.x)
+        : cbTarget
+          ? Math.atan2(cbTarget.y - p.y, cbTarget.x - p.x)
+          : isBottom ? -Math.PI / 2 : Math.PI / 2;
       const tdx = Math.cos(cbAngle);
       const tdy = Math.sin(cbAngle);
       // Trail (behind the projectile)
@@ -2265,6 +2300,21 @@ export class Renderer {
             drawSpriteFrame(ctx, fxImg, fxDef as SpriteDef, fxTick + u.id * 2, ux - fxSize / 2, uy - fxSize * 0.7, fxSize, fxSize);
             ctx.globalAlpha = 1;
           }
+        }
+        if (eff.type === StatusType.Wound) {
+          // Anti-heal indicator: small pulsing purple-green cross
+          ctx.globalAlpha = 0.5 + 0.2 * Math.sin(Date.now() / 200 + u.id);
+          const ws = r * 1.8;
+          const wcx = ux, wcy = uy - r * 2;
+          ctx.strokeStyle = '#9c27b0';
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.moveTo(wcx - ws / 2, wcy - ws / 2);
+          ctx.lineTo(wcx + ws / 2, wcy + ws / 2);
+          ctx.moveTo(wcx + ws / 2, wcy - ws / 2);
+          ctx.lineTo(wcx - ws / 2, wcy + ws / 2);
+          ctx.stroke();
+          ctx.globalAlpha = 1;
         }
         if (eff.type === StatusType.Shield) {
           const fxData = this.sprites.getFxSprite('shield');
@@ -3454,7 +3504,7 @@ export class Renderer {
       this.ui.drawIcon(ctx, icon, x, iconY, iconSz);
       x += iconSz + 1;
       ctx.fillStyle = color;
-      const text = !compact && rate ? `${val} (+${rate}/s)` : `${val}`;
+      const text = rate ? `${val} (+${rate}/s)` : `${val}`;
       ctx.fillText(text, x, y1 + fontSize * 0.35);
       x += ctx.measureText(text).width + (compact ? 4 : 8);
     };
@@ -3521,7 +3571,7 @@ export class Renderer {
       ctx.fill();
     });
 
-    // Timer + ping — right-aligned, left of settings/info buttons (which are ~70px from right edge)
+    // Timer + ping — right-aligned, left of info/settings buttons (which are ~70px from right edge)
     const hudRightEdge = networkLatencyMs !== undefined ? W - 80 : W - pad;
     const secs = Math.floor(state.tick / 20);
     const timerText = `${Math.floor(secs / 60)}:${(secs % 60).toString().padStart(2, '0')}`;
@@ -3539,68 +3589,73 @@ export class Renderer {
     }
     ctx.fillText(timerText, timerX - ctx.measureText(timerText).width, y1 + fontSize * 0.35);
 
-    // Row 2: HQ bars + diamond + units
+    // Row 2: HQ bars (centered horizontally) + diamond + units
     const y2 = safeTop + (compact ? 32 : 42);
     const smallFont = compact ? 9 : 11;
     ctx.font = `bold ${smallFont}px monospace`;
-    let x2 = pad;
 
-    // HQ health bars
+    // HQ health bars — centered horizontally, with labels inside
     const localTeamHud = player.team;
     const enemyTeamHud = localTeamHud === Team.Bottom ? Team.Top : Team.Bottom;
     const ourHp = state.hqHp[localTeamHud];
     const enemyHp = state.hqHp[enemyTeamHud];
-    const hqBarW = compact ? 40 : 60;
-    const hqBarH = compact ? 8 : 12;
-    const drawHQBar = (label: string, hp: number, _color: string) => {
-      ctx.fillStyle = '#ddd';
-      ctx.fillText(label, x2, y2);
-      x2 += ctx.measureText(label).width + 3;
-      const pct = Math.max(0, hp / HQ_HP);
-      if (!this.ui.drawBar(ctx, x2, y2 - hqBarH, hqBarW, hqBarH, pct)) {
-        ctx.fillStyle = '#222';
-        ctx.fillRect(x2, y2 - hqBarH, hqBarW, hqBarH);
-        ctx.fillStyle = pct > 0.5 ? _color : pct > 0.25 ? '#ff9800' : '#f44336';
-        ctx.fillRect(x2, y2 - hqBarH, hqBarW * pct, hqBarH);
-      }
-      x2 += hqBarW + 4;
-    };
-    drawHQBar('US', ourHp, '#2979ff');
-    drawHQBar('EN', enemyHp, '#ff1744');
+    const hqBarW = compact ? 70 : 100;
+    const hqBarH = compact ? 14 : 16;
+    const hqGap = compact ? 6 : 10;
 
-    // Diamond status
+    // Diamond status text (measured for centering)
     const goldRemaining = state.diamondCells.reduce((s, c) => s + c.gold, 0);
     const totalGold = state.diamondCells.reduce((s, c) => s + c.maxGold, 0);
     const minedPct = Math.round((1 - goldRemaining / totalGold) * 100);
-    if (state.diamond.exposed) {
+    const diamondText = state.diamond.exposed
+      ? (compact ? 'DIAMOND!' : 'DIAMOND EXPOSED!')
+      : (compact ? `${minedPct}%` : `MINE ${minedPct}%`);
+    ctx.font = `bold ${smallFont}px monospace`;
+    const diamondTextW = ctx.measureText(diamondText).width;
+
+    // Total width: [US bar] [gap] [diamond] [gap] [EN bar]
+    const totalRow2W = hqBarW + hqGap + diamondTextW + hqGap + hqBarW;
+    let x2 = (W - totalRow2W) / 2;
+    const barY = y2 - hqBarH / 2;
+    const barLabelFont = compact ? 9 : 11;
+
+    // "Us" bar
+    const drawHQBar = (label: string, hp: number, _color: string, bx: number) => {
+      const pct = Math.max(0, hp / HQ_HP);
+      if (!this.ui.drawBar(ctx, bx, barY, hqBarW, hqBarH, pct)) {
+        ctx.fillStyle = '#222';
+        ctx.fillRect(bx, barY, hqBarW, hqBarH);
+        ctx.fillStyle = pct > 0.5 ? _color : pct > 0.25 ? '#ff9800' : '#f44336';
+        ctx.fillRect(bx, barY, hqBarW * pct, hqBarH);
+      }
+      // Label centered inside bar
       ctx.fillStyle = '#fff';
-      ctx.fillText(compact ? 'DIAMOND!' : 'DIAMOND EXPOSED!', x2, y2);
-      x2 += ctx.measureText(compact ? 'DIAMOND!' : 'DIAMOND EXPOSED!').width + 8;
-    } else {
-      ctx.fillStyle = '#aa8800';
-      const mineText = compact ? `${minedPct}%` : `MINE ${minedPct}%`;
-      ctx.fillText(mineText, x2, y2);
-      x2 += ctx.measureText(mineText).width + 8;
-    }
+      ctx.font = `bold ${barLabelFont}px monospace`;
+      ctx.textAlign = 'center';
+      ctx.fillText(label, bx + hqBarW / 2, barY + hqBarH / 2 + barLabelFont * 0.35);
+      ctx.textAlign = 'start';
+    };
+    drawHQBar('Us', ourHp, '#2979ff', x2);
+    x2 += hqBarW + hqGap;
+
+    // Diamond status (centered between bars)
+    ctx.font = `bold ${smallFont}px monospace`;
+    ctx.fillStyle = state.diamond.exposed ? '#fff' : '#aa8800';
+    ctx.fillText(diamondText, x2, y2);
+    x2 += diamondTextW + hqGap;
+
+    // "Them" bar
+    drawHQBar('Them', enemyHp, '#ff1744', x2);
+    x2 += hqBarW;
 
     // Right side of row 2: unit counts
-    const rightItems: string[] = [];
-    const rightColors: string[] = [];
-
-    // Units
+    ctx.font = `bold ${smallFont}px monospace`;
     const myUnits = state.units.filter(u => u.team === player.team).length;
     const enemyUnits = state.units.filter(u => u.team !== player.team).length;
-    rightItems.push(`${myUnits}v${enemyUnits}`);
-    rightColors.push('#aaa');
-
-    let rx = W - pad;
-    for (let i = rightItems.length - 1; i >= 0; i--) {
-      const tw = ctx.measureText(rightItems[i]).width;
-      rx -= tw;
-      ctx.fillStyle = rightColors[i];
-      ctx.fillText(rightItems[i], rx, y2);
-      rx -= 8;
-    }
+    const unitText = `${myUnits}v${enemyUnits}`;
+    const unitTextW = ctx.measureText(unitText).width;
+    ctx.fillStyle = '#aaa';
+    ctx.fillText(unitText, W - pad - unitTextW, y2);
 
     // WC3-style network status panel
     if (peerDisconnected) {

@@ -197,25 +197,26 @@ function skGetMarginAtCol(x: number): number {
 
 // ---- Skirmish base layout ----
 // Left side (Team 0):
-//   x=0..4: build grids (3 wide), one per player strip
-//   x=5:    hut columns (1 wide), one per player strip
-//   x=10..29: tower alley (20×12), centered vertically
-//   HQ inside tower alley, centered at y=45
+//   x=2:   hut columns (1 wide, miners — furthest from HQ), one per player strip
+//   x=4:   research building (midpoint between hut and build grid)
+//   x=6..8: build grids (3 wide, war units — closest to HQ), one per player strip
+//   x=19..30: tower alley (12 wide × 20 tall), centered vertically
+//   HQ center at x=14, centered at y=45
 // Right side (Team 1): mirrored
 
-// Build grid origins: 3 wide × 14 tall, left-aligned in each strip
+// Build grid origins: 3 wide × 14 tall, closer to HQ (war units nearest HQ)
 function skBuildGridOrigin(side: 'left' | 'right', slotInTeam: number): Vec2 {
   const stripY = skPlayerStripY(slotInTeam);
   const y = stripY + Math.floor((SK_PLAYER_STRIP_H - SK_BUILD_ROWS) / 2);
-  const x = side === 'left' ? 2 : SK_W - 2 - SK_BUILD_COLS; // 2 or 155
+  const x = side === 'left' ? 6 : SK_W - 6 - SK_BUILD_COLS; // 6 or 151
   return { x, y };
 }
 
-// Hut grid origins: 1 wide × 10 tall, next to builds
+// Hut grid origins: 1 wide × 10 tall, farther from HQ (miners furthest back)
 function skHutGridOrigin(side: 'left' | 'right', slotInTeam: number): Vec2 {
   const stripY = skPlayerStripY(slotInTeam);
   const y = stripY + Math.floor((SK_PLAYER_STRIP_H - SK_HUT_ROWS) / 2);
-  const x = side === 'left' ? 6 : SK_W - 6 - SK_HUT_COLS; // 6 or 153
+  const x = side === 'left' ? 2 : SK_W - 2 - SK_HUT_COLS; // 2 or 157
   return { x, y };
 }
 
@@ -365,14 +366,14 @@ const WZ_HUT_ROWS = 10;
 function wzBuildGridOrigin(side: 'left' | 'right', slotInTeam: number): Vec2 {
   const stripY = wzPlayerStripY(slotInTeam);
   const y = stripY + Math.floor((WZ_PLAYER_STRIP_H - WZ_BUILD_ROWS) / 2);
-  const x = side === 'left' ? 2 : WZ_W - 2 - WZ_BUILD_COLS;
+  const x = side === 'left' ? 6 : WZ_W - 6 - WZ_BUILD_COLS; // closer to HQ
   return { x, y };
 }
 
 function wzHutGridOrigin(side: 'left' | 'right', slotInTeam: number): Vec2 {
   const stripY = wzPlayerStripY(slotInTeam);
   const y = stripY + Math.floor((WZ_PLAYER_STRIP_H - WZ_HUT_ROWS) / 2);
-  const x = side === 'left' ? 6 : WZ_W - 6 - WZ_HUT_COLS;
+  const x = side === 'left' ? 2 : WZ_W - 2 - WZ_HUT_COLS; // farther from HQ
   return { x, y };
 }
 

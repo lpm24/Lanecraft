@@ -364,14 +364,18 @@ export function createInitialState(
   }
 
 
-  // Place one Research per non-empty player, 2 tiles left of build grid
+  // Place one Research per non-empty player, between war units (build grid) and miners (hut grid)
   for (let i = 0; i < playerStates.length; i++) {
     const p = playerStates[i];
     if (p.isEmpty) continue;
     const buildOrigin = getBuildGridOrigin(i, map, playerStates);
+    const hutOrigin = getHutGridOrigin(i, map, playerStates);
     const isLandscape = map.shapeAxis === 'x';
-    const bx = isLandscape ? buildOrigin.x : buildOrigin.x - 2;
-    const by = isLandscape ? buildOrigin.y - 2 : buildOrigin.y;
+    // Place research at the midpoint between hut grid and build grid
+    const bx = isLandscape
+      ? Math.round((buildOrigin.x + hutOrigin.x) / 2)
+      : buildOrigin.x + Math.floor(map.buildGridCols / 2); // center across build grid columns
+    const by = isLandscape ? buildOrigin.y : Math.round((buildOrigin.y + hutOrigin.y) / 2);
     const researchHp = 500;
     state.buildings.push({
       id: genId(state), type: BuildingType.Research, playerId: i, buildGrid: 'military',
@@ -588,28 +592,57 @@ function buildDiamondCellMap(cells: GoldCell[]): Map<string, GoldCell> {
   return m;
 }
 
-// === Debug: catch units teleporting to origin ===
+// === Debug: catch units teleporting or ending up at bad positions ===
 const _debugPrevPositions = new Map<number, { x: number; y: number }>();
+// Max tiles a unit can legitimately move in one tick (fastest unit ~6 tiles/s / 20 ticks + hopAttack leaps ~15 tiles)
+const _MAX_LEGIT_JUMP = 20;
 function debugCheckUnitPositions(state: GameState, phase: string): void {
+  const mapW = state.mapDef?.width ?? MAP_WIDTH;
+  const mapH = state.mapDef?.height ?? MAP_HEIGHT;
   for (const u of state.units) {
     if (u.hp <= 0) continue;
     const prev = _debugPrevPositions.get(u.id);
-    // Detect units at or very near origin (no valid gameplay position is < 3 tiles from corner)
+    const px = prev?.x ?? u.x, py = prev?.y ?? u.y;
+
+    // Detect jump teleport — unit moved an implausible distance in one tick
+    if (prev !== undefined) {
+      const jd = Math.sqrt((u.x - px) ** 2 + (u.y - py) ** 2);
+      if (jd > _MAX_LEGIT_JUMP) {
+        console.error(
+          `[BUG] Unit teleported ${jd.toFixed(1)} tiles after ${phase}! tick=${state.tick} id=${u.id} type="${u.type}" ` +
+          `pos=(${u.x.toFixed(2)},${u.y.toFixed(2)}) prev=(${px.toFixed(2)},${py.toFixed(2)}) ` +
+          `team=${u.team} lane=${u.lane} pathProgress=${u.pathProgress.toFixed(4)} ` +
+          `targetId=${u.targetId} hp=${u.hp}/${u.maxHp} category=${u.category} siege=${!!u.upgradeSpecial?.isSiegeUnit}`
+        );
+      }
+    }
+
+    // Detect units clearly off the map
+    if (u.x < 0 || u.y < 0 || u.x > mapW || u.y > mapH) {
+      console.warn(
+        `[BUG] Unit off map after ${phase}! tick=${state.tick} id=${u.id} type="${u.type}" ` +
+        `pos=(${u.x.toFixed(2)},${u.y.toFixed(2)}) map=(${mapW},${mapH}) ` +
+        `team=${u.team} lane=${u.lane} pathProgress=${u.pathProgress.toFixed(4)} targetId=${u.targetId}`
+      );
+      clampToArenaBounds(u, 0.35, state.mapDef);
+    }
+
+    // Detect units at or very near origin (no valid gameplay position is < 3 tiles from both edges)
     if (u.x < 3 && u.y < 3) {
       console.warn(
         `[BUG] Unit at origin after ${phase}! tick=${state.tick} id=${u.id} type="${u.type}" ` +
-        `pos=(${u.x.toFixed(2)},${u.y.toFixed(2)}) prev=(${prev?.x.toFixed(2) ?? '?'},${prev?.y.toFixed(2) ?? '?'}) ` +
+        `pos=(${u.x.toFixed(2)},${u.y.toFixed(2)}) prev=(${px.toFixed(2)},${py.toFixed(2)}) ` +
         `team=${u.team} lane=${u.lane} pathProgress=${u.pathProgress.toFixed(4)} ` +
         `targetId=${u.targetId} hp=${u.hp}/${u.maxHp} category=${u.category}`
       );
-      // Fix: clamp to nearest valid position so unit doesn't get stuck at origin
       clampToArenaBounds(u, 0.35, state.mapDef);
     }
+
     // Detect NaN positions
     if (isNaN(u.x) || isNaN(u.y)) {
       console.error(
         `[BUG] Unit has NaN position after ${phase}! tick=${state.tick} id=${u.id} type="${u.type}" ` +
-        `pos=(${u.x},${u.y}) prev=(${prev?.x ?? '?'},${prev?.y ?? '?'}) ` +
+        `pos=(${u.x},${u.y}) prev=(${px},${py}) ` +
         `team=${u.team} lane=${u.lane} pathProgress=${u.pathProgress}`
       );
       // Fix: snap to lane path start
@@ -618,6 +651,7 @@ function debugCheckUnitPositions(state: GameState, phase: string): void {
       u.y = path[0].y;
       u.pathProgress = 0;
     }
+
     _debugPrevPositions.set(u.id, { x: u.x, y: u.y });
   }
   // Clean up stale entries
@@ -711,8 +745,10 @@ export function simulateTick(state: GameState, commands: GameCommand[]): void {
   tickProjectiles(state);
   debugCheckUnitPositions(state, 'tickProjectiles');
   tickStatusEffects(state);
+  debugCheckUnitPositions(state, 'tickStatusEffects');
   tickNukeTelegraphs(state);
   tickHarvesters(state);
+  debugCheckUnitPositions(state, 'tickHarvesters');
   tickEffects(state);
   checkWinConditions(state);
 
@@ -1312,6 +1348,7 @@ function demonAbility(state: GameState, player: PlayerState, cmd: Extract<GameCo
     if (u.team === player.team) continue;
     if ((u.x - cmd.x) ** 2 + (u.y - cmd.y) ** 2 > r2) continue;
     u.hp -= totalDamage;
+    if (state.playerStats[player.id]) state.playerStats[player.id].abilityDamageDealt += totalDamage;
     // Apply burn
     const existing = u.statusEffects.find(s => s.type === StatusType.Burn);
     if (existing) { existing.stacks = Math.min(5, existing.stacks + 2); existing.duration = 3 * TICK_RATE; }
@@ -2268,6 +2305,7 @@ function healUnit(unit: UnitState, amount: number): number {
 }
 
 
+
 function dealDamage(state: GameState, target: UnitState, amount: number, showFloat: boolean, sourcePlayerId?: number, sourceUnitId?: number, isTowerShot?: boolean): void {
   // Dodge check
   const dodge = target.upgradeSpecial?.dodgeChance ?? 0;
@@ -3034,7 +3072,8 @@ function tickCombat(state: GameState): void {
       }
     }
     // Acquire new target — spread across enemies to form a battle line
-    if (unit.targetId === null) {
+    // Siege units never lock onto units — they follow their lane path and fire at buildings
+    if (unit.targetId === null && !unit.upgradeSpecial?.isSiegeUnit) {
       let best: UnitState | null = null;
       let bestScore = Infinity;
       for (const o of state.units) {
@@ -3132,8 +3171,8 @@ function tickCombat(state: GameState): void {
           moveWithSlide(unit, goalX, goalY, step, state.diamondCells, state.mapDef);
           clampToArenaBounds(unit, 0.35, state.mapDef);
         } else if (dist > 0.5) {
-          // In range — do gentle lateral drift to spread the battle line.
-          // Units slide perpendicular to the target direction, away from nearby allies.
+          // In range — gentle lateral drift so units spread the battle line
+          // instead of stacking on the same spot.
           const movePerTick = getEffectiveSpeed(unit) / TICK_RATE;
           const perpX = -dy / dist, perpY = dx / dist;
           let lateralForce = 0;
@@ -3142,13 +3181,12 @@ function tickCombat(state: GameState): void {
             const ax = ally.x - unit.x, ay = ally.y - unit.y;
             const ad = Math.sqrt(ax * ax + ay * ay);
             if (ad > 2.0 || ad < 0.05) continue;
-            // Project ally position onto perpendicular axis
             const proj = ax * perpX + ay * perpY;
             const urgency = (2.0 - ad) / 2.0;
             lateralForce -= proj * urgency * 0.3;
           }
           if (Math.abs(lateralForce) > 0.02) {
-            const driftStep = movePerTick * 0.35;
+            const driftStep = movePerTick * 0.25;
             const sign = lateralForce > 0 ? 1 : -1;
             const nx = unit.x + perpX * sign * driftStep * 3;
             const ny = unit.y + perpY * sign * driftStep * 3;
@@ -3258,15 +3296,19 @@ function tickCombat(state: GameState): void {
             // Horde Berserker Howl: +15% ranged damage while hasted
             if (rbu.raceUpgrades['horde_caster_2'] && unit.statusEffects.some(e => e.type === StatusType.Haste)) effDmg = Math.round(effDmg * 1.15);
           }
+          const isSiege = sp?.isSiegeUnit ?? false;
           state.projectiles.push({
             id: genId(state), x: unit.x, y: unit.y,
             targetId: target.id, damage: effDmg,
-            speed: 15, aoeRadius: rangedAoe, team: unit.team, visual: RANGED_VISUAL[race] ?? 'arrow',
+            speed: isSiege ? 8 : 15,
+            aoeRadius: rangedAoe, team: unit.team,
+            visual: isSiege ? 'cannonball' : (RANGED_VISUAL[race] ?? 'arrow'),
             sourcePlayerId: unit.playerId, sourceUnitId: unit.id,
             extraBurnStacks: sp?.extraBurnStacks,
             extraSlowStacks: sp?.extraSlowStacks,
             splashDamagePct: rangedSplashPct,
-            lifestealPct: race === Race.Geists ? 0.2 : undefined,
+            lifestealPct: isSiege ? (sp?.lifestealPct) : (race === Race.Geists ? 0.2 : undefined),
+            buildingDamageMult: isSiege ? (sp?.buildingDamageMult ?? 3.0) : undefined,
           });
           // Research: Crown Volley — fire extra projectile at 40% damage
           if (rbu?.raceUpgrades['crown_ranged_2']) {
@@ -3438,8 +3480,41 @@ function tickCombat(state: GameState): void {
       }
     }
 
+    // Siege units: fire cannonball at any enemy building in range when no unit target
+    if (unit.upgradeSpecial?.isSiegeUnit && unit.targetId === null && unit.attackTimer <= 0 && unit.range > 2) {
+      const sp = unit.upgradeSpecial;
+      let bestSiegeBuilding: BuildingState | null = null;
+      let bestSiegeDist = Infinity;
+      for (const b of state.buildings) {
+        if (b.type === BuildingType.HarvesterHut || b.type === BuildingType.Research) continue;
+        const bPlayer = state.players[b.playerId];
+        if (!bPlayer || bPlayer.team === unit.team) continue;
+        if (b.hp <= 0) continue;
+        const bd = Math.sqrt((b.worldX - unit.x) ** 2 + (b.worldY - unit.y) ** 2);
+        if (bd <= unit.range + 0.15 && bd < bestSiegeDist) { bestSiegeBuilding = b; bestSiegeDist = bd; }
+      }
+      if (bestSiegeBuilding) {
+        const effDmg = getEffectiveDamage(unit);
+        state.projectiles.push({
+          id: genId(state), x: unit.x, y: unit.y,
+          targetId: 0,  // unused — position-targeted via targetX/targetY
+          targetX: bestSiegeBuilding.worldX,
+          targetY: bestSiegeBuilding.worldY,
+          damage: effDmg,
+          speed: 8, aoeRadius: sp?.splashRadius ?? 3, team: unit.team, visual: 'cannonball',
+          sourcePlayerId: unit.playerId, sourceUnitId: unit.id,
+          splashDamagePct: sp?.splashDamagePct ?? 0.60,
+          buildingDamageMult: sp?.buildingDamageMult ?? 3.0,
+          extraBurnStacks: sp?.extraBurnStacks,
+          extraSlowStacks: sp?.extraSlowStacks,
+        });
+        unit.attackTimer = Math.round(unit.attackSpeed * TICK_RATE);
+        addSound(state, 'ranged_hit', unit.x, unit.y);
+      }
+    }
+
     // Attack enemy towers when no unit targets available
-    if (unit.targetId === null && unit.attackTimer <= 0) {
+    if (!unit.upgradeSpecial?.isSiegeUnit && unit.targetId === null && unit.attackTimer <= 0) {
       let nearestTower: BuildingState | null = null;
       let ntd = Infinity;
       for (const b of state.buildings) {
@@ -3742,6 +3817,69 @@ function tickProjectiles(state: GameState): void {
   let rangedHitSounds = 0;
 
   for (const p of state.projectiles) {
+    // === Position-targeted siege cannonball (no unit target, flies to a world position) ===
+    if (p.targetX !== undefined && p.targetY !== undefined) {
+      const pdx = p.targetX - p.x, pdy = p.targetY - p.y;
+      const pdist = Math.sqrt(pdx * pdx + pdy * pdy);
+      const pmove = p.speed / TICK_RATE;
+      if (pdist <= pmove) {
+        // Impact: AoE damage to units
+        const impX = p.targetX, impY = p.targetY;
+        if (p.aoeRadius > 0) {
+          addCombatEvent(state, { type: 'splash', x: impX, y: impY, radius: p.aoeRadius, color: '#ff6600' });
+          for (const u of state.units) {
+            if (u.team === p.team || u.hp <= 0) continue;
+            const ud = Math.sqrt((u.x - impX) ** 2 + (u.y - impY) ** 2);
+            if (ud <= p.aoeRadius) {
+              const splashDmg = Math.round(p.damage * (p.splashDamagePct ?? 0.60));
+              dealDamage(state, u, splashDmg, true, p.sourcePlayerId, p.sourceUnitId);
+              const srcPlayer = state.players[p.sourcePlayerId];
+              if (srcPlayer) {
+                if (p.extraBurnStacks) applyStatus(u, StatusType.Burn, p.extraBurnStacks);
+                if (p.extraSlowStacks) applyStatus(u, StatusType.Slow, p.extraSlowStacks);
+              }
+            }
+          }
+        }
+        // Impact: building damage
+        if (p.buildingDamageMult && p.buildingDamageMult > 0) {
+          const bldAoe = (p.aoeRadius ?? 0) + 1;
+          for (const b of state.buildings) {
+            if (b.hp <= 0) continue;
+            const bPlayer = state.players[b.playerId];
+            if (!bPlayer || bPlayer.team === p.team) continue;
+            const bd = Math.sqrt((b.worldX - impX) ** 2 + (b.worldY - impY) ** 2);
+            if (bd <= bldAoe) {
+              const bldDmg = Math.round(p.damage * p.buildingDamageMult);
+              b.hp = Math.max(0, b.hp - bldDmg);
+              addFloatingText(state, b.worldX, b.worldY - 0.5, `-${bldDmg}`, '#ff6600');
+              if (b.hp <= 0) {
+                addFloatingText(state, b.worldX, b.worldY, 'DESTROYED', '#ff0000');
+                addSound(state, 'building_destroyed', b.worldX, b.worldY);
+              }
+            }
+          }
+          // Also damage enemy HQ if in blast radius
+          const enemyTeam = p.team === Team.Bottom ? Team.Top : Team.Bottom;
+          const hq = getHQPosition(enemyTeam, state.mapDef);
+          const hqCx = hq.x + HQ_WIDTH / 2, hqCy = hq.y + HQ_HEIGHT / 2;
+          const hqDist = Math.sqrt((hqCx - impX) ** 2 + (hqCy - impY) ** 2);
+          if (hqDist <= bldAoe + 2) {
+            const hqBldDmg = Math.round(p.damage * p.buildingDamageMult * 0.5);
+            state.hqHp[enemyTeam] = Math.max(0, state.hqHp[enemyTeam] - hqBldDmg);
+            addFloatingText(state, hqCx, hqCy, `-${hqBldDmg} HQ`, '#ff0000');
+          }
+        }
+        addDeathParticles(state, impX, impY, '#ff6600', 6);
+        if (rangedHitSounds < 3) { addSound(state, 'ranged_hit', impX, impY); rangedHitSounds++; }
+        toRemove.add(p.id);
+      } else {
+        p.x += (pdx / pdist) * pmove;
+        p.y += (pdy / pdist) * pmove;
+      }
+      continue;
+    }
+
     const target = unitById.get(p.targetId);
     if (!target || target.hp <= 0) {
       toRemove.add(p.id);
@@ -3776,6 +3914,7 @@ function tickProjectiles(state: GameState): void {
         // Burn races: Demon, Geists, Wild, Goblins (Knifer poison)
         if (race === Race.Demon || race === Race.Geists || race === Race.Wild || race === Race.Goblins)
           applyStatus(target, StatusType.Burn, (p.aoeRadius > 0 ? 2 : 1) + extraBurn);
+        // Anti-heal: Goblin toxins and Demon flames on ranged hits
         // Geists Wraith Bow: ranged lifesteal
         if (p.lifestealPct && p.lifestealPct > 0) {
           const source = state.units.find(u => u.id === p.sourceUnitId);
@@ -3805,8 +3944,7 @@ function tickProjectiles(state: GameState): void {
           if (lsSource && lsSource.hp > 0) {
             const extraSteal = Math.round(p.damage * 0.10);
             if (extraSteal > 0) {
-              const ah = Math.min(lsSource.maxHp - lsSource.hp, extraSteal);
-              lsSource.hp = Math.min(lsSource.maxHp, lsSource.hp + extraSteal);
+              const ah = healUnit(lsSource, extraSteal);
               if (ah > 0) trackHealing(state, lsSource, ah);
             }
           }
@@ -3826,8 +3964,7 @@ function tickProjectiles(state: GameState): void {
               if (hpPct < lowestHpPct) { lowestHpPct = hpPct; lowestAlly = u; }
             }
             if (lowestAlly) {
-              const ah = Math.min(lowestAlly.maxHp - lowestAlly.hp, healAmt);
-              lowestAlly.hp = Math.min(lowestAlly.maxHp, lowestAlly.hp + healAmt);
+              const ah = healUnit(lowestAlly, healAmt);
               if (ah > 0) addCombatEvent(state, { type: 'heal', x: lowestAlly.x, y: lowestAlly.y, color: '#66bb6a' });
             }
           }
@@ -3856,18 +3993,37 @@ function tickProjectiles(state: GameState): void {
               // Demon Flame Conduit: +1 AoE burn stack on caster projectiles
               if (sourcePlayer.researchUpgrades.raceUpgrades['demon_caster_1'] && p.aoeRadius > 0) applyStatus(u, StatusType.Burn, 1);
               if (race === Race.Oozlings) applyStatus(u, StatusType.Slow, 1);
+              // Anti-heal on AoE
               // AoE lifesteal
               if (p.lifestealPct && p.lifestealPct > 0) {
                 const source = state.units.find(s => s.id === p.sourceUnitId);
                 if (source && source.hp > 0) {
                   const steal = Math.round(aoeDmg * p.lifestealPct);
                   if (steal > 0) {
-                    const aoeAh = Math.min(source.maxHp - source.hp, steal);
-                    source.hp = Math.min(source.maxHp, source.hp + steal);
+                    const aoeAh = healUnit(source, steal);
                     if (aoeAh > 0) trackHealing(state, source, aoeAh);
                   }
                 }
               }
+            }
+          }
+        }
+      }
+      // Siege projectile: splash also damages nearby enemy buildings
+      if (p.buildingDamageMult && p.buildingDamageMult > 0 && p.aoeRadius > 0) {
+        const bldAoe = p.aoeRadius + 1;
+        for (const b of state.buildings) {
+          if (b.hp <= 0) continue;
+          const bPlayer = state.players[b.playerId];
+          if (!bPlayer || bPlayer.team === p.team) continue;
+          const bd = Math.sqrt((b.worldX - target.x) ** 2 + (b.worldY - target.y) ** 2);
+          if (bd <= bldAoe) {
+            const bldDmg = Math.round(p.damage * p.buildingDamageMult * (p.splashDamagePct ?? 0.60));
+            b.hp = Math.max(0, b.hp - bldDmg);
+            addFloatingText(state, b.worldX, b.worldY - 0.5, `-${bldDmg}`, '#ff6600');
+            if (b.hp <= 0) {
+              addFloatingText(state, b.worldX, b.worldY, 'DESTROYED', '#ff0000');
+              addSound(state, 'building_destroyed', b.worldX, b.worldY);
             }
           }
         }
@@ -3927,8 +4083,7 @@ function tickStatusEffects(state: GameState): void {
         const burnEff = unit.statusEffects.find(e => e.type === StatusType.Burn);
         const blighted = burnEff && burnEff.stacks >= 3;
         if (!blighted) {
-          const regenAh = Math.min(unit.maxHp - unit.hp, regen);
-          unit.hp = Math.min(unit.maxHp, unit.hp + regen);
+          const regenAh = healUnit(unit, regen);
           if (regenAh > 0) trackHealing(state, unit, regenAh);
           addDeathParticles(state, unit.x, unit.y, '#4caf50', 1);
           // Throttle heal VFX to every 3 seconds to avoid sparkle spam
@@ -3951,6 +4106,10 @@ function tickStatusEffects(state: GameState): void {
         const baseBurnDmg = 2 * eff.stacks;
         const burnDmg = hasSlowCombo ? Math.round(baseBurnDmg * 1.5) : baseBurnDmg;
         dealDamage(state, unit, burnDmg, true);
+        // Track burn damage — attribute to first active enemy player
+        for (const ep of state.players) {
+          if (ep.team !== unit.team && !ep.isEmpty) { state.playerStats[ep.id].burnDamageDealt += burnDmg; break; }
+        }
         if (hasSlowCombo) {
           addDeathParticles(state, unit.x, unit.y, '#ff6600', 1);
           addDeathParticles(state, unit.x, unit.y, '#2979ff', 1);
@@ -3983,7 +4142,7 @@ function tickStatusEffects(state: GameState): void {
       const sympPlayer = state.players[unit.playerId];
       if (sympPlayer?.researchUpgrades.raceUpgrades['oozlings_caster_1'] && unit.category === 'caster') {
         if (unit.statusEffects.some(e => e.type === StatusType.Haste) && unit.hp < unit.maxHp) {
-          unit.hp = Math.min(unit.maxHp, unit.hp + 1);
+          healUnit(unit, 1);
         }
       }
     }

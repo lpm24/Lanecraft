@@ -209,13 +209,13 @@ export const UNIT_STATS: Record<Race, RaceUnits> = {
   // === OOZLINGS (Slimes) — Adaptive Swarm ===
   [Race.Oozlings]: {
     [BuildingType.MeleeSpawner]: {
-      name: 'Globule', hp: 57, damage: 5, attackSpeed: 0.9, moveSpeed: 4.2, range: 1, ascii: 'o', spawnCount: 2,
+      name: 'Globule', hp: 46, damage: 5, attackSpeed: 0.9, moveSpeed: 4.2, range: 1, ascii: 'o', spawnCount: 2,
     },
     [BuildingType.RangedSpawner]: {
-      name: 'Spitter', hp: 30, damage: 6, attackSpeed: 1.1, moveSpeed: 3.8, range: 6, ascii: 'O~', spawnCount: 2,
+      name: 'Spitter', hp: 24, damage: 6, attackSpeed: 1.1, moveSpeed: 3.8, range: 6, ascii: 'O~', spawnCount: 2,
     },
     [BuildingType.CasterSpawner]: {
-      name: 'Bloater', hp: 39, damage: 12, attackSpeed: 2.4, moveSpeed: 2.8, range: 6, ascii: '{O}', spawnCount: 2,
+      name: 'Bloater', hp: 31, damage: 12, attackSpeed: 2.4, moveSpeed: 2.8, range: 6, ascii: '{O}', spawnCount: 2,
     },
   },
   // === DEMON — Glass Cannon Chaos ===
@@ -282,15 +282,15 @@ export const UNIT_STATS: Record<Race, RaceUnits> = {
 
 // Tower stats per race
 export const TOWER_STATS: Record<Race, { hp: number; damage: number; attackSpeed: number; range: number; ascii: string }> = {
-  [Race.Crown]:    { hp: 968,  damage: 10, attackSpeed: 1.5, range: 8, ascii: '[||]' },
-  [Race.Horde]:    { hp: 1100, damage: 14, attackSpeed: 1.5, range: 8, ascii: '[HH]' },
-  [Race.Goblins]:  { hp: 660,  damage: 10, attackSpeed: 1.1, range: 8, ascii: '[gg]' },
-  [Race.Oozlings]: { hp: 748,  damage: 8,  attackSpeed: 0.9, range: 8, ascii: '[oo]' },
-  [Race.Demon]:    { hp: 704,  damage: 18, attackSpeed: 2.0, range: 9, ascii: '<F>' },
-  [Race.Deep]:     { hp: 1232, damage: 8,  attackSpeed: 1.1, range: 8, ascii: '(@)' },
-  [Race.Wild]:     { hp: 880,  damage: 10, attackSpeed: 1.1, range: 7, ascii: '[*]' },
-  [Race.Geists]:   { hp: 792,  damage: 12, attackSpeed: 1.3, range: 9, ascii: '{~}' },
-  [Race.Tenders]:  { hp: 1144, damage: 8,  attackSpeed: 1.1, range: 6, ascii: '[^^]' },
+  [Race.Crown]:    { hp: 968,  damage: 10, attackSpeed: 1.5, range: 6, ascii: '[||]' },
+  [Race.Horde]:    { hp: 1100, damage: 14, attackSpeed: 1.5, range: 6, ascii: '[HH]' },
+  [Race.Goblins]:  { hp: 660,  damage: 10, attackSpeed: 1.1, range: 6, ascii: '[gg]' },
+  [Race.Oozlings]: { hp: 748,  damage: 8,  attackSpeed: 0.9, range: 6, ascii: '[oo]' },
+  [Race.Demon]:    { hp: 704,  damage: 18, attackSpeed: 2.0, range: 7, ascii: '<F>' },
+  [Race.Deep]:     { hp: 1232, damage: 8,  attackSpeed: 1.1, range: 6, ascii: '(@)' },
+  [Race.Wild]:     { hp: 880,  damage: 10, attackSpeed: 1.1, range: 6, ascii: '[*]' },
+  [Race.Geists]:   { hp: 792,  damage: 12, attackSpeed: 1.3, range: 7, ascii: '{~}' },
+  [Race.Tenders]:  { hp: 1144, damage: 8,  attackSpeed: 1.1, range: 5, ascii: '[^^]' },
 };
 
 // Race accent colors
@@ -361,6 +361,9 @@ export interface UpgradeSpecial {
   explodeRadius?: number;       // explosion radius in tiles
   skeletonSummonChance?: number; // Geists caster: chance (0-1) to summon mini-skeleton on nearby death
   crownMage?: boolean;           // Crown caster mage branch: fire AoE damage instead of shielding
+  // Siege unit properties
+  isSiegeUnit?: boolean;         // marks this as a siege unit (targets buildings, slow, long range, AoE)
+  buildingDamageMult?: number;   // damage multiplier vs buildings on projectile impact (e.g. 4.0 = 4x)
   // Horde auras (affect nearby allies within ~5 tiles)
   auraDamageBonus?: number;      // +flat damage to nearby allies
   auraSpeedBonus?: number;       // +% move speed to nearby allies (0.1 = +10%)
@@ -401,7 +404,7 @@ export const UPGRADE_TREES: Record<Race, Partial<Record<BuildingType, Record<Upg
       D: { name: 'Longbow', desc: '+40% dmg, +25% range', damageMult: 1.40, rangeMult: 1.25, spawnSpeedMult: 0.82 },
       E: { name: 'War Bow', desc: '+35% dmg, splash 2t', damageMult: 1.35, special: { splashRadius: 2, splashDamagePct: 0.50 }, spawnSpeedMult: 0.82 },
       F: { name: 'Dwarfette Blitzer', desc: 'Much faster, +25% range', attackSpeedMult: 0.70, rangeMult: 1.25, spawnSpeedMult: 0.82 },
-      G: { name: 'Dwarfette Vanguard', desc: 'Fires 2 projectiles', special: { multishotCount: 1, multishotDamagePct: 0.75 }, spawnSpeedMult: 0.82 },
+      G: { name: 'Trebuchet', desc: 'SIEGE: 13 range, slow, fragile, devastating vs buildings', hpMult: 0.50, damageMult: 1.80, attackSpeedMult: 3.40, moveSpeedMult: 0.38, rangeMult: 1.85, spawnSpeedMult: 0.82, special: { isSiegeUnit: true, buildingDamageMult: 4.0, splashRadius: 3, splashDamagePct: 0.65 } },
     },
     [BuildingType.CasterSpawner]: {
       B: { name: 'High Priest', desc: '+30% HP, shield +2 targets', hpMult: 1.30, special: { shieldTargetBonus: 2 }, spawnSpeedMult: 0.88 },
@@ -439,14 +442,14 @@ export const UPGRADE_TREES: Record<Race, Partial<Record<BuildingType, Record<Upg
     [BuildingType.RangedSpawner]: {
       // B path = wood (stays on starting resource)
       B: { name: 'Heavy Cleaver', desc: '+30% HP, +30% dmg', hpMult: 1.30, damageMult: 1.30, spawnSpeedMult: 0.88, cost: { gold: 0, wood: 45, stone: 0 } },
-      // C path = meat (switches resource)
-      C: { name: 'Quick Cleaver', desc: 'Faster atk, +15% speed', attackSpeedMult: 0.80, moveSpeedMult: 1.15, spawnSpeedMult: 0.88, cost: { gold: 0, wood: 0, stone: 45 } },
-      // D,E under B (wood)
+      // C path = full SIEGE path (all 3 nodes are siege)
+      C: { name: 'Orc Catapult', desc: 'SIEGE: 11 range, slow, devastating vs buildings', hpMult: 0.65, damageMult: 1.40, attackSpeedMult: 2.00, moveSpeedMult: 0.55, rangeMult: 1.57, spawnSpeedMult: 0.88, cost: { gold: 0, wood: 0, stone: 45 }, special: { isSiegeUnit: true, buildingDamageMult: 3.0, splashRadius: 2.5, splashDamagePct: 0.55, auraDamageBonus: 2 } },
+      // D,E under B (wood) — normal ranged
       D: { name: 'War Thrower', desc: '+45% dmg, AURA: +10% speed', damageMult: 1.45, special: { knockbackEveryN: 2, auraSpeedBonus: 0.10 }, spawnSpeedMult: 0.82, cost: { gold: 0, wood: 90, stone: 0 } },
-      E: { name: 'Siege Cleaver', desc: '+40% dmg, splash, AURA: +2 dmg', damageMult: 1.40, special: { splashRadius: 2, splashDamagePct: 0.55, auraDamageBonus: 2 }, spawnSpeedMult: 0.82, cost: { gold: 0, wood: 90, stone: 0 } },
-      // F,G under C (meat)
-      F: { name: 'Rapid Thrower', desc: 'Much faster, AURA: +10% armor', attackSpeedMult: 0.70, moveSpeedMult: 1.20, special: { auraArmorBonus: 0.10 }, spawnSpeedMult: 0.82, cost: { gold: 0, wood: 0, stone: 90 } },
-      G: { name: 'Twin Cleaver', desc: '2 projectiles, AURA: +3 dmg', special: { multishotCount: 1, multishotDamagePct: 0.80, auraDamageBonus: 3 }, spawnSpeedMult: 0.82, cost: { gold: 0, wood: 0, stone: 90 } },
+      E: { name: 'Battle Cleaver', desc: '+40% dmg, splash, AURA: +2 dmg', damageMult: 1.40, special: { splashRadius: 2, splashDamagePct: 0.55, auraDamageBonus: 2 }, spawnSpeedMult: 0.82, cost: { gold: 0, wood: 90, stone: 0 } },
+      // F,G under C (siege T3s)
+      F: { name: 'Horde Bombard', desc: 'SIEGE: 13 range, AURA: +10% armor', hpMult: 0.76, damageMult: 1.43, attackSpeedMult: 1.35, moveSpeedMult: 0.79, rangeMult: 1.18, spawnSpeedMult: 0.82, cost: { gold: 0, wood: 0, stone: 90 }, special: { isSiegeUnit: true, buildingDamageMult: 4.0, splashRadius: 3.5, splashDamagePct: 0.65, auraArmorBonus: 0.10 } },
+      G: { name: 'Doom Catapult', desc: 'SIEGE: 14 range, massive AoE, AURA: +4 dmg', hpMult: 0.87, damageMult: 1.70, attackSpeedMult: 1.46, moveSpeedMult: 0.73, rangeMult: 1.27, spawnSpeedMult: 0.82, cost: { gold: 0, wood: 0, stone: 90 }, special: { isSiegeUnit: true, buildingDamageMult: 5.0, splashRadius: 4, splashDamagePct: 0.70, auraDamageBonus: 4 } },
     },
     [BuildingType.CasterSpawner]: {
       // B path = gold (stays on starting resource)
@@ -485,7 +488,7 @@ export const UPGRADE_TREES: Record<Race, Partial<Record<BuildingType, Record<Upg
       D: { name: 'Plague Knifer', desc: '+35% dmg, +3 burn', damageMult: 1.35, special: { extraBurnStacks: 3 }, spawnSpeedMult: 0.70 },
       E: { name: 'Fan Knifer', desc: 'Fires 2 projectiles', special: { multishotCount: 1, multishotDamagePct: 0.70 } },
       F: { name: 'King Pig', desc: '+30% speed, 25% dodge', moveSpeedMult: 1.30, special: { dodgeChance: 0.25 }, spawnSpeedMult: 0.70 },
-      G: { name: 'Pig Warlord', desc: '+40% dmg, +25% range', damageMult: 1.40, rangeMult: 1.25 },
+      G: { name: 'Goblin Mortar', desc: 'SIEGE: 13 range, slow, devastating vs buildings', hpMult: 0.50, damageMult: 2.0, attackSpeedMult: 3.20, moveSpeedMult: 0.38, rangeMult: 1.88, spawnSpeedMult: 0.82, special: { isSiegeUnit: true, buildingDamageMult: 4.0, splashRadius: 3, splashDamagePct: 0.65, extraBurnStacks: 1 } },
     },
     [BuildingType.CasterSpawner]: {
       B: { name: 'Hex Master', desc: '+25% HP, +3 slow', hpMult: 1.25, special: { extraSlowStacks: 3 }, spawnSpeedMult: 0.80 },
@@ -520,7 +523,7 @@ export const UPGRADE_TREES: Record<Race, Partial<Record<BuildingType, Record<Upg
       D: { name: 'Acid Spitter', desc: '+35% dmg, +2 slow', damageMult: 1.35, special: { extraSlowStacks: 2 }, spawnSpeedMult: 0.70 },
       E: { name: 'Burst Spitter', desc: '+30% dmg, splash 2t', damageMult: 1.30, special: { splashRadius: 2, splashDamagePct: 0.50 } },
       F: { name: 'Hyper Spitter', desc: 'Much faster, +25% range', attackSpeedMult: 0.70, rangeMult: 1.25, spawnSpeedMult: 0.70 },
-      G: { name: 'Storm Spitter', desc: 'Fires 2 projectiles', special: { multishotCount: 1, multishotDamagePct: 0.75 } },
+      G: { name: 'Glob Siege', desc: 'SIEGE: 1 giant glob, 12 range, slow, devastating vs buildings', hpMult: 2.20, damageMult: 3.80, attackSpeedMult: 3.20, moveSpeedMult: 0.35, rangeMult: 1.95, spawnSpeedMult: 0.82, special: { isSiegeUnit: true, buildingDamageMult: 4.0, splashRadius: 3, splashDamagePct: 0.65, spawnCount: 1, extraSlowStacks: 2 } },
     },
     [BuildingType.CasterSpawner]: {
       B: { name: 'Big Bloater', desc: '+30% HP, +1 AoE', hpMult: 1.30, special: { aoeRadiusBonus: 1 }, spawnSpeedMult: 0.80 },
@@ -555,7 +558,7 @@ export const UPGRADE_TREES: Record<Race, Partial<Record<BuildingType, Record<Upg
       D: { name: 'Meteor Eye', desc: '+45% dmg, splash 2t', damageMult: 1.45, special: { splashRadius: 2, splashDamagePct: 0.60 }, spawnSpeedMult: 0.82 },
       E: { name: 'Scorch Eye', desc: '+40% dmg, +2 burn', damageMult: 1.40, special: { extraBurnStacks: 2 }, spawnSpeedMult: 0.82 },
       F: { name: 'Blitz Eye', desc: 'Very fast, +30% range', attackSpeedMult: 0.70, rangeMult: 1.30, spawnSpeedMult: 0.82 },
-      G: { name: 'Inferno Volley', desc: 'Fires 2 projectiles', special: { multishotCount: 1, multishotDamagePct: 0.80 }, spawnSpeedMult: 0.82 },
+      G: { name: 'Brimstone Cannon', desc: 'SIEGE: 14 range, slow, devastating vs buildings + burns', hpMult: 0.50, damageMult: 1.80, attackSpeedMult: 3.20, moveSpeedMult: 0.35, rangeMult: 1.75, spawnSpeedMult: 0.82, special: { isSiegeUnit: true, buildingDamageMult: 4.0, splashRadius: 3.5, splashDamagePct: 0.65, extraBurnStacks: 2 } },
     },
     [BuildingType.CasterSpawner]: {
       B: { name: 'Hellfire Lord', desc: '+25% HP, +40% dmg', hpMult: 1.25, damageMult: 1.40, spawnSpeedMult: 0.88 },
@@ -589,7 +592,7 @@ export const UPGRADE_TREES: Record<Race, Partial<Record<BuildingType, Record<Upg
       C: { name: 'Spray Crab', desc: 'Faster atk, +2 slow', attackSpeedMult: 0.80, special: { extraSlowStacks: 2 }, spawnSpeedMult: 0.90 },
       D: { name: 'Hammerhead', desc: '+45% dmg, splash 2t', damageMult: 1.45, special: { splashRadius: 2, splashDamagePct: 0.50 }, spawnSpeedMult: 0.85 },
       E: { name: 'Great White', desc: '+35% dmg, +3 slow', damageMult: 1.35, special: { extraSlowStacks: 3 }, spawnSpeedMult: 0.85 },
-      F: { name: 'Snapper Crab', desc: 'Much faster, +25% range', attackSpeedMult: 0.70, rangeMult: 1.25, spawnSpeedMult: 0.85 },
+      F: { name: 'Depth Charge', desc: 'SIEGE: 13 range, slow, devastating vs buildings + slows', hpMult: 0.50, damageMult: 1.70, attackSpeedMult: 3.40, moveSpeedMult: 0.40, rangeMult: 1.85, spawnSpeedMult: 0.85, special: { isSiegeUnit: true, buildingDamageMult: 4.0, splashRadius: 3.5, splashDamagePct: 0.65, extraSlowStacks: 3 } },
       G: { name: 'King Crab', desc: '+35% dmg, splash 3t', damageMult: 1.35, special: { splashRadius: 3, splashDamagePct: 0.45 }, spawnSpeedMult: 0.85 },
     },
     [BuildingType.CasterSpawner]: {
@@ -623,7 +626,7 @@ export const UPGRADE_TREES: Record<Race, Partial<Record<BuildingType, Record<Upg
       B: { name: 'Chameleon', desc: '+30% HP, +30% dmg', hpMult: 1.30, damageMult: 1.30, spawnSpeedMult: 0.88 },
       C: { name: 'Spitting Snake', desc: 'Faster atk, +2 slow', attackSpeedMult: 0.80, special: { extraSlowStacks: 2 }, spawnSpeedMult: 0.88 },
       D: { name: 'Stalker', desc: '+40% dmg, splash 2t', damageMult: 1.40, special: { splashRadius: 2, splashDamagePct: 0.50 }, spawnSpeedMult: 0.82 },
-      E: { name: 'Predator', desc: '+35% dmg, +2 burn', damageMult: 1.35, special: { extraBurnStacks: 2 }, spawnSpeedMult: 0.82 },
+      E: { name: 'Catapult Beast', desc: 'SIEGE: 12 range, slow, devastating vs buildings + burns', hpMult: 0.50, damageMult: 1.60, attackSpeedMult: 3.00, moveSpeedMult: 0.40, rangeMult: 2.00, spawnSpeedMult: 0.82, special: { isSiegeUnit: true, buildingDamageMult: 3.5, splashRadius: 3, splashDamagePct: 0.60, extraBurnStacks: 1 } },
       F: { name: 'Venom Serpent', desc: 'Much faster, +25% range, +2 burn', attackSpeedMult: 0.70, rangeMult: 1.25, special: { extraBurnStacks: 2 }, spawnSpeedMult: 0.82 },
       G: { name: 'Hydra Spit', desc: '+45% dmg, splash 3t, +2 slow', damageMult: 1.45, special: { splashRadius: 3, splashDamagePct: 0.50, extraSlowStacks: 2 }, spawnSpeedMult: 0.82 },
     },
@@ -660,7 +663,7 @@ export const UPGRADE_TREES: Record<Race, Partial<Record<BuildingType, Record<Upg
       D: { name: 'Plague Arrow', desc: '+45% dmg, +3 burn', damageMult: 1.45, special: { extraBurnStacks: 3 }, spawnSpeedMult: 0.85 },
       E: { name: 'Hex Volley', desc: 'Fires 2 projectiles', special: { multishotCount: 1, multishotDamagePct: 0.75 }, spawnSpeedMult: 0.85 },
       F: { name: 'Wailing Skull', desc: '+20% dmg, +30% speed, 25% dodge', damageMult: 1.20, moveSpeedMult: 1.30, special: { dodgeChance: 0.25 }, spawnSpeedMult: 0.85 },
-      G: { name: 'Death Skull', desc: '+50% dmg, +30% range', damageMult: 1.50, rangeMult: 1.30, spawnSpeedMult: 0.85 },
+      G: { name: 'Bone Ballista', desc: 'SIEGE: 13 range, slow, devastating vs buildings', hpMult: 0.50, damageMult: 1.70, attackSpeedMult: 3.20, moveSpeedMult: 0.38, rangeMult: 1.50, spawnSpeedMult: 0.85, special: { isSiegeUnit: true, buildingDamageMult: 4.0, splashRadius: 3, splashDamagePct: 0.65, extraBurnStacks: 1 } },
     },
     [BuildingType.CasterSpawner]: {
       B: { name: 'Plague Mage', desc: '+30% HP, 15% summon chance', hpMult: 1.30, special: { skeletonSummonChance: 0.15 }, spawnSpeedMult: 0.90 },
@@ -695,7 +698,7 @@ export const UPGRADE_TREES: Record<Race, Partial<Record<BuildingType, Record<Upg
       D: { name: 'Blight Tinker', desc: '+40% dmg, splash 2t', damageMult: 1.40, special: { splashRadius: 2, splashDamagePct: 0.50 }, spawnSpeedMult: 0.85, cost: { gold: 90, wood: 0, stone: 0 } },
       E: { name: 'Grand Tinker', desc: '+45% dmg, splash 3t', damageMult: 1.45, special: { splashRadius: 3, splashDamagePct: 0.45 }, spawnSpeedMult: 0.85, cost: { gold: 90, wood: 0, stone: 0 } },
       F: { name: 'Toxic Hurler', desc: '+35% dmg, +2 burn', damageMult: 1.35, special: { extraBurnStacks: 2 }, spawnSpeedMult: 0.85, cost: { gold: 0, wood: 0, stone: 90 } },
-      G: { name: 'Briar Beast', desc: 'Much faster, +25% range', attackSpeedMult: 0.70, rangeMult: 1.25, spawnSpeedMult: 0.85, cost: { gold: 0, wood: 0, stone: 90 } },
+      G: { name: 'Vine Siege', desc: 'SIEGE: 13 range, slow, devastating vs buildings + slows', hpMult: 0.50, damageMult: 1.80, attackSpeedMult: 3.20, moveSpeedMult: 0.38, rangeMult: 1.85, spawnSpeedMult: 0.85, cost: { gold: 0, wood: 0, stone: 90 }, special: { isSiegeUnit: true, buildingDamageMult: 4.0, splashRadius: 3, splashDamagePct: 0.65, extraSlowStacks: 2 } },
     },
     [BuildingType.CasterSpawner]: {
       B: { name: 'Deep Root', desc: '+35% HP, +5 heal', hpMult: 1.35, special: { healBonus: 5 }, spawnSpeedMult: 0.90, cost: { gold: 0, wood: 0, stone: 45 } },
@@ -825,13 +828,13 @@ export const RACE_RESEARCH_UPGRADES: Record<Race, ResearchUpgradeDef[]> = {
   [Race.Crown]: [
     { id: 'crown_melee_1', category: 'melee', type: 'race_special', name: 'Defend Stance', desc: '-25% ranged dmg taken', oneShot: true },
     { id: 'crown_melee_2', category: 'melee', type: 'race_special', name: 'Royal Guard', desc: '+15% HP, +2g on kill', oneShot: true },
-    { id: 'crown_ranged_1', category: 'ranged', type: 'race_special', name: 'Piercing Arrows', desc: 'Ignore 20% def', oneShot: true },
+    { id: 'crown_ranged_1', category: 'ranged', type: 'race_special', name: 'Piercing Arrows', desc: 'Ignore 20% def, +4% max HP dmg', oneShot: true },
     { id: 'crown_ranged_2', category: 'ranged', type: 'race_special', name: 'Crown Volley', desc: '+1 proj at 40% dmg', oneShot: true },
     { id: 'crown_caster_1', category: 'caster', type: 'race_special', name: 'Fortified Shields', desc: '+8 shield absorb', oneShot: true },
     { id: 'crown_caster_2', category: 'caster', type: 'race_special', name: 'Healing Aura', desc: '1 HP/s to 2 allies', oneShot: true },
   ],
   [Race.Horde]: [
-    { id: 'horde_melee_1', category: 'melee', type: 'race_special', name: 'Blood Rage', desc: '+20% dmg <50% HP', oneShot: true },
+    { id: 'horde_melee_1', category: 'melee', type: 'race_special', name: 'Blood Rage', desc: '+20% dmg <50% HP, +4% max HP dmg', oneShot: true },
     { id: 'horde_melee_2', category: 'melee', type: 'race_special', name: 'Thick Skin', desc: '+20% HP', oneShot: true },
     { id: 'horde_ranged_1', category: 'ranged', type: 'race_special', name: 'Heavy Bolts', desc: '+1 Slow on hit', oneShot: true },
     { id: 'horde_ranged_2', category: 'ranged', type: 'race_special', name: 'Bombardier', desc: 'Splash 2.5t at 30%', oneShot: true },
@@ -842,7 +845,7 @@ export const RACE_RESEARCH_UPGRADES: Record<Race, ResearchUpgradeDef[]> = {
     { id: 'goblins_melee_1', category: 'melee', type: 'race_special', name: 'Coated Blades', desc: '+1 Burn on melee', oneShot: true },
     { id: 'goblins_melee_2', category: 'melee', type: 'race_special', name: 'Scurry', desc: '+20% move speed', oneShot: true },
     { id: 'goblins_ranged_1', category: 'ranged', type: 'race_special', name: 'Incendiary Tips', desc: '+1 Burn on ranged', oneShot: true },
-    { id: 'goblins_ranged_2', category: 'ranged', type: 'race_special', name: 'Scatter Shot', desc: '15% double fire', oneShot: true },
+    { id: 'goblins_ranged_2', category: 'ranged', type: 'race_special', name: 'Acid Bolts', desc: '+4% target max HP dmg', oneShot: true },
     { id: 'goblins_caster_1', category: 'caster', type: 'race_special', name: 'Potent Hex', desc: '+1 Slow stack', oneShot: true },
     { id: 'goblins_caster_2', category: 'caster', type: 'race_special', name: 'Jinx Cloud', desc: 'Slowed +15% dmg taken', oneShot: true },
   ],

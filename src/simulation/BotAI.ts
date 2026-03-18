@@ -431,6 +431,7 @@ interface ThreatProfile {
   wantShields: boolean;   // vs burn: shields absorb before HP
   wantCleanse: boolean;   // vs burn/slow: remove debuffs
   wantSpeed: boolean;     // vs slow/control: dodge the cc
+  wantSiege: boolean;     // vs turtling/towers: siege units to crack defenses
 }
 
 /** Real-time intelligence state per bot */
@@ -561,6 +562,7 @@ function assessThreatProfile(enemyRaces: Race[]): ThreatProfile {
     wantShields: hasBurn || hasBurst,        // absorb burst and DoT
     wantCleanse: hasBurn || hasControl,      // remove burn/slow stacks
     wantSpeed: hasControl,                   // dodge slow/CC
+    wantSiege: hasTanks,                     // tank races build lots of towers — need siege to crack them
   };
 }
 
@@ -649,6 +651,8 @@ function botUpdateIntelligence(
     tower: enemyBuildings.filter(b => b.type === BuildingType.Tower).length,
     hut: enemyBuildings.filter(b => b.type === BuildingType.HarvesterHut).length,
   };
+  // Dynamically enable siege if enemy is turtling with towers
+  if (intel.enemyBuildingCounts.tower >= 2) intel.threats.wantSiege = true;
   const upgTiers = enemyBuildings
     .filter(b => b.type !== BuildingType.HarvesterHut)
     .map(b => Math.max(0, b.upgradePath.length - 1));
@@ -1087,6 +1091,12 @@ function scoreUpgradeNode(
 
   // Lifesteal / heal is always decent
   if (s.healBonus) score += 2;
+
+  // Siege units vs turtling/towers
+  if (threats.wantSiege) {
+    if (s.isSiegeUnit) score += 18;  // overcome negative hp/speed penalty, siege is exactly what we want
+    if (s.buildingDamageMult) score += (s.buildingDamageMult - 1) * 6;
+  }
 
   return score;
 }

@@ -34,11 +34,21 @@ import blackArchery from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (
 import blackMonastery from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Buildings/Black Buildings/Monastery.png?url';
 import blackTower from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Buildings/Black Buildings/Tower.png?url';
 import blackCastle from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Buildings/Black Buildings/Castle.png?url';
-import blueHouse2 from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Buildings/Blue Buildings/House2.png?url';
-import purpleHouse2 from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Buildings/Purple Buildings/House2.png?url';
-import redHouse2 from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Buildings/Red Buildings/House2.png?url';
-import yellowHouse2 from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Buildings/Yellow Buildings/House2.png?url';
-import blackHouse2 from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Buildings/Black Buildings/House2.png?url';
+
+// ============================================================
+// SPECIAL BUILDING SPRITES
+// ============================================================
+import seedPlantIdle from '../assets/images/Pixel Adventure 2/Enemies/Plant/Idle (44x42).png?url';
+
+const SEED_SPRITE_DEF: SpriteDef = {
+  url: seedPlantIdle,
+  frameW: 44,
+  frameH: 42,
+  cols: 11,
+  groundY: 0.95,
+  scale: 1.0,
+  animSpeed: 0.6,
+};
 
 // ============================================================
 // UNIT SPRITES — Crown (Tiny Swords humans, Blue + Red)
@@ -880,17 +890,17 @@ const HARVESTER_SPRITES: { [pid: number]: HarvesterSpriteSet } = {
 // Player-keyed building URLs: "playerId/buildingKey"
 const BUILDING_URLS: Record<string, string> = {
   '0/hut': blueHouse, '0/melee': blueBarracks, '0/ranged': blueArchery,
-  '0/caster': blueMonastery, '0/tower': blueTower, '0/hq': blueCastle, '0/research': blueHouse2,
+  '0/caster': blueMonastery, '0/tower': blueTower, '0/hq': blueCastle, '0/research': blueBarracks,
   '1/hut': purpleHouse, '1/melee': purpleBarracks, '1/ranged': purpleArchery,
-  '1/caster': purpleMonastery, '1/tower': purpleTower, '1/hq': purpleCastle, '1/research': purpleHouse2,
+  '1/caster': purpleMonastery, '1/tower': purpleTower, '1/hq': purpleCastle, '1/research': purpleBarracks,
   '2/hut': redHouse, '2/melee': redBarracks, '2/ranged': redArchery,
-  '2/caster': redMonastery, '2/tower': redTower, '2/hq': redCastle, '2/research': redHouse2,
+  '2/caster': redMonastery, '2/tower': redTower, '2/hq': redCastle, '2/research': redBarracks,
   '3/hut': yellowHouse, '3/melee': yellowBarracks, '3/ranged': yellowArchery,
-  '3/caster': yellowMonastery, '3/tower': yellowTower, '3/hq': yellowCastle, '3/research': yellowHouse2,
+  '3/caster': yellowMonastery, '3/tower': yellowTower, '3/hq': yellowCastle, '3/research': yellowBarracks,
   '4/hut': blackHouse, '4/melee': blackBarracks, '4/ranged': blackArchery,
-  '4/caster': blackMonastery, '4/tower': blackTower, '4/hq': blackCastle, '4/research': blackHouse2,
+  '4/caster': blackMonastery, '4/tower': blackTower, '4/hq': blackCastle, '4/research': blackBarracks,
   '5/hut': blueHouse, '5/melee': blueBarracks, '5/ranged': blueArchery,
-  '5/caster': blueMonastery, '5/tower': blueTower, '5/hq': blueCastle, '5/research': blueHouse2,
+  '5/caster': blueMonastery, '5/tower': blueTower, '5/hq': blueCastle, '5/research': blueBarracks,
 };
 
 const BUILDING_KEY: Partial<Record<BuildingType, string>> = {
@@ -899,7 +909,7 @@ const BUILDING_KEY: Partial<Record<BuildingType, string>> = {
   [BuildingType.RangedSpawner]: 'ranged',
   [BuildingType.CasterSpawner]: 'caster',
   [BuildingType.Tower]: 'tower',
-  [BuildingType.Research]: 'research', // House2 sprite from Tiny Swords
+  [BuildingType.Research]: 'research', // Barracks sprite (shared with melee spawner)
 };
 
 // ============================================================
@@ -1068,6 +1078,11 @@ export class SpriteLoader {
   getHQSprite(playerId: number): HTMLImageElement | null {
     const url = BUILDING_URLS[`${playerId}/hq`];
     return url ? this.loadImage(url) : null;
+  }
+
+  getSeedSprite(): [HTMLImageElement, SpriteDef] | null {
+    const img = this.loadImage(SEED_SPRITE_DEF.url);
+    return img ? [img, SEED_SPRITE_DEF] : null;
   }
 
   // --- Units ---

@@ -255,6 +255,7 @@ export class InputHandler {
     const radialA11yRowY = y; y += rowH + gap + 4;
 
     // Actions
+    const helpRowY = y; y += rowH + gap + 4;
     const resetRowY = y; y += rowH + gap + 8;
     let concedeRowY = -1;
     if (this.onConcede) { concedeRowY = y; y += rowH + gap + 8; }
@@ -268,7 +269,7 @@ export class InputHandler {
       visualHeaderY, shakeRowY, weatherRowY, dayNightRowY,
       controlsHeaderY, laneRowY, feedbackRowY, cameraSnapRowY, minimapRowY,
       stickyRowY, holdDelayRowY, radialSizeRowY, radialA11yRowY,
-      resetRowY, concedeRowY, quitRowY,
+      helpRowY, resetRowY, concedeRowY, quitRowY,
     };
   }
 
@@ -407,6 +408,7 @@ export class InputHandler {
     drawToggle(L.radialA11yRowY, 'Radial A11y', this.radialAccessibility, '#90caf9');
 
     // ── ACTIONS ──
+    drawAction(L.helpRowY, 'Help / Controls', '#90caf9', 'rgba(20,20,40,0.9)');
     drawAction(L.resetRowY, 'Reset Defaults', '#ffcc80', 'rgba(20,20,20,0.9)');
     if (this.onConcede && L.concedeRowY >= 0) {
       drawAction(L.concedeRowY, 'Concede Match', '#ffa726', 'rgba(80,60,10,0.9)');
@@ -510,6 +512,11 @@ export class InputHandler {
     }
 
     // Actions
+    if (inRow(L.helpRowY)) {
+      this.settingsOpen = false;
+      this.showTutorial = true;
+      return true;
+    }
     if (inRow(L.resetRowY)) {
       this.resetUiDefaults();
       return true;
@@ -1159,7 +1166,7 @@ export class InputHandler {
     line('[P/MMB] ping  [Q] chat wheel  [Z/X/C/V] quick chat');
     line('[WASD/drag] pan  [Scroll] zoom  [Esc] cancel');
     line('Mobile: hold map for chat wheel.');
-    line('Use ? (top-right) to reopen this help.', '#9bb7ff');
+    line('Reopen via Settings > Help / Controls.', '#9bb7ff');
 
     const btnX = px + pw - closeSize - inset;
     const btnY = py + inset;
@@ -1176,16 +1183,22 @@ export class InputHandler {
       ctx.fillText('X', btnX + closeSize / 2, btnY + (compact ? 19 : 22));
       ctx.textAlign = 'start';
     }
+
   }
 
-  private getHelpButtonRect(): { x: number; y: number; w: number; h: number } {
-    const size = 30;
-    return { x: this.canvas.clientWidth - size - 10, y: 10 + getSafeTop(), w: size, h: size };
-  }
-
+  /**
+   * BUTTON LAYOUT:
+   *   - Settings ⚙ is the ONLY button in the top-right corner. It NEVER moves.
+   *   - There is NO separate info button in the HUD.
+   *   - Tutorial/help is accessed via Settings > "Help / Controls" row.
+   *
+   * DO NOT add an info/help button next to the settings button. This has been
+   * broken and fixed multiple times — having two buttons in the top-right corner
+   * causes the settings button to shift position, which confuses players.
+   */
   private getSettingsButtonRect(): { x: number; y: number; w: number; h: number } {
     const size = 30;
-    return { x: this.canvas.clientWidth - size * 2 - 18, y: 10 + getSafeTop(), w: size, h: size };
+    return { x: this.canvas.clientWidth - size - 10, y: 10 + getSafeTop(), w: size, h: size };
   }
 
   private handleHelpButtonClick(e: MouseEvent): boolean {
@@ -1193,7 +1206,7 @@ export class InputHandler {
     const cx = e.clientX - rect.left;
     const cy = e.clientY - rect.top;
 
-    // Settings button (top-right, left of info)
+    // Settings button (far-right corner, only button)
     const sr = this.getSettingsButtonRect();
     if (cx >= sr.x && cx <= sr.x + sr.w && cy >= sr.y && cy <= sr.y + sr.h) {
       this.settingsOpen = !this.settingsOpen;
@@ -1201,17 +1214,11 @@ export class InputHandler {
       return true;
     }
 
-    const r = this.getHelpButtonRect();
-    if (cx < r.x || cx > r.x + r.w || cy < r.y || cy > r.y + r.h) return false;
-    this.showTutorial = !this.showTutorial;
-    this.quickChatRadialActive = false;
-    this.quickChatRadialCenter = null;
-    this.settingsOpen = false;
-    return true;
+    return false;
   }
 
   private drawHelpButton(ctx: CanvasRenderingContext2D): void {
-    // Settings button (left of info)
+    // Settings button (far-right corner, never moves)
     const sr = this.getSettingsButtonRect();
     if (this.settingsOpen) {
       ctx.fillStyle = 'rgba(41,121,255,0.35)';
@@ -1230,25 +1237,9 @@ export class InputHandler {
       ctx.textAlign = 'start';
     }
 
-    // Info button
-    const r = this.getHelpButtonRect();
-    if (this.showTutorial) {
-      ctx.fillStyle = 'rgba(41,121,255,0.35)';
-      ctx.fillRect(r.x, r.y, r.w, r.h);
-    }
-    // Use info icon sprite
-    if (!this.ui.drawIcon(ctx, 'info', r.x, r.y, r.w)) {
-      ctx.fillStyle = 'rgba(18,18,18,0.92)';
-      ctx.fillRect(r.x, r.y, r.w, r.h);
-      ctx.strokeStyle = '#9bb7ff';
-      ctx.lineWidth = 1.5;
-      ctx.strokeRect(r.x, r.y, r.w, r.h);
-      ctx.fillStyle = '#e3f2fd';
-      ctx.font = 'bold 18px monospace';
-      ctx.textAlign = 'center';
-      ctx.fillText('?', r.x + r.w / 2, r.y + 21);
-      ctx.textAlign = 'start';
-    }
+    // Info button — drawn to the left of the tutorial panel, not next to settings.
+    // Only visible when tutorial panel is open (it's contextual to the panel).
+    // When tutorial is closed, the settings panel has a "Help" row to reopen it.
   }
 
   private getTrayLayout() {
