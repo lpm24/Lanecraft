@@ -31,6 +31,11 @@ const WOOD_DROP_BATCHES = 1;
 const WOOD_PICKUP_RADIUS = 2.35;
 const WOOD_PILE_SPREAD_RADIUS = 2.0;
 
+// Building visibility cache — only rebuilt when building count changes
+let _buildingVisCache: boolean[][] | null = null;
+let _buildingVisCacheCount = -1;
+let _buildingVisCacheTeams = -1;
+
 // Diamond champion: spawned when diamond is delivered to HQ
 const DIAMOND_RESPAWN_TICKS = 60 * TICK_RATE; // 60 seconds before diamond reappears
 const CHAMPION_BASE_HP = 500;
@@ -223,6 +228,52 @@ function hasPathToEdge(cellMap: Map<string, GoldCell>, sx: number, sy: number, s
   return false;
 }
 
+// === Spatial grid for O(1) nearby-unit lookups in combat ===
+
+class SpatialGrid {
+  private cellSize: number;
+  private cells = new Map<string, UnitState[]>();
+
+  constructor(cellSize: number) {
+    this.cellSize = cellSize;
+  }
+
+  build(units: UnitState[]): void {
+    this.cells.clear();
+    for (const u of units) {
+      if (u.hp <= 0) continue;
+      const key = this._key(Math.floor(u.x / this.cellSize), Math.floor(u.y / this.cellSize));
+      const bucket = this.cells.get(key);
+      if (bucket) bucket.push(u);
+      else this.cells.set(key, [u]);
+    }
+  }
+
+  getNearby(x: number, y: number, radius: number): UnitState[] {
+    const cs = this.cellSize;
+    const minCX = Math.floor((x - radius) / cs);
+    const maxCX = Math.floor((x + radius) / cs);
+    const minCY = Math.floor((y - radius) / cs);
+    const maxCY = Math.floor((y + radius) / cs);
+    const result: UnitState[] = [];
+    for (let cx = minCX; cx <= maxCX; cx++) {
+      for (let cy = minCY; cy <= maxCY; cy++) {
+        const bucket = this.cells.get(this._key(cx, cy));
+        if (bucket) {
+          for (const u of bucket) result.push(u);
+        }
+      }
+    }
+    return result;
+  }
+
+  private _key(cx: number, cy: number): string {
+    return cx + ',' + cy;
+  }
+}
+
+const _combatGrid = new SpatialGrid(8);
+
 // === Visual effect helpers ===
 
 function addFloatingText(state: GameState, x: number, y: number, text: string, color: string, icon?: string, big?: boolean): void {
@@ -259,6 +310,7 @@ export function createInitialState(
   fogOfWar = false,
 ): GameState {
   _debugPrevPositions.clear(); // prevent stale ID collisions from previous games
+  _buildingVisCache = null; // reset building visibility cache for new game
   const map = mapDef ?? DUEL_MAP;
   const rngSeed = seed ?? (Date.now() ^ (Math.random() * 0xffffffff));
   const rng = createSeededRng(rngSeed);
@@ -657,7 +709,8 @@ function debugCheckUnitPositions(state: GameState, phase: string): void {
   }
   // Clean up stale entries
   if (state.tick % 100 === 0) {
-    const liveIds = new Set(state.units.map(u => u.id));
+    const liveIds = new Set<number>();
+    for (const u of state.units) liveIds.add(u.id);
     for (const id of _debugPrevPositions.keys()) {
       if (!liveIds.has(id)) _debugPrevPositions.delete(id);
     }
@@ -818,28 +871,40 @@ export function updateVisibility(state: GameState): void {
   const mapW = state.mapDef.width;
   const mapH = state.mapDef.height;
   const teamCount = state.mapDef.teams.length;
+  const totalTiles = mapW * mapH;
+
+  // Cache building visibility — only rebuild when building count changes
+  const bCount = state.buildings.length;
+  if (!_buildingVisCache || _buildingVisCacheCount !== bCount || _buildingVisCacheTeams !== teamCount) {
+    _buildingVisCache = [];
+    for (let t = 0; t < teamCount; t++) {
+      const bvis = new Array<boolean>(totalTiles).fill(false);
+      // HQ vision
+      const hqPos = getHQPosition(t as Team, state.mapDef);
+      revealCircle(bvis, hqPos.x + HQ_WIDTH / 2, hqPos.y + HQ_HEIGHT / 2, HQ_VISION, mapW, mapH);
+      // Building vision
+      for (const b of state.buildings) {
+        if (state.players[b.playerId]?.team !== t) continue;
+        const r = b.type === BuildingType.Tower ? TOWER_VISION : BUILDING_VISION;
+        revealCircle(bvis, b.worldX, b.worldY, r, mapW, mapH);
+      }
+      _buildingVisCache.push(bvis);
+    }
+    _buildingVisCacheCount = bCount;
+    _buildingVisCacheTeams = teamCount;
+  }
 
   for (let t = 0; t < teamCount; t++) {
     const vis = state.visibility[t];
-    vis.fill(false);
-
-    // HQ vision
-    const hqPos = getHQPosition(t as Team, state.mapDef);
-    revealCircle(vis, hqPos.x + HQ_WIDTH / 2, hqPos.y + HQ_HEIGHT / 2, HQ_VISION, mapW, mapH);
-
-    // Buildings
-    for (const b of state.buildings) {
-      if (state.players[b.playerId]?.team !== t) continue;
-      const r = b.type === BuildingType.Tower ? TOWER_VISION : BUILDING_VISION;
-      revealCircle(vis, b.worldX, b.worldY, r, mapW, mapH);
-    }
+    // Start from cached building visibility
+    const bvis = _buildingVisCache[t];
+    for (let i = 0; i < totalTiles; i++) vis[i] = bvis[i];
 
     // Units
     for (const u of state.units) {
       if (u.hp <= 0 || u.team !== t) continue;
       revealCircle(vis, u.x, u.y, UNIT_VISION, mapW, mapH);
     }
-
     // Harvesters
     for (const h of state.harvesters) {
       if (h.state === 'dead') continue;
@@ -3072,6 +3137,7 @@ function tickUnitCollision(state: GameState): void {
 
 function tickCombat(state: GameState): void {
   const unitById = new Map(state.units.map(u => [u.id, u]));
+  _combatGrid.build(state.units);
   const AGGRO_BONUS = 2.5;
   const AGGRO_LEASH = 3.5;
   let meleeHitSounds = 0; // simulation-side throttle (SoundManager has its own per-category cooldown too)
@@ -3133,10 +3199,11 @@ function tickCombat(state: GameState): void {
     if (unit.targetId === null && !unit.upgradeSpecial?.isSiegeUnit) {
       let best: UnitState | null = null;
       let bestScore = Infinity;
-      for (const o of state.units) {
-        if (o.team === unit.team || o.hp <= 0) continue;
+      const aggroRange = unit.range + AGGRO_BONUS;
+      for (const o of _combatGrid.getNearby(unit.x, unit.y, aggroRange)) {
+        if (o.team === unit.team) continue;
         const d = Math.sqrt((o.x - unit.x) ** 2 + (o.y - unit.y) ** 2);
-        if (d > unit.range + AGGRO_BONUS) continue;
+        if (d > aggroRange) continue;
         // Penalize targets that already have many melee attackers
         // so units spread across the front line instead of dog-piling.
         // Cap at 3 tiles so units don't ignore nearby enemies to walk past them.
@@ -3178,8 +3245,8 @@ function tickCombat(state: GameState): void {
           let blockCount = 0;
           let blockCx = 0, blockCy = 0;
           if (tooFar) {
-            for (const ally of state.units) {
-              if (ally.id === unit.id || ally.team !== unit.team || ally.hp <= 0) continue;
+            for (const ally of _combatGrid.getNearby(unit.x, unit.y, 3.0)) {
+              if (ally.id === unit.id || ally.team !== unit.team) continue;
               const ax = ally.x - unit.x, ay = ally.y - unit.y;
               const ad = Math.sqrt(ax * ax + ay * ay);
               if (ad > 3.0 || ad < 0.1) continue;
@@ -3234,8 +3301,8 @@ function tickCombat(state: GameState): void {
           const movePerTick = getEffectiveSpeed(unit) / TICK_RATE;
           const perpX = -dy / dist, perpY = dx / dist;
           let lateralForce = 0;
-          for (const ally of state.units) {
-            if (ally.id === unit.id || ally.team !== unit.team || ally.hp <= 0) continue;
+          for (const ally of _combatGrid.getNearby(unit.x, unit.y, 2.0)) {
+            if (ally.id === unit.id || ally.team !== unit.team) continue;
             const ax = ally.x - unit.x, ay = ally.y - unit.y;
             const ad = Math.sqrt(ax * ax + ay * ay);
             if (ad > 2.0 || ad < 0.05) continue;
@@ -3426,8 +3493,15 @@ function tickCombat(state: GameState): void {
           }
           // Research: Geists Phantom Volley — 15% chance extra projectile at nearby different enemy
           if (rbu?.raceUpgrades['geists_ranged_2'] && state.rng() < 0.15) {
-            const pvTarget = state.units.find(o => o.team !== unit.team && o.id !== target.id && o.hp > 0 &&
-              Math.sqrt((o.x - unit.x) ** 2 + (o.y - unit.y) ** 2) <= unit.range);
+            let pvTarget: UnitState | undefined;
+            let pvBestDist = Infinity;
+            for (const o of _combatGrid.getNearby(unit.x, unit.y, unit.range)) {
+              if (o.team === unit.team || o.id === target.id) continue;
+              const pvd = Math.sqrt((o.x - unit.x) ** 2 + (o.y - unit.y) ** 2);
+              if (pvd <= unit.range && (pvd < pvBestDist || (pvd === pvBestDist && (!pvTarget || o.id < pvTarget.id)))) {
+                pvTarget = o; pvBestDist = pvd;
+              }
+            }
             if (pvTarget) {
               state.projectiles.push({
                 id: genId(state), x: unit.x, y: unit.y,
@@ -3442,11 +3516,13 @@ function tickCombat(state: GameState): void {
           const msCount = sp?.multishotCount ?? 0;
           if (msCount > 0) {
             const msDmg = Math.round(effDmg * (sp?.multishotDamagePct ?? 0.5));
-            const nearby = state.units
-              .filter(o => o.team !== unit.team && o.id !== target.id && o.hp > 0)
-              .map(o => ({ u: o, d: Math.sqrt((o.x - unit.x) ** 2 + (o.y - unit.y) ** 2) }))
-              .filter(e => e.d <= unit.range)
-              .sort((a, b) => a.d - b.d || a.u.id - b.u.id);
+            const nearby: { u: UnitState; d: number }[] = [];
+            for (const o of _combatGrid.getNearby(unit.x, unit.y, unit.range)) {
+              if (o.team === unit.team || o.id === target.id) continue;
+              const d = Math.sqrt((o.x - unit.x) ** 2 + (o.y - unit.y) ** 2);
+              if (d <= unit.range) nearby.push({ u: o, d });
+            }
+            nearby.sort((a, b) => a.d - b.d || a.u.id - b.u.id);
             for (let mi = 0; mi < Math.min(msCount, nearby.length); mi++) {
               state.projectiles.push({
                 id: genId(state), x: unit.x, y: unit.y,
@@ -3468,8 +3544,8 @@ function tickCombat(state: GameState): void {
             for (let ci = 0; ci < chainCount; ci++) {
               let chainTarget: UnitState | null = null;
               let chainDist = Infinity;
-              for (const o of state.units) {
-                if (o.team === unit.team || chained.includes(o.id) || o.hp <= 0) continue;
+              for (const o of _combatGrid.getNearby(lastX, lastY, 4)) {
+                if (o.team === unit.team || chained.includes(o.id)) continue;
                 const d = Math.sqrt((o.x - lastX) ** 2 + (o.y - lastY) ** 2);
                 if (d <= 4 && d < chainDist) { chainTarget = o; chainDist = d; }
               }
@@ -3503,8 +3579,8 @@ function tickCombat(state: GameState): void {
             addCombatEvent(state, { type: 'pulse', x: unit.x, y: unit.y, radius: 3, color: '#2196f3' });
             addSound(state, 'ability_leap', unit.x, unit.y);
             // AoE slow on landing
-            for (const nearby of state.units) {
-              if (nearby.team === unit.team || nearby.hp <= 0) continue;
+            for (const nearby of _combatGrid.getNearby(unit.x, unit.y, 3)) {
+              if (nearby.team === unit.team) continue;
               const nd = Math.sqrt((nearby.x - unit.x) ** 2 + (nearby.y - unit.y) ** 2);
               if (nd <= 3) {
                 applyStatus(nearby, StatusType.Slow, 1 + (sp?.extraSlowStacks ?? 0));
@@ -3526,8 +3602,8 @@ function tickCombat(state: GameState): void {
             // Wild Pack Hunter: +5% per nearby ally, max +40%
             if (mbu.raceUpgrades['wild_melee_2']) {
               let nearAllies = 0;
-              for (const a of state.units) {
-                if (a.id === unit.id || a.team !== unit.team || a.hp <= 0) continue;
+              for (const a of _combatGrid.getNearby(unit.x, unit.y, 4)) {
+                if (a.id === unit.id || a.team !== unit.team) continue;
                 const ad = Math.sqrt((a.x - unit.x) ** 2 + (a.y - unit.y) ** 2);
                 if (ad <= 4) nearAllies++;
               }
@@ -3546,8 +3622,8 @@ function tickCombat(state: GameState): void {
           const cleaveN = sp?.cleaveTargets ?? 0;
           if (cleaveN > 0) {
             const cleaved: UnitState[] = [];
-            for (const o of state.units) {
-              if (o.team === unit.team || o.id === target.id || o.hp <= 0) continue;
+            for (const o of _combatGrid.getNearby(unit.x, unit.y, unit.range + 1.5)) {
+              if (o.team === unit.team || o.id === target.id) continue;
               const cd = Math.sqrt((o.x - unit.x) ** 2 + (o.y - unit.y) ** 2);
               if (cd <= unit.range + 1.5) cleaved.push(o);
             }

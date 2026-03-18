@@ -635,22 +635,31 @@ function botUpdateIntelligence(
   }
   intel.prevMyUnitIds = currentMyIds;
 
-  // Building counts for my side
-  const myBuildings = state.buildings.filter(b => b.playerId === playerId);
-  myPerf.melee.buildingCount = myBuildings.filter(b => b.type === BuildingType.MeleeSpawner).length;
-  myPerf.ranged.buildingCount = myBuildings.filter(b => b.type === BuildingType.RangedSpawner).length;
-  myPerf.caster.buildingCount = myBuildings.filter(b => b.type === BuildingType.CasterSpawner).length;
-
-  // Enemy building scouting
+  // Building counts for my side + enemy scouting (single pass)
   const enemyTeam = botEnemyTeam(playerId, state);
-  const enemyBuildings = state.buildings.filter(b => botTeam(b.playerId, state) === enemyTeam);
-  intel.enemyBuildingCounts = {
-    melee: enemyBuildings.filter(b => b.type === BuildingType.MeleeSpawner).length,
-    ranged: enemyBuildings.filter(b => b.type === BuildingType.RangedSpawner).length,
-    caster: enemyBuildings.filter(b => b.type === BuildingType.CasterSpawner).length,
-    tower: enemyBuildings.filter(b => b.type === BuildingType.Tower).length,
-    hut: enemyBuildings.filter(b => b.type === BuildingType.HarvesterHut).length,
-  };
+  let myMelee = 0, myRanged = 0, myCaster = 0;
+  let eMelee = 0, eRanged = 0, eCaster = 0, eTower = 0, eHut = 0;
+  const myBuildings: typeof state.buildings = [];
+  const enemyBuildings: typeof state.buildings = [];
+  for (const b of state.buildings) {
+    if (b.playerId === playerId) {
+      myBuildings.push(b);
+      if (b.type === BuildingType.MeleeSpawner) myMelee++;
+      else if (b.type === BuildingType.RangedSpawner) myRanged++;
+      else if (b.type === BuildingType.CasterSpawner) myCaster++;
+    } else if (botTeam(b.playerId, state) === enemyTeam) {
+      enemyBuildings.push(b);
+      if (b.type === BuildingType.MeleeSpawner) eMelee++;
+      else if (b.type === BuildingType.RangedSpawner) eRanged++;
+      else if (b.type === BuildingType.CasterSpawner) eCaster++;
+      else if (b.type === BuildingType.Tower) eTower++;
+      else if (b.type === BuildingType.HarvesterHut) eHut++;
+    }
+  }
+  myPerf.melee.buildingCount = myMelee;
+  myPerf.ranged.buildingCount = myRanged;
+  myPerf.caster.buildingCount = myCaster;
+  intel.enemyBuildingCounts = { melee: eMelee, ranged: eRanged, caster: eCaster, tower: eTower, hut: eHut };
   // Dynamically enable siege if enemy is turtling with towers
   if (intel.enemyBuildingCounts.tower >= 2) intel.threats.wantSiege = true;
   const upgTiers = enemyBuildings
@@ -851,11 +860,14 @@ function botPlanResources(
   const player = state.players[playerId];
   const race = player.race;
   const costs = RACE_BUILDING_COSTS[race];
-  const meleeCount = myBuildings.filter(b => b.type === BuildingType.MeleeSpawner).length;
-  const rangedCount = myBuildings.filter(b => b.type === BuildingType.RangedSpawner).length;
-  const casterCount = myBuildings.filter(b => b.type === BuildingType.CasterSpawner).length;
-  const hutCount = myBuildings.filter(b => b.type === BuildingType.HarvesterHut).length;
-  const towerCount = myBuildings.filter(b => b.type === BuildingType.Tower).length;
+  let meleeCount = 0, rangedCount = 0, casterCount = 0, hutCount = 0, towerCount = 0;
+  for (const b of myBuildings) {
+    if (b.type === BuildingType.MeleeSpawner) meleeCount++;
+    else if (b.type === BuildingType.RangedSpawner) rangedCount++;
+    else if (b.type === BuildingType.CasterSpawner) casterCount++;
+    else if (b.type === BuildingType.HarvesterHut) hutCount++;
+    else if (b.type === BuildingType.Tower) towerCount++;
+  }
 
   // --- Build shopping list: next 3-4 purchases ---
   const list: { gold: number; wood: number; stone: number }[] = [];

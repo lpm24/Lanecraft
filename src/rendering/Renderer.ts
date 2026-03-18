@@ -141,6 +141,7 @@ export class Renderer {
   private mapDef: MapDef = DUEL_MAP;
   // Fog of war
   private fogCache: HTMLCanvasElement | null = null;
+  private fogImageData: ImageData | null = null;
   /** Per-tile linger timer (seconds remaining of visibility after losing actual vision) */
   private fogLinger: Float32Array | null = null;
   private static readonly FOG_LINGER_DURATION = 2.0; // seconds
@@ -238,8 +239,13 @@ export class Renderer {
       this.fogCache.height = mh;
       const fctx = this.fogCache.getContext('2d')!;
       // Draw black pixels for hidden tiles using ImageData for speed
-      const imgData = fctx.createImageData(mw, mh);
+      if (!this.fogImageData || this.fogImageData.width !== mw || this.fogImageData.height !== mh) {
+        this.fogImageData = fctx.createImageData(mw, mh);
+      }
+      const imgData = this.fogImageData;
       const d = imgData.data;
+      // Clear the data buffer since we're reusing it
+      d.fill(0);
       const FOG_ALPHA = 180;
       for (let i = 0; i < totalTiles; i++) {
         if (vis[i]) continue; // fully visible — no fog

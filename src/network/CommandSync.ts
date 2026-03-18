@@ -157,7 +157,7 @@ export class CommandSync {
     }
 
     // Start latency measurement via Firebase server time
-    this.pingInterval = setInterval(() => this.measureLatency(), 3000);
+    this.pingInterval = setInterval(() => this.measureLatency(), 10000);
   }
 
   private checkAllReady(): void {
@@ -419,7 +419,7 @@ export class CommandSync {
     goOnline();
     // Restart latency ping
     if (!this.pingInterval && this.connected) {
-      this.pingInterval = setInterval(() => this.measureLatency(), 3000);
+      this.pingInterval = setInterval(() => this.measureLatency(), 10000);
     }
   }
 
