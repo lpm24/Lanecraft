@@ -446,19 +446,19 @@ export class PostMatchScene implements Scene {
     const headerStartX = textCenterX - headerTotalW / 2;
     this.ui.drawIcon(ctx, 'shield', headerStartX, line1Y - shieldSz * 0.7, shieldSz);
     ctx.textAlign = 'left';
-    ctx.fillStyle = '#5c4020';
+    ctx.fillStyle = '#ffd54f'; // bright amber — readable on dark SpecialPaper
     ctx.fillText('WAR HERO', headerStartX + shieldSz + gap * 0.5, line1Y);
 
-    // Line 2: Unit name in race color
+    // Line 2: Unit name in race color (lightened for dark background)
     ctx.font = `bold ${fontSize * 0.9}px monospace`;
     ctx.textAlign = 'center';
-    ctx.fillStyle = this.darkenColor(raceColor, 0.55);
+    ctx.fillStyle = this.lightenColor(raceColor, 0.45);
     const heroName = this.truncateText(ctx, hero.name, textAvailW);
     ctx.fillText(heroName, textCenterX, line2Y);
 
-    // Line 3: Owner + category
+    // Line 3: Owner + category (lightened player color)
     ctx.font = `bold ${fontSize * 0.65}px monospace`;
-    ctx.fillStyle = this.darkenColor(playerColor, 0.6);
+    ctx.fillStyle = this.lightenColor(playerColor, 0.4);
     const catLabel = hero.category === 'melee' ? 'Melee' : hero.category === 'ranged' ? 'Ranged' : 'Caster';
     ctx.fillText(`${this.slotLabel(hero.playerId)}'s ${catLabel}`, textCenterX, line3Y);
 
@@ -471,7 +471,7 @@ export class PostMatchScene implements Scene {
     const killStartX = textCenterX - killTotalW / 2;
     this.ui.drawIcon(ctx, 'sword', killStartX, line4Y - killIconSz * 0.7, killIconSz);
     ctx.textAlign = 'left';
-    ctx.fillStyle = '#5c4020';
+    ctx.fillStyle = '#ffffff';
     ctx.fillText(killText, killStartX + killIconSz + gap * 0.4, line4Y);
 
     // Line 5: Survival / death status
@@ -479,11 +479,11 @@ export class PostMatchScene implements Scene {
     ctx.textAlign = 'center';
     const aliveTime = this.formatTickTime((hero.deathTick ?? state.tick) - hero.spawnTick);
     if (hero.survived) {
-      ctx.fillStyle = '#1b6e24';
+      ctx.fillStyle = '#69f0ae'; // bright green
       ctx.fillText(`Survived (${aliveTime})`, textCenterX, line5Y);
     } else {
       const deathTime = this.formatTickTime(hero.deathTick!);
-      ctx.fillStyle = '#9a1a1a';
+      ctx.fillStyle = '#ff6e6e'; // bright red
       const deathText = this.truncateText(ctx, `Slain at ${deathTime} (${aliveTime})`, textAvailW);
       ctx.fillText(deathText, textCenterX, line5Y);
     }
@@ -519,6 +519,16 @@ export class PostMatchScene implements Scene {
     const r = Math.round(parseInt(m[1], 16) * factor);
     const g = Math.round(parseInt(m[2], 16) * factor);
     const b = Math.round(parseInt(m[3], 16) * factor);
+    return `rgb(${r},${g},${b})`;
+  }
+
+  /** Blend a hex color toward white by `factor` (0=original, 1=white). */
+  private lightenColor(hex: string, factor: number): string {
+    const m = hex.match(/^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i);
+    if (!m) return hex;
+    const r = Math.round(parseInt(m[1], 16) + (255 - parseInt(m[1], 16)) * factor);
+    const g = Math.round(parseInt(m[2], 16) + (255 - parseInt(m[2], 16)) * factor);
+    const b = Math.round(parseInt(m[3], 16) + (255 - parseInt(m[3], 16)) * factor);
     return `rgb(${r},${g},${b})`;
   }
 
