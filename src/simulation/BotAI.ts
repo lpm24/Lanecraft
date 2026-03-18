@@ -1539,7 +1539,7 @@ function estimateResearchValue(
   else if (upgradeId === 'caster_def') level = bu.casterDefLevel;
 
   const cost = getResearchUpgradeCost(upgradeId, level, race);
-  const totalCost = cost.gold + cost.wood + cost.stone;
+  const totalCost = cost.gold + cost.wood + cost.stone + (cost.deathEssence ?? 0);
   if (totalCost <= 0) return 0;
 
   // Get category counts
@@ -3028,22 +3028,28 @@ function botQuickChat(
 
 function botUseAbility(state: GameState, playerId: number, emit: Emit): void {
   const player = state.players[playerId];
-  if (!player || player.isEmpty || player.abilityCooldown > 0) return;
+  if (!player || player.isEmpty) return;
 
   const def = RACE_ABILITY_DEFS[player.race];
   if (!def) return;
 
-  // Check if we can afford it (approximate — doesn't account for growth, but close enough for bots)
-  const growthMult = def.costGrowthFactor ? Math.pow(def.costGrowthFactor, player.abilityUseCount) : 1;
-  const goldCost = Math.floor((def.baseCost.gold ?? 0) * growthMult);
-  const woodCost = Math.floor((def.baseCost.wood ?? 0) * growthMult);
-  const stoneCost = Math.floor((def.baseCost.stone ?? 0) * growthMult);
-  const manaCost = Math.floor((def.baseCost.mana ?? 0) * growthMult);
-  const soulsCost = Math.floor((def.baseCost.souls ?? 0) * growthMult);
-  const essenceCost = Math.floor((def.baseCost.deathEssence ?? 0) * growthMult);
+  // Tenders uses stack-based system
+  if (player.race === Race.Tenders) {
+    if (player.abilityStacks <= 0) return;
+  } else {
+    if (player.abilityCooldown > 0) return;
+    // Check if we can afford it
+    const growthMult = def.costGrowthFactor ? Math.pow(def.costGrowthFactor, player.abilityUseCount) : 1;
+    const goldCost = Math.floor((def.baseCost.gold ?? 0) * growthMult);
+    const woodCost = Math.floor((def.baseCost.wood ?? 0) * growthMult);
+    const stoneCost = Math.floor((def.baseCost.stone ?? 0) * growthMult);
+    const manaCost = Math.floor((def.baseCost.mana ?? 0) * growthMult);
+    const soulsCost = Math.floor((def.baseCost.souls ?? 0) * growthMult);
+    const essenceCost = Math.floor((def.baseCost.deathEssence ?? 0) * growthMult);
 
-  if (player.gold < goldCost || player.wood < woodCost || player.stone < stoneCost) return;
-  if (player.mana < manaCost || player.souls < soulsCost || player.deathEssence < essenceCost) return;
+    if (player.gold < goldCost || player.wood < woodCost || player.stone < stoneCost) return;
+    if (player.mana < manaCost || player.souls < soulsCost || player.deathEssence < essenceCost) return;
+  }
 
   const enemyTeam = botEnemyTeam(playerId, state);
 
@@ -3129,6 +3135,7 @@ function botManageResearch(
 
     const cost = getResearchUpgradeCost(def.id, level, race);
     if (player.gold < cost.gold || player.wood < cost.wood || player.stone < cost.stone) continue;
+    if ((cost.deathEssence ?? 0) > 0 && player.deathEssence < (cost.deathEssence ?? 0)) continue;
 
     // Score based on how many spawners of this category we have
     let categoryWeight = 0;
@@ -3138,7 +3145,7 @@ function botManageResearch(
     if (categoryWeight === 0) continue;
 
     let score = categoryWeight * 2; // attack multiplier
-    const totalCost = cost.gold + cost.wood + cost.stone;
+    const totalCost = cost.gold + cost.wood + cost.stone + (cost.deathEssence ?? 0);
     score /= Math.max(1, totalCost / 100);
 
     candidates.push({ id: def.id, score, cost });

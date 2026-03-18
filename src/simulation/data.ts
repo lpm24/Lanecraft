@@ -99,7 +99,7 @@ export const RACE_UPGRADE_COSTS: Record<Race, { tier1: { gold: number; wood: num
   [Race.Crown]:    { tier1: { gold: 55,  wood: 0,  stone: 0 },  tier2: { gold: 90,  wood: 30, stone: 0 } },
   [Race.Horde]:    { tier1: { gold: 30,  wood: 20, stone: 20 }, tier2: { gold: 60,  wood: 40, stone: 40 } },
   [Race.Goblins]:  { tier1: { gold: 45,  wood: 15, stone: 0 },  tier2: { gold: 90,  wood: 30, stone: 0 } },
-  [Race.Oozlings]: { tier1: { gold: 0,   wood: 0,  stone: 0, deathEssence: 15 }, tier2: { gold: 0, wood: 0, stone: 0, deathEssence: 30 } },
+  [Race.Oozlings]: { tier1: { gold: 50,  wood: 0,  stone: 15 }, tier2: { gold: 100, wood: 0,  stone: 30 } },
   [Race.Demon]:    { tier1: { gold: 0,   wood: 15, stone: 35 }, tier2: { gold: 0,   wood: 30, stone: 70 } },
   [Race.Deep]:     { tier1: { gold: 20,  wood: 35, stone: 0 },  tier2: { gold: 40,  wood: 70, stone: 0 } },
   [Race.Wild]:     { tier1: { gold: 0,   wood: 25, stone: 15 }, tier2: { gold: 0,   wood: 50, stone: 30 } },
@@ -796,9 +796,8 @@ export const RACE_ABILITY_DEFS: Record<Race, RaceAbilityDef> = {
   [Race.Tenders]: {
     race: Race.Tenders, name: 'Plant Seed',
     targetMode: AbilityTargetMode.BuildSlot,
-    baseCooldownTicks: 10 * TICK_RATE,
-    baseCost: { gold: 40, wood: 20 },
-    costGrowthFactor: 1.2,
+    baseCooldownTicks: 8 * TICK_RATE,
+    baseCost: {},
   },
 };
 
@@ -908,13 +907,19 @@ export function getAllResearchUpgrades(race: Race): ResearchUpgradeDef[] {
 }
 
 /** Get cost for a research upgrade. Attack/defense: 80g base x 1.5^level. One-shots: 150g flat. */
-export function getResearchUpgradeCost(id: string, level: number, race: Race): { gold: number; wood: number; stone: number; mana?: number } {
+export function getResearchUpgradeCost(id: string, level: number, race: Race): { gold: number; wood: number; stone: number; mana?: number; deathEssence?: number } {
   const allDefs = getAllResearchUpgrades(race);
   const def = allDefs.find(d => d.id === id);
   if (!def) return { gold: 999, wood: 999, stone: 999 };
+  // Oozlings: all research costs ooze (deathEssence) instead of resources
+  if (race === Race.Oozlings) {
+    if (def.oneShot) return { gold: 0, wood: 0, stone: 0, deathEssence: 50 };
+    const cost = Math.round(30 * Math.pow(1.4, level));
+    return { gold: 0, wood: 0, stone: 0, deathEssence: cost };
+  }
   if (def.oneShot) {
     // Demon racial one-shots cost mana instead of resources
-    if (race === Race.Demon && id.startsWith('demon_')) return { gold: 0, wood: 0, stone: 0, mana: 40 };
+    if (race === Race.Demon && id.startsWith('demon_')) return { gold: 0, wood: 0, stone: 0, mana: 120 };
     // One-shot: flat cost scaled to race economy
     const used = getRaceUsedResources(race);
     if (!used.gold && used.stone && used.wood) return { gold: 0, wood: 80, stone: 70 };

@@ -349,6 +349,7 @@ export function createInitialState(
     hasBuiltTower: false,
     abilityCooldown: 0,
     abilityUseCount: 0,
+    abilityStacks: 0,
     mana: 0,
     souls: 0,
     deathEssence: 0,
@@ -1021,11 +1022,13 @@ function processResearchUpgrade(state: GameState, cmd: Extract<GameCommand, { ty
   const cost = getResearchUpgradeCost(cmd.upgradeId, currentLevel, player.race);
   if (player.gold < cost.gold || player.wood < cost.wood || player.stone < cost.stone) return;
   if (cost.mana !== undefined && player.mana < cost.mana) return;
+  if ((cost.deathEssence ?? 0) > 0 && player.deathEssence < (cost.deathEssence ?? 0)) return;
 
   player.gold -= cost.gold;
   player.wood -= cost.wood;
   player.stone -= cost.stone;
   if (cost.mana !== undefined) player.mana -= cost.mana;
+  if (cost.deathEssence) player.deathEssence -= cost.deathEssence;
 
   // Apply upgrade
   if (def.oneShot) {
@@ -1282,10 +1285,10 @@ function useAbility(state: GameState, cmd: Extract<GameCommand, { type: 'use_abi
   const def = RACE_ABILITY_DEFS[player.race];
   if (!def) return;
 
-  // Validate cooldown
-  if (player.abilityCooldown > 0) return;
+  // Tenders uses stack-based system (no cost, no cooldown — needs stacks)
+  const isTendersSeeds = player.race === Race.Tenders;
 
-  // Calculate growing cost
+  // Calculate growing cost (non-Tenders)
   const growthMult = def.costGrowthFactor ? Math.pow(def.costGrowthFactor, player.abilityUseCount) : 1;
   const cost = {
     gold: Math.floor((def.baseCost.gold ?? 0) * growthMult),
@@ -1296,13 +1299,19 @@ function useAbility(state: GameState, cmd: Extract<GameCommand, { type: 'use_abi
     deathEssence: Math.floor((def.baseCost.deathEssence ?? 0) * growthMult),
   };
 
-  // Validate resources
-  if (player.gold < cost.gold) return;
-  if (player.wood < cost.wood) return;
-  if (player.stone < cost.stone) return;
-  if (player.mana < cost.mana) return;
-  if (player.souls < cost.souls) return;
-  if (player.deathEssence < cost.deathEssence) return;
+  if (isTendersSeeds) {
+    if (player.abilityStacks <= 0) return;
+  } else {
+    // Validate cooldown
+    if (player.abilityCooldown > 0) return;
+    // Validate resources
+    if (player.gold < cost.gold) return;
+    if (player.wood < cost.wood) return;
+    if (player.stone < cost.stone) return;
+    if (player.mana < cost.mana) return;
+    if (player.souls < cost.souls) return;
+    if (player.deathEssence < cost.deathEssence) return;
+  }
 
   // Vision check for targeted abilities that require it
   if (def.requiresVision && state.fogOfWar && cmd.x != null && cmd.y != null) {
@@ -1329,16 +1338,18 @@ function useAbility(state: GameState, cmd: Extract<GameCommand, { type: 'use_abi
     }
   }
 
-  // Deduct resources
-  player.gold -= cost.gold;
-  player.wood -= cost.wood;
-  player.stone -= cost.stone;
-  player.mana -= cost.mana;
-  player.souls -= cost.souls;
-  player.deathEssence -= cost.deathEssence;
-
-  // Set cooldown and increment use count
-  player.abilityCooldown = def.baseCooldownTicks;
+  // Deduct resources / stacks
+  if (isTendersSeeds) {
+    player.abilityStacks--;
+  } else {
+    player.gold -= cost.gold;
+    player.wood -= cost.wood;
+    player.stone -= cost.stone;
+    player.mana -= cost.mana;
+    player.souls -= cost.souls;
+    player.deathEssence -= cost.deathEssence;
+    player.abilityCooldown = def.baseCooldownTicks;
+  }
   player.abilityUseCount++;
 
   // Dispatch to race-specific handler
@@ -1567,9 +1578,24 @@ function tendersAbility(state: GameState, player: PlayerState, cmd: Extract<Game
 }
 
 function tickAbilityEffects(state: GameState): void {
-  // Tick cooldowns
+  // Tick cooldowns + Tenders seed stack accumulation
   for (const p of state.players) {
-    if (p.abilityCooldown > 0) p.abilityCooldown--;
+    if (p.race === Race.Tenders) {
+      // Stack-based: accumulate seeds on cooldown (max 10)
+      if (p.abilityStacks < 10) {
+        if (p.abilityCooldown > 0) {
+          p.abilityCooldown--;
+        } else {
+          // Grant a stack and reset cooldown
+          p.abilityStacks++;
+          if (p.abilityStacks < 10) {
+            p.abilityCooldown = RACE_ABILITY_DEFS[Race.Tenders].baseCooldownTicks;
+          }
+        }
+      }
+    } else {
+      if (p.abilityCooldown > 0) p.abilityCooldown--;
+    }
   }
 
   // Clear aura bonuses each tick (recalculated below)

@@ -88,7 +88,7 @@ export class ResearchPopup {
   draw(
     ctx: CanvasRenderingContext2D, camera: Camera, state: GameState,
     ui: UIAssets, canvasW: number, canvasH: number,
-    playerGold: number, playerWood: number, playerStone: number,
+    playerGold: number, playerWood: number, playerStone: number, playerMana = 0,
   ): void {
     if (this.targetBuildingId === null) return;
     const building = state.buildings.find(b => b.id === this.targetBuildingId);
@@ -218,7 +218,10 @@ export class ResearchPopup {
 
         const isOwned = def.oneShot && bu.raceUpgrades[def.id];
         const cost = getResearchUpgradeCost(def.id, level, race);
-        const canAfford = playerGold >= cost.gold && playerWood >= cost.wood && playerStone >= cost.stone;
+        const playerEssence = player.deathEssence ?? 0;
+        const canAfford = playerGold >= cost.gold && playerWood >= cost.wood && playerStone >= cost.stone
+          && (cost.mana === undefined || playerMana >= cost.mana)
+          && ((cost.deathEssence ?? 0) <= 0 || playerEssence >= (cost.deathEssence ?? 0));
 
         // Button background
         ctx.fillStyle = isOwned ? 'rgba(76, 175, 80, 0.3)' : canAfford ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.25)';
@@ -327,6 +330,31 @@ export class ResearchPopup {
             ctx.textAlign = 'left';
             ctx.fillText(`${cost.stone}`, costX, costY);
             costX += ctx.measureText(`${cost.stone}`).width + 4;
+          }
+          if (cost.mana !== undefined && cost.mana > 0) {
+            // Mana diamond icon (canvas-drawn)
+            const icx = costX + costIconSz / 2, icy = costY - costIconSz / 2, r = costIconSz * 0.42;
+            ctx.fillStyle = '#7c4dff';
+            ctx.beginPath(); ctx.moveTo(icx, icy - r); ctx.lineTo(icx + r * 0.65, icy);
+            ctx.lineTo(icx, icy + r); ctx.lineTo(icx - r * 0.65, icy); ctx.closePath(); ctx.fill();
+            costX += costIconSz + 1;
+            ctx.fillStyle = canAfford || playerMana >= cost.mana ? '#b39ddb' : '#ff6666';
+            ctx.textAlign = 'left';
+            ctx.fillText(`${cost.mana}`, costX, costY);
+          }
+          if ((cost.deathEssence ?? 0) > 0) {
+            // Ooze droplet icon (canvas-drawn)
+            const ocx = costX + costIconSz / 2, ocy = costY - costIconSz / 2;
+            ctx.fillStyle = '#69f0ae';
+            ctx.beginPath();
+            ctx.moveTo(ocx, ocy - costIconSz * 0.4);
+            ctx.quadraticCurveTo(ocx + costIconSz * 0.35, ocy + costIconSz * 0.1, ocx, ocy + costIconSz * 0.4);
+            ctx.quadraticCurveTo(ocx - costIconSz * 0.35, ocy + costIconSz * 0.1, ocx, ocy - costIconSz * 0.4);
+            ctx.fill();
+            costX += costIconSz + 1;
+            ctx.fillStyle = canAfford || playerEssence >= cost.deathEssence! ? '#69f0ae' : '#ff6666';
+            ctx.textAlign = 'left';
+            ctx.fillText(`${cost.deathEssence}`, costX, costY);
           }
 
           // Effect preview for scaling upgrades (right-aligned on cost row)
