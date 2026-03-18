@@ -276,9 +276,23 @@ const _combatGrid = new SpatialGrid(8);
 
 // === Visual effect helpers ===
 
-function addFloatingText(state: GameState, x: number, y: number, text: string, color: string, icon?: string, big?: boolean): void {
-  const xOff = (state.rng() - 0.5) * 1.2; // random spread ±0.6 tiles
-  state.floatingTexts.push({ x, y, text, color, icon, age: 0, maxAge: TICK_RATE * 1.5, xOff, big });
+function addFloatingText(state: GameState, x: number, y: number, text: string, color: string, icon?: string, big?: boolean,
+  opts?: { ftType?: 'damage' | 'heal' | 'resource' | 'status' | 'kill' | 'ability'; magnitude?: number; miniIcon?: string }
+): void {
+  const rng1 = state.rng();
+  const rng2 = state.rng();
+  const isDmg = opts?.ftType === 'damage' || opts?.ftType === 'kill';
+  // Damage/kill texts arc to left or right; others use small random spread
+  const vx = isDmg ? (rng1 < 0.5 ? -1 : 1) * (0.04 + rng2 * 0.04) : 0;
+  const xOff = isDmg ? 0 : (rng1 - 0.5) * 1.2;
+  state.floatingTexts.push({
+    x, y, text, color, icon, age: 0, maxAge: TICK_RATE * 1.5, xOff, big,
+    vx: vx || undefined,
+    vy: isDmg ? -0.12 : undefined,
+    ftType: opts?.ftType,
+    magnitude: opts?.magnitude,
+    miniIcon: opts?.miniIcon,
+  });
 }
 
 function addDeathParticles(state: GameState, x: number, y: number, color: string, count: number): void {
@@ -1648,20 +1662,23 @@ function tickAbilityEffects(state: GameState): void {
                 const haste = nearest.statusEffects.find(s => s.type === StatusType.Haste);
                 if (haste) { haste.duration = 6 * TICK_RATE; }
                 else nearest.statusEffects.push({ type: StatusType.Haste, stacks: 1, duration: 6 * TICK_RATE });
-                addFloatingText(state, nearest.x, nearest.y, 'SPEED!', '#69f0ae');
+                addFloatingText(state, nearest.x, nearest.y, 'SPEED', '#69f0ae', undefined, undefined,
+                  { ftType: 'status', miniIcon: 'lightning' });
               } else if (roll < 0.66) {
                 // Frenzy potion
                 const frenzy = nearest.statusEffects.find(s => s.type === StatusType.Frenzy);
                 if (frenzy) { frenzy.duration = 6 * TICK_RATE; }
                 else nearest.statusEffects.push({ type: StatusType.Frenzy, stacks: 1, duration: 6 * TICK_RATE });
-                addFloatingText(state, nearest.x, nearest.y, 'RAGE!', '#ff5722');
+                addFloatingText(state, nearest.x, nearest.y, 'RAGE', '#ff5722', undefined, undefined,
+                  { ftType: 'status', miniIcon: 'sword' });
               } else {
                 // Shield potion
                 const shield = nearest.statusEffects.find(s => s.type === StatusType.Shield);
                 if (shield) { shield.duration = 6 * TICK_RATE; shield.stacks = 20; }
                 else nearest.statusEffects.push({ type: StatusType.Shield, stacks: 20, duration: 6 * TICK_RATE });
                 nearest.shieldHp = Math.max(nearest.shieldHp, 20);
-                addFloatingText(state, nearest.x, nearest.y, 'SHIELD!', '#42a5f5');
+                addFloatingText(state, nearest.x, nearest.y, 'SHIELD', '#42a5f5', undefined, undefined,
+                  { ftType: 'status', miniIcon: 'shield_icon' });
               }
               addSound(state, 'ability_potion', nearest.x, nearest.y);
             }
@@ -1845,7 +1862,8 @@ function trackDeathResources(state: GameState, deadUnit: UnitState): void {
       if (burnStacks > 0) applyStatus(u, StatusType.Burn, burnStacks);
     }
     addDeathParticles(state, deadUnit.x, deadUnit.y, '#7c4dff', 8);
-    addFloatingText(state, deadUnit.x, deadUnit.y, `💥${dmg}`, '#7c4dff');
+    addFloatingText(state, deadUnit.x, deadUnit.y, `${dmg}`, '#7c4dff', undefined, undefined,
+      { ftType: 'damage', magnitude: dmg, miniIcon: 'fire' });
     addSound(state, 'nuke_detonated', deadUnit.x, deadUnit.y);
   }
 }
@@ -2298,10 +2316,15 @@ function tickUnitMovement(state: GameState): void {
     if (!moved && movePerTick > 0.001 && unit.pathProgress < 1) {
       unit.stuckTicks = (unit.stuckTicks ?? 0) + 1;
       if (unit.stuckTicks >= 3) {
-        // Snap back to the lane path at current progress — always in valid, obstacle-free space
+        // Guard: pathProgress can drift far from actual position during combat.
+        // Only snap if it would be a small correction; otherwise skip the snap
+        // to avoid teleporting 40+ tiles across the map.
         const snapPos = interpolatePath(path, unit.pathProgress);
-        unit.x = snapPos.x;
-        unit.y = snapPos.y;
+        const snapDist2 = (snapPos.x - unit.x) ** 2 + (snapPos.y - unit.y) ** 2;
+        if (snapDist2 <= 25) { // ≤ 5 tiles
+          unit.x = snapPos.x;
+          unit.y = snapPos.y;
+        }
         unit.stuckTicks = 0;
       }
     } else {
@@ -2374,12 +2397,22 @@ function applyStatus(target: UnitState, type: StatusType, stacks: number): void 
 
 function applyKnockback(unit: UnitState, amount: number, mapDef?: MapDef): void {
   if (unit.pathProgress < 0) return; // not on path yet
-  // Push unit backward along its path
-  unit.pathProgress = Math.max(0, unit.pathProgress - amount);
   const path = getLanePath(unit.team, unit.lane, mapDef);
-  const pos = interpolatePath(path, unit.pathProgress);
-  unit.x = pos.x;
-  unit.y = pos.y;
+  const pathLen = getCachedPathLength(unit.team, unit.lane, mapDef);
+  const prevProgress = unit.pathProgress;
+  unit.pathProgress = Math.max(0, unit.pathProgress - amount);
+  const knockDist = (prevProgress - unit.pathProgress) * pathLen;
+  if (knockDist <= 0) return;
+  // Get backward direction from path tangent at current progress — then
+  // move from the unit's ACTUAL position, not the path position.
+  // (pathProgress can diverge from x/y during combat chase; snapping to
+  //  interpolatePath(pathProgress) would teleport units across the map.)
+  const p0 = interpolatePath(path, Math.max(0, prevProgress - 0.02));
+  const p1 = interpolatePath(path, prevProgress);
+  const fwdX = p1.x - p0.x, fwdY = p1.y - p0.y;
+  const fwdLen = Math.sqrt(fwdX * fwdX + fwdY * fwdY) || 1;
+  unit.x -= (fwdX / fwdLen) * knockDist;
+  unit.y -= (fwdY / fwdLen) * knockDist;
 }
 
 /** Track healing for a unit's owner. */
@@ -2419,7 +2452,8 @@ function dealDamage(state: GameState, target: UnitState, amount: number, showFlo
   // Dodge check
   const dodge = target.upgradeSpecial?.dodgeChance ?? 0;
   if (dodge > 0 && state.rng() < dodge) {
-    if (state.rng() < 0.3) addFloatingText(state, target.x, target.y, '💨', '#ffffff', undefined, true);
+    if (state.rng() < 0.3) addFloatingText(state, target.x, target.y, 'DODGE', '#ffffff', undefined, true,
+      { ftType: 'status' });
     addCombatEvent(state, { type: 'dodge', x: target.x, y: target.y, color: '#ffffff' });
     return;
   }
@@ -2478,12 +2512,17 @@ function dealDamage(state: GameState, target: UnitState, amount: number, showFlo
       target.statusEffects = target.statusEffects.filter(e => e.type !== StatusType.Shield);
     }
     if (absorbed > 0 && showFloat) {
-      addFloatingText(state, target.x, target.y, `[${absorbed}]`, '#64b5f6');
+      addFloatingText(state, target.x, target.y, `${absorbed}`, '#64b5f6', undefined, undefined,
+        { ftType: 'damage', magnitude: absorbed, miniIcon: 'shield_icon' });
     }
   }
   if (amount > 0) {
     target.hp -= amount;
-    if (showFloat && amount >= 5) addFloatingText(state, target.x, target.y, `-${amount}`, '#ff6666');
+    if (showFloat && amount >= 5) {
+      const miniIcon = isTowerShot ? 'arrow' : (target.range && target.range > 2 ? 'arrow' : 'sword');
+      addFloatingText(state, target.x, target.y, `${amount}`, '#ff6666', undefined, undefined,
+        { ftType: 'damage', magnitude: amount, miniIcon });
+    }
     // Track damage stats
     const targetPs = state.playerStats[target.playerId];
     if (targetPs) targetPs.totalDamageTaken += amount;
@@ -2546,7 +2585,8 @@ function dealDamage(state: GameState, target: UnitState, amount: number, showFlo
               }
             }
             if (state.rng() < 0.25) {
-              addFloatingText(state, killer.x, killer.y - 0.3, '⚡', '#ff4400', undefined, true);
+              addFloatingText(state, killer.x, killer.y - 0.3, '', '#ff4400', undefined, true,
+                { ftType: 'status', miniIcon: 'lightning' });
             }
           }
         }
@@ -2648,7 +2688,8 @@ function applyCasterSupport(state: GameState, caster: UnitState, race: Race, sp:
         if (gobP?.researchUpgrades.raceUpgrades['goblins_caster_1']) applyStatus(e, StatusType.Burn, 1);
       }
       if (enemies.length > 0) {
-        addFloatingText(state, caster.x, caster.y - 0.5, '🔮', '#2e7d32', undefined, true);
+        addFloatingText(state, caster.x, caster.y - 0.5, '', '#2e7d32', undefined, true,
+          { ftType: 'heal', miniIcon: 'heart' });
         addCombatEvent(state, { type: 'pulse', x: caster.x, y: caster.y, radius: supportRange, color: '#2e7d32' });
       }
       break;
@@ -2681,7 +2722,8 @@ function applyCasterSupport(state: GameState, caster: UnitState, race: Race, sp:
         }
       }
       if (cleansed > 0) {
-        addFloatingText(state, caster.x, caster.y - 0.5, '✨', '#1565c0', undefined, true);
+        addFloatingText(state, caster.x, caster.y - 0.5, 'CLEANSE', '#1565c0', undefined, true,
+          { ftType: 'heal' });
       }
       break;
     }
@@ -2747,7 +2789,8 @@ function applyCasterSupport(state: GameState, caster: UnitState, race: Race, sp:
         }
       }
       if (healedAny) {
-        addFloatingText(state, caster.x, caster.y - 0.5, `+${tenderHealAmt}`, '#33691e');
+        addFloatingText(state, caster.x, caster.y - 0.5, `+${tenderHealAmt}`, '#33691e', undefined, undefined,
+          { ftType: 'heal', miniIcon: 'heart' });
         addCombatEvent(state, { type: 'pulse', x: caster.x, y: caster.y, radius: supportRange, color: '#66bb6a' });
       }
       break;
@@ -2773,7 +2816,8 @@ function applyOnHitEffects(state: GameState, attacker: UnitState, target: UnitSt
           applyKnockback(target, 0.02, state.mapDef);
           addDeathParticles(state, target.x, target.y, '#ffab40', 3);
           addCombatEvent(state, { type: 'knockback', x: target.x, y: target.y, color: '#ffab40' });
-          if (state.rng() < 0.3) addFloatingText(state, target.x, target.y - 0.3, '💥', '#ffab40', undefined, true);
+          if (state.rng() < 0.3) addFloatingText(state, target.x, target.y - 0.3, 'KNOCK', '#ffab40', undefined, true,
+            { ftType: 'status' });
         }
         const hordeSteal = Math.round(attacker.damage * 0.10);
         if (hordeSteal > 0) {
@@ -3160,10 +3204,19 @@ function tickCombat(state: GameState): void {
         if (unit.pathProgress > 0) {
           const speed = getEffectiveSpeed(unit) * 1.5; // run faster when fleeing
           const pathLen = getCachedPathLength(unit.team, unit.lane, state.mapDef);
-          unit.pathProgress = Math.max(0, unit.pathProgress - (speed / TICK_RATE) / pathLen);
           const path = getLanePath(unit.team, unit.lane, state.mapDef);
-          const pos = interpolatePath(path, unit.pathProgress);
-          unit.x = pos.x; unit.y = pos.y;
+          const movePerTick = speed / TICK_RATE;
+          // Get backward direction from path tangent — move from ACTUAL position,
+          // not from interpolatePath(pathProgress). pathProgress can diverge far
+          // from x/y after combat chase moves, so snapping to it would teleport.
+          const p0 = interpolatePath(path, Math.max(0, unit.pathProgress - 0.02));
+          const p1 = interpolatePath(path, unit.pathProgress);
+          const fwdX = p1.x - p0.x, fwdY = p1.y - p0.y;
+          const fwdLen = Math.sqrt(fwdX * fwdX + fwdY * fwdY) || 1;
+          unit.x -= (fwdX / fwdLen) * movePerTick;
+          unit.y -= (fwdY / fwdLen) * movePerTick;
+          clampToArenaBounds(unit, 0.35, state.mapDef);
+          unit.pathProgress = Math.max(0, unit.pathProgress - movePerTick / pathLen);
         }
         if (unit.fleeTimer <= 0) {
           // Flee ended — enter cooldown so unit re-engages before fleeing again
@@ -3641,7 +3694,8 @@ function tickCombat(state: GameState): void {
             }
             if (cleaved.length > 0) {
               addSound(state, 'ability_cleave', unit.x, unit.y);
-              if (state.rng() < 0.3) addFloatingText(state, unit.x, unit.y - 0.3, '⚔️', '#ff9800', undefined, true);
+              if (state.rng() < 0.3) addFloatingText(state, unit.x, unit.y - 0.3, 'CLEAVE', '#ff9800', undefined, true,
+                { ftType: 'status', miniIcon: 'sword' });
             }
           }
         }
@@ -3665,10 +3719,12 @@ function tickCombat(state: GameState): void {
       if (nearestTower) {
         const tDmg = getEffectiveDamage(unit);
         nearestTower.hp -= tDmg;
-        addFloatingText(state, nearestTower.worldX, nearestTower.worldY, `-${tDmg}`, '#ff6600');
+        addFloatingText(state, nearestTower.worldX, nearestTower.worldY, `${tDmg}`, '#ff6600', undefined, undefined,
+          { ftType: 'damage', magnitude: tDmg, miniIcon: 'sword' });
         unit.attackTimer = Math.round(unit.attackSpeed * TICK_RATE);
         if (nearestTower.hp <= 0) {
-          addFloatingText(state, nearestTower.worldX, nearestTower.worldY, 'DESTROYED', '#ff0000');
+          addFloatingText(state, nearestTower.worldX, nearestTower.worldY, 'DESTROYED', '#ff0000', undefined, undefined,
+          { ftType: 'kill' });
           addSound(state, 'building_destroyed', nearestTower.worldX, nearestTower.worldY);
         }
       }
@@ -3685,7 +3741,8 @@ function tickCombat(state: GameState): void {
       if (distToHq <= unit.range + hqRadius) {
         const hDmg = getEffectiveDamage(unit);
         state.hqHp[enemyTeam] -= hDmg;
-        addFloatingText(state, hqCx, hqCy, `-${hDmg} HQ`, '#ff0000');
+        addFloatingText(state, hqCx, hqCy, `${hDmg}`, '#ff0000', undefined, undefined,
+          { ftType: 'damage', magnitude: hDmg, miniIcon: 'sword' });
         addSound(state, 'hq_damaged', hqCx, hqCy);
         unit.attackTimer = Math.round(unit.attackSpeed * TICK_RATE);
       }
@@ -3714,7 +3771,8 @@ function tickCombat(state: GameState): void {
       // Revive once: restore HP and clear the special so it doesn't trigger again
       u.hp = Math.max(1, Math.round(u.maxHp * revivePct));
       u.upgradeSpecial = { ...u.upgradeSpecial, reviveHpPct: 0 };
-      addFloatingText(state, u.x, u.y, '💚', '#44ff44', undefined, true);
+      addFloatingText(state, u.x, u.y, '', '#44ff44', undefined, true,
+        { ftType: 'heal', miniIcon: 'heart' });
       addDeathParticles(state, u.x, u.y, '#44ff44', 3);
       addCombatEvent(state, { type: 'revive', x: u.x, y: u.y, color: '#44ff44' });
       continue;
@@ -3760,7 +3818,8 @@ function tickCombat(state: GameState): void {
           upgradeSpecial: {}, kills: 0, lastDamagedByName: '', spawnTick: state.tick,
         });
         if (state.playerStats[u.playerId]) state.playerStats[u.playerId].unitsSpawned++;
-        addFloatingText(state, u.x, u.y, '🧬', '#76ff03', undefined, true);
+        addFloatingText(state, u.x, u.y, 'MUTATE', '#76ff03', undefined, true,
+          { ftType: 'status' });
       }
       // Oozlings Acid Pool: ranged death AoE — 5 dmg to enemies within 1.5 tiles
       if (dbu.raceUpgrades['oozlings_ranged_2'] && u.category === 'ranged') {
@@ -3851,7 +3910,8 @@ function tickHQDefense(state: GameState): void {
     if (!closestHarv) continue;
 
     closestHarv.hp -= HQ_DAMAGE;
-    addFloatingText(state, closestHarv.x, closestHarv.y, `-${HQ_DAMAGE}`, '#ffaa00');
+    addFloatingText(state, closestHarv.x, closestHarv.y, `${HQ_DAMAGE}`, '#ffaa00', undefined, undefined,
+      { ftType: 'damage', magnitude: HQ_DAMAGE, miniIcon: 'sword' });
     if (closestHarv.hp <= 0) {
       addDeathParticles(state, closestHarv.x, closestHarv.y, '#ffaa00', 4);
       killHarvester(state, closestHarv);
@@ -3948,7 +4008,8 @@ function tickTowers(state: GameState): void {
     }
     if (closestHarv) {
       closestHarv.hp -= stats.damage;
-      addFloatingText(state, closestHarv.x, closestHarv.y, `-${stats.damage}`, '#ffaa00');
+      addFloatingText(state, closestHarv.x, closestHarv.y, `${stats.damage}`, '#ffaa00', undefined, undefined,
+        { ftType: 'damage', magnitude: stats.damage, miniIcon: 'arrow' });
       if (closestHarv.hp <= 0) {
         addDeathParticles(state, closestHarv.x, closestHarv.y, '#ffaa00', 4);
         killHarvester(state, closestHarv);
@@ -4001,9 +4062,11 @@ function tickProjectiles(state: GameState): void {
             if (bd <= bldAoe) {
               const bldDmg = Math.round(p.damage * p.buildingDamageMult);
               b.hp = Math.max(0, b.hp - bldDmg);
-              addFloatingText(state, b.worldX, b.worldY - 0.5, `-${bldDmg}`, '#ff6600');
+              addFloatingText(state, b.worldX, b.worldY - 0.5, `${bldDmg}`, '#ff6600', undefined, undefined,
+                { ftType: 'damage', magnitude: bldDmg, miniIcon: 'sword' });
               if (b.hp <= 0) {
-                addFloatingText(state, b.worldX, b.worldY, 'DESTROYED', '#ff0000');
+                addFloatingText(state, b.worldX, b.worldY, 'DESTROYED', '#ff0000', undefined, undefined,
+                  { ftType: 'kill' });
                 addSound(state, 'building_destroyed', b.worldX, b.worldY);
               }
             }
@@ -4016,7 +4079,8 @@ function tickProjectiles(state: GameState): void {
           if (hqDist <= bldAoe + 2) {
             const hqBldDmg = Math.round(p.damage * p.buildingDamageMult * 0.5);
             state.hqHp[enemyTeam] = Math.max(0, state.hqHp[enemyTeam] - hqBldDmg);
-            addFloatingText(state, hqCx, hqCy, `-${hqBldDmg} HQ`, '#ff0000');
+            addFloatingText(state, hqCx, hqCy, `${hqBldDmg}`, '#ff0000', undefined, undefined,
+              { ftType: 'damage', magnitude: hqBldDmg, miniIcon: 'sword' });
           }
         }
         addDeathParticles(state, impX, impY, '#ff6600', 6);
@@ -4176,9 +4240,11 @@ function tickProjectiles(state: GameState): void {
           if (bd <= bldAoe) {
             const bldDmg = Math.round(p.damage * p.buildingDamageMult * (p.splashDamagePct ?? 0.60));
             b.hp = Math.max(0, b.hp - bldDmg);
-            addFloatingText(state, b.worldX, b.worldY - 0.5, `-${bldDmg}`, '#ff6600');
+            addFloatingText(state, b.worldX, b.worldY - 0.5, `${bldDmg}`, '#ff6600', undefined, undefined,
+              { ftType: 'damage', magnitude: bldDmg, miniIcon: 'sword' });
             if (b.hp <= 0) {
-              addFloatingText(state, b.worldX, b.worldY, 'DESTROYED', '#ff0000');
+              addFloatingText(state, b.worldX, b.worldY, 'DESTROYED', '#ff0000', undefined, undefined,
+                { ftType: 'kill' });
               addSound(state, 'building_destroyed', b.worldX, b.worldY);
             }
           }
@@ -4274,14 +4340,16 @@ function tickStatusEffects(state: GameState): void {
           addDeathParticles(state, unit.x, unit.y, '#ff6600', 1);
           addDeathParticles(state, unit.x, unit.y, '#2979ff', 1);
           if (state.tick % (TICK_RATE * 3) === 0) { // show "SEARED" every 3 seconds
-            addFloatingText(state, unit.x, unit.y - 0.3, '🔥', '#ff8c00', undefined, true);
+            addFloatingText(state, unit.x, unit.y - 0.3, '', '#ff8c00', undefined, true,
+              { ftType: 'status', miniIcon: 'fire' });
           }
         } else {
           addDeathParticles(state, unit.x, unit.y, '#ff4400', 1);
         }
         // BLIGHT: burn 3+ stacks = no regen (shown every 3s)
         if (eff.stacks >= 3 && state.tick % (TICK_RATE * 3) === 0) {
-          addFloatingText(state, unit.x, unit.y - 0.5, '☠️', '#9c27b0', undefined, true);
+          addFloatingText(state, unit.x, unit.y - 0.5, '', '#9c27b0', undefined, true,
+            { ftType: 'status', miniIcon: 'poison' });
         }
       }
 
@@ -4402,7 +4470,8 @@ function applyTowerSpecial(state: GameState, building: BuildingState, race: Race
         if (state.rng() < 0.3) {
           applyKnockback(nearest, 0.02, state.mapDef);
           addDeathParticles(state, nearest.x, nearest.y, '#ffab40', 3);
-          if (state.rng() < 0.3) addFloatingText(state, nearest.x, nearest.y - 0.3, '💥', '#ffab40', undefined, true);
+          if (state.rng() < 0.3) addFloatingText(state, nearest.x, nearest.y - 0.3, 'KNOCK', '#ffab40', undefined, true,
+            { ftType: 'status' });
         }
         addDeathParticles(state, nearest.x, nearest.y, '#c62828', 2);
         building.actionTimer = Math.round(stats.attackSpeed * TICK_RATE);
