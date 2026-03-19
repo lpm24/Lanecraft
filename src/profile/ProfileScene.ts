@@ -514,7 +514,7 @@ export class ProfileScene implements Scene {
     y += compact ? 36 : 60;
 
     // Column headers — proportional positioning
-    const hdrFont = compact ? 10 : 20;
+    const hdrFont = compact ? 11 : 20;
     const dataFont = compact ? 12 : 22;
     ctx.font = `bold ${hdrFont}px monospace`; ctx.fillStyle = '#999';
     const rCols = [
@@ -618,7 +618,7 @@ export class ProfileScene implements Scene {
       ctx.fillText(ach.name, textX, y + (compact ? 22 : 36));
 
       // Description
-      ctx.font = `${compact ? 10 : 20}px monospace`;
+      ctx.font = `${compact ? 11 : 20}px monospace`;
       ctx.fillStyle = '#999';
       ctx.fillText(ach.desc, textX, y + (compact ? 38 : 64), compact ? textW - 40 : undefined);
 
@@ -716,7 +716,7 @@ export class ProfileScene implements Scene {
 
       // Race + category label
       const rc = RACE_COLORS[avatar.race];
-      ctx.font = `${compact ? 9 : 14}px monospace`;
+      ctx.font = `${compact ? 11 : 14}px monospace`;
       ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
       ctx.fillStyle = unlocked ? (rc?.primary ?? '#aaa') : '#444';
       const unitName = getAvatarUnitName(avatar.race, avatar.category, avatar.upgradeNode);

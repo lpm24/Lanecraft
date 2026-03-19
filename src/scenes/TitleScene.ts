@@ -1856,7 +1856,7 @@ export class TitleScene implements Scene {
     const nameY = avatarY + avatarSize + 4;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
-    ctx.font = `bold ${fontSize * 0.8}px monospace`;
+    ctx.font = `bold ${Math.max(11, fontSize * 0.8)}px monospace`;
     ctx.fillStyle = 'rgba(0,0,0,0.6)';
     ctx.fillText(this.playerName, nameCx + 1, nameY + 1);
     ctx.fillStyle = '#ffd700';
@@ -1992,7 +1992,7 @@ export class TitleScene implements Scene {
       ctx.lineWidth = 1;
       ctx.stroke();
 
-      const teamLabelSize = Math.max(7, fontSize * 0.6);
+      const teamLabelSize = Math.max(11, fontSize * 0.6);
       ctx.font = `bold ${teamLabelSize}px monospace`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'top';
@@ -2038,7 +2038,7 @@ export class TitleScene implements Scene {
           ctx.fillStyle = '#fff';
           ctx.fillText(this.playerName, slotCx, slotRect.y + 52);
 
-          ctx.font = `${Math.max(7, fontSize * 0.6)}px monospace`;
+          ctx.font = `${Math.max(11, fontSize * 0.6)}px monospace`;
           ctx.fillStyle = 'rgba(255,255,255,0.35)';
           ctx.fillText('click to change', slotCx, slotRect.y - 6);
         } else {
@@ -2089,7 +2089,7 @@ export class TitleScene implements Scene {
         ctx.fillStyle = diffColor;
         ctx.fillText(`BOT ${diffLabel}`, slotCx, slotRect.y + slotRect.h + 6 + fontSize * 1.3);
 
-        ctx.font = `${Math.max(6, fontSize * 0.5)}px monospace`;
+        ctx.font = `${Math.max(11, fontSize * 0.5)}px monospace`;
         ctx.fillStyle = 'rgba(255,255,255,0.3)';
         ctx.fillText('click: diff / race', slotCx, slotRect.y + slotRect.h + 6 + fontSize * 2.5);
       } else {
@@ -2102,7 +2102,7 @@ export class TitleScene implements Scene {
         ctx.fillStyle = 'rgba(255,255,255,0.2)';
         ctx.fillText(isActive ? 'EMPTY' : '—', slotCx, slotY);
         if (isActive) {
-          ctx.font = `${Math.max(7, fontSize * 0.55)}px monospace`;
+          ctx.font = `${Math.max(11, fontSize * 0.55)}px monospace`;
           ctx.fillStyle = 'rgba(255,255,255,0.3)';
           ctx.fillText('click to add bot', slotCx, slotY + fontSize * 1.3);
         }
@@ -2311,7 +2311,7 @@ export class TitleScene implements Scene {
       ctx.stroke();
 
       // Team label at top of region
-      const teamLabelSize = Math.max(7, fontSize * 0.6);
+      const teamLabelSize = Math.max(11, fontSize * 0.6);
       ctx.font = `bold ${teamLabelSize}px monospace`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'top';
@@ -2390,7 +2390,7 @@ export class TitleScene implements Scene {
         ctx.fillText(diffLabel, slotCx, raceLabelY + fontSize * 1.1);
 
         if (isHost && isSlotActive) {
-          ctx.font = `${Math.max(7, fontSize * 0.5)}px monospace`;
+          ctx.font = `${Math.max(11, fontSize * 0.5)}px monospace`;
           ctx.fillStyle = 'rgba(255,255,255,0.35)';
           ctx.fillText('click: diff / right: race', slotCx, raceLabelY + fontSize * 2.1);
         }
@@ -2404,7 +2404,7 @@ export class TitleScene implements Scene {
         ctx.fillStyle = 'rgba(255,255,255,0.2)';
         ctx.fillText(isSlotActive ? 'EMPTY' : '—', slotCx, slotY);
         if (isHost && isSlotActive) {
-          ctx.font = `${Math.max(7, fontSize * 0.55)}px monospace`;
+          ctx.font = `${Math.max(11, fontSize * 0.55)}px monospace`;
           ctx.fillStyle = 'rgba(255,255,255,0.3)';
           ctx.fillText('click to add bot', slotCx, slotY + fontSize * 1.3);
         }
@@ -2533,7 +2533,7 @@ export class TitleScene implements Scene {
 
     // "Click to change" hint if this is the local player's slot
     if (isLocal) {
-      ctx.font = `${Math.max(7, fontSize * 0.6)}px monospace`;
+      ctx.font = `${Math.max(11, fontSize * 0.6)}px monospace`;
       ctx.fillStyle = 'rgba(255,255,255,0.35)';
       ctx.fillText('click to change', cx, raceRect.y - 10);
     }

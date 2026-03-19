@@ -4056,7 +4056,7 @@ export class Renderer {
 
     // Row 2: HQ bars (centered horizontally) + diamond + units
     const y2 = safeTop + (compact ? 32 : 42);
-    const smallFont = compact ? 9 : 11;
+    const smallFont = 11;
     ctx.font = `bold ${smallFont}px monospace`;
 
     // HQ health bars — centered horizontally, with labels inside
@@ -4082,7 +4082,7 @@ export class Renderer {
     const totalRow2W = hqBarW + hqGap + diamondTextW + hqGap + hqBarW;
     let x2 = (W - totalRow2W) / 2;
     const barY = y2 - hqBarH / 2;
-    const barLabelFont = compact ? 9 : 11;
+    const barLabelFont = 11;
 
     // "Us" bar
     const drawHQBar = (label: string, hp: number, _color: string, bx: number) => {
@@ -4193,7 +4193,7 @@ export class Renderer {
     ctx.fillText(title, W / 2, py + 22);
 
     // Subtitle
-    ctx.font = `${fontSize - 2}px monospace`;
+    ctx.font = `${Math.max(11, fontSize - 2)}px monospace`;
     ctx.fillStyle = '#ccc';
     ctx.fillText(subtitle, W / 2, py + 40);
 

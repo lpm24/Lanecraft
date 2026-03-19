@@ -165,7 +165,7 @@ export class PostMatchScene implements Scene {
     const innerW = innerR - innerL;
 
     // Player stats table
-    const tableFontSize = fontSize * 0.7;
+    const tableFontSize = Math.max(11, fontSize * 0.7);
     const tableY = panelY + 34;
     const rowH = tableFontSize * 2.4;
     // Columns positioned relative to inner area
@@ -180,7 +180,7 @@ export class PostMatchScene implements Scene {
     ];
 
     // Header row with icons
-    ctx.font = `bold ${tableFontSize * 0.85}px monospace`;
+    ctx.font = `bold ${Math.max(11, tableFontSize * 0.85)}px monospace`;
     ctx.fillStyle = '#5c4020';
     ctx.textAlign = 'left';
     ctx.fillText('PLAYER', colX[0], tableY);
@@ -276,7 +276,7 @@ export class PostMatchScene implements Scene {
     const enemyTeam = localTeam === Team.Bottom ? Team.Top : Team.Bottom;
     const enemyHp = Math.max(0, state.hqHp[enemyTeam]);
 
-    ctx.font = `bold ${fontSize * 0.7}px monospace`;
+    ctx.font = `bold ${Math.max(11, fontSize * 0.7)}px monospace`;
     // Left side: label then bar
     const usLabel = `US ${ourHp}`;
     const usLabelW = ctx.measureText(usLabel).width;
@@ -361,20 +361,20 @@ export class PostMatchScene implements Scene {
         this.ui.drawIcon(ctx, icon, cardCenterX - iconSz / 2, cy + inset, iconSz);
 
         // Award label — truncate to fit card
-        ctx.font = `bold ${fontSize * 0.55}px monospace`;
+        ctx.font = `bold ${Math.max(11, fontSize * 0.55)}px monospace`;
         ctx.textAlign = 'center';
         ctx.fillStyle = '#6b4e28';
         const label = this.truncateText(ctx, a.label.toUpperCase(), cardW - inset * 2);
         ctx.fillText(label, cardCenterX, cy + inset + iconSz + fontSize * 0.6);
 
         // Player name in their color
-        ctx.font = `bold ${fontSize * 0.65}px monospace`;
+        ctx.font = `bold ${Math.max(11, fontSize * 0.65)}px monospace`;
         ctx.fillStyle = this.darkenColor(PLAYER_COLORS[a.playerId], 0.7);
         const name = this.truncateText(ctx, this.slotLabel(a.playerId), cardW - inset * 2);
         ctx.fillText(name, cardCenterX, cy + inset + iconSz + fontSize * 1.35);
 
         // Value
-        ctx.font = `${fontSize * 0.5}px monospace`;
+        ctx.font = `${Math.max(11, fontSize * 0.5)}px monospace`;
         ctx.fillStyle = '#7a5c38';
         ctx.fillText(a.value, cardCenterX, cy + inset + iconSz + fontSize * 2.0);
       }
@@ -440,7 +440,7 @@ export class PostMatchScene implements Scene {
 
     // Line 1: "WAR HERO" header with shield icon
     const shieldSz = fontSize * 0.85;
-    ctx.font = `bold ${fontSize * 0.75}px monospace`;
+    ctx.font = `bold ${Math.max(11, fontSize * 0.75)}px monospace`;
     const headerTextW = ctx.measureText('WAR HERO').width;
     const headerTotalW = shieldSz + gap * 0.5 + headerTextW;
     const headerStartX = textCenterX - headerTotalW / 2;
@@ -457,7 +457,7 @@ export class PostMatchScene implements Scene {
     ctx.fillText(heroName, textCenterX, line2Y);
 
     // Line 3: Owner + category (lightened player color)
-    ctx.font = `bold ${fontSize * 0.65}px monospace`;
+    ctx.font = `bold ${Math.max(11, fontSize * 0.65)}px monospace`;
     ctx.fillStyle = this.lightenColor(playerColor, 0.4);
     const catLabel = hero.category === 'melee' ? 'Melee' : hero.category === 'ranged' ? 'Ranged' : 'Caster';
     ctx.fillText(`${this.slotLabel(hero.playerId)}'s ${catLabel}`, textCenterX, line3Y);
@@ -465,7 +465,7 @@ export class PostMatchScene implements Scene {
     // Line 4: Kills with sword icon
     const killIconSz = fontSize * 0.65;
     const killText = `${hero.kills} kills`;
-    ctx.font = `bold ${fontSize * 0.65}px monospace`;
+    ctx.font = `bold ${Math.max(11, fontSize * 0.65)}px monospace`;
     const killTextW = ctx.measureText(killText).width;
     const killTotalW = killIconSz + gap * 0.4 + killTextW;
     const killStartX = textCenterX - killTotalW / 2;
@@ -475,7 +475,7 @@ export class PostMatchScene implements Scene {
     ctx.fillText(killText, killStartX + killIconSz + gap * 0.4, line4Y);
 
     // Line 5: Survival / death status
-    ctx.font = `${fontSize * 0.55}px monospace`;
+    ctx.font = `${Math.max(11, fontSize * 0.55)}px monospace`;
     ctx.textAlign = 'center';
     const aliveTime = this.formatTickTime((hero.deathTick ?? state.tick) - hero.spawnTick);
     if (hero.survived) {

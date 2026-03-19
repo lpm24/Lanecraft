@@ -459,7 +459,7 @@ export class RaceSelectScene implements Scene {
       const nameColor = isSelected ? colors.primary : '#fff';
       woodText(ctx, race.label, cx, nameY, nameColor, 'rgba(0,0,0,0.7)');
 
-      ctx.font = `${fontSize * 0.72}px monospace`;
+      ctx.font = `${Math.max(11, fontSize * 0.72)}px monospace`;
       woodText(ctx, race.desc, cx, nameY + nameFontSize * 0.85, '#ddd', 'rgba(0,0,0,0.5)');
 
       const iconSize = fontSize * 1.8;
@@ -484,7 +484,7 @@ export class RaceSelectScene implements Scene {
         const selRibX = cx - selRibW / 2;
         const selRibY = box.y + box.h * 0.90 - selRibH / 2;
         this.ui.drawSmallRibbon(ctx, selRibX, selRibY, selRibW, selRibH, 0);
-        ctx.font = `bold ${fontSize * 0.6}px monospace`;
+        ctx.font = `bold ${Math.max(11, fontSize * 0.6)}px monospace`;
         ctx.fillStyle = '#fff';
         ctx.textAlign = 'center';
         ctx.fillText('SELECTED', cx, selRibY + selRibH * 0.6);
