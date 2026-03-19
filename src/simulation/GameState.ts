@@ -3248,7 +3248,8 @@ function octileH(ax: number, ay: number, bx: number, by: number): number {
 
 /**
  * Check if a straight line between two world positions is unobstructed
- * by unmined diamond cells. Samples every ~0.5 tiles.
+ * by unmined diamond cells and stays within the playable area.
+ * Samples every ~0.5 tiles.
  */
 function hasLineOfSight(ax: number, ay: number, bx: number, by: number, cells: GoldCell[], mapDef?: MapDef): boolean {
   const dx = bx - ax, dy = by - ay;
@@ -3257,7 +3258,9 @@ function hasLineOfSight(ax: number, ay: number, bx: number, by: number, cells: G
   const steps = Math.max(4, Math.ceil(dist * 2));
   for (let i = 1; i < steps; i++) {
     const t = i / steps;
-    if (isInsideUnminedDiamond(ax + dx * t, ay + dy * t, 0.45, cells, mapDef)) return false;
+    const px = ax + dx * t, py = ay + dy * t;
+    if (isInsideUnminedDiamond(px, py, 0.45, cells, mapDef)) return false;
+    if (mapDef && !mapDef.isPlayable(Math.floor(px), Math.floor(py))) return false;
   }
   return true;
 }

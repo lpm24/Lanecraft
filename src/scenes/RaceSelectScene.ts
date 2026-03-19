@@ -393,14 +393,14 @@ export class RaceSelectScene implements Scene {
 
     const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
     if (!isTouchDevice) {
-      const hintSize = Math.max(11,Math.min(w / 55, 12));
+      const hintSize = Math.max(11, Math.min(w / 55, 12));
       ctx.font = `${hintSize}px monospace`;
       ctx.fillStyle = 'rgba(255,255,255,0.5)';
       ctx.fillText('Arrow keys + Enter  |  Click to select', w / 2, ribbonY + ribbonH + 12);
     }
 
     const boxes = this.getBoxLayout();
-    const fontSize = Math.max(11,Math.min(boxes[0].w / 8, 16));
+    const fontSize = Math.max(11, Math.min(boxes[0].w / 8, 16));
 
     for (let i = 0; i < RACES.length; i++) {
       const race = RACES[i];
@@ -522,7 +522,7 @@ export class RaceSelectScene implements Scene {
         ctx.strokeRect(rb.x + 1, rb.y + 1, rb.w - 2, rb.h - 2);
       }
 
-      const randFontSize = Math.max(11,Math.min(rb.h * 0.55, 14));
+      const randFontSize = Math.max(11, Math.min(rb.h * 0.55, 14));
       ctx.font = `bold ${randFontSize}px monospace`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';

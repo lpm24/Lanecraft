@@ -9,6 +9,7 @@ export interface PartyPlayer {
   uid: string;
   name: string;
   race: Race;
+  avatarId?: string;  // profile avatar ID (e.g. "crown:melee", "geists:caster:G")
 }
 
 /**
@@ -90,6 +91,7 @@ export class PartyManager {
   private _state: PartyState | null = null;
   private listeners: Set<PartyListener> = new Set();
   private _localName: string;
+  private _localAvatarId: string | undefined;
   /** Explicitly tracks whether this client created or joined the party.
    *  UID-based detection fails when two tabs share the same anonymous auth. */
   private _isHost = false;
@@ -114,6 +116,17 @@ export class PartyManager {
     if (this._state && this.partyCode) {
       const db = getDb();
       set(ref(db, `parties/${this.partyCode}/players/${this._localSlot}/name`), name);
+    }
+  }
+
+  get localAvatarId(): string | undefined { return this._localAvatarId; }
+
+  set localAvatarId(avatarId: string | undefined) {
+    this._localAvatarId = avatarId;
+    // Push avatar update if in a party
+    if (this._state && this.partyCode && avatarId) {
+      const db = getDb();
+      set(ref(db, `parties/${this.partyCode}/players/${this._localSlot}/avatarId`), avatarId);
     }
   }
 
@@ -154,7 +167,7 @@ export class PartyManager {
     const party: PartyState = {
       code,
       hostUid: uid,
-      players: { '0': { uid, name: this._localName, race } },
+      players: { '0': { uid, name: this._localName, race, ...(this._localAvatarId ? { avatarId: this._localAvatarId } : {}) } },
       maxSlots,
       mapId,
       status: 'waiting',
@@ -197,7 +210,7 @@ export class PartyManager {
     }
     if (freeSlot < 0) throw new Error('Party is full');
 
-    const player: PartyPlayer = { uid, name: this._localName, race };
+    const player: PartyPlayer = { uid, name: this._localName, race, ...(this._localAvatarId ? { avatarId: this._localAvatarId } : {}) };
     await set(ref(db, `parties/${code}/players/${freeSlot}`), player);
 
     // Clean up our slot if we disconnect

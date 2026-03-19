@@ -195,8 +195,10 @@ export class TitleScene implements Scene {
     this.profile = loadProfile();
     this.playerName = loadPlayerName();
 
-    // Listen for party state changes
+    // Sync profile changes to party (avatar, name) — picks up edits from ProfileScene
     if (this.party) {
+      this.party.localName = this.playerName;
+      if (this.profile) this.party.localAvatarId = this.profile.avatarId;
       this.partyState = this.party.state;
       this.party.addListener(this.partyListener);
     }
@@ -982,6 +984,7 @@ export class TitleScene implements Scene {
     try {
       await this.ensureFirebase();
       this.party!.localName = this.playerName;
+      if (this.profile) this.party!.localAvatarId = this.profile.avatarId;
       const lastRace = this.getLastPartyRace();
       const joined = await this.party!.findAndJoinGame(lastRace);
       if (!joined) {
@@ -1027,6 +1030,7 @@ export class TitleScene implements Scene {
     try {
       await this.ensureFirebase();
       this.party!.localName = this.playerName;
+      if (this.profile) this.party!.localAvatarId = this.profile.avatarId;
       // Restore saved custom game settings (mode/map)
       const saved = loadLocalSetup();
       const mapId = saved?.mapId ?? 'duel';
@@ -1176,6 +1180,7 @@ export class TitleScene implements Scene {
     try {
       await this.ensureFirebase();
       this.party!.localName = this.playerName;
+      if (this.profile) this.party!.localAvatarId = this.profile.avatarId;
       await this.party!.joinParty(this.joinCodeInput, this.getLastPartyRace());
       this.joinInputActive = false;
       this.joinCodeInput = '';
@@ -1507,7 +1512,7 @@ export class TitleScene implements Scene {
       const vsPadY = Math.round(vsH * 0.075);
       this.ui.drawWoodTable(ctx, vsX - vsPadX, vsY - vsPadY, vsW + vsPadX * 2, vsH + vsPadY * 2);
 
-      const fontSize = Math.max(11,Math.min(vsH / (teamSize + 1) * 0.45, 14));
+      const fontSize = Math.max(11, Math.min(vsH / (teamSize + 1) * 0.45, 14));
       ctx.textBaseline = 'middle';
 
       for (let i = 0; i < teamSize; i++) {
@@ -1543,7 +1548,7 @@ export class TitleScene implements Scene {
 
       // Team avg ELO
       const eloY = vsY + vsH * 0.85;
-      const eloFontSize = Math.max(11,fontSize * 0.7);
+      const eloFontSize = Math.max(11, fontSize * 0.7);
       ctx.font = `${eloFontSize}px monospace`;
       const blueAvgElo = Math.round(this.bannerBlue.reduce((s, u) => s + getElo(u.race, u.category), 0) / teamSize);
       const redAvgElo = Math.round(this.bannerRed.reduce((s, u) => s + getElo(u.race, u.category), 0) / teamSize);
@@ -1565,7 +1570,7 @@ export class TitleScene implements Scene {
       const ctrlGap = 8;
       const totalCtrlW = ctrlW * 5 + ctrlGap * 4;
       const ctrlStartX = (w - totalCtrlW) / 2;
-      const ctrlFont = Math.max(11,Math.min(ctrlH * 0.42, 12));
+      const ctrlFont = Math.max(11, Math.min(ctrlH * 0.42, 12));
 
       const drawCtrlBtn = (x: number, label: string, strokeColor: string, textColor: string) => {
         ctx.fillStyle = 'rgba(0,0,0,0.5)';
@@ -1673,7 +1678,7 @@ export class TitleScene implements Scene {
     const subX = (w - subW) / 2;
     const subY = bannerY + bannerH - subH * 0.2;
     this.ui.drawSmallRibbon(ctx, subX, subY, subW, subH, 0);
-    ctx.font = `bold ${Math.max(11,subH * 0.38)}px monospace`;
+    ctx.font = `bold ${Math.max(11, subH * 0.38)}px monospace`;
     ctx.textBaseline = 'middle';
     ctx.fillStyle = '#fff';
     ctx.fillText('Spawn Glory', w / 2, subY + subH * 0.5);
@@ -1702,7 +1707,7 @@ export class TitleScene implements Scene {
       const errX = (w - errW) / 2;
       const errY = h * 0.70;
       this.ui.drawBigRibbon(ctx, errX, errY, errW, errH, 1); // red ribbon
-      ctx.font = `bold ${Math.max(11,errH * 0.36)}px monospace`;
+      ctx.font = `bold ${Math.max(11, errH * 0.36)}px monospace`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillStyle = '#fff';
@@ -1716,7 +1721,7 @@ export class TitleScene implements Scene {
     // Version
     ctx.textAlign = 'center';
     ctx.textBaseline = 'alphabetic';
-    ctx.font = `${Math.max(11,Math.min(w / 60, 14))}px monospace`;
+    ctx.font = `${Math.max(11, Math.min(w / 60, 14))}px monospace`;
     ctx.fillStyle = 'rgba(255,255,255,0.35)';
     ctx.fillText(`build ${__BUILD_NUMBER__} (${__BUILD_HASH__})`, w / 2, h - 12);
   }
@@ -1885,7 +1890,7 @@ export class TitleScene implements Scene {
     ctx.fillText(display, w / 2, boxY + boxH * 0.52);
 
     // Hint
-    ctx.font = `${Math.max(11,labelSize * 0.8)}px monospace`;
+    ctx.font = `${Math.max(11, labelSize * 0.8)}px monospace`;
     ctx.fillStyle = 'rgba(60,40,20,0.55)';
     ctx.fillText('Type code + Enter  |  ESC to cancel', w / 2, boxY + boxH * 0.78);
   }
@@ -1906,7 +1911,7 @@ export class TitleScene implements Scene {
     const ppPadY = Math.round(pl.panel.h * 0.05);
     this.ui.drawWoodTable(ctx, pl.panel.x - ppPadX, pl.panel.y - ppPadY, pl.panel.w + ppPadX * 2, pl.panel.h + ppPadY * 2);
 
-    const fontSize = Math.max(11,Math.min(pl.panel.w / 28, 15));
+    const fontSize = Math.max(11, Math.min(pl.panel.w / 28, 15));
 
     // Header
     const headerH = 28;
@@ -1928,7 +1933,7 @@ export class TitleScene implements Scene {
       ctx.strokeStyle = 'rgba(255,215,64,0.3)';
       ctx.lineWidth = 1;
       ctx.strokeRect(mt.x, mt.y, mt.w, mt.h);
-      const mtFontSize = Math.max(11,mt.h * 0.5);
+      const mtFontSize = Math.max(11, mt.h * 0.5);
       ctx.font = `bold ${mtFontSize}px monospace`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
@@ -1948,7 +1953,7 @@ export class TitleScene implements Scene {
       ctx.strokeStyle = fogOn ? 'rgba(102,217,239,0.5)' : 'rgba(255,255,255,0.2)';
       ctx.lineWidth = 1;
       ctx.strokeRect(ft.x, ft.y, ft.w, ft.h);
-      const ftFontSize = Math.max(11,ft.h * 0.5);
+      const ftFontSize = Math.max(11, ft.h * 0.5);
       ctx.font = `bold ${ftFontSize}px monospace`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
@@ -2025,11 +2030,11 @@ export class TitleScene implements Scene {
           ctx.fillStyle = 'rgba(255,220,100,0.8)';
           ctx.fillText('?', slotCx, slotRect.y + 20);
 
-          ctx.font = `bold ${Math.max(11,fontSize * 0.75)}px monospace`;
+          ctx.font = `bold ${Math.max(11, fontSize * 0.75)}px monospace`;
           ctx.fillStyle = 'rgba(255,220,100,0.9)';
           ctx.fillText('RANDOM', slotCx, slotRect.y + 40);
 
-          ctx.font = `${Math.max(11,fontSize * 0.85)}px monospace`;
+          ctx.font = `${Math.max(11, fontSize * 0.85)}px monospace`;
           ctx.fillStyle = '#fff';
           ctx.fillText(this.playerName, slotCx, slotRect.y + 52);
 
@@ -2071,14 +2076,14 @@ export class TitleScene implements Scene {
           ctx.textBaseline = 'middle';
           ctx.fillStyle = 'rgba(255,220,100,0.6)';
           ctx.fillText('?', slotCx, slotRect.y + slotRect.h * 0.5);
-          ctx.font = `bold ${Math.max(11,fontSize * 0.75)}px monospace`;
+          ctx.font = `bold ${Math.max(11, fontSize * 0.75)}px monospace`;
           ctx.textBaseline = 'top';
           ctx.fillStyle = 'rgba(255,220,100,0.7)';
           ctx.fillText('RANDOM', slotCx, slotRect.y + slotRect.h + 6);
         }
 
         // Difficulty label below race label
-        ctx.font = `bold ${Math.max(11,fontSize * 0.8)}px monospace`;
+        ctx.font = `bold ${Math.max(11, fontSize * 0.8)}px monospace`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'top';
         ctx.fillStyle = diffColor;
@@ -2091,7 +2096,7 @@ export class TitleScene implements Scene {
         // Empty slot
         const slotCx = pl.panel.x + colW * i + colW / 2;
         const slotY = pl.panel.y + pl.panel.h * 0.38;
-        ctx.font = `bold ${Math.max(11,fontSize * 0.8)}px monospace`;
+        ctx.font = `bold ${Math.max(11, fontSize * 0.8)}px monospace`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillStyle = 'rgba(255,255,255,0.2)';
@@ -2129,7 +2134,7 @@ export class TitleScene implements Scene {
           const gY = def.groundY ?? 0.71;
           drawSpriteFrame(ctx, img, def, frame, this.dragX - ghostSize / 2, this.dragY - ghostSize * gY, ghostSize, ghostSize);
         }
-        ctx.font = `bold ${Math.max(11,fontSize * 0.7)}px monospace`;
+        ctx.font = `bold ${Math.max(11, fontSize * 0.7)}px monospace`;
         ctx.textAlign = 'center';
         ctx.fillStyle = '#fff';
         ctx.fillText(this.playerName, this.dragX, this.dragY + ghostSize * 0.4);
@@ -2151,7 +2156,7 @@ export class TitleScene implements Scene {
     const canStart = canStartLocalSetup(ls);
     ctx.globalAlpha = canStart ? 1 : 0.4;
     this.ui.drawSword(ctx, pl.start.x, pl.start.y, pl.start.w, pl.start.h, canStart ? 0 : 4);
-    const startFontSize = Math.max(11,Math.min(pl.start.h * 0.35, 16));
+    const startFontSize = Math.max(11, Math.min(pl.start.h * 0.35, 16));
     ctx.font = `bold ${startFontSize}px monospace`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
@@ -2161,7 +2166,7 @@ export class TitleScene implements Scene {
 
     // BACK button
     this.ui.drawSword(ctx, pl.leave.x, pl.leave.y, pl.leave.w, pl.leave.h, 1);
-    const leaveFontSize = Math.max(11,Math.min(pl.leave.h * 0.32, 14));
+    const leaveFontSize = Math.max(11, Math.min(pl.leave.h * 0.32, 14));
     ctx.font = `bold ${leaveFontSize}px monospace`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
@@ -2170,7 +2175,7 @@ export class TitleScene implements Scene {
 
     // Start validation hint
     if (!canStart) {
-      ctx.font = `${Math.max(11,fontSize * 0.6)}px monospace`;
+      ctx.font = `${Math.max(11, fontSize * 0.6)}px monospace`;
       ctx.textAlign = 'center';
       ctx.fillStyle = 'rgba(255,100,100,0.7)';
       ctx.fillText('Each team needs at least 1 player or bot', w / 2, pl.start.y - 8);
@@ -2189,7 +2194,7 @@ export class TitleScene implements Scene {
     const ppPadY = Math.round(pl.panel.h * 0.05);
     this.ui.drawWoodTable(ctx, pl.panel.x - ppPadX, pl.panel.y - ppPadY, pl.panel.w + ppPadX * 2, pl.panel.h + ppPadY * 2);
 
-    const fontSize = Math.max(11,Math.min(pl.panel.w / 28, 15));
+    const fontSize = Math.max(11, Math.min(pl.panel.w / 28, 15));
     const isHost = this.party?.isHost;
 
     // Big ribbon header with party code front-and-center
@@ -2200,7 +2205,7 @@ export class TitleScene implements Scene {
     this.ui.drawBigRibbon(ctx, codeRibX, codeRibY, codeRibW, codeRibH, 2); // yellow
 
     // "PARTY CODE" small label at top of ribbon
-    const labelSize = Math.max(11,codeRibH * 0.2);
+    const labelSize = Math.max(11, codeRibH * 0.2);
     ctx.font = `bold ${labelSize}px monospace`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
@@ -2218,7 +2223,7 @@ export class TitleScene implements Scene {
     ctx.fillText(codeStr, w / 2, codeTxtY);
 
     // Tap to copy hint / copied feedback
-    ctx.font = `${Math.max(11,fontSize * 0.7)}px monospace`;
+    ctx.font = `${Math.max(11, fontSize * 0.7)}px monospace`;
     if (this.copyFeedbackTimer > 0) {
       const fadeIn = Math.min(1, (120 - this.copyFeedbackTimer) / 10);
       const floatY = (1 - this.copyFeedbackTimer / 120) * -6;
@@ -2240,7 +2245,7 @@ export class TitleScene implements Scene {
       ctx.strokeStyle = 'rgba(255,215,64,0.3)';
       ctx.lineWidth = 1;
       ctx.strokeRect(mt.x, mt.y, mt.w, mt.h);
-      const mtFontSize = Math.max(11,mt.h * 0.5);
+      const mtFontSize = Math.max(11, mt.h * 0.5);
       ctx.font = `bold ${mtFontSize}px monospace`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
@@ -2262,7 +2267,7 @@ export class TitleScene implements Scene {
       ctx.strokeStyle = fogOn ? 'rgba(102,217,239,0.5)' : 'rgba(255,255,255,0.2)';
       ctx.lineWidth = 1;
       ctx.strokeRect(ft.x, ft.y, ft.w, ft.h);
-      const ftFontSize = Math.max(11,ft.h * 0.5);
+      const ftFontSize = Math.max(11, ft.h * 0.5);
       ctx.font = `bold ${ftFontSize}px monospace`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
@@ -2366,7 +2371,7 @@ export class TitleScene implements Scene {
 
         // Race label below sprite
         const raceLabelY = slotY + iconSize * 0.55;
-        ctx.font = `bold ${Math.max(11,fontSize * 0.8)}px monospace`;
+        ctx.font = `bold ${Math.max(11, fontSize * 0.8)}px monospace`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'top';
         if (botRace !== 'random') {
@@ -2379,7 +2384,7 @@ export class TitleScene implements Scene {
         }
 
         // Difficulty label below race label
-        ctx.font = `bold ${Math.max(11,fontSize * 0.8)}px monospace`;
+        ctx.font = `bold ${Math.max(11, fontSize * 0.8)}px monospace`;
         ctx.fillStyle = diffColor;
         ctx.textBaseline = 'top';
         ctx.fillText(diffLabel, slotCx, raceLabelY + fontSize * 1.1);
@@ -2393,7 +2398,7 @@ export class TitleScene implements Scene {
         // Empty slot (no bot, no player)
         const slotCx = pl.panel.x + colW * i + colW / 2;
         const slotY = pl.panel.y + pl.panel.h * 0.38;
-        ctx.font = `bold ${Math.max(11,fontSize * 0.8)}px monospace`;
+        ctx.font = `bold ${Math.max(11, fontSize * 0.8)}px monospace`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillStyle = 'rgba(255,255,255,0.2)';
@@ -2431,7 +2436,7 @@ export class TitleScene implements Scene {
           const gY = def.groundY ?? 0.71;
           drawSpriteFrame(ctx, img, def, frame, this.dragX - ghostSize / 2, this.dragY - ghostSize * gY, ghostSize, ghostSize);
         }
-        ctx.font = `bold ${Math.max(11,fontSize * 0.7)}px monospace`;
+        ctx.font = `bold ${Math.max(11, fontSize * 0.7)}px monospace`;
         ctx.textAlign = 'center';
         ctx.fillStyle = '#fff';
         ctx.fillText(dragPlayer.name, this.dragX, this.dragY + ghostSize * 0.4);
@@ -2444,7 +2449,7 @@ export class TitleScene implements Scene {
       const canStart = canStartParty(ps);
       ctx.globalAlpha = canStart ? 1 : 0.4;
       this.ui.drawSword(ctx, pl.start.x, pl.start.y, pl.start.w, pl.start.h, canStart ? 0 : 4); // blue or dark
-      const startFontSize = Math.max(11,Math.min(pl.start.h * 0.35, 16));
+      const startFontSize = Math.max(11, Math.min(pl.start.h * 0.35, 16));
       ctx.font = `bold ${startFontSize}px monospace`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
@@ -2453,7 +2458,7 @@ export class TitleScene implements Scene {
       ctx.globalAlpha = 1;
     } else {
       // Guest sees "waiting for host"
-      ctx.font = `${Math.max(11,fontSize * 0.8)}px monospace`;
+      ctx.font = `${Math.max(11, fontSize * 0.8)}px monospace`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillStyle = 'rgba(255,255,255,0.5)';
@@ -2462,7 +2467,7 @@ export class TitleScene implements Scene {
 
     // LEAVE button — red sword
     this.ui.drawSword(ctx, pl.leave.x, pl.leave.y, pl.leave.w, pl.leave.h, 1);
-    const leaveFontSize = Math.max(11,Math.min(pl.leave.h * 0.32, 14));
+    const leaveFontSize = Math.max(11, Math.min(pl.leave.h * 0.32, 14));
     ctx.font = `bold ${leaveFontSize}px monospace`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
@@ -2479,7 +2484,7 @@ export class TitleScene implements Scene {
     slotIndex = 0,
   ): void {
     const cx = x + slotW / 2;
-    const fontSize = Math.max(11,Math.min(slotW / 10, 14));
+    const fontSize = Math.max(11, Math.min(slotW / 10, 14));
     const isRandom = (player.race as string) === 'random';
 
     if (isRandom) {
@@ -2517,12 +2522,12 @@ export class TitleScene implements Scene {
     }
 
     // Player name
-    ctx.font = `${Math.max(11,fontSize * 0.85)}px monospace`;
+    ctx.font = `${Math.max(11, fontSize * 0.85)}px monospace`;
     ctx.fillStyle = '#fff';
     ctx.fillText(player.name, cx, labelY + fontSize * 1.3);
 
     // Host crown or "Guest" label
-    ctx.font = `${Math.max(11,fontSize * 0.7)}px monospace`;
+    ctx.font = `${Math.max(11, fontSize * 0.7)}px monospace`;
     ctx.fillStyle = isHost ? '#ffe082' : 'rgba(255,255,255,0.5)';
     ctx.fillText(isHost ? 'HOST' : 'GUEST', cx, labelY + fontSize * 2.4);
 
@@ -2531,39 +2536,40 @@ export class TitleScene implements Scene {
       ctx.font = `${Math.max(7, fontSize * 0.6)}px monospace`;
       ctx.fillStyle = 'rgba(255,255,255,0.35)';
       ctx.fillText('click to change', cx, raceRect.y - 10);
+    }
 
-      // Avatar badge in bottom-right corner of slot
-      if (this.profile) {
-        const avatarDef = ALL_AVATARS.find(a => a.id === this.profile!.avatarId);
-        if (avatarDef) {
-          const badgeSize = Math.max(16, raceRect.h * 0.4);
-          const badgeX = raceRect.x + raceRect.w - badgeSize * 0.3;
-          const badgeY = raceRect.y + raceRect.h - badgeSize * 0.3;
-          ctx.fillStyle = 'rgba(0,0,0,0.5)';
-          ctx.beginPath();
-          ctx.roundRect(badgeX, badgeY, badgeSize, badgeSize, 4);
-          ctx.fill();
-          ctx.strokeStyle = 'rgba(255,215,0,0.4)';
-          ctx.lineWidth = 1;
-          ctx.beginPath();
-          ctx.roundRect(badgeX, badgeY, badgeSize, badgeSize, 4);
-          ctx.stroke();
-          const sprData = this.sprites.getUnitSprite(avatarDef.race, avatarDef.category, 0, false, avatarDef.upgradeNode);
-          if (sprData) {
-            const [img, def] = sprData;
-            const frame = getSpriteFrame(Math.floor(this.animTime * 20), def);
-            const aspect = def.frameW / def.frameH;
-            const sprInset = 2;
-            const sprSize = badgeSize - sprInset * 2;
-            const sprScale = def.scale ?? 1.0;
-            const drawH = sprSize * sprScale;
-            const drawW = drawH * aspect;
-            const gY = def.groundY ?? 0.71;
-            const feetY = badgeY + badgeSize - sprInset - 1;
-            const drawY2 = feetY - drawH * gY;
-            const drawX = badgeX + (badgeSize - drawW) / 2;
-            drawSpriteFrame(ctx, img, def, frame, drawX, drawY2, drawW, drawH);
-          }
+    // Avatar badge in bottom-right corner of slot (local uses profile, remote uses synced avatarId)
+    {
+      const avatarIdToUse = isLocal ? this.profile?.avatarId : player.avatarId;
+      const avatarDef = avatarIdToUse ? ALL_AVATARS.find(a => a.id === avatarIdToUse) : undefined;
+      if (avatarDef) {
+        const badgeSize = Math.max(16, raceRect.h * 0.4);
+        const badgeX = raceRect.x + raceRect.w - badgeSize * 0.3;
+        const badgeY = raceRect.y + raceRect.h - badgeSize * 0.3;
+        ctx.fillStyle = 'rgba(0,0,0,0.5)';
+        ctx.beginPath();
+        ctx.roundRect(badgeX, badgeY, badgeSize, badgeSize, 4);
+        ctx.fill();
+        ctx.strokeStyle = isLocal ? 'rgba(255,215,0,0.4)' : 'rgba(180,180,180,0.3)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.roundRect(badgeX, badgeY, badgeSize, badgeSize, 4);
+        ctx.stroke();
+        const sprData = this.sprites.getUnitSprite(avatarDef.race, avatarDef.category, 0, false, avatarDef.upgradeNode);
+        if (sprData) {
+          const [img, def] = sprData;
+          const frame = getSpriteFrame(Math.floor(this.animTime * 20), def);
+          const aspect = def.frameW / def.frameH;
+          const sprInset = 2;
+          const sprSize = badgeSize - sprInset * 2;
+          const sprScale = def.scale ?? 1.0;
+          const drawH = sprSize * sprScale;
+          const drawW = drawH * aspect;
+          const gY = def.groundY ?? 0.71;
+          const feetY = badgeY + badgeSize - sprInset - 1;
+          const drawY2 = feetY - drawH * gY;
+          const drawX = badgeX + (badgeSize - drawW) / 2;
+          drawSpriteFrame(ctx, img, def, frame, drawX, drawY2, drawW, drawH);
         }
       }
     }

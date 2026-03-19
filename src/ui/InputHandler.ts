@@ -1329,7 +1329,7 @@ export class InputHandler {
     // Miner button + 4 military + race ability = 6 buttons total
     const milW = W / 6;
     // Floating nuke button above miner (col 0)
-    const nukeW = Math.round(milW * 0.6);
+    const nukeW = Math.round(milW * 0.95);
     const nukeH = 72;
     const nukeX = Math.round((milW - nukeW) / 2);
     const nukeY = milY - nukeH - 4;

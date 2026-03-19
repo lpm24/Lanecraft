@@ -102,11 +102,10 @@ export class ResearchPopup {
     const allDefs = getAllResearchUpgrades(race);
 
     const isMobile = canvasW < 600;
-    const PAD = isMobile ? 6 : 10;
-    // 30% taller rows, 10% wider columns
-    const COL_W = isMobile ? 121 : 141;
-    const ROW_H = isMobile ? 55 : 62;
-    const HEADER_H = isMobile ? 28 : 34;
+    const PAD = isMobile ? 8 : 10;
+    const COL_W = isMobile ? 138 : 158;
+    const ROW_H = isMobile ? 64 : 72;
+    const HEADER_H = isMobile ? 30 : 34;
     const COLS = 3;
     const ROWS = 4;
     const CLOSE_SIZE = 22;
