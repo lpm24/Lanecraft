@@ -18,17 +18,17 @@
     "cost-analysis": "tsc -p tsconfig.simtest.json && node -e \"require('fs').mkdirSync('dist-simtest',{recursive:true});require('fs').writeFileSync('dist-simtest/package.json','{\\\"type\\\":\\\"commonjs\\\"}')\" && node dist-simtest/tests/costAnalysis.js"
   },
   "devDependencies": {
-    "@capacitor/cli": "^8.2.0",
+    "@capacitor/cli": "~8.0.1",
     "@types/node": "^25.3.5",
     "cross-env": "^10.1.0",
     "typescript": "^5.9.3",
     "vite": "^7.3.1"
   },
   "dependencies": {
-    "@capacitor/android": "^8.2.0",
+    "@capacitor/android": "~8.0.1",
     "@capacitor/app": "^8.0.1",
-    "@capacitor/core": "^8.2.0",
-    "@capacitor/ios": "^8.2.0",
+    "@capacitor/core": "~8.0.1",
+    "@capacitor/ios": "~8.0.1",
     "firebase": "^12.10.0"
   }
 }
