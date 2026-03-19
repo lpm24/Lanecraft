@@ -1,4 +1,4 @@
-import { GameState, GameCommand, Race, Team, MapDef, HQ_HP, TILE_SIZE, createSeededRng } from '../simulation/types';
+import { GameState, GameCommand, Race, Team, MapDef, HQ_HP, TILE_SIZE, createSeededRng, MinimapFrame } from '../simulation/types';
 import { createInitialState, simulateTick, computeStateHash, getHQPosition } from '../simulation/GameState';
 import { DUEL_MAP } from '../simulation/maps';
 import { GameLoop } from './GameLoop';
@@ -38,6 +38,10 @@ export class Game {
   onQuitGame: (() => void) | null = null;
   private matchEndTick = -1;
   private connectingInterval: ReturnType<typeof setInterval> | null = null;
+
+  /** Compact per-second snapshots for the post-match minimap replay. */
+  replayFrames: MinimapFrame[] = [];
+  private readonly REPLAY_INTERVAL = 20; // 1 snapshot per second at 20 tps
   private pagehideHandler: (() => void) | null = null;
 
   /** Per-slot display names for the results screen. */
@@ -355,6 +359,7 @@ export class Game {
     this.runBotAI();
     simulateTick(this.state, this.pendingCommands);
     this.pendingCommands = [];
+    if (this.state.tick % this.REPLAY_INTERVAL === 0) this.captureReplayFrame();
     this.postTick();
   }
 
@@ -372,6 +377,7 @@ export class Game {
       runAllBotAI(this.state, this.botCtx, (cmd) => this.pendingCommands.push(cmd));
       simulateTick(this.state, this.pendingCommands);
       this.pendingCommands = [];
+      if (this.state.tick % this.REPLAY_INTERVAL === 0) this.captureReplayFrame();
       this.postTick();
       return true;
     }
@@ -427,6 +433,7 @@ export class Game {
 
     simulateTick(this.state, this.pendingCommands);
     this.pendingCommands = [];
+    if (this.state.tick % this.REPLAY_INTERVAL === 0) this.captureReplayFrame();
     this.postTick();
 
     // On last tick of turn: push our commands and clean up
@@ -472,6 +479,17 @@ export class Game {
       this.fetchingTurn = null;
       // On failure, set empty commands so game doesn't freeze forever
       this.turnCommands.set(turn, []);
+    });
+  }
+
+  private captureReplayFrame(): void {
+    const s = this.state;
+    const d = s.diamond;
+    this.replayFrames.push({
+      tick: s.tick,
+      units: s.units.map(u => ({ x: u.x, y: u.y, playerId: u.playerId, team: u.team })),
+      hqHp: [s.hqHp[0], s.hqHp[1]],
+      diamond: d ? { x: d.x, y: d.y, carried: d.carrierId !== null } : null,
     });
   }
 

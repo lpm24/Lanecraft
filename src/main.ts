@@ -65,6 +65,7 @@ uiReady.then(() => {
       slotNames: game.slotNames,
       slotBotDifficulties: game.slotBotDifficulties,
       wasPartyGame: wasParty,
+      replayFrames: game.replayFrames,
     });
     // Party games: reset to lobby. Solo games: clean up party.
     if (wasParty && titleScene.party) {

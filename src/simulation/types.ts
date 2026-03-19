@@ -434,6 +434,15 @@ export interface WarHero {
   deathTick: number | null; // tick when unit died, null if survived
 }
 
+/** Compact per-second snapshot used by the post-match minimap replay. */
+export interface MinimapFrame {
+  tick: number;
+  /** Unit positions by owner — only x/y/playerId/team to keep size small. */
+  units: Array<{ x: number; y: number; playerId: number; team: number }>;
+  hqHp: [number, number];
+  diamond: { x: number; y: number; carried: boolean } | null;
+}
+
 // A single gold cell in the diamond obstacle
 export interface GoldCell {
   tileX: number; // world tile coordinate

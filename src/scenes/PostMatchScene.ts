@@ -1,5 +1,5 @@
 import { Scene, SceneManager } from './Scene';
-import { GameState, Team, PlayerStats } from '../simulation/types';
+import { GameState, Team, PlayerStats, MinimapFrame, HQ_WIDTH, HQ_HEIGHT } from '../simulation/types';
 import { PLAYER_COLORS, RACE_COLORS } from '../simulation/data';
 import { UIAssets, IconName } from '../rendering/UIAssets';
 import { SpriteLoader, getSpriteFrame } from '../rendering/SpriteLoader';
@@ -14,6 +14,8 @@ export interface MatchStats {
   slotBotDifficulties?: { [slot: string]: string };
   /** True if this was a party/custom game — continue returns to lobby instead of race select. */
   wasPartyGame?: boolean;
+  /** Per-second minimap snapshots for the post-match replay panel. */
+  replayFrames?: MinimapFrame[];
 }
 
 export class PostMatchScene implements Scene {
@@ -24,6 +26,15 @@ export class PostMatchScene implements Scene {
   private stats: MatchStats | null = null;
   private animTime = 0;
   private clickHandler: ((e: MouseEvent) => void) | null = null;
+
+  // Minimap replay state
+  private replayFrameIdx = 0;
+  private replayFrameTime = 0; // wall-clock seconds accumulated within current frame
+  /** Wall-clock seconds to display each frame — computed in setStats to target 30s total. */
+  private replayFrameDur = 0.1;
+  /** Two density grids [team0, team1] each 20×30, pre-computed on setStats. */
+  private replayHeatmap: [number[][], number[][]] | null = null;
+  private replayHeatmapMax = 1;
   private keyHandler: ((e: KeyboardEvent) => void) | null = null;
   private touchHandler: ((e: TouchEvent) => void) | null = null;
 
@@ -36,6 +47,35 @@ export class PostMatchScene implements Scene {
 
   setStats(stats: MatchStats): void {
     this.stats = stats;
+    this.replayFrameIdx = 0;
+    this.replayFrameTime = 0;
+    this.replayHeatmap = null;
+    this.replayHeatmapMax = 1;
+
+    const frames = stats.replayFrames;
+    if (frames && frames.length > 0) {
+      // Pre-compute two 20×30 density grids (4-tile buckets of 80×120 map)
+      const COLS = 20, ROWS = 30;
+      const grid0: number[][] = Array.from({ length: ROWS }, () => new Array(COLS).fill(0));
+      const grid1: number[][] = Array.from({ length: ROWS }, () => new Array(COLS).fill(0));
+      let max = 0;
+      for (const f of frames) {
+        for (const u of f.units) {
+          const bx = Math.min(COLS - 1, Math.floor(u.x / 4));
+          const by = Math.min(ROWS - 1, Math.floor(u.y / 4));
+          const g = u.team === 0 ? grid0 : grid1;
+          g[by][bx]++;
+          if (g[by][bx] > max) max = g[by][bx];
+        }
+      }
+      this.replayHeatmap = [grid0, grid1];
+      this.replayHeatmapMax = Math.max(1, max);
+
+      // Target 30s wall-clock replay regardless of match length, capped at 30fps advancement.
+      // replayFrameDur is in ms (dt is ms from performance.now).
+      const TARGET_REPLAY_MS = 30_000;
+      this.replayFrameDur = Math.max(1000 / 30, TARGET_REPLAY_MS / frames.length);
+    }
   }
 
   enter(): void {
@@ -99,6 +139,15 @@ export class PostMatchScene implements Scene {
 
   update(dt: number): void {
     this.animTime += dt;
+
+    const frames = this.stats?.replayFrames;
+    if (frames && frames.length > 1) {
+      this.replayFrameTime += dt;
+      while (this.replayFrameTime >= this.replayFrameDur) {
+        this.replayFrameTime -= this.replayFrameDur;
+        this.replayFrameIdx = (this.replayFrameIdx + 1) % frames.length;
+      }
+    }
   }
 
   render(ctx: CanvasRenderingContext2D): void {
@@ -334,8 +383,14 @@ export class PostMatchScene implements Scene {
     ctx.fillText(enLabel, w / 2 + hqGap, hqY + 12);
     this.ui.drawBar(ctx, w / 2 + hqGap + enLabelW + 6, hqY + 2, barW, barH, enemyHp / 1000);
 
+    // Minimap replay panel
+    const frames = this.stats?.replayFrames;
+    const replayH = frames && frames.length > 0
+      ? this.drawMinimapReplay(ctx, state, frames, w, hqY + rowH * 0.9, fontSize)
+      : 0;
+
     // Awards + War Hero combined section
-    const sectionY = hqY + rowH * 1.2;
+    const sectionY = hqY + rowH * 1.2 + replayH;
     this.drawAwardsAndHero(ctx, state, pStats, w, innerW, sectionY, fontSize);
 
     // Continue button - Sword
@@ -454,7 +509,7 @@ export class PostMatchScene implements Scene {
     );
     if (spriteResult) {
       const [img, def] = spriteResult;
-      const tick = Math.floor(this.animTime * 1.5); // slow idle animation
+      const tick = Math.floor(this.animTime / 1000 * 20); // game speed: 20 ticks/sec (animTime is ms)
       const frame = getSpriteFrame(tick, def);
       const sx = frame * def.frameW;
       const scale = def.scale ?? 1.0;
@@ -549,6 +604,139 @@ export class PostMatchScene implements Scene {
   }
 
   /** Truncate text to fit within maxWidth, adding ellipsis if needed. */
+  /**
+   * Draws the minimap replay panel between the HQ HP section and awards.
+   * Returns the height consumed so the caller can offset the awards section.
+   */
+  private drawMinimapReplay(
+    ctx: CanvasRenderingContext2D,
+    state: GameState,
+    frames: MinimapFrame[],
+    canvasW: number,
+    topY: number,
+    fontSize: number,
+  ): number {
+    const mapDef = state.mapDef;
+    const mapW = mapDef.width;   // typically 80
+    const mapH = mapDef.height;  // typically 120
+
+    // Panel sizing — portrait minimap (2:3), capped to available width
+    const mmW = Math.min(Math.max(canvasW * 0.28, 80), 150);
+    const mmH = Math.round(mmW * (mapH / mapW));
+    const mmX = Math.round((canvasW - mmW) / 2);
+    const mmY = topY;
+    const totalH = mmH + Math.round(fontSize * 1.4); // minimap + label/scrub below
+
+    const frame = frames[this.replayFrameIdx];
+
+    // --- Background ---
+    ctx.fillStyle = 'rgba(40, 80, 70, 0.9)';
+    ctx.fillRect(mmX, mmY, mmW, mmH);
+
+    // --- Map shape outline ---
+    ctx.strokeStyle = '#2a5a2a';
+    ctx.lineWidth = 1;
+    ctx.fillStyle = '#3a6b3a';
+    const step = 4;
+    if (mapDef.shapeAxis === 'y') {
+      // Portrait map — shape varies by row
+      ctx.beginPath();
+      let first = true;
+      for (let ty = 0; ty <= mapH; ty += step) {
+        const range = mapDef.getPlayableRange(ty);
+        const x0 = mmX + (range.min / mapW) * mmW;
+        const x1 = mmX + (range.max / mapW) * mmW;
+        const py = mmY + (ty / mapH) * mmH;
+        if (first) { ctx.moveTo(x0, py); first = false; }
+        else ctx.lineTo(x0, py);
+        ctx.lineTo(x1, py);
+      }
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    } else {
+      // Landscape map — fill entire rect as fallback
+      ctx.fillRect(mmX, mmY, mmW, mmH);
+    }
+
+    // --- Heatmap layer ---
+    if (this.replayHeatmap) {
+      const COLS = 20, ROWS = 30;
+      const cellW = mmW / COLS;
+      const cellH = mmH / ROWS;
+      const [g0, g1] = this.replayHeatmap;
+      for (let ry = 0; ry < ROWS; ry++) {
+        for (let rx = 0; rx < COLS; rx++) {
+          const d0 = g0[ry][rx] / this.replayHeatmapMax;
+          const d1 = g1[ry][rx] / this.replayHeatmapMax;
+          if (d0 > 0.02) {
+            ctx.fillStyle = `rgba(41,121,255,${(d0 * 0.45).toFixed(3)})`;
+            ctx.fillRect(mmX + rx * cellW, mmY + ry * cellH, cellW, cellH);
+          }
+          if (d1 > 0.02) {
+            ctx.fillStyle = `rgba(255,23,68,${(d1 * 0.45).toFixed(3)})`;
+            ctx.fillRect(mmX + rx * cellW, mmY + ry * cellH, cellW, cellH);
+          }
+        }
+      }
+    }
+
+    // --- HQ boxes ---
+    const hqColors = ['#2979ff', '#ff1744']; // team 0 = blue (Bottom), team 1 = red (Top)
+    for (let t = 0; t < 2; t++) {
+      const hqPos = mapDef.teams[t].hqPosition;
+      const hqX = mmX + (hqPos.x / mapW) * mmW;
+      const hqY2 = mmY + (hqPos.y / mapH) * mmH;
+      const hqW = (HQ_WIDTH / mapW) * mmW;
+      const hqH2 = (HQ_HEIGHT / mapH) * mmH;
+      ctx.fillStyle = hqColors[t];
+      ctx.fillRect(hqX, hqY2, Math.max(3, hqW), Math.max(2, hqH2));
+    }
+
+    // --- Diamond dot ---
+    if (frame.diamond) {
+      const dx = mmX + (frame.diamond.x / mapW) * mmW;
+      const dy = mmY + (frame.diamond.y / mapH) * mmH;
+      ctx.fillStyle = frame.diamond.carried ? 'rgba(255,220,50,1)' : 'rgba(200,170,20,0.85)';
+      ctx.beginPath();
+      ctx.arc(dx, dy, Math.max(2, mmW * 0.025), 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // --- Unit dots ---
+    for (const u of frame.units) {
+      const ux = mmX + (u.x / mapW) * mmW;
+      const uy = mmY + (u.y / mapH) * mmH;
+      ctx.fillStyle = PLAYER_COLORS[u.playerId] || (u.team === 0 ? '#2979ff' : '#ff1744');
+      ctx.fillRect(ux - 1, uy - 1, 2, 2);
+    }
+
+    // --- Border ---
+    ctx.strokeStyle = 'rgba(255,255,255,0.18)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(mmX, mmY, mmW, mmH);
+
+    // --- Scrub bar ---
+    const barY = mmY + mmH + 3;
+    const progress = frames.length > 1 ? this.replayFrameIdx / (frames.length - 1) : 0;
+    ctx.fillStyle = 'rgba(255,255,255,0.12)';
+    ctx.fillRect(mmX, barY, mmW, 3);
+    ctx.fillStyle = 'rgba(255,255,255,0.55)';
+    ctx.fillRect(mmX, barY, mmW * progress, 3);
+
+    // --- Label ---
+    const labelY = barY + Math.round(fontSize * 0.85);
+    ctx.font = `bold ${Math.round(fontSize * 0.6)}px monospace`;
+    ctx.textAlign = 'center';
+    ctx.fillStyle = 'rgba(255,255,255,0.45)';
+    const elapsed = Math.floor((frame.tick ?? 0) / 20);
+    const mm = Math.floor(elapsed / 60);
+    const ss = String(elapsed % 60).padStart(2, '0');
+    ctx.fillText(`REPLAY  ${mm}:${ss}`, canvasW / 2, labelY);
+
+    return totalH;
+  }
+
   private truncateText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string {
     if (ctx.measureText(text).width <= maxWidth) return text;
     let t = text;
