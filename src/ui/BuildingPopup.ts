@@ -161,14 +161,14 @@ export class BuildingPopup {
 
     // --- Responsive sizing ---
     const isMobile = canvasW < 600;
-    const PAD = isMobile ? 6 : 12;
-    const POPUP_W = isMobile ? Math.min(canvasW - 8, 340) : 340;
+    const PAD = isMobile ? 8 : 14;
+    const POPUP_W = isMobile ? Math.min(canvasW - 8, 510) : 510;
     const UPGRADE_BTN_H = isMobile ? 96 : 132;
     const SPRITE_SIZE = isMobile ? 30 : 44;
     const FOOTER_BTN_H = isMobile ? MIN_TAP + 2 : MIN_TAP + 8;
     const HEADER_H = isMobile ? 30 : 36;
     const ICON_SIZE = isMobile ? 13 : 16;
-    const GAP = isMobile ? 4 : 6;
+    const GAP = isMobile ? 6 : 10;
 
     // Calculate popup height
     const upgradeRowH = options.length > 0 ? UPGRADE_BTN_H + GAP : 0;

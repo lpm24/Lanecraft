@@ -345,6 +345,7 @@ export const PLAYER_COLORS: string[] = [
 export const HARVESTER_MOVE_SPEED = 3;           // tiles per second
 export const MINE_TIME_BASE_TICKS = 2 * TICK_RATE;    // gold/wood/stone
 export const MINE_TIME_DIAMOND_TICKS = 8 * TICK_RATE; // diamond extraction
+export const DIAMOND_CELLS_PER_TRIP = 1; // full cells a miner clears before walking home
 export const HARVESTER_RESPAWN_TICKS = 10 * TICK_RATE;
 export const HARVESTER_MIN_SEPARATION = 0.8;     // minimum tile distance between harvesters
 

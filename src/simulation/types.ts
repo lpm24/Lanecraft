@@ -462,6 +462,7 @@ export interface HarvesterState {
   woodCarryTarget: number;
   woodDropsCreated: number;
   targetCellIdx: number; // index into diamondCells being mined, -1 if none
+  diamondCellsMinedThisTrip: number; // how many full diamond cells cleared this trip
   fightTargetId: number | null; // harvester id of enemy carrier to attack
   path: { x: number; y: number }[]; // A* computed waypoints (tile centers)
 }

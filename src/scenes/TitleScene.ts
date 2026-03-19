@@ -564,19 +564,18 @@ export class TitleScene implements Scene {
     const panelH = Math.min(h * 0.64, 480);
     const px = (w - panelW) / 2;
     const py = h * 0.26;
-    const slotW = 60;
-    const slotH = 60;
-    const slotY = py + panelH * 0.40;
+    const slotY = py + panelH * 0.28;
+    const slotBotY = py + panelH * 0.74;
 
-    // Dynamic slot positioning: divide panel width evenly
+    // Dynamic slot positioning: fill full column width and slot area height
     const slotRects: { x: number; y: number; w: number; h: number }[] = [];
     const colW = panelW / maxSlots;
     for (let i = 0; i < maxSlots; i++) {
       slotRects.push({
-        x: px + colW * i + colW / 2 - slotW / 2,
+        x: px + colW * i + 2,
         y: slotY,
-        w: slotW,
-        h: slotH,
+        w: colW - 4,
+        h: slotBotY - slotY,
       });
     }
 
@@ -756,6 +755,11 @@ export class TitleScene implements Scene {
 
     // If in local setup mode, handle local setup UI
     if (this.localSetup) {
+      // Profile button accessible from lobby
+      if (this.hitRect(cx, cy, this.profileBtnRect)) {
+        this.manager.switchTo('profile');
+        return;
+      }
       const pl = this.getLocalSetupLayout();
       const ls = this.localSetup;
       // Click own slot's race icon to cycle
@@ -813,6 +817,11 @@ export class TitleScene implements Scene {
 
     // If in a party (but not matchmaking), handle party UI
     if (this.partyState && !this.matchmaking) {
+      // Profile button accessible from lobby
+      if (this.hitRect(cx, cy, this.profileBtnRect)) {
+        this.manager.switchTo('profile');
+        return;
+      }
       const pl = this.getPartyLayout();
       const ps = this.partyState;
       const isHost = this.party?.isHost;

@@ -19,7 +19,7 @@ import {
   HARVESTER_RESPAWN_TICKS, HARVESTER_MIN_SEPARATION,
   UPGRADE_TREES, UpgradeNodeDef, RACE_UPGRADE_COSTS, getBuildingCost,
   getRaceResourceRatio, getNodeUpgradeCost,
-  HUT_COST_SCALE, TOWER_COST_SCALE, GOLD_YIELD_PER_TRIP, WOOD_YIELD_PER_TRIP, STONE_YIELD_PER_TRIP,
+  HUT_COST_SCALE, TOWER_COST_SCALE, GOLD_YIELD_PER_TRIP, WOOD_YIELD_PER_TRIP, STONE_YIELD_PER_TRIP, DIAMOND_CELLS_PER_TRIP,
   RACE_ABILITY_DEFS,
   getAllResearchUpgrades, getResearchUpgradeCost,
 } from './data';
@@ -458,7 +458,7 @@ export function createInitialState(
         state: 'walking_to_node', miningTimer: 0, respawnTimer: 0,
         carryingDiamond: false, carryingResource: null, carryAmount: 0,
         queuedWoodAmount: 0, woodCarryTarget: 0, woodDropsCreated: 0,
-        targetCellIdx: -1, fightTargetId: null, path: [],
+        targetCellIdx: -1, diamondCellsMinedThisTrip: 0, fightTargetId: null, path: [],
       });
     }
   }
@@ -1274,7 +1274,7 @@ function buildHut(state: GameState, cmd: Extract<GameCommand, { type: 'build_hut
           state: 'walking_to_node', miningTimer: 0, respawnTimer: 0,
           carryingDiamond: false, carryingResource: null, carryAmount: 0,
           queuedWoodAmount: 0, woodCarryTarget: 0, woodDropsCreated: 0,
-          targetCellIdx: -1, fightTargetId: null, path: [],
+          targetCellIdx: -1, diamondCellsMinedThisTrip: 0, fightTargetId: null, path: [],
         });
       }
       addSound(state, 'building_placed', world.x, world.y);
@@ -1297,6 +1297,7 @@ function setHutAssignment(state: GameState, cmd: Extract<GameCommand, { type: 's
     h.state = 'walking_to_node';
     h.miningTimer = 0;
     h.targetCellIdx = -1;
+    h.diamondCellsMinedThisTrip = 0;
     h.woodDropsCreated = 0;
     h.woodCarryTarget = 0;
   }
@@ -2253,6 +2254,7 @@ function killHarvester(state: GameState, h: HarvesterState): void {
   h.carryAmount = 0;
   h.fightTargetId = null;
   h.targetCellIdx = -1;
+  h.diamondCellsMinedThisTrip = 0;
 }
 
 // === Tick Systems ===
@@ -5178,7 +5180,7 @@ function tickHarvesters(state: GameState): void {
           h.hp = h.maxHp; h.state = 'walking_to_node';
           h.carryingDiamond = false; h.carryingResource = null; h.carryAmount = 0;
           h.queuedWoodAmount = 0; h.woodCarryTarget = 0; h.woodDropsCreated = 0;
-          h.targetCellIdx = -1; h.fightTargetId = null; h.damage = 0;
+          h.targetCellIdx = -1; h.diamondCellsMinedThisTrip = 0; h.fightTargetId = null; h.damage = 0;
           h.path = [];
         }
       }
@@ -5487,9 +5489,24 @@ function tickCenterHarvester(state: GameState, h: HarvesterState, movePerTick: n
         const yield_ = Math.min(GOLD_YIELD_PER_TRIP + cFoundryBonus, cell.gold);
         cell.gold -= yield_;
         h.carryingResource = ResourceType.Gold;
-        h.carryAmount = yield_;
-        h.state = 'walking_home';
-        h.targetCellIdx = -1;
+        h.carryAmount += yield_;
+        if (cell.gold > 0) {
+          // Cell not yet cleared — keep mining same cell
+          h.miningTimer = MINE_TIME_BASE_TICKS;
+        } else {
+          // Cell fully cleared
+          h.diamondCellsMinedThisTrip++;
+          if (h.diamondCellsMinedThisTrip < DIAMOND_CELLS_PER_TRIP) {
+            // Mine more cells before heading home
+            h.targetCellIdx = -1;
+            h.state = 'walking_to_node';
+          } else {
+            // Hit limit — head home with accumulated gold
+            h.diamondCellsMinedThisTrip = 0;
+            h.state = 'walking_home';
+            h.targetCellIdx = -1;
+          }
+        }
       } else {
         h.state = 'walking_to_node';
         h.targetCellIdx = -1;
