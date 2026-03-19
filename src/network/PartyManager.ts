@@ -22,6 +22,7 @@ export interface PartyState {
   hostUid: string;
   players: { [slot: string]: PartyPlayer }; // keyed by slot index
   bots?: { [slot: string]: string };  // per-slot bot difficulty (BotDifficultyLevel), absent = empty
+  botRaces?: { [slot: string]: string };  // per-slot bot race, absent/random = random at game start
   maxSlots: number;  // max human players (from mapDef.maxPlayers)
   mapId: string;     // map selection (host controls)
   status: 'waiting' | 'starting' | 'in_game' | 'ended';
@@ -327,6 +328,17 @@ export class PartyManager {
       await set(ref(db, `parties/${this.partyCode}/bots/${slot}`), difficulty);
     } else {
       await remove(ref(db, `parties/${this.partyCode}/bots/${slot}`));
+    }
+  }
+
+  /** Set or clear a bot's race in a specific slot (host only). Pass null for random. */
+  async setSlotBotRace(slot: number, race: string | null): Promise<void> {
+    if (!this.partyCode || !this._state || !this._isHost) return;
+    const db = getDb();
+    if (race && race !== 'random') {
+      await set(ref(db, `parties/${this.partyCode}/botRaces/${slot}`), race);
+    } else {
+      await remove(ref(db, `parties/${this.partyCode}/botRaces/${slot}`));
     }
   }
 

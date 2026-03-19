@@ -432,7 +432,7 @@ export class DifficultySelectScene implements Scene {
     shadowText(ctx, label, cbX + cbSize + 8, layout.y + layout.h / 2,
       checked ? color : 'rgba(255,255,255,0.7)', 'rgba(0,0,0,0.7)');
 
-    const descSize = Math.max(9, labelSize * 0.7);
+    const descSize = Math.max(11,labelSize * 0.7);
     ctx.font = `bold ${labelSize}px monospace`;
     const boldLabelW = ctx.measureText(label).width;
     ctx.font = `${descSize}px monospace`;
@@ -528,7 +528,7 @@ export class DifficultySelectScene implements Scene {
       const padX = compact ? 10 : 14;
       const leftX = card.x + padX;
       const labelSize = compact ? 13 : 16;
-      const descSize = Math.max(9, labelSize * 0.7);
+      const descSize = Math.max(11,labelSize * 0.7);
 
       // Label on the left
       ctx.font = `bold ${labelSize}px monospace`;
@@ -590,9 +590,9 @@ export class DifficultySelectScene implements Scene {
       ctx.globalAlpha = 1;
     }
 
-    const hintSize = Math.max(9, Math.min(w / 55, 12));
+    const hintSize = Math.max(11,Math.min(w / 55, 12));
     const hintY = this.compact ? btnY + btnH + 8 : btnY + btnH + 14;
-    ctx.font = `bold ${Math.max(9, hintSize)}px monospace`;
+    ctx.font = `bold ${Math.max(11,hintSize)}px monospace`;
     ctx.textBaseline = 'alphabetic';
     ctx.fillStyle = DIFFICULTIES[this.selectedIndex].color;
     const fogLabel = this.fogOfWar ? '  FOG' : '';

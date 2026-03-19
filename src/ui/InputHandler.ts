@@ -147,6 +147,29 @@ export class InputHandler {
     return tileToPixel(tileX, tileY, this.iso);
   }
 
+  /** Draw a single tile cell as a filled + stroked highlight.
+   *  In iso mode draws a diamond; in ortho draws a rectangle. */
+  private drawCellHighlight(ctx: CanvasRenderingContext2D, tx: number, ty: number, fillStyle: string, strokeStyle: string, lineWidth: number): void {
+    ctx.fillStyle = fillStyle;
+    ctx.strokeStyle = strokeStyle;
+    ctx.lineWidth = lineWidth;
+    if (this.iso) {
+      // Extract immediately — tp() returns shared object
+      let p = this.tp(tx, ty);         const ax = p.px, ay = p.py;
+      p = this.tp(tx + 1, ty);         const bx = p.px, by = p.py;
+      p = this.tp(tx + 1, ty + 1);     const cx = p.px, cy = p.py;
+      p = this.tp(tx, ty + 1);         const dx = p.px, dy = p.py;
+      ctx.beginPath();
+      ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.lineTo(cx, cy); ctx.lineTo(dx, dy);
+      ctx.closePath();
+      ctx.fill(); ctx.stroke();
+    } else {
+      const { px: wx, py: wy } = this.tp(tx, ty);
+      ctx.fillRect(wx, wy, TILE_SIZE, TILE_SIZE);
+      ctx.strokeRect(wx, wy, TILE_SIZE, TILE_SIZE);
+    }
+  }
+
   destroy(): void {
     this.abortController.abort();
   }
@@ -312,7 +335,7 @@ export class InputHandler {
     // ── Helper: section header ──
     const drawHeader = (yOff: number, label: string) => {
       ctx.fillStyle = '#8fa7bf';
-      ctx.font = 'bold 9px monospace';
+      ctx.font = 'bold 11px monospace';
       const tw = ctx.measureText(label).width;
       ctx.fillText(label, rx, sy + yOff + 10);
       ctx.fillStyle = 'rgba(255,255,255,0.08)';
@@ -1689,7 +1712,7 @@ export class InputHandler {
       }
 
       // Key hint — bottom-right of cell
-      ctx.fillStyle = '#444'; ctx.font = '9px monospace'; ctx.textAlign = 'right';
+      ctx.fillStyle = '#444'; ctx.font = '11px monospace'; ctx.textAlign = 'right';
       ctx.fillText(`[${keyHint}]`, cellX + milW - 4, cellY + cellH - 4);
     };
 
@@ -1816,7 +1839,7 @@ export class InputHandler {
       }
       // Ability name
       ctx.fillStyle = (onCooldown || !canAffordAbility) ? '#888' : '#e1bee7';
-      ctx.font = 'bold 10px monospace';
+      ctx.font = 'bold 11px monospace';
       ctx.fillText(abilityInfo.name, abCx, adjY + 38);
       ctx.globalAlpha = 1;
 
@@ -1831,13 +1854,13 @@ export class InputHandler {
           ctx.textAlign = 'center';
           // Key hint in bottom-right
           ctx.fillStyle = '#666';
-          ctx.font = '9px monospace'; ctx.textAlign = 'right';
+          ctx.font = '11px monospace'; ctx.textAlign = 'right';
           ctx.fillText(`[${abilityInfo.key}]`, abX + milW - 4, adjY + cellH - 4);
         } else {
           // No stacks — show countdown timer (like cooldown)
           const secsLeft = Math.ceil(player.abilityCooldown / TICK_RATE);
           ctx.fillStyle = '#ff9800';
-          ctx.font = 'bold 10px monospace';
+          ctx.font = 'bold 11px monospace';
           ctx.fillText(`${secsLeft}s`, abCx, adjY + cellH - 4);
           // Stack count "0" in bottom-left
           ctx.textAlign = 'left';
@@ -1869,7 +1892,7 @@ export class InputHandler {
           if (abCostEntries.length > 0) {
             const iconSz = 10;
             const gap = 3;
-            ctx.font = 'bold 9px monospace';
+            ctx.font = 'bold 11px monospace';
             const valStrs = abCostEntries.map(e => `${e.val}`);
             let totalW = 0;
             for (let i = 0; i < abCostEntries.length; i++) {
@@ -1897,11 +1920,11 @@ export class InputHandler {
         if (onCooldown) {
           const secsLeft = Math.ceil(player.abilityCooldown / TICK_RATE);
           ctx.fillStyle = '#ff9800';
-          ctx.font = 'bold 10px monospace';
+          ctx.font = 'bold 11px monospace';
           ctx.fillText(`${secsLeft}s`, abCx, adjY + cellH - 4);
         } else {
           ctx.fillStyle = '#666';
-          ctx.font = '9px monospace'; ctx.textAlign = 'right';
+          ctx.font = '11px monospace'; ctx.textAlign = 'right';
           ctx.fillText(`[${abilityInfo.key}]`, abX + milW - 4, adjY + cellH - 4);
         }
       }
@@ -1928,16 +1951,16 @@ export class InputHandler {
       }
       ctx.textAlign = 'center';
       ctx.fillStyle = nukeReady ? '#fff' : '#888';
-      ctx.font = 'bold 10px monospace';
+      ctx.font = 'bold 11px monospace';
       ctx.fillText('NUKE', nr.x + nr.w / 2, nr.y + nr.h / 2 + 2);
       if (nukeLocked && nukeAvail) {
         const secsLeft = Math.ceil(NUKE_LOCKOUT_SECONDS - this.game.state.tick / TICK_RATE);
         ctx.fillStyle = '#ff5722';
-        ctx.font = 'bold 9px monospace';
+        ctx.font = 'bold 11px monospace';
         ctx.fillText(`${secsLeft}s`, nr.x + nr.w / 2, nr.y + nr.h - 2);
       } else if (nukeAvail) {
         ctx.fillStyle = '#888';
-        ctx.font = '8px monospace';
+        ctx.font = '11px monospace';
         ctx.fillText('[N]', nr.x + nr.w / 2, nr.y + nr.h - 2);
       }
     }
@@ -1959,10 +1982,10 @@ export class InputHandler {
       ctx.globalAlpha = 1;
       ctx.textAlign = 'center';
       ctx.fillStyle = hasResearch ? '#fff' : '#888';
-      ctx.font = 'bold 10px monospace';
+      ctx.font = 'bold 11px monospace';
       ctx.fillText('RESEARCH', rr.x + rr.w / 2, rr.y + rr.h / 2 + 2);
       ctx.fillStyle = '#888';
-      ctx.font = '8px monospace';
+      ctx.font = '11px monospace';
       ctx.fillText('[R]', rr.x + rr.w / 2, rr.y + rr.h - 2);
     }
 
@@ -2491,22 +2514,16 @@ export class InputHandler {
       for (let slot = 0; slot < totalSlots; slot++) {
         const sgx = slot % hutCols;
         const sgy = Math.floor(slot / hutCols);
-        const { px: wx, py: wy } = this.tp(origin.x + sgx, origin.y + sgy);
         const occupied = occupiedSlots.has(slot);
         const isNext = slot === nextSlot;
+        const cellTx = origin.x + sgx, cellTy = origin.y + sgy;
         if (isNext) {
           const pulse = 0.5 + 0.3 * Math.sin(Date.now() / 200);
-          ctx.fillStyle = `rgba(60, 255, 60, ${pulse * 0.3})`;
-          ctx.fillRect(wx, wy, TILE_SIZE, TILE_SIZE);
-          ctx.strokeStyle = `rgba(60, 255, 60, ${pulse})`;
-          ctx.lineWidth = 2;
-          ctx.strokeRect(wx, wy, TILE_SIZE, TILE_SIZE);
+          this.drawCellHighlight(ctx, cellTx, cellTy, `rgba(60, 255, 60, ${pulse * 0.3})`, `rgba(60, 255, 60, ${pulse})`, 2);
         } else {
-          ctx.fillStyle = occupied ? 'rgba(255, 200, 60, 0.15)' : 'rgba(60, 255, 60, 0.08)';
-          ctx.fillRect(wx, wy, TILE_SIZE, TILE_SIZE);
-          ctx.strokeStyle = occupied ? 'rgba(255, 200, 60, 0.3)' : 'rgba(60, 255, 60, 0.15)';
-          ctx.lineWidth = 1;
-          ctx.strokeRect(wx, wy, TILE_SIZE, TILE_SIZE);
+          this.drawCellHighlight(ctx, cellTx, cellTy,
+            occupied ? 'rgba(255, 200, 60, 0.15)' : 'rgba(60, 255, 60, 0.08)',
+            occupied ? 'rgba(255, 200, 60, 0.3)' : 'rgba(60, 255, 60, 0.15)', 1);
         }
       }
     }
@@ -2516,15 +2533,12 @@ export class InputHandler {
       const origin = getBuildGridOrigin(this.pid, this.game.state.mapDef, this.game.state.players);
       for (let gy = 0; gy < this.game.state.mapDef.buildGridRows; gy++) {
         for (let gx = 0; gx < this.game.state.mapDef.buildGridCols; gx++) {
-          const { px: wx, py: wy } = this.tp(origin.x + gx, origin.y + gy);
           const occupied = this.game.state.buildings.some(
             b => b.buildGrid === 'military' && b.gridX === gx && b.gridY === gy && b.playerId === this.pid
           );
-          ctx.fillStyle = occupied ? 'rgba(255, 60, 60, 0.15)' : 'rgba(60, 255, 60, 0.15)';
-          ctx.fillRect(wx, wy, TILE_SIZE, TILE_SIZE);
-          ctx.strokeStyle = occupied ? 'rgba(255, 60, 60, 0.3)' : 'rgba(60, 255, 60, 0.3)';
-          ctx.lineWidth = 1;
-          ctx.strokeRect(wx, wy, TILE_SIZE, TILE_SIZE);
+          this.drawCellHighlight(ctx, origin.x + gx, origin.y + gy,
+            occupied ? 'rgba(255, 60, 60, 0.15)' : 'rgba(60, 255, 60, 0.15)',
+            occupied ? 'rgba(255, 60, 60, 0.3)' : 'rgba(60, 255, 60, 0.3)', 1);
         }
       }
     }
@@ -2534,7 +2548,6 @@ export class InputHandler {
       const alley = getTeamAlleyOrigin(myTeam, this.game.state.mapDef);
       for (let gy = 0; gy < this.game.state.mapDef.towerAlleyRows; gy++) {
         for (let gx = 0; gx < this.game.state.mapDef.towerAlleyCols; gx++) {
-          const { px: wx, py: wy } = this.tp(alley.x + gx, alley.y + gy);
           const occupied = this.game.state.buildings.some(
             b => {
               if (b.buildGrid !== 'alley' || b.gridX !== gx || b.gridY !== gy) return false;
@@ -2542,11 +2555,9 @@ export class InputHandler {
               return bTeam === myTeam;
             }
           );
-          ctx.fillStyle = occupied ? 'rgba(255, 60, 60, 0.15)' : 'rgba(60, 255, 60, 0.15)';
-          ctx.fillRect(wx, wy, TILE_SIZE, TILE_SIZE);
-          ctx.strokeStyle = occupied ? 'rgba(255, 60, 60, 0.3)' : 'rgba(60, 255, 60, 0.3)';
-          ctx.lineWidth = 1;
-          ctx.strokeRect(wx, wy, TILE_SIZE, TILE_SIZE);
+          this.drawCellHighlight(ctx, alley.x + gx, alley.y + gy,
+            occupied ? 'rgba(255, 60, 60, 0.15)' : 'rgba(60, 255, 60, 0.15)',
+            occupied ? 'rgba(255, 60, 60, 0.3)' : 'rgba(60, 255, 60, 0.3)', 1);
         }
       }
     }
@@ -2680,7 +2691,6 @@ export class InputHandler {
     const slot = this.hoveredGridSlot;
 
     const origin = slot.isAlley ? getTeamAlleyOrigin(this.myTeam, this.game.state.mapDef) : getBuildGridOrigin(this.pid, this.game.state.mapDef, this.game.state.players);
-    const { px: worldX, py: worldY } = this.tp(origin.x + slot.gx, origin.y + slot.gy);
 
     const grid = slot.isAlley ? 'alley' : 'military';
     const myTeam = this.myTeam;
@@ -2695,11 +2705,10 @@ export class InputHandler {
 
     renderer.camera.applyTransform(ctx);
 
-    ctx.fillStyle = occupied ? 'rgba(255, 0, 0, 0.3)' : 'rgba(0, 255, 0, 0.3)';
-    ctx.fillRect(worldX, worldY, TILE_SIZE, TILE_SIZE);
-    ctx.strokeStyle = occupied ? '#f44336' : '#4caf50';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(worldX, worldY, TILE_SIZE, TILE_SIZE);
+    const cellTx = origin.x + slot.gx, cellTy = origin.y + slot.gy;
+    this.drawCellHighlight(ctx, cellTx, cellTy,
+      occupied ? 'rgba(255, 0, 0, 0.3)' : 'rgba(0, 255, 0, 0.3)',
+      occupied ? '#f44336' : '#4caf50', 2);
 
     ctx.setTransform(window.devicePixelRatio || 1, 0, 0, window.devicePixelRatio || 1, 0, 0);
   }
@@ -3008,7 +3017,7 @@ export class InputHandler {
     ctx.fillText('Click to cast  •  ESC / Right-click to cancel', cw / 2, 78);
     if (def.requiresVision) {
       ctx.fillStyle = '#ff8a65';
-      ctx.font = 'italic 10px monospace';
+      ctx.font = 'italic 11px monospace';
       ctx.fillText('(requires vision)', cw / 2 + 120, 78);
     }
     ctx.textAlign = 'start';

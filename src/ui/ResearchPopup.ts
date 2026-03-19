@@ -183,8 +183,8 @@ export class ResearchPopup {
 
     const gridY = py + HEADER_H + PAD + 12;
     const categories: ('melee' | 'ranged' | 'caster')[] = ['melee', 'ranged', 'caster'];
-    const fontSize = isMobile ? 8 : 9;
-    const smallFont = isMobile ? 7 : 8;
+    const fontSize = 11;
+    const smallFont = 11;
     const iconSize = isMobile ? 11 : 13;
     const iconFont = `${iconSize}px sans-serif`;
     const costIconSz = isMobile ? 8 : 9;

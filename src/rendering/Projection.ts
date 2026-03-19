@@ -1,12 +1,12 @@
 import { TILE_SIZE } from '../simulation/types';
 
-/** Isometric tile dimensions: standard 2:1 ratio */
-export const ISO_TILE_W = TILE_SIZE;   // 64
-export const ISO_TILE_H = TILE_SIZE / 2; // 32
+/** Isometric tile dimensions — larger tiles for better visibility */
+export const ISO_TILE_W = TILE_SIZE * 2;   // 128
+export const ISO_TILE_H = TILE_SIZE;       // 64
 
 // Pre-computed half-tile constants
-const HW = ISO_TILE_W / 2;  // 32
-const HH = ISO_TILE_H / 2;  // 16
+const HW = ISO_TILE_W / 2;  // 64
+const HH = ISO_TILE_H / 2;  // 32
 
 /** Reusable output object for tileToPixel (avoids allocation in hot paths) */
 const _tpOut = { px: 0, py: 0 };

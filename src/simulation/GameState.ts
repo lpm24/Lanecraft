@@ -18,7 +18,7 @@ import {
   HARVESTER_MOVE_SPEED, MINE_TIME_BASE_TICKS, MINE_TIME_DIAMOND_TICKS,
   HARVESTER_RESPAWN_TICKS, HARVESTER_MIN_SEPARATION,
   UPGRADE_TREES, UpgradeNodeDef, RACE_UPGRADE_COSTS, getBuildingCost,
-  getRaceUsedResources, getNodeUpgradeCost,
+  getRaceResourceRatio, getNodeUpgradeCost,
   HUT_COST_SCALE, TOWER_COST_SCALE, GOLD_YIELD_PER_TRIP, WOOD_YIELD_PER_TRIP, STONE_YIELD_PER_TRIP,
   RACE_ABILITY_DEFS,
   getAllResearchUpgrades, getResearchUpgradeCost,
@@ -83,14 +83,40 @@ const RANGED_VISUAL: Record<Race, ProjectileVisual> = {
   [Race.Tenders]:  'arrow',  // Tinker
 };
 
-/** Return the default harvester assignment for a race based on its actual resource usage. */
-function getDefaultHarvesterAssignment(race: Race): HarvesterAssignment {
-  const used = getRaceUsedResources(race);
-  // Prefer gold > wood > stone (first resource the race actually uses)
-  if (used.gold) return HarvesterAssignment.BaseGold;
-  if (used.wood) return HarvesterAssignment.Wood;
-  if (used.stone) return HarvesterAssignment.Stone;
-  return HarvesterAssignment.BaseGold; // fallback (shouldn't happen)
+/** Return the smartest harvester assignment for a new hut based on the race's
+ *  spending profile and existing harvester distribution. */
+function getSmartHarvesterAssignment(race: Race, state: GameState, playerId: number): HarvesterAssignment {
+  const ratio = getRaceResourceRatio(race);
+  // Build list of assignable resources (exclude zero-ratio ones)
+  type Res = { assignment: HarvesterAssignment; ratio: number };
+  const candidates: Res[] = [];
+  if (ratio.gold > 0) candidates.push({ assignment: HarvesterAssignment.BaseGold, ratio: ratio.gold });
+  if (ratio.wood > 0) candidates.push({ assignment: HarvesterAssignment.Wood, ratio: ratio.wood });
+  if (ratio.stone > 0) candidates.push({ assignment: HarvesterAssignment.Stone, ratio: ratio.stone });
+  if (candidates.length <= 1) return candidates[0]?.assignment ?? HarvesterAssignment.BaseGold;
+
+  // Count existing harvesters per resource (exclude mana, center, dead)
+  const counts = new Map<HarvesterAssignment, number>();
+  for (const c of candidates) counts.set(c.assignment, 0);
+  for (const h of state.harvesters) {
+    if (h.playerId !== playerId) continue;
+    if (counts.has(h.assignment)) counts.set(h.assignment, (counts.get(h.assignment) ?? 0) + 1);
+  }
+  const totalHarvesters = Array.from(counts.values()).reduce((a, b) => a + b, 0) + 1; // +1 for the one being placed
+
+  // Pick the resource that is most under-represented relative to its ideal ratio
+  let bestAssignment = candidates[0].assignment;
+  let bestDeficit = -Infinity;
+  for (const c of candidates) {
+    const currentCount = counts.get(c.assignment) ?? 0;
+    const idealCount = c.ratio * totalHarvesters;
+    const deficit = idealCount - currentCount; // higher = more under-served
+    if (deficit > bestDeficit) {
+      bestDeficit = deficit;
+      bestAssignment = c.assignment;
+    }
+  }
+  return bestAssignment;
 }
 
 type UpgradeChoice = 'B' | 'C' | 'D' | 'E' | 'F' | 'G';
@@ -424,8 +450,7 @@ export function createInitialState(
     state.buildings.push(building);
     // Tenders: no harvester workers — huts passively generate resources
     if (p.race !== Race.Tenders) {
-      // Assign starter harvester to the race's primary resource
-      const startAssignment = getDefaultHarvesterAssignment(p.race);
+      const startAssignment = getSmartHarvesterAssignment(p.race, state, i);
       state.harvesters.push({
         id: genId(state), hutId: building.id, playerId: i, team: p.team,
         x: world.x, y: world.y, hp: 30, maxHp: 30, damage: 0,
@@ -433,7 +458,7 @@ export function createInitialState(
         state: 'walking_to_node', miningTimer: 0, respawnTimer: 0,
         carryingDiamond: false, carryingResource: null, carryAmount: 0,
         queuedWoodAmount: 0, woodCarryTarget: 0, woodDropsCreated: 0,
-        targetCellIdx: -1, fightTargetId: null,
+        targetCellIdx: -1, fightTargetId: null, path: [],
       });
     }
   }
@@ -1245,11 +1270,11 @@ function buildHut(state: GameState, cmd: Extract<GameCommand, { type: 'build_hut
         state.harvesters.push({
           id: genId(state), hutId: building.id, playerId: cmd.playerId, team: player.team,
           x: world.x, y: world.y, hp: 30, maxHp: 30, damage: 0,
-          assignment: getDefaultHarvesterAssignment(player.race),
+          assignment: getSmartHarvesterAssignment(player.race, state, cmd.playerId),
           state: 'walking_to_node', miningTimer: 0, respawnTimer: 0,
           carryingDiamond: false, carryingResource: null, carryAmount: 0,
           queuedWoodAmount: 0, woodCarryTarget: 0, woodDropsCreated: 0,
-          targetCellIdx: -1, fightTargetId: null,
+          targetCellIdx: -1, fightTargetId: null, path: [],
         });
       }
       addSound(state, 'building_placed', world.x, world.y);
@@ -1267,6 +1292,7 @@ function setHutAssignment(state: GameState, cmd: Extract<GameCommand, { type: 's
   if (h.assignment !== HarvesterAssignment.Wood) {
     spillCarriedWood(state, h);
   }
+  h.path = [];
   if (h.state === 'walking_to_node' || h.state === 'mining') {
     h.state = 'walking_to_node';
     h.miningTimer = 0;
@@ -3195,6 +3221,197 @@ function isBlocked(x: number, y: number, pad: number, cells: GoldCell[], mapDef?
   return isInsideAnyHQ(x, y, pad) || isInsideUnminedDiamond(x, y, pad, cells, mapDef);
 }
 
+// ---- A* Tile Pathfinding ----
+
+const SQRT2 = Math.sqrt(2);
+const ASTAR_DIRS = [
+  { dx: 1, dy: 0, cost: 1 },  { dx: -1, dy: 0, cost: 1 },
+  { dx: 0, dy: 1, cost: 1 },  { dx: 0, dy: -1, cost: 1 },
+  { dx: 1, dy: 1, cost: SQRT2 },  { dx: -1, dy: 1, cost: SQRT2 },
+  { dx: 1, dy: -1, cost: SQRT2 }, { dx: -1, dy: -1, cost: SQRT2 },
+];
+
+/** Is a tile center blocked by unmined diamond cells or outside the playable area? */
+function isTileWalkable(tx: number, ty: number, cells: GoldCell[], mapDef?: MapDef): boolean {
+  const w = mapDef?.width ?? MAP_WIDTH;
+  const h = mapDef?.height ?? MAP_HEIGHT;
+  if (tx < 0 || ty < 0 || tx >= w || ty >= h) return false;
+  if (mapDef && !mapDef.isPlayable(tx, ty)) return false;
+  return !isInsideUnminedDiamond(tx + 0.5, ty + 0.5, 0.45, cells, mapDef);
+}
+
+/** Octile distance heuristic (admissible for 8-directional movement). */
+function octileH(ax: number, ay: number, bx: number, by: number): number {
+  const dx = Math.abs(ax - bx), dy = Math.abs(ay - by);
+  return Math.max(dx, dy) + (SQRT2 - 1) * Math.min(dx, dy);
+}
+
+/**
+ * Check if a straight line between two world positions is unobstructed
+ * by unmined diamond cells. Samples every ~0.5 tiles.
+ */
+function hasLineOfSight(ax: number, ay: number, bx: number, by: number, cells: GoldCell[], mapDef?: MapDef): boolean {
+  const dx = bx - ax, dy = by - ay;
+  const dist = Math.sqrt(dx * dx + dy * dy);
+  if (dist < 0.5) return true;
+  const steps = Math.max(4, Math.ceil(dist * 2));
+  for (let i = 1; i < steps; i++) {
+    const t = i / steps;
+    if (isInsideUnminedDiamond(ax + dx * t, ay + dy * t, 0.45, cells, mapDef)) return false;
+  }
+  return true;
+}
+
+/**
+ * A* pathfinding on the tile grid. Returns world-coordinate waypoints
+ * (tile centers) from start to goal, or null if no path exists.
+ * Max 3000 node expansions to bound cost on large maps.
+ */
+function findTilePath(
+  startX: number, startY: number, goalX: number, goalY: number,
+  cells: GoldCell[], mapDef?: MapDef,
+): { x: number; y: number }[] | null {
+  const w = mapDef?.width ?? MAP_WIDTH;
+  const h = mapDef?.height ?? MAP_HEIGHT;
+
+  const sx = Math.max(0, Math.min(w - 1, Math.floor(startX)));
+  const sy = Math.max(0, Math.min(h - 1, Math.floor(startY)));
+  const gx = Math.max(0, Math.min(w - 1, Math.floor(goalX)));
+  const gy = Math.max(0, Math.min(h - 1, Math.floor(goalY)));
+  if (sx === gx && sy === gy) return [];
+
+  // If goal tile is blocked, bail — caller will fall back to moveWithSlide
+  if (!isTileWalkable(gx, gy, cells, mapDef)) return null;
+
+  const idx = (x: number, y: number) => y * w + x;
+  const size = w * h;
+
+  const gScore = new Float32Array(size).fill(Infinity);
+  const fArr = new Float32Array(size).fill(Infinity);
+  const parentIdx = new Int32Array(size).fill(-1);
+  const closed = new Uint8Array(size);
+
+  // Binary min-heap storing tile indices, ordered by fArr
+  const heap: number[] = [];
+
+  function heapPush(ti: number): void {
+    heap.push(ti);
+    let i = heap.length - 1;
+    while (i > 0) {
+      const pi = (i - 1) >> 1;
+      if (fArr[heap[pi]] <= fArr[heap[i]]) break;
+      const tmp = heap[pi]; heap[pi] = heap[i]; heap[i] = tmp;
+      i = pi;
+    }
+  }
+  function heapPop(): number {
+    const top = heap[0];
+    const last = heap.pop()!;
+    if (heap.length > 0) {
+      heap[0] = last;
+      let i = 0;
+      for (;;) {
+        let min = i;
+        const l = 2 * i + 1, r = 2 * i + 2;
+        if (l < heap.length && fArr[heap[l]] < fArr[heap[min]]) min = l;
+        if (r < heap.length && fArr[heap[r]] < fArr[heap[min]]) min = r;
+        if (min === i) break;
+        const tmp = heap[i]; heap[i] = heap[min]; heap[min] = tmp;
+        i = min;
+      }
+    }
+    return top;
+  }
+
+  const si = idx(sx, sy);
+  gScore[si] = 0;
+  fArr[si] = octileH(sx, sy, gx, gy);
+  heapPush(si);
+
+  let expansions = 0;
+  const gi = idx(gx, gy);
+
+  while (heap.length > 0) {
+    const cur = heapPop();
+    if (cur === gi) {
+      // Reconstruct path (tile centers as world coords)
+      const path: { x: number; y: number }[] = [];
+      let ci = cur;
+      while (ci !== si) {
+        const cx = ci % w, cy = (ci - cx) / w;
+        path.push({ x: cx + 0.5, y: cy + 0.5 });
+        ci = parentIdx[ci];
+      }
+      path.reverse();
+      return path;
+    }
+
+    if (closed[cur]) continue;
+    closed[cur] = 1;
+    if (++expansions > 3000) return null; // safety cap
+
+    const cx = cur % w, cy = (cur - cx) / w;
+
+    for (let d = 0; d < 8; d++) {
+      const dir = ASTAR_DIRS[d];
+      const nx = cx + dir.dx, ny = cy + dir.dy;
+      if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+      const ni = idx(nx, ny);
+      if (closed[ni]) continue;
+      if (!isTileWalkable(nx, ny, cells, mapDef)) continue;
+
+      // Prevent diagonal corner-cutting through blocked tiles
+      if (dir.dx !== 0 && dir.dy !== 0) {
+        if (!isTileWalkable(cx + dir.dx, cy, cells, mapDef) ||
+            !isTileWalkable(cx, cy + dir.dy, cells, mapDef)) continue;
+      }
+
+      const ng = gScore[cur] + dir.cost;
+      if (ng < gScore[ni]) {
+        parentIdx[ni] = cur;
+        gScore[ni] = ng;
+        fArr[ni] = ng + octileH(nx, ny, gx, gy);
+        heapPush(ni);
+      }
+    }
+  }
+  return null; // no path
+}
+
+/**
+ * Simplify an A* tile path by removing waypoints that have
+ * clear line-of-sight to later waypoints.
+ */
+function smoothPath(path: { x: number; y: number }[], cells: GoldCell[], mapDef?: MapDef): { x: number; y: number }[] {
+  if (path.length <= 2) return path;
+  const result: { x: number; y: number }[] = [path[0]];
+  let cur = 0;
+  while (cur < path.length - 1) {
+    // Greedily skip to the furthest visible waypoint
+    let furthest = cur + 1;
+    for (let i = path.length - 1; i > cur + 1; i--) {
+      if (hasLineOfSight(path[cur].x, path[cur].y, path[i].x, path[i].y, cells, mapDef)) {
+        furthest = i;
+        break;
+      }
+    }
+    result.push(path[furthest]);
+    cur = furthest;
+  }
+  return result;
+}
+
+/**
+ * Compute a smoothed A* path for a harvester, or return [] if direct
+ * movement is fine (no diamond in the way).
+ */
+function computeHarvesterPath(sx: number, sy: number, tx: number, ty: number, cells: GoldCell[], mapDef?: MapDef): { x: number; y: number }[] {
+  if (hasLineOfSight(sx, sy, tx, ty, cells, mapDef)) return [];
+  const raw = findTilePath(sx, sy, tx, ty, cells, mapDef);
+  if (!raw || raw.length === 0) return [];
+  return smoothPath(raw, cells, mapDef);
+}
+
 /**
  * Returns the center of the nearest blocking obstacle, or null if none.
  * Used for steering around obstacles.
@@ -4959,6 +5176,7 @@ function tickHarvesters(state: GameState): void {
           h.carryingDiamond = false; h.carryingResource = null; h.carryAmount = 0;
           h.queuedWoodAmount = 0; h.woodCarryTarget = 0; h.woodDropsCreated = 0;
           h.targetCellIdx = -1; h.fightTargetId = null; h.damage = 0;
+          h.path = [];
         }
       }
       continue;
@@ -5045,7 +5263,31 @@ function tickHarvesters(state: GameState): void {
           h.miningTimer = MINE_TIME_BASE_TICKS;
         }
       } else {
-        moveWithSlide(h, target.x, target.y, movePerTick, state.diamondCells, state.mapDef);
+        // Follow A* path if one exists, otherwise compute or move direct
+        if (h.path.length > 0) {
+          // Validate: discard stale path if endpoint is far from current target
+          const last = h.path[h.path.length - 1];
+          if ((last.x - baseTarget.x) ** 2 + (last.y - baseTarget.y) ** 2 > 9) h.path = [];
+        }
+        if (h.path.length > 0) {
+          const wp = h.path[0];
+          const wdx = wp.x - h.x, wdy = wp.y - h.y;
+          if (wdx * wdx + wdy * wdy < 2.25) h.path.shift(); // reached waypoint (< 1.5 tiles)
+          if (h.path.length > 0) {
+            moveWithSlide(h, h.path[0].x, h.path[0].y, movePerTick, state.diamondCells, state.mapDef);
+          } else {
+            moveWithSlide(h, target.x, target.y, movePerTick, state.diamondCells, state.mapDef);
+          }
+        } else {
+          // No path — check if we need one
+          const newPath = computeHarvesterPath(h.x, h.y, baseTarget.x, baseTarget.y, state.diamondCells, state.mapDef);
+          if (newPath.length > 0) {
+            h.path = newPath;
+            moveWithSlide(h, h.path[0].x, h.path[0].y, movePerTick, state.diamondCells, state.mapDef);
+          } else {
+            moveWithSlide(h, target.x, target.y, movePerTick, state.diamondCells, state.mapDef);
+          }
+        }
       }
     } else if (h.state === 'mining') {
       h.miningTimer--;
@@ -5317,8 +5559,31 @@ function walkHome(state: GameState, h: HarvesterState, movePerTick: number): voi
     h.woodCarryTarget = 0;
     h.woodDropsCreated = 0;
     h.state = 'walking_to_node';
+    h.path = [];
   } else {
-    moveWithSlide(h, tx, ty, movePerTick, state.diamondCells);
+    // Follow A* path or compute one
+    if (h.path.length > 0) {
+      const last = h.path[h.path.length - 1];
+      if ((last.x - tx) ** 2 + (last.y - ty) ** 2 > 9) h.path = [];
+    }
+    if (h.path.length > 0) {
+      const wp = h.path[0];
+      const wdx = wp.x - h.x, wdy = wp.y - h.y;
+      if (wdx * wdx + wdy * wdy < 2.25) h.path.shift();
+      if (h.path.length > 0) {
+        moveWithSlide(h, h.path[0].x, h.path[0].y, movePerTick, state.diamondCells, state.mapDef);
+      } else {
+        moveWithSlide(h, tx, ty, movePerTick, state.diamondCells, state.mapDef);
+      }
+    } else {
+      const newPath = computeHarvesterPath(h.x, h.y, tx, ty, state.diamondCells, state.mapDef);
+      if (newPath.length > 0) {
+        h.path = newPath;
+        moveWithSlide(h, h.path[0].x, h.path[0].y, movePerTick, state.diamondCells, state.mapDef);
+      } else {
+        moveWithSlide(h, tx, ty, movePerTick, state.diamondCells, state.mapDef);
+      }
+    }
   }
 }
 

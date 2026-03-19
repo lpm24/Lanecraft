@@ -141,6 +141,26 @@ export function getRaceUsedResources(race: Race): { gold: boolean; wood: boolean
   return { gold, wood, stone };
 }
 
+/** Compute ideal harvester ratio for a race based on total resource spending profile.
+ *  Returns { gold, wood, stone } where each is 0-1 and they sum to 1. */
+export function getRaceResourceRatio(race: Race): { gold: number; wood: number; stone: number } {
+  const costs = RACE_BUILDING_COSTS[race];
+  const upgrades = RACE_UPGRADE_COSTS[race];
+  let gold = 0, wood = 0, stone = 0;
+  // Sum building costs (excluding Research which is free, and HarvesterHut which is meta)
+  for (const [type, c] of Object.entries(costs)) {
+    if (type === String(BuildingType.Research)) continue;
+    gold += c.gold; wood += c.wood; stone += c.stone;
+  }
+  // Add upgrade costs (weight T1 and T2 equally — players buy both)
+  for (const t of [upgrades.tier1, upgrades.tier2]) {
+    gold += t.gold; wood += t.wood; stone += t.stone;
+  }
+  const total = gold + wood + stone;
+  if (total === 0) return { gold: 1, wood: 0, stone: 0 };
+  return { gold: gold / total, wood: wood / total, stone: stone / total };
+}
+
 // Escalating hut cost
 export const HUT_COST_SCALE = 1.35;
 export function HARVESTER_HUT_COST(hutIndex: number): number {

@@ -229,6 +229,28 @@ export class TitleScene implements Scene {
         if (pl.slotRects[localSlot] && this.hitRect(cx, cy, pl.slotRects[localSlot])) {
           e.preventDefault();
           this.cycleRace(-1);
+          return;
+        }
+        // Right-click on bot slot → cycle bot race
+        if (this.party.isHost) {
+          const ps = this.partyState;
+          const partyActiveSet = new Set(getActiveSlots(ps));
+          for (let i = 0; i < (ps.maxSlots ?? 4); i++) {
+            if (i === localSlot) continue;
+            if (!partyActiveSet.has(i)) continue;
+            if (pl.slotRects[i] && this.hitRect(cx, cy, pl.slotRects[i])) {
+              const hasPlayer = !!ps.players[String(i)];
+              if (!hasPlayer && ps.bots?.[String(i)]) {
+                e.preventDefault();
+                const raceOrder = [Race.Crown, Race.Horde, Race.Goblins, Race.Oozlings, Race.Demon, Race.Deep, Race.Wild, Race.Geists, Race.Tenders];
+                const currentRace = ps.botRaces?.[String(i)] ?? 'random';
+                const idx = currentRace === 'random' ? -1 : raceOrder.indexOf(currentRace as Race);
+                const nextRace = idx + 1 >= raceOrder.length ? 'random' : raceOrder[idx + 1];
+                this.party.setSlotBotRace(i, nextRace === 'random' ? null : nextRace);
+                return;
+              }
+            }
+          }
         }
       } else if (this.localSetup) {
         const pl = this.getLocalSetupLayout();
@@ -536,12 +558,12 @@ export class TitleScene implements Scene {
     const w = this.canvas.clientWidth;
     const h = this.canvas.clientHeight;
     const maxSlots = this.partyState?.maxSlots ?? 4;
-    const panelW = Math.min(w * 0.98, 616);
-    const panelH = Math.min(h * 0.588, 420);
+    const panelW = Math.min(w * 0.98, 720);
+    const panelH = Math.min(h * 0.64, 480);
     const px = (w - panelW) / 2;
     const py = h * 0.26;
-    const slotW = 40;
-    const slotH = 40;
+    const slotW = 60;
+    const slotH = 60;
     const slotY = py + panelH * 0.40;
 
     // Dynamic slot positioning: divide panel width evenly
@@ -807,12 +829,22 @@ export class TitleScene implements Scene {
           if (pl.slotRects[i] && this.hitRect(cx, cy, pl.slotRects[i])) {
             const hasPlayer = !!ps.players[String(i)];
             if (!hasPlayer) {
-              // Cycle bot difficulty for this slot
-              const currentBot = ps.bots?.[String(i)] ?? null;
-              const cycle: (string | null)[] = [null, BotDifficultyLevel.Easy, BotDifficultyLevel.Medium, BotDifficultyLevel.Hard, BotDifficultyLevel.Nightmare];
-              const curIdx = currentBot ? cycle.indexOf(currentBot) : 0;
-              const nextIdx = (curIdx + 1) % cycle.length;
-              this.party?.setSlotBot(i, cycle[nextIdx]);
+              const slotMidY = pl.slotRects[i].y + pl.slotRects[i].h / 2;
+              if (cy < slotMidY) {
+                // Top half — cycle bot race
+                const raceOrder = [Race.Crown, Race.Horde, Race.Goblins, Race.Oozlings, Race.Demon, Race.Deep, Race.Wild, Race.Geists, Race.Tenders];
+                const currentRace = ps.botRaces?.[String(i)] ?? 'random';
+                const idx = currentRace === 'random' ? -1 : raceOrder.indexOf(currentRace as Race);
+                const nextRace = idx + 1 >= raceOrder.length ? 'random' : raceOrder[idx + 1];
+                this.party?.setSlotBotRace(i, nextRace === 'random' ? null : nextRace);
+              } else {
+                // Bottom half — cycle bot difficulty
+                const currentBot = ps.bots?.[String(i)] ?? null;
+                const cycle: (string | null)[] = [null, BotDifficultyLevel.Easy, BotDifficultyLevel.Medium, BotDifficultyLevel.Hard, BotDifficultyLevel.Nightmare];
+                const curIdx = currentBot ? cycle.indexOf(currentBot) : 0;
+                const nextIdx = (curIdx + 1) % cycle.length;
+                this.party?.setSlotBot(i, cycle[nextIdx]);
+              }
             }
             // Don't kick human players — just ignore click on their slot
             return;
@@ -1475,7 +1507,7 @@ export class TitleScene implements Scene {
       const vsPadY = Math.round(vsH * 0.075);
       this.ui.drawWoodTable(ctx, vsX - vsPadX, vsY - vsPadY, vsW + vsPadX * 2, vsH + vsPadY * 2);
 
-      const fontSize = Math.max(10, Math.min(vsH / (teamSize + 1) * 0.45, 14));
+      const fontSize = Math.max(11,Math.min(vsH / (teamSize + 1) * 0.45, 14));
       ctx.textBaseline = 'middle';
 
       for (let i = 0; i < teamSize; i++) {
@@ -1511,7 +1543,7 @@ export class TitleScene implements Scene {
 
       // Team avg ELO
       const eloY = vsY + vsH * 0.85;
-      const eloFontSize = Math.max(9, fontSize * 0.7);
+      const eloFontSize = Math.max(11,fontSize * 0.7);
       ctx.font = `${eloFontSize}px monospace`;
       const blueAvgElo = Math.round(this.bannerBlue.reduce((s, u) => s + getElo(u.race, u.category), 0) / teamSize);
       const redAvgElo = Math.round(this.bannerRed.reduce((s, u) => s + getElo(u.race, u.category), 0) / teamSize);
@@ -1533,7 +1565,7 @@ export class TitleScene implements Scene {
       const ctrlGap = 8;
       const totalCtrlW = ctrlW * 5 + ctrlGap * 4;
       const ctrlStartX = (w - totalCtrlW) / 2;
-      const ctrlFont = Math.max(8, Math.min(ctrlH * 0.42, 12));
+      const ctrlFont = Math.max(11,Math.min(ctrlH * 0.42, 12));
 
       const drawCtrlBtn = (x: number, label: string, strokeColor: string, textColor: string) => {
         ctx.fillStyle = 'rgba(0,0,0,0.5)';
@@ -1641,7 +1673,7 @@ export class TitleScene implements Scene {
     const subX = (w - subW) / 2;
     const subY = bannerY + bannerH - subH * 0.2;
     this.ui.drawSmallRibbon(ctx, subX, subY, subW, subH, 0);
-    ctx.font = `bold ${Math.max(10, subH * 0.38)}px monospace`;
+    ctx.font = `bold ${Math.max(11,subH * 0.38)}px monospace`;
     ctx.textBaseline = 'middle';
     ctx.fillStyle = '#fff';
     ctx.fillText('Spawn Glory', w / 2, subY + subH * 0.5);
@@ -1670,7 +1702,7 @@ export class TitleScene implements Scene {
       const errX = (w - errW) / 2;
       const errY = h * 0.70;
       this.ui.drawBigRibbon(ctx, errX, errY, errW, errH, 1); // red ribbon
-      ctx.font = `bold ${Math.max(10, errH * 0.36)}px monospace`;
+      ctx.font = `bold ${Math.max(11,errH * 0.36)}px monospace`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillStyle = '#fff';
@@ -1684,7 +1716,7 @@ export class TitleScene implements Scene {
     // Version
     ctx.textAlign = 'center';
     ctx.textBaseline = 'alphabetic';
-    ctx.font = `${Math.max(10, Math.min(w / 60, 14))}px monospace`;
+    ctx.font = `${Math.max(11,Math.min(w / 60, 14))}px monospace`;
     ctx.fillStyle = 'rgba(255,255,255,0.35)';
     ctx.fillText(`build ${__BUILD_NUMBER__} (${__BUILD_HASH__})`, w / 2, h - 12);
   }
@@ -1853,7 +1885,7 @@ export class TitleScene implements Scene {
     ctx.fillText(display, w / 2, boxY + boxH * 0.52);
 
     // Hint
-    ctx.font = `${Math.max(9, labelSize * 0.8)}px monospace`;
+    ctx.font = `${Math.max(11,labelSize * 0.8)}px monospace`;
     ctx.fillStyle = 'rgba(60,40,20,0.55)';
     ctx.fillText('Type code + Enter  |  ESC to cancel', w / 2, boxY + boxH * 0.78);
   }
@@ -1874,7 +1906,7 @@ export class TitleScene implements Scene {
     const ppPadY = Math.round(pl.panel.h * 0.05);
     this.ui.drawWoodTable(ctx, pl.panel.x - ppPadX, pl.panel.y - ppPadY, pl.panel.w + ppPadX * 2, pl.panel.h + ppPadY * 2);
 
-    const fontSize = Math.max(10, Math.min(pl.panel.w / 28, 15));
+    const fontSize = Math.max(11,Math.min(pl.panel.w / 28, 15));
 
     // Header
     const headerH = 28;
@@ -1896,7 +1928,7 @@ export class TitleScene implements Scene {
       ctx.strokeStyle = 'rgba(255,215,64,0.3)';
       ctx.lineWidth = 1;
       ctx.strokeRect(mt.x, mt.y, mt.w, mt.h);
-      const mtFontSize = Math.max(8, mt.h * 0.5);
+      const mtFontSize = Math.max(11,mt.h * 0.5);
       ctx.font = `bold ${mtFontSize}px monospace`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
@@ -1916,7 +1948,7 @@ export class TitleScene implements Scene {
       ctx.strokeStyle = fogOn ? 'rgba(102,217,239,0.5)' : 'rgba(255,255,255,0.2)';
       ctx.lineWidth = 1;
       ctx.strokeRect(ft.x, ft.y, ft.w, ft.h);
-      const ftFontSize = Math.max(8, ft.h * 0.5);
+      const ftFontSize = Math.max(11,ft.h * 0.5);
       ctx.font = `bold ${ftFontSize}px monospace`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
@@ -1993,11 +2025,11 @@ export class TitleScene implements Scene {
           ctx.fillStyle = 'rgba(255,220,100,0.8)';
           ctx.fillText('?', slotCx, slotRect.y + 20);
 
-          ctx.font = `bold ${Math.max(8, fontSize * 0.75)}px monospace`;
+          ctx.font = `bold ${Math.max(11,fontSize * 0.75)}px monospace`;
           ctx.fillStyle = 'rgba(255,220,100,0.9)';
           ctx.fillText('RANDOM', slotCx, slotRect.y + 40);
 
-          ctx.font = `${Math.max(9, fontSize * 0.85)}px monospace`;
+          ctx.font = `${Math.max(11,fontSize * 0.85)}px monospace`;
           ctx.fillStyle = '#fff';
           ctx.fillText(this.playerName, slotCx, slotRect.y + 52);
 
@@ -2039,14 +2071,14 @@ export class TitleScene implements Scene {
           ctx.textBaseline = 'middle';
           ctx.fillStyle = 'rgba(255,220,100,0.6)';
           ctx.fillText('?', slotCx, slotRect.y + slotRect.h * 0.5);
-          ctx.font = `bold ${Math.max(8, fontSize * 0.75)}px monospace`;
+          ctx.font = `bold ${Math.max(11,fontSize * 0.75)}px monospace`;
           ctx.textBaseline = 'top';
           ctx.fillStyle = 'rgba(255,220,100,0.7)';
           ctx.fillText('RANDOM', slotCx, slotRect.y + slotRect.h + 6);
         }
 
         // Difficulty label below race label
-        ctx.font = `bold ${Math.max(9, fontSize * 0.8)}px monospace`;
+        ctx.font = `bold ${Math.max(11,fontSize * 0.8)}px monospace`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'top';
         ctx.fillStyle = diffColor;
@@ -2059,7 +2091,7 @@ export class TitleScene implements Scene {
         // Empty slot
         const slotCx = pl.panel.x + colW * i + colW / 2;
         const slotY = pl.panel.y + pl.panel.h * 0.38;
-        ctx.font = `bold ${Math.max(8, fontSize * 0.8)}px monospace`;
+        ctx.font = `bold ${Math.max(11,fontSize * 0.8)}px monospace`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillStyle = 'rgba(255,255,255,0.2)';
@@ -2097,7 +2129,7 @@ export class TitleScene implements Scene {
           const gY = def.groundY ?? 0.71;
           drawSpriteFrame(ctx, img, def, frame, this.dragX - ghostSize / 2, this.dragY - ghostSize * gY, ghostSize, ghostSize);
         }
-        ctx.font = `bold ${Math.max(8, fontSize * 0.7)}px monospace`;
+        ctx.font = `bold ${Math.max(11,fontSize * 0.7)}px monospace`;
         ctx.textAlign = 'center';
         ctx.fillStyle = '#fff';
         ctx.fillText(this.playerName, this.dragX, this.dragY + ghostSize * 0.4);
@@ -2119,7 +2151,7 @@ export class TitleScene implements Scene {
     const canStart = canStartLocalSetup(ls);
     ctx.globalAlpha = canStart ? 1 : 0.4;
     this.ui.drawSword(ctx, pl.start.x, pl.start.y, pl.start.w, pl.start.h, canStart ? 0 : 4);
-    const startFontSize = Math.max(10, Math.min(pl.start.h * 0.35, 16));
+    const startFontSize = Math.max(11,Math.min(pl.start.h * 0.35, 16));
     ctx.font = `bold ${startFontSize}px monospace`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
@@ -2129,7 +2161,7 @@ export class TitleScene implements Scene {
 
     // BACK button
     this.ui.drawSword(ctx, pl.leave.x, pl.leave.y, pl.leave.w, pl.leave.h, 1);
-    const leaveFontSize = Math.max(9, Math.min(pl.leave.h * 0.32, 14));
+    const leaveFontSize = Math.max(11,Math.min(pl.leave.h * 0.32, 14));
     ctx.font = `bold ${leaveFontSize}px monospace`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
@@ -2138,7 +2170,7 @@ export class TitleScene implements Scene {
 
     // Start validation hint
     if (!canStart) {
-      ctx.font = `${Math.max(8, fontSize * 0.6)}px monospace`;
+      ctx.font = `${Math.max(11,fontSize * 0.6)}px monospace`;
       ctx.textAlign = 'center';
       ctx.fillStyle = 'rgba(255,100,100,0.7)';
       ctx.fillText('Each team needs at least 1 player or bot', w / 2, pl.start.y - 8);
@@ -2157,18 +2189,18 @@ export class TitleScene implements Scene {
     const ppPadY = Math.round(pl.panel.h * 0.05);
     this.ui.drawWoodTable(ctx, pl.panel.x - ppPadX, pl.panel.y - ppPadY, pl.panel.w + ppPadX * 2, pl.panel.h + ppPadY * 2);
 
-    const fontSize = Math.max(10, Math.min(pl.panel.w / 28, 15));
+    const fontSize = Math.max(11,Math.min(pl.panel.w / 28, 15));
     const isHost = this.party?.isHost;
 
     // Big ribbon header with party code front-and-center
     const codeRibW = pl.panel.w * 0.75;
-    const codeRibH = 52;
+    const codeRibH = 62;
     const codeRibX = pl.panel.x + (pl.panel.w - codeRibW) / 2;
     const codeRibY = pl.panel.y + 2;
     this.ui.drawBigRibbon(ctx, codeRibX, codeRibY, codeRibW, codeRibH, 2); // yellow
 
     // "PARTY CODE" small label at top of ribbon
-    const labelSize = Math.max(8, codeRibH * 0.2);
+    const labelSize = Math.max(11,codeRibH * 0.2);
     ctx.font = `bold ${labelSize}px monospace`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
@@ -2176,8 +2208,8 @@ export class TitleScene implements Scene {
     ctx.fillText('PARTY CODE', w / 2, codeRibY + codeRibH * 0.25);
 
     // Large code text — letter-spaced, bright white on the ribbon
-    const codeFontSize = Math.max(20, Math.min(pl.panel.w / 10, 36));
-    const codeStr = ps.code.split('').join('  ');
+    const codeFontSize = Math.max(24, Math.min(pl.panel.w / 8, 44));
+    const codeStr = ps.code.split('').join('   ');
     ctx.font = `bold ${codeFontSize}px monospace`;
     const codeTxtY = codeRibY + codeRibH * 0.6;
     ctx.fillStyle = 'rgba(0,0,0,0.5)';
@@ -2186,7 +2218,7 @@ export class TitleScene implements Scene {
     ctx.fillText(codeStr, w / 2, codeTxtY);
 
     // Tap to copy hint / copied feedback
-    ctx.font = `${Math.max(8, fontSize * 0.7)}px monospace`;
+    ctx.font = `${Math.max(11,fontSize * 0.7)}px monospace`;
     if (this.copyFeedbackTimer > 0) {
       const fadeIn = Math.min(1, (120 - this.copyFeedbackTimer) / 10);
       const floatY = (1 - this.copyFeedbackTimer / 120) * -6;
@@ -2208,7 +2240,7 @@ export class TitleScene implements Scene {
       ctx.strokeStyle = 'rgba(255,215,64,0.3)';
       ctx.lineWidth = 1;
       ctx.strokeRect(mt.x, mt.y, mt.w, mt.h);
-      const mtFontSize = Math.max(8, mt.h * 0.5);
+      const mtFontSize = Math.max(11,mt.h * 0.5);
       ctx.font = `bold ${mtFontSize}px monospace`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
@@ -2230,7 +2262,7 @@ export class TitleScene implements Scene {
       ctx.strokeStyle = fogOn ? 'rgba(102,217,239,0.5)' : 'rgba(255,255,255,0.2)';
       ctx.lineWidth = 1;
       ctx.strokeRect(ft.x, ft.y, ft.w, ft.h);
-      const ftFontSize = Math.max(8, ft.h * 0.5);
+      const ftFontSize = Math.max(11,ft.h * 0.5);
       ctx.font = `bold ${ftFontSize}px monospace`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
@@ -2305,34 +2337,63 @@ export class TitleScene implements Scene {
         const isSlotHost = i === 0;
         this.renderPlayerSlot(ctx, pl.panel.x + colW * i, pl.panel.y + pl.panel.h * 0.30, colW, player, isSlotHost, slotRect, i === localSlot, i);
       } else if (botDiff) {
-        // Bot slot — show difficulty with color
+        // Bot slot — show race sprite + difficulty
         const slotCx = pl.panel.x + colW * i + colW / 2;
-        const slotY = pl.panel.y + pl.panel.h * 0.38;
+        const slotY = pl.panel.y + pl.panel.h * 0.35;
         const diffOpt = PARTY_DIFFICULTY_OPTIONS.find(d => d.level === botDiff);
         const diffLabel = diffOpt?.label ?? botDiff.toUpperCase();
         const diffColor = diffOpt?.color ?? '#aaa';
+        const botRace = ps.botRaces?.[String(i)] ?? 'random';
 
-        // Bot icon (gear-like indicator)
-        ctx.font = `bold ${Math.max(12, fontSize * 1.2)}px monospace`;
+        // Race sprite or ? for random
+        const iconSize = colW * 0.6;
+        if (botRace !== 'random') {
+          const spriteData = this.sprites.getUnitSprite(botRace as Race, 'melee', i);
+          if (spriteData) {
+            const [img, def] = spriteData;
+            const frame = getSpriteFrame(Math.floor(this.animTime * 20), def);
+            const gY = def.groundY ?? 0.71;
+            const drawY = slotY + iconSize * 0.5 - iconSize * gY;
+            drawSpriteFrame(ctx, img, def, frame, slotCx - iconSize / 2, drawY, iconSize, iconSize);
+          }
+        } else {
+          ctx.font = `bold ${Math.max(20, iconSize * 0.6)}px monospace`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillStyle = 'rgba(255,220,100,0.8)';
+          ctx.fillText('?', slotCx, slotY + iconSize * 0.2);
+        }
+
+        // Race label below sprite
+        const raceLabelY = slotY + iconSize * 0.55;
+        ctx.font = `bold ${Math.max(11,fontSize * 0.8)}px monospace`;
         ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillStyle = diffColor;
-        ctx.fillText('BOT', slotCx, slotY);
+        ctx.textBaseline = 'top';
+        if (botRace !== 'random') {
+          const colors = RACE_COLORS[botRace as Race];
+          ctx.fillStyle = colors?.primary ?? '#aaa';
+          ctx.fillText(RACE_LABELS[botRace as Race] ?? botRace.toUpperCase(), slotCx, raceLabelY);
+        } else {
+          ctx.fillStyle = 'rgba(255,220,100,0.9)';
+          ctx.fillText('RANDOM', slotCx, raceLabelY);
+        }
 
-        ctx.font = `bold ${Math.max(8, fontSize * 0.8)}px monospace`;
+        // Difficulty label below race label
+        ctx.font = `bold ${Math.max(11,fontSize * 0.8)}px monospace`;
         ctx.fillStyle = diffColor;
-        ctx.fillText(diffLabel, slotCx, slotY + fontSize * 1.3);
+        ctx.textBaseline = 'top';
+        ctx.fillText(diffLabel, slotCx, raceLabelY + fontSize * 1.1);
 
         if (isHost && isSlotActive) {
-          ctx.font = `${Math.max(7, fontSize * 0.55)}px monospace`;
+          ctx.font = `${Math.max(7, fontSize * 0.5)}px monospace`;
           ctx.fillStyle = 'rgba(255,255,255,0.35)';
-          ctx.fillText('click to change', slotCx, slotY + fontSize * 2.3);
+          ctx.fillText('click: diff / right: race', slotCx, raceLabelY + fontSize * 2.1);
         }
       } else {
         // Empty slot (no bot, no player)
         const slotCx = pl.panel.x + colW * i + colW / 2;
         const slotY = pl.panel.y + pl.panel.h * 0.38;
-        ctx.font = `bold ${Math.max(8, fontSize * 0.8)}px monospace`;
+        ctx.font = `bold ${Math.max(11,fontSize * 0.8)}px monospace`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillStyle = 'rgba(255,255,255,0.2)';
@@ -2370,7 +2431,7 @@ export class TitleScene implements Scene {
           const gY = def.groundY ?? 0.71;
           drawSpriteFrame(ctx, img, def, frame, this.dragX - ghostSize / 2, this.dragY - ghostSize * gY, ghostSize, ghostSize);
         }
-        ctx.font = `bold ${Math.max(8, fontSize * 0.7)}px monospace`;
+        ctx.font = `bold ${Math.max(11,fontSize * 0.7)}px monospace`;
         ctx.textAlign = 'center';
         ctx.fillStyle = '#fff';
         ctx.fillText(dragPlayer.name, this.dragX, this.dragY + ghostSize * 0.4);
@@ -2383,7 +2444,7 @@ export class TitleScene implements Scene {
       const canStart = canStartParty(ps);
       ctx.globalAlpha = canStart ? 1 : 0.4;
       this.ui.drawSword(ctx, pl.start.x, pl.start.y, pl.start.w, pl.start.h, canStart ? 0 : 4); // blue or dark
-      const startFontSize = Math.max(10, Math.min(pl.start.h * 0.35, 16));
+      const startFontSize = Math.max(11,Math.min(pl.start.h * 0.35, 16));
       ctx.font = `bold ${startFontSize}px monospace`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
@@ -2392,7 +2453,7 @@ export class TitleScene implements Scene {
       ctx.globalAlpha = 1;
     } else {
       // Guest sees "waiting for host"
-      ctx.font = `${Math.max(9, fontSize * 0.8)}px monospace`;
+      ctx.font = `${Math.max(11,fontSize * 0.8)}px monospace`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillStyle = 'rgba(255,255,255,0.5)';
@@ -2401,7 +2462,7 @@ export class TitleScene implements Scene {
 
     // LEAVE button — red sword
     this.ui.drawSword(ctx, pl.leave.x, pl.leave.y, pl.leave.w, pl.leave.h, 1);
-    const leaveFontSize = Math.max(9, Math.min(pl.leave.h * 0.32, 14));
+    const leaveFontSize = Math.max(11,Math.min(pl.leave.h * 0.32, 14));
     ctx.font = `bold ${leaveFontSize}px monospace`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
@@ -2418,7 +2479,7 @@ export class TitleScene implements Scene {
     slotIndex = 0,
   ): void {
     const cx = x + slotW / 2;
-    const fontSize = Math.max(10, Math.min(slotW / 10, 14));
+    const fontSize = Math.max(11,Math.min(slotW / 10, 14));
     const isRandom = (player.race as string) === 'random';
 
     if (isRandom) {
@@ -2433,7 +2494,7 @@ export class TitleScene implements Scene {
       const spriteData = this.sprites.getUnitSprite(player.race, 'melee', slotIndex);
       if (spriteData) {
         const [img, def] = spriteData;
-        const iconSize = Math.min(raceRect.w, raceRect.h);
+        const iconSize = Math.min(raceRect.w, raceRect.h) * 1.3;
         const frame = getSpriteFrame(Math.floor(this.animTime * 20), def);
         const gY = def.groundY ?? 0.71;
         const drawY = raceRect.y + raceRect.h - iconSize * gY;
@@ -2456,12 +2517,12 @@ export class TitleScene implements Scene {
     }
 
     // Player name
-    ctx.font = `${Math.max(9, fontSize * 0.85)}px monospace`;
+    ctx.font = `${Math.max(11,fontSize * 0.85)}px monospace`;
     ctx.fillStyle = '#fff';
     ctx.fillText(player.name, cx, labelY + fontSize * 1.3);
 
     // Host crown or "Guest" label
-    ctx.font = `${Math.max(8, fontSize * 0.7)}px monospace`;
+    ctx.font = `${Math.max(11,fontSize * 0.7)}px monospace`;
     ctx.fillStyle = isHost ? '#ffe082' : 'rgba(255,255,255,0.5)';
     ctx.fillText(isHost ? 'HOST' : 'GUEST', cx, labelY + fontSize * 2.4);
 
@@ -2470,6 +2531,41 @@ export class TitleScene implements Scene {
       ctx.font = `${Math.max(7, fontSize * 0.6)}px monospace`;
       ctx.fillStyle = 'rgba(255,255,255,0.35)';
       ctx.fillText('click to change', cx, raceRect.y - 10);
+
+      // Avatar badge in bottom-right corner of slot
+      if (this.profile) {
+        const avatarDef = ALL_AVATARS.find(a => a.id === this.profile!.avatarId);
+        if (avatarDef) {
+          const badgeSize = Math.max(16, raceRect.h * 0.4);
+          const badgeX = raceRect.x + raceRect.w - badgeSize * 0.3;
+          const badgeY = raceRect.y + raceRect.h - badgeSize * 0.3;
+          ctx.fillStyle = 'rgba(0,0,0,0.5)';
+          ctx.beginPath();
+          ctx.roundRect(badgeX, badgeY, badgeSize, badgeSize, 4);
+          ctx.fill();
+          ctx.strokeStyle = 'rgba(255,215,0,0.4)';
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.roundRect(badgeX, badgeY, badgeSize, badgeSize, 4);
+          ctx.stroke();
+          const sprData = this.sprites.getUnitSprite(avatarDef.race, avatarDef.category, 0, false, avatarDef.upgradeNode);
+          if (sprData) {
+            const [img, def] = sprData;
+            const frame = getSpriteFrame(Math.floor(this.animTime * 20), def);
+            const aspect = def.frameW / def.frameH;
+            const sprInset = 2;
+            const sprSize = badgeSize - sprInset * 2;
+            const sprScale = def.scale ?? 1.0;
+            const drawH = sprSize * sprScale;
+            const drawW = drawH * aspect;
+            const gY = def.groundY ?? 0.71;
+            const feetY = badgeY + badgeSize - sprInset - 1;
+            const drawY2 = feetY - drawH * gY;
+            const drawX = badgeX + (badgeSize - drawW) / 2;
+            drawSpriteFrame(ctx, img, def, frame, drawX, drawY2, drawW, drawH);
+          }
+        }
+      }
     }
   }
 

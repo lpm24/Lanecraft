@@ -371,7 +371,7 @@ export class ProfileScene implements Scene {
       const active = this.tab === tabs[i].key;
       this.ui.drawBigBlueButton(ctx, tx, tabBarY, tabW, tabH, active);
       ctx.fillStyle = active ? '#fff' : '#a0c4e8';
-      const tabFont = compact ? Math.max(10, Math.round(tabW / 7)) : (tabW < 160 ? 20 : 22);
+      const tabFont = compact ? Math.max(11,Math.round(tabW / 7)) : (tabW < 160 ? 20 : 22);
       ctx.font = `bold ${tabFont}px monospace`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';

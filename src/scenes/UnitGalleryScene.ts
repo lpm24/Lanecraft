@@ -301,7 +301,7 @@ export class UnitGalleryScene implements Scene {
 
         // Stats line
         ctx.fillStyle = '#999';
-        ctx.font = '10px monospace';
+        ctx.font = '11px monospace';
         ctx.fillText(`${hp}hp ${dmg}dmg ${atkSpd.toFixed(1)}as ${spd.toFixed(1)}ms`, unitCX, unitCY + 50);
 
         // ELO rating (only for base unit, node A)
@@ -309,14 +309,14 @@ export class UnitGalleryScene implements Scene {
           const elo = getElo(race, cat);
           const eloColor = elo > ELO_DEFAULT ? '#ffe082' : elo < ELO_DEFAULT ? '#ef9a9a' : '#888';
           ctx.fillStyle = eloColor;
-          ctx.font = '9px monospace';
+          ctx.font = '11px monospace';
           ctx.fillText(`ELO ${elo}`, unitCX, unitCY + 61);
         }
 
         // Upgrade description
         if (nodeDef?.desc) {
           ctx.fillStyle = '#6a6';
-          ctx.font = '9px monospace';
+          ctx.font = '11px monospace';
           ctx.fillText(nodeDef.desc, unitCX, unitCY + 61);
         }
 
@@ -329,7 +329,7 @@ export class UnitGalleryScene implements Scene {
             ? `${(sc * 100).toFixed(0)}%${hsc !== 1 ? ` h:${(hsc * 100).toFixed(0)}%` : ''}`
             : '100%';
           ctx.fillStyle = '#555';
-          ctx.font = '9px monospace';
+          ctx.font = '11px monospace';
           ctx.fillText(scaleLabel, unitCX, unitCY + 72);
         }
       }
@@ -409,7 +409,7 @@ export class UnitGalleryScene implements Scene {
     // Scroll hint
     if (maxScroll > 0) {
       ctx.fillStyle = '#444';
-      ctx.font = '10px monospace';
+      ctx.font = '11px monospace';
       ctx.textAlign = 'right';
       ctx.fillText(`scroll ${Math.round(this.scrollY)}/${Math.round(maxScroll)}`, W - 14, 18);
     }

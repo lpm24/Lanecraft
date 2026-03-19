@@ -87,8 +87,8 @@ export const WOOD_NODE_X = 12;
 export const STONE_NODE_X = 68;
 
 // HQ
-export const HQ_WIDTH = 8;
-export const HQ_HEIGHT = 3;
+export const HQ_WIDTH = 4;
+export const HQ_HEIGHT = 2;
 export const HQ_HP = 2000;
 export const NUKE_RADIUS = 16;
 
@@ -463,6 +463,7 @@ export interface HarvesterState {
   woodDropsCreated: number;
   targetCellIdx: number; // index into diamondCells being mined, -1 if none
   fightTargetId: number | null; // harvester id of enemy carrier to attack
+  path: { x: number; y: number }[]; // A* computed waypoints (tile centers)
 }
 
 export interface WoodPileState {

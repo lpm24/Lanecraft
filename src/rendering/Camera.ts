@@ -5,7 +5,7 @@ export class Camera {
   x = 0;
   y = 0;
   zoom = 1;
-  private maxZoom = 3;
+  private get maxZoom(): number { return this.isometric ? 5 : 3; }
   // Configurable world size (set via setWorldSize for non-default maps)
   worldTilesW = MAP_WIDTH;
   worldTilesH = MAP_HEIGHT;
@@ -25,8 +25,9 @@ export class Camera {
       worldW = this.worldTilesW * TILE_SIZE;
       worldH = this.worldTilesH * TILE_SIZE;
     }
-    // 5% padding on each side → view = world * 1.10
-    return Math.min(this.canvas.clientWidth / (worldW * 1.10), this.canvas.clientHeight / (worldH * 1.10));
+    // Iso: tighter minimum (less zoom-out), ortho: 5% padding
+    const pad = this.isometric ? 1.25 : 1.10;
+    return Math.min(this.canvas.clientWidth / (worldW * pad), this.canvas.clientHeight / (worldH * pad));
   }
 
   private keys = new Set<string>();

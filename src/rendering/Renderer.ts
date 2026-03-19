@@ -189,6 +189,25 @@ export class Renderer {
     ctx.fill();
   }
 
+  /**
+   * Draw an isometric parallelogram region (fill or stroke) for a tile-aligned grid area.
+   * Connects the 4 projected corners of a rectangle from (ox,oy) to (ox+cols, oy+rows).
+   */
+  private drawIsoQuad(ctx: CanvasRenderingContext2D, ox: number, oy: number, cols: number, rows: number, mode: 'fill' | 'stroke'): void {
+    const { px: x0, py: y0 } = this.tp(ox, oy);
+    const { px: x1, py: y1 } = this.tp(ox + cols, oy);
+    const { px: x2, py: y2 } = this.tp(ox + cols, oy + rows);
+    const { px: x3, py: y3 } = this.tp(ox, oy + rows);
+    ctx.beginPath();
+    ctx.moveTo(x0, y0);
+    ctx.lineTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.lineTo(x3, y3);
+    ctx.closePath();
+    if (mode === 'fill') ctx.fill(); else ctx.stroke();
+  }
+
+
   private resize(): void {
     const dpr = window.devicePixelRatio || 1;
     this.canvas.style.width = window.innerWidth + 'px';
@@ -351,12 +370,6 @@ export class Renderer {
     this.lastFrameTime = now;
     const elapsedSec = (now - this.matchStartTime) / 1000;
 
-    // Snapshot positions once per game tick for walk/idle animation detection
-    if (state.tick !== this.prevTickSeen) {
-      for (const u of state.units) this.prevTickUnitPos.set(u.id, { x: u.x, y: u.y });
-      this.prevTickSeen = state.tick;
-    }
-
     // Detect deaths: compare current IDs to last frame
     this.detectDeaths(state);
     // Detect new buildings for construction animation
@@ -493,6 +506,12 @@ export class Renderer {
     this.drawHUD(ctx, state, networkLatencyMs, desyncDetected, peerDisconnected, waitingForAllyMs);
     this.drawQuickChats(ctx, state);
     this.drawMinimap(ctx, state);
+
+    // Snapshot positions at end of frame — used next frame to detect actual movement
+    if (state.tick !== this.prevTickSeen) {
+      for (const u of state.units) this.prevTickUnitPos.set(u.id, { x: u.x, y: u.y });
+      this.prevTickSeen = state.tick;
+    }
   }
 
   // === Terrain (Pre-rendered) ===
@@ -1190,7 +1209,7 @@ export class Renderer {
       ctx.fillStyle = color;
       ctx.fill();
       ctx.fillStyle = '#bbb';
-      ctx.font = 'bold 10px monospace';
+      ctx.font = 'bold 11px monospace';
       ctx.textAlign = 'center';
       ctx.fillText(label, px, py + 4);
       ctx.textAlign = 'start';
@@ -1405,36 +1424,44 @@ export class Renderer {
       const pc = PLAYER_COLORS[p % PLAYER_COLORS.length];
       const tc = hexToRgba(pc);
 
-      ctx.fillStyle = tc + '0.18)';
       const bgCols = state.mapDef.buildGridCols;
       const bgRows = state.mapDef.buildGridRows;
-      const { px: ogPx, py: ogPy } = this.tp(origin.x, origin.y);
-      const { px: ogPx2, py: ogPy2 } = this.tp(origin.x + bgCols, origin.y + bgRows);
-      const gridW = ogPx2 - ogPx, gridH = ogPy2 - ogPy;
-      ctx.fillRect(ogPx, ogPy, gridW, gridH);
+      const { px: ogPx } = this.tp(origin.x, origin.y);
 
+      // Background fill
+      ctx.fillStyle = tc + '0.18)';
+      if (this.isometric) {
+        this.drawIsoQuad(ctx, origin.x, origin.y, bgCols, bgRows, 'fill');
+      } else {
+        const { px: ogPx, py: ogPy } = this.tp(origin.x, origin.y);
+        const { px: ogPx2, py: ogPy2 } = this.tp(origin.x + bgCols, origin.y + bgRows);
+        ctx.fillRect(ogPx, ogPy, ogPx2 - ogPx, ogPy2 - ogPy);
+      }
+
+      // Grid lines
       ctx.strokeStyle = tc + '0.35)';
       ctx.lineWidth = 0.5;
       for (let gx = 0; gx <= bgCols; gx++) {
         const { px: lx1, py: ly1 } = this.tp(origin.x + gx, origin.y);
         const { px: lx2, py: ly2 } = this.tp(origin.x + gx, origin.y + bgRows);
-        ctx.beginPath();
-        ctx.moveTo(lx1, ly1);
-        ctx.lineTo(lx2, ly2);
-        ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(lx1, ly1); ctx.lineTo(lx2, ly2); ctx.stroke();
       }
       for (let gy = 0; gy <= bgRows; gy++) {
         const { px: lx1, py: ly1 } = this.tp(origin.x, origin.y + gy);
         const { px: lx2, py: ly2 } = this.tp(origin.x + bgCols, origin.y + gy);
-        ctx.beginPath();
-        ctx.moveTo(lx1, ly1);
-        ctx.lineTo(lx2, ly2);
-        ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(lx1, ly1); ctx.lineTo(lx2, ly2); ctx.stroke();
       }
 
+      // Border
       ctx.strokeStyle = tc + '0.6)';
       ctx.lineWidth = 2;
-      ctx.strokeRect(ogPx, ogPy, gridW, gridH);
+      if (this.isometric) {
+        this.drawIsoQuad(ctx, origin.x, origin.y, bgCols, bgRows, 'stroke');
+      } else {
+        const { px: ogPx, py: ogPy } = this.tp(origin.x, origin.y);
+        const { px: ogPx2, py: ogPy2 } = this.tp(origin.x + bgCols, origin.y + bgRows);
+        ctx.strokeRect(ogPx, ogPy, ogPx2 - ogPx, ogPy2 - ogPy);
+      }
 
       ctx.fillStyle = tc + '0.85)';
       ctx.font = 'bold 11px monospace';
@@ -1464,11 +1491,15 @@ export class Renderer {
 
       const hCols = state.mapDef.hutGridCols;
       const hRows = state.mapDef.hutGridRows;
-      const { px: hOgPx, py: hOgPy } = this.tp(origin.x, origin.y);
-      const { px: hOgPx2, py: hOgPy2 } = this.tp(origin.x + hCols, origin.y + hRows);
-      const hGridW = hOgPx2 - hOgPx, hGridH = hOgPy2 - hOgPy;
+      const { px: hOgPx } = this.tp(origin.x, origin.y);
       ctx.fillStyle = tc + '0.15)';
-      ctx.fillRect(hOgPx, hOgPy, hGridW, hGridH);
+      if (this.isometric) {
+        this.drawIsoQuad(ctx, origin.x, origin.y, hCols, hRows, 'fill');
+      } else {
+        const { py: hOgPy } = this.tp(origin.x, origin.y);
+        const { px: hOgPx2, py: hOgPy2 } = this.tp(origin.x + hCols, origin.y + hRows);
+        ctx.fillRect(hOgPx, hOgPy, hOgPx2 - hOgPx, hOgPy2 - hOgPy);
+      }
       ctx.strokeStyle = tc + '0.4)';
       ctx.lineWidth = 1;
       for (let gx = 0; gx <= hCols; gx++) {
@@ -1489,10 +1520,16 @@ export class Renderer {
       }
       ctx.strokeStyle = tc + '0.6)';
       ctx.lineWidth = 2;
-      ctx.strokeRect(hOgPx, hOgPy, hGridW, hGridH);
+      if (this.isometric) {
+        this.drawIsoQuad(ctx, origin.x, origin.y, hCols, hRows, 'stroke');
+      } else {
+        const { py: hOgPy } = this.tp(origin.x, origin.y);
+        const { px: hOgPx2, py: hOgPy2 } = this.tp(origin.x + hCols, origin.y + hRows);
+        ctx.strokeRect(hOgPx, hOgPy, hOgPx2 - hOgPx, hOgPy2 - hOgPy);
+      }
 
       ctx.fillStyle = tc + '0.8)';
-      ctx.font = 'bold 9px monospace';
+      ctx.font = 'bold 11px monospace';
       const teamIdx = state.mapDef.playerSlots[p]?.teamIndex ?? (p < 2 ? 0 : 1);
       const labelBelow = teamIdx === 0;
       const { py: hLy } = labelBelow ? this.tp(origin.x, origin.y + hRows + 0.8) : this.tp(origin.x, origin.y - 0.4);
@@ -1515,11 +1552,15 @@ export class Renderer {
 
       const aCols = state.mapDef.towerAlleyCols;
       const aRows = state.mapDef.towerAlleyRows;
-      const { px: aOgPx, py: aOgPy } = this.tp(origin.x, origin.y);
-      const { px: aOgPx2, py: aOgPy2 } = this.tp(origin.x + aCols, origin.y + aRows);
-      const aGridW = aOgPx2 - aOgPx, aGridH = aOgPy2 - aOgPy;
+      const { px: aOgPx } = this.tp(origin.x, origin.y);
       ctx.fillStyle = `rgba(${color},0.15)`;
-      ctx.fillRect(aOgPx, aOgPy, aGridW, aGridH);
+      if (this.isometric) {
+        this.drawIsoQuad(ctx, origin.x, origin.y, aCols, aRows, 'fill');
+      } else {
+        const { py: aOgPy } = this.tp(origin.x, origin.y);
+        const { px: aOgPx2, py: aOgPy2 } = this.tp(origin.x + aCols, origin.y + aRows);
+        ctx.fillRect(aOgPx, aOgPy, aOgPx2 - aOgPx, aOgPy2 - aOgPy);
+      }
 
       ctx.strokeStyle = `rgba(${color},0.35)`;
       ctx.lineWidth = 0.5;
@@ -1542,10 +1583,16 @@ export class Renderer {
 
       ctx.strokeStyle = `rgba(${color},0.65)`;
       ctx.lineWidth = 2;
-      ctx.strokeRect(aOgPx, aOgPy, aGridW, aGridH);
+      if (this.isometric) {
+        this.drawIsoQuad(ctx, origin.x, origin.y, aCols, aRows, 'stroke');
+      } else {
+        const { py: aOgPy } = this.tp(origin.x, origin.y);
+        const { px: aOgPx2, py: aOgPy2 } = this.tp(origin.x + aCols, origin.y + aRows);
+        ctx.strokeRect(aOgPx, aOgPy, aOgPx2 - aOgPx, aOgPy2 - aOgPy);
+      }
 
       ctx.fillStyle = `rgba(${color},0.8)`;
-      ctx.font = 'bold 9px monospace';
+      ctx.font = 'bold 11px monospace';
       const isBottom = team === Team.Bottom;
       const { py: aLy } = isBottom ? this.tp(origin.x, origin.y + aRows + 1.2) : this.tp(origin.x, origin.y - 0.4);
       ctx.fillText('TOWER ALLEY', aOgPx, aLy);
@@ -1813,7 +1860,7 @@ export class Renderer {
       ctx.fillRect(barX, barY, barW * hpPct, barH);
 
       ctx.fillStyle = '#999';
-      ctx.font = '8px monospace';
+      ctx.font = '11px monospace';
       ctx.textAlign = 'center';
       ctx.fillText(`${hp}`, cx, barY + barH + 10);
       ctx.textAlign = 'start';
@@ -2054,7 +2101,7 @@ export class Renderer {
             ctx.lineWidth = 2;
             ctx.strokeRect(px - bh, py - bh * 0.8, bh * 2, bh * 1.6);
             ctx.fillStyle = '#e8d5b7';
-            ctx.font = `bold ${Math.max(9, Math.round(half * 0.8))}px monospace`;
+            ctx.font = `bold ${Math.max(11, Math.round(half * 0.8))}px monospace`;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             ctx.fillText('R', px, py);
@@ -2329,8 +2376,8 @@ export class Renderer {
         // Check if unit is actually moving — compare against previous game tick position
         // (not previous render frame) so walk/idle doesn't flicker at 60fps vs 20tps
         const lastTickPos = this.prevTickUnitPos.get(u.id);
-        const isStationary = lastTickPos == null
-          || (Math.abs(u.x - lastTickPos.x) < 0.04 && Math.abs(u.y - lastTickPos.y) < 0.04);
+        const isStationary = lastTickPos != null
+          && Math.abs(u.x - lastTickPos.x) < 0.04 && Math.abs(u.y - lastTickPos.y) < 0.04;
         // Normalize animation: ~1 cycle per second (20 ticks) regardless of frame count
         const frame = (idleWhileAttacking || isRangedOnCooldown || (isStationary && !isAttacking)) ? 0 : getSpriteFrame(state.tick, def);
         // Anchor feet at consistent ground level
@@ -3000,7 +3047,7 @@ export class Renderer {
       ctx.setLineDash([4, 4]);
       ctx.stroke();
       ctx.setLineDash([]);
-      ctx.font = 'bold 10px monospace';
+      ctx.font = 'bold 11px monospace';
       ctx.textAlign = 'center';
       ctx.fillStyle = '#00ffff';
       ctx.fillText(`${secs}s`, px, py + 4);
@@ -3033,7 +3080,7 @@ export class Renderer {
       ctx.lineWidth = 1.5;
       ctx.stroke();
 
-      ctx.font = 'bold 10px monospace';
+      ctx.font = 'bold 11px monospace';
       ctx.textAlign = 'center';
       const labelText = 'MINE TO UNLOCK CHAMPION';
       const labelY = py - r - 10;
@@ -3069,7 +3116,7 @@ export class Renderer {
     ctx.stroke();
 
     ctx.fillStyle = '#fff';
-    ctx.font = 'bold 9px monospace';
+    ctx.font = 'bold 11px monospace';
     ctx.textAlign = 'center';
     ctx.fillText('CHAMPION', px, py + size + 12);
     ctx.textAlign = 'start';
@@ -3159,7 +3206,7 @@ export class Renderer {
       ctx.fill();
 
       ctx.fillStyle = `rgba(255, 235, 59, ${alpha})`;
-      ctx.font = 'bold 10px monospace';
+      ctx.font = 'bold 11px monospace';
       ctx.textAlign = 'center';
       ctx.fillText(`PING P${p.playerId + 1}`, px, py - baseR - 6);
       ctx.textAlign = 'start';
@@ -3376,9 +3423,9 @@ export class Renderer {
       }
 
       // Font size: base 10, big 14, damage magnitude-adjusted
-      let fontSize = ft.big ? 14 : 10;
+      let fontSize = ft.big ? 14 : 11;
       if (isDmg && ft.magnitude) {
-        fontSize = Math.min(16, 9 + Math.floor(ft.magnitude / 10));
+        fontSize = Math.min(16, 11 + Math.floor(ft.magnitude / 10));
       }
 
       ctx.globalAlpha = Math.max(0, alpha);
@@ -3396,8 +3443,10 @@ export class Renderer {
       }
 
       // Dark outline for readability
-      ctx.strokeStyle = isDmg ? 'rgba(0,0,0,0.9)' : 'rgba(0,0,0,0.7)';
+      ctx.strokeStyle = 'rgba(0,0,0,0.9)';
       ctx.lineWidth = isDmg ? 3 : 2.5;
+      // Damage numbers: red with black border; others use their original color
+      const color = isDmg ? '#ff4444' : ft.color;
 
       // Determine if we have a mini icon to draw
       const mi = ft.miniIcon;
@@ -3413,13 +3462,13 @@ export class Renderer {
         const iconCy = py - iconSz / 2 - 1;
 
         // Draw the mini icon
-        this.drawMiniIcon(ctx, mi, iconX, iconCy, iconSz, ft.color);
+        this.drawMiniIcon(ctx, mi, iconX, iconCy, iconSz, color);
 
         // Draw text to the right of icon
         if (hasText) {
           const textX = iconX + iconSz + gap + textW / 2;
           ctx.strokeText(ft.text, textX, py);
-          ctx.fillStyle = ft.color;
+          ctx.fillStyle = color;
           ctx.fillText(ft.text, textX, py);
         }
       } else if (ft.icon) {
@@ -3429,7 +3478,7 @@ export class Renderer {
         const totalW = textW + iconSz + 1;
         const textX = px - totalW / 2 + textW / 2;
         ctx.strokeText(ft.text, textX, py);
-        ctx.fillStyle = ft.color;
+        ctx.fillStyle = color;
         ctx.fillText(ft.text, textX, py);
         const iconX = textX + textW / 2 + 1;
         const iconCy = py - iconSz / 2 - 1;
@@ -3460,7 +3509,7 @@ export class Renderer {
         }
       } else {
         ctx.strokeText(ft.text, px, py);
-        ctx.fillStyle = ft.color;
+        ctx.fillStyle = color;
         ctx.fillText(ft.text, px, py);
       }
       ctx.restore();
@@ -3882,7 +3931,7 @@ export class Renderer {
       if (u.fleeTimer != null && u.fleeTimer > 0) {
         const { px, py } = this.tp(u.x, u.y);
         ctx.fillStyle = '#ffeb3b';
-        ctx.font = 'bold 10px monospace';
+        ctx.font = 'bold 11px monospace';
         ctx.textAlign = 'center';
         ctx.fillText('!!', px + T / 2, py - 4);
         ctx.textAlign = 'start';
