@@ -203,68 +203,110 @@ export class PostMatchScene implements Scene {
     ctx.stroke();
 
     const pStats = state.playerStats ?? [];
+
+    // Team stripe colors: Bottom=blue, Top=red
+    const TEAM_STRIPE: Record<number, string> = {
+      [Team.Bottom]: '#2979ff',
+      [Team.Top]:    '#ff1744',
+    };
+
+    // Build team groups sorted local team first
+    const enemyTeam2 = localTeam === Team.Bottom ? Team.Top : Team.Bottom;
+    const teamGroups: Array<{ team: Team; indices: number[] }> = [];
+    for (const t of [localTeam, enemyTeam2]) {
+      const indices: number[] = [];
+      for (let i = 0; i < state.players.length; i++) {
+        if (!state.players[i].isEmpty && state.players[i].team === t) indices.push(i);
+      }
+      if (indices.length > 0) teamGroups.push({ team: t, indices });
+    }
+
     let rowIdx = 0;
-    for (let i = 0; i < state.players.length; i++) {
-      const p = state.players[i];
-      if (p.isEmpty) continue;
-      const ps = pStats[i];
+    for (const { team, indices } of teamGroups) {
+      // Team sub-header row
       rowIdx++;
-      const y = tableY + rowIdx * rowH;
-      const rowTop = y - rowH * 0.65;
+      const hdrY = tableY + rowIdx * rowH;
+      const hdrTop = hdrY - rowH * 0.65;
+      const stripeColor = TEAM_STRIPE[team];
+      const isWinnerTeam = state.winner === team;
+      const isLocalTeam = team === localTeam;
 
-      // Alternating row backgrounds
-      if (rowIdx % 2 === 0) {
-        ctx.fillStyle = 'rgba(62,44,26,0.08)';
-        ctx.fillRect(innerL, rowTop, innerW, rowH);
-      }
-      // Highlight local player row
-      if (i === localPlayerId) {
-        ctx.fillStyle = 'rgba(41,121,255,0.15)';
-        ctx.fillRect(innerL, rowTop, innerW, rowH);
-      }
+      ctx.fillStyle = stripeColor + '22';
+      ctx.fillRect(innerL, hdrTop, innerW, rowH);
+      ctx.fillStyle = stripeColor;
+      ctx.fillRect(innerL, hdrTop, 5, rowH);
 
-      const isBot = !!this.stats?.slotBotDifficulties?.[String(i)];
-      const raceColor = RACE_COLORS[p.race]?.primary ?? '#888';
-      const iconSz = tableFontSize * 1.0;
-      let textX = colX[0];
-
-      // Bot indicator icon (gear)
-      if (isBot) {
-        this.ui.drawIcon(ctx, 'settings', textX, y - iconSz + 2, iconSz);
-        textX += iconSz + 2;
-      }
-
-      // Race color dot
-      ctx.fillStyle = raceColor;
-      const dotR = tableFontSize * 0.32;
-      ctx.beginPath();
-      ctx.arc(textX + dotR, y - dotR + 1, dotR, 0, Math.PI * 2);
-      ctx.fill();
-      textX += dotR * 2 + 4;
-
-      // Player name — truncate to fit column
-      const label = this.slotLabel(i);
-      const raceStr = p.race.charAt(0).toUpperCase() + p.race.slice(1);
-      const fullText = `${label} ${raceStr}`;
-      ctx.font = `bold ${tableFontSize}px monospace`;
-      const maxTextW = colX[1] - textX - hdrIconSz - 4;
-      const truncated = this.truncateText(ctx, fullText, maxTextW);
+      const teamLabel = isLocalTeam ? 'YOUR TEAM' : 'ENEMY TEAM';
+      const outcomeLabel = isWinnerTeam ? 'VICTORY' : 'DEFEAT';
+      ctx.font = `bold ${tableFontSize * 0.75}px monospace`;
       ctx.textAlign = 'left';
-      const pc = PLAYER_COLORS[i];
-      ctx.fillStyle = this.darkenColor(pc, 0.6);
-      ctx.fillText(truncated, textX, y);
+      ctx.fillStyle = this.darkenColor(stripeColor, 0.7);
+      ctx.fillText(`${teamLabel}  ·  ${outcomeLabel}`, innerL + 10, hdrY - 2);
 
-      ctx.font = `${tableFontSize}px monospace`;
-      ctx.fillStyle = '#4a3518';
-      ctx.textAlign = 'right';
-      ctx.fillText(`${ps?.totalGoldEarned ?? 0}`, colX[1], y);
-      ctx.fillText(`${ps?.totalWoodEarned ?? 0}`, colX[2], y);
-      ctx.fillText(`${ps?.totalStoneEarned ?? 0}`, colX[3], y);
-      ctx.fillText(`${ps?.enemyUnitsKilled ?? 0}`, colX[4], y);
-      ctx.fillText(`${ps?.unitsLost ?? 0}`, colX[5], y);
-      ctx.font = `bold ${tableFontSize}px monospace`;
-      const totalDmg = ps?.totalDamageDealt ?? 0;
-      ctx.fillText(`${totalDmg}`, colX[6], y);
+      for (const i of indices) {
+        const p = state.players[i];
+        const ps = pStats[i];
+        rowIdx++;
+        const y = tableY + rowIdx * rowH;
+        const rowTop = y - rowH * 0.65;
+
+        // Alternating row backgrounds
+        if (rowIdx % 2 === 0) {
+          ctx.fillStyle = 'rgba(62,44,26,0.08)';
+          ctx.fillRect(innerL, rowTop, innerW, rowH);
+        }
+        // Highlight local player row
+        if (i === localPlayerId) {
+          ctx.fillStyle = 'rgba(41,121,255,0.15)';
+          ctx.fillRect(innerL, rowTop, innerW, rowH);
+        }
+
+        // Team stripe
+        ctx.fillStyle = stripeColor + 'bb';
+        ctx.fillRect(innerL, rowTop, 5, rowH);
+
+        const isBot = !!this.stats?.slotBotDifficulties?.[String(i)];
+        const raceColor = RACE_COLORS[p.race]?.primary ?? '#888';
+        const iconSz = tableFontSize * 1.0;
+        let textX = colX[0] + 8; // indent past stripe
+
+        // Bot indicator icon (gear)
+        if (isBot) {
+          this.ui.drawIcon(ctx, 'settings', textX, y - iconSz + 2, iconSz);
+          textX += iconSz + 2;
+        }
+
+        // Race color dot
+        ctx.fillStyle = raceColor;
+        const dotR = tableFontSize * 0.32;
+        ctx.beginPath();
+        ctx.arc(textX + dotR, y - dotR + 1, dotR, 0, Math.PI * 2);
+        ctx.fill();
+        textX += dotR * 2 + 4;
+
+        // Player name — truncate to fit column
+        const label = this.slotLabel(i);
+        const raceStr = p.race.charAt(0).toUpperCase() + p.race.slice(1);
+        const fullText = `${label} ${raceStr}`;
+        ctx.font = `bold ${tableFontSize}px monospace`;
+        const maxTextW = colX[1] - textX - hdrIconSz - 4;
+        const truncated = this.truncateText(ctx, fullText, maxTextW);
+        ctx.textAlign = 'left';
+        const pc = PLAYER_COLORS[i];
+        ctx.fillStyle = this.darkenColor(pc, 0.6);
+        ctx.fillText(truncated, textX, y);
+
+        ctx.font = `${tableFontSize}px monospace`;
+        ctx.fillStyle = '#4a3518';
+        ctx.textAlign = 'right';
+        ctx.fillText(`${ps?.totalGoldEarned ?? 0}`, colX[1], y);
+        ctx.fillText(`${ps?.totalWoodEarned ?? 0}`, colX[2], y);
+        ctx.fillText(`${ps?.totalStoneEarned ?? 0}`, colX[3], y);
+        ctx.fillText(`${ps?.enemyUnitsKilled ?? 0}`, colX[4], y);
+        ctx.fillText(`${ps?.unitsLost ?? 0}`, colX[5], y);
+        ctx.font = `bold ${tableFontSize}px monospace`;
+        ctx.fillText(`${ps?.totalDamageDealt ?? 0}`, colX[6], y);
+      }
     }
 
     // HQ HP — compact centered row: [US hp bar]  [ENEMY hp bar]
