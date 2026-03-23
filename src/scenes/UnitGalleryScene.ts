@@ -3,7 +3,7 @@ import { SpriteLoader, drawSpriteFrame, getSpriteFrame } from '../rendering/Spri
 import { UIAssets } from '../rendering/UIAssets';
 import { Race, BuildingType, TILE_SIZE } from '../simulation/types';
 import { loadProfile, checkNonMatchAchievement, ACHIEVEMENTS } from '../profile/ProfileData';
-import { UNIT_STATS, RACE_COLORS, UPGRADE_TREES, UpgradeNodeDef } from '../simulation/data';
+import { UNIT_STATS, RACE_COLORS, RACE_LABELS, UPGRADE_TREES, UpgradeNodeDef } from '../simulation/data';
 import { getUnitUpgradeMultipliers } from '../simulation/GameState';
 import { getElo, ELO_DEFAULT } from './TitleElo';
 import { getSafeTop } from '../ui/SafeArea';
@@ -21,12 +21,6 @@ const CATEGORIES: { bt: BuildingType; cat: 'melee' | 'ranged' | 'caster' }[] = [
   { bt: BuildingType.CasterSpawner, cat: 'caster' },
 ];
 
-const RACE_LABELS: Record<Race, string> = {
-  [Race.Crown]: 'CROWN', [Race.Horde]: 'HORDE', [Race.Goblins]: 'GOBLINS',
-  [Race.Oozlings]: 'OOZLINGS', [Race.Demon]: 'DEMON', [Race.Deep]: 'DEEP',
-  [Race.Wild]: 'WILD', [Race.Geists]: 'GEISTS', [Race.Tenders]: 'TENDERS',
-};
-
 // Upgrade path for each tab
 // A=base, B=tier1 choice1, C=tier1 choice2, D=B→choice1, E=B→choice2, F=C→choice1, G=C→choice2
 const TAB_PATHS: { label: string; path: string[]; desc: string }[] = [
@@ -40,7 +34,7 @@ const TAB_PATHS: { label: string; path: string[]; desc: string }[] = [
 ];
 
 // Display scale multiplier (visual only, not shown in %)
-const DISPLAY_SCALE = 2.0;
+const DISPLAY_SCALE = 1.0;
 
 export class UnitGalleryScene implements Scene {
   private manager: SceneManager;

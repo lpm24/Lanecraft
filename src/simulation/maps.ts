@@ -281,13 +281,13 @@ export const SKIRMISH_MAP: MapDef = {
 
   playerSlots: [
     // Team 0 (Left): P0=top, P1=mid, P2=bottom
-    { teamIndex: 0, buildGridOrigin: skBuildGridOrigin('left', 0), hutGridOrigin: skHutGridOrigin('left', 0) },
-    { teamIndex: 0, buildGridOrigin: skBuildGridOrigin('left', 1), hutGridOrigin: skHutGridOrigin('left', 1) },
-    { teamIndex: 0, buildGridOrigin: skBuildGridOrigin('left', 2), hutGridOrigin: skHutGridOrigin('left', 2) },
+    { teamIndex: 0, buildGridOrigin: skBuildGridOrigin('left', 0), hutGridOrigin: skHutGridOrigin('left', 0), defaultLane: Lane.Left },
+    { teamIndex: 0, buildGridOrigin: skBuildGridOrigin('left', 1), hutGridOrigin: skHutGridOrigin('left', 1), defaultLane: Lane.Right },
+    { teamIndex: 0, buildGridOrigin: skBuildGridOrigin('left', 2), hutGridOrigin: skHutGridOrigin('left', 2), defaultLane: Lane.Left },
     // Team 1 (Right): P3=top, P4=mid, P5=bottom
-    { teamIndex: 1, buildGridOrigin: skBuildGridOrigin('right', 0), hutGridOrigin: skHutGridOrigin('right', 0) },
-    { teamIndex: 1, buildGridOrigin: skBuildGridOrigin('right', 1), hutGridOrigin: skHutGridOrigin('right', 1) },
-    { teamIndex: 1, buildGridOrigin: skBuildGridOrigin('right', 2), hutGridOrigin: skHutGridOrigin('right', 2) },
+    { teamIndex: 1, buildGridOrigin: skBuildGridOrigin('right', 0), hutGridOrigin: skHutGridOrigin('right', 0), defaultLane: Lane.Left },
+    { teamIndex: 1, buildGridOrigin: skBuildGridOrigin('right', 1), hutGridOrigin: skHutGridOrigin('right', 1), defaultLane: Lane.Right },
+    { teamIndex: 1, buildGridOrigin: skBuildGridOrigin('right', 2), hutGridOrigin: skHutGridOrigin('right', 2), defaultLane: Lane.Left },
   ],
 
   lanePaths: [

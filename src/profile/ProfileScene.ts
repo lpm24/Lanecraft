@@ -2,7 +2,7 @@ import { Scene, SceneManager } from '../scenes/Scene';
 import { UIAssets } from '../rendering/UIAssets';
 import { SpriteLoader, drawSpriteFrame, getSpriteFrame } from '../rendering/SpriteLoader';
 import { Race, BuildingType } from '../simulation/types';
-import { RACE_COLORS, UNIT_STATS, UPGRADE_TREES } from '../simulation/data';
+import { RACE_COLORS, RACE_LABELS as _RACE_LABELS_UPPER, UNIT_STATS, UPGRADE_TREES } from '../simulation/data';
 import {
   PlayerProfile, loadProfile, saveProfile,
   ACHIEVEMENTS, ALL_AVATARS,
@@ -15,11 +15,10 @@ const ALL_RACES: Race[] = [
   Race.Crown, Race.Horde, Race.Goblins, Race.Oozlings, Race.Demon,
   Race.Deep, Race.Wild, Race.Geists, Race.Tenders,
 ];
-const RACE_LABELS: Record<Race, string> = {
-  [Race.Crown]: 'Crown', [Race.Horde]: 'Horde', [Race.Goblins]: 'Goblins',
-  [Race.Oozlings]: 'Oozlings', [Race.Demon]: 'Demon', [Race.Deep]: 'Deep',
-  [Race.Wild]: 'Wild', [Race.Geists]: 'Geists', [Race.Tenders]: 'Tenders',
-};
+// Title-case labels derived from shared uppercase constants
+const RACE_LABELS: Record<Race, string> = Object.fromEntries(
+  Object.entries(_RACE_LABELS_UPPER).map(([k, v]) => [k, v.charAt(0) + v.slice(1).toLowerCase()])
+) as Record<Race, string>;
 
 const CAT_TO_BUILDING: Record<string, BuildingType> = {
   melee: BuildingType.MeleeSpawner,

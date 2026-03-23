@@ -7,11 +7,12 @@ import {
   AbilityTargetMode,
 } from '../simulation/types';
 import { getBuildGridOrigin, getTeamAlleyOrigin, getHutGridOrigin } from '../simulation/GameState';
-import { RACE_BUILDING_COSTS, UNIT_STATS, TOWER_STATS, RACE_COLORS, getRaceUsedResources, UPGRADE_TREES, RACE_ABILITY_INFO, RACE_ABILITY_DEFS, TOWER_COST_SCALE } from '../simulation/data';
+import { RACE_BUILDING_COSTS, UNIT_STATS, TOWER_STATS, RACE_COLORS, RACE_ABILITY_INFO, RACE_ABILITY_DEFS, TOWER_COST_SCALE, getUpgradeNodeDef } from '../simulation/data';
 import { TICK_RATE } from '../simulation/types';
 import { UIAssets } from '../rendering/UIAssets';
 import { SpriteLoader, drawSpriteFrame, getSpriteFrame } from '../rendering/SpriteLoader';
 import { BuildingPopup } from './BuildingPopup';
+import { HutPopup } from './HutPopup';
 import { ResearchPopup } from './ResearchPopup';
 import { getSafeBottom, getSafeTop } from './SafeArea';
 import { getAudioSettings, updateAudioSettings } from '../audio/AudioSettings';
@@ -31,13 +32,6 @@ const BUILD_TRAY: BuildTrayItem[] = [
   { type: BuildingType.Tower, label: 'Tower', key: '5' },
 ];
 
-const ASSIGNMENT_CYCLE: HarvesterAssignment[] = [
-  HarvesterAssignment.BaseGold,
-  HarvesterAssignment.Wood,
-  HarvesterAssignment.Stone,
-  HarvesterAssignment.Center,
-];
-
 const ASSIGNMENT_LABELS: Record<HarvesterAssignment, string> = {
   [HarvesterAssignment.BaseGold]: '* Gold',
   [HarvesterAssignment.Wood]: 'W Wood',
@@ -45,15 +39,6 @@ const ASSIGNMENT_LABELS: Record<HarvesterAssignment, string> = {
   [HarvesterAssignment.Center]: 'C Center',
   [HarvesterAssignment.Mana]: '~ Mana',
 };
-
-// Demon gets Mana in the assignment cycle
-const DEMON_ASSIGNMENT_CYCLE: HarvesterAssignment[] = [
-  HarvesterAssignment.BaseGold,
-  HarvesterAssignment.Wood,
-  HarvesterAssignment.Stone,
-  HarvesterAssignment.Center,
-  HarvesterAssignment.Mana,
-];
 
 const LANE_MODE_STORAGE_KEY = 'lanecraft.laneToggleMode';
 const UI_FEEDBACK_STORAGE_KEY = 'lanecraft.uiFeedbackEnabled';
@@ -112,8 +97,13 @@ export class InputHandler {
   private ui: UIAssets;
   private sprites: SpriteLoader | null = null;
   private buildingPopup = new BuildingPopup();
+  private hutPopup = new HutPopup();
   private researchPopup = new ResearchPopup();
   private trayTick = 0;
+  /** Active rally override — all spawners send to this lane while set. */
+  private rallyOverride: Lane | null = null;
+  /** Saved per-building lane assignments before rally override was activated. */
+  private rallyPrevLanes: Map<number, Lane> = new Map();
 
   /** Called when the player taps "Quit Game" in the settings panel. */
   onQuitGame: (() => void) | null = null;
@@ -684,12 +674,13 @@ export class InputHandler {
         const resBuilding = st.buildings.find(b => b.playerId === this.pid && b.type === BuildingType.Research);
         if (resBuilding) {
           if (this.researchPopup.isOpen()) { this.researchPopup.close(); }
-          else { this.buildingPopup.close(); this.researchPopup.open(resBuilding.id); this.selectedBuildingId = resBuilding.id; }
+          else { this.buildingPopup.close(); this.hutPopup.close(); this.researchPopup.open(resBuilding.id); this.selectedBuildingId = resBuilding.id; }
         }
         return;
       }
       if (e.key === 'Escape') {
         if (this.researchPopup.isOpen()) { this.researchPopup.close(); return; }
+        if (this.hutPopup.isOpen()) { this.hutPopup.close(); return; }
         if (this.buildingPopup.isOpen()) { this.buildingPopup.close(); return; }
         if (this.showTutorial) { this.showTutorial = false; return; }
         this.quickChatRadialActive = false;
@@ -703,6 +694,9 @@ export class InputHandler {
         this.selectedUnitId = null;
       }
       if (e.key === 'l' || e.key === 'L') {
+        // Cancel any active rally override
+        this.rallyOverride = null;
+        this.rallyPrevLanes.clear();
         const myBuildings = this.game.state.buildings.filter(b => b.playerId === this.pid);
         const currentLane = myBuildings.length > 0 ? myBuildings[0].lane : Lane.Left;
         this.game.sendCommand({ type: 'toggle_all_lanes', playerId: this.pid, lane: currentLane === Lane.Left ? Lane.Right : Lane.Left });
@@ -1004,6 +998,9 @@ export class InputHandler {
       if (this.buildingPopup.isOpen()) {
         this.buildingPopup.close();
       }
+      if (this.hutPopup.isOpen()) {
+        this.hutPopup.close();
+      }
       const wx = tileXf;
       const wy = tileYf;
       const unit = this.findUnitNear(wx, wy, 1.2);
@@ -1020,27 +1017,11 @@ export class InputHandler {
       return;
     }
 
-    // Click on hut: cycle harvester assignment (skip resources the race doesn't use)
+    // Click on hut: open hut popup
     if (building.type === BuildingType.HarvesterHut) {
-      const h = this.game.state.harvesters.find(h => h.hutId === building.id);
-      if (h) {
-        const player = this.game.state.players[this.pid];
-        const used = player ? getRaceUsedResources(player.race) : { gold: true, wood: true, stone: true };
-        const baseCycle = player?.race === Race.Demon ? DEMON_ASSIGNMENT_CYCLE : ASSIGNMENT_CYCLE;
-        const cycle = baseCycle.filter(a =>
-          a === HarvesterAssignment.Center ||
-          a === HarvesterAssignment.Mana ||
-          (a === HarvesterAssignment.BaseGold && used.gold) ||
-          (a === HarvesterAssignment.Wood && used.wood) ||
-          (a === HarvesterAssignment.Stone && used.stone)
-        );
-        const curIdx = cycle.indexOf(h.assignment);
-        const nextAssignment = cycle[(curIdx + 1) % cycle.length];
-        this.game.sendCommand({
-          type: 'set_hut_assignment', playerId: this.pid,
-          hutId: building.id, assignment: nextAssignment,
-        });
-      }
+      this.buildingPopup.close();
+      this.researchPopup.close();
+      this.hutPopup.open(building.id);
       return;
     }
 
@@ -1048,6 +1029,7 @@ export class InputHandler {
     if (building.isFoundry || building.isPotionShop || building.isGlobule || building.isSeed) return;
 
     // Open building popup for spawners and towers
+    this.hutPopup.close();
     const isMobile = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
     this.buildingPopup.open(building.id, isMobile);
   }
@@ -1336,7 +1318,16 @@ export class InputHandler {
     const nukeRect = { x: nukeX, y: nukeY, w: nukeW, h: nukeH };
     // Floating research button above ability (col 5) — mirrors nuke
     const researchRect = { x: Math.round(5 * milW + (milW - nukeW) / 2), y: nukeY, w: nukeW, h: nukeH };
-    return { W, H, milH, milY, milW, safeBottom, nukeRect, researchRect };
+    // Rally buttons — centered above tray, same size as research/nuke buttons
+    const rallyBtnW = nukeW;
+    const rallyBtnH = nukeH;
+    const rallyGap = 8;
+    const rallyTotalW = rallyBtnW * 2 + rallyGap;
+    const rallyX0 = Math.round((W - rallyTotalW) / 2);
+    const rallyY = nukeY;
+    const rallyLeftRect = { x: rallyX0, y: rallyY, w: rallyBtnW, h: rallyBtnH };
+    const rallyRightRect = { x: rallyX0 + rallyBtnW + rallyGap, y: rallyY, w: rallyBtnW, h: rallyBtnH };
+    return { W, H, milH, milY, milW, safeBottom, nukeRect, researchRect, rallyLeftRect, rallyRightRect };
   }
 
   private processQueuedQuickChat(): void {
@@ -1410,6 +1401,9 @@ export class InputHandler {
               if (this.game.state.players[this.pid]?.race === Race.Oozlings) {
                 this.laneToast = { text: 'Ooze Must Ooze', until: Date.now() + 1500 };
               } else {
+                // Cancel rally override when manually toggling a building
+                this.rallyOverride = null;
+                this.rallyPrevLanes.clear();
                 const nextLane = b.lane === Lane.Left ? Lane.Right : Lane.Left;
                 this.game.sendCommand({ type: 'toggle_lane', playerId: this.pid, buildingId: bId, lane: nextLane });
               }
@@ -1424,6 +1418,35 @@ export class InputHandler {
       if (this.buildingPopup.containsPoint(popupCx, popupCy)) return true;
       // Click outside popup — close it
       this.buildingPopup.close();
+    }
+
+    // Hut popup takes priority
+    if (this.hutPopup.isOpen()) {
+      const result = this.hutPopup.handleClick(popupCx, popupCy);
+      if (result) {
+        const bId = this.hutPopup.getBuildingId();
+        if (bId !== null) {
+          if (result.action === 'assign') {
+            this.game.sendCommand({
+              type: 'set_hut_assignment', playerId: this.pid,
+              hutId: bId, assignment: result.assignment,
+            });
+          } else if (result.action === 'center_builder') {
+            const h = this.game.state.harvesters.find(h => h.hutId === bId);
+            if (h) {
+              this.camera.panTo(h.x * TILE_SIZE, h.y * TILE_SIZE);
+            }
+            this.hutPopup.close();
+          } else if (result.action === 'close') {
+            this.hutPopup.close();
+          }
+        }
+        return true;
+      }
+      // Click inside popup but not on a button
+      if (this.hutPopup.containsPoint(popupCx, popupCy)) return true;
+      // Click outside popup — close it
+      this.hutPopup.close();
     }
     const cx = e.clientX - rect.left;
     const cy = e.clientY - rect.top;
@@ -1450,7 +1473,7 @@ export class InputHandler {
     if (cy >= milY + milH) return true;
 
     // Floating nuke button (above miner)
-    const { nukeRect, researchRect } = this.getTrayLayout();
+    const { nukeRect, researchRect, rallyLeftRect, rallyRightRect } = this.getTrayLayout();
     if (cx >= nukeRect.x && cx < nukeRect.x + nukeRect.w &&
         cy >= nukeRect.y && cy < nukeRect.y + nukeRect.h) {
       if (player.nukeAvailable && !this.isNukeLocked()) {
@@ -1468,10 +1491,46 @@ export class InputHandler {
       );
       if (resBuilding) {
         this.buildingPopup.close();
+        this.hutPopup.close();
         this.researchPopup.open(resBuilding.id);
         this.selectedBuildingId = resBuilding.id;
       }
       return true;
+    }
+
+    // Rally override buttons (above tray, centered)
+    if (player.race !== Race.Oozlings) {
+      const hitLeft = cx >= rallyLeftRect.x && cx < rallyLeftRect.x + rallyLeftRect.w &&
+                      cy >= rallyLeftRect.y && cy < rallyLeftRect.y + rallyLeftRect.h;
+      const hitRight = cx >= rallyRightRect.x && cx < rallyRightRect.x + rallyRightRect.w &&
+                       cy >= rallyRightRect.y && cy < rallyRightRect.y + rallyRightRect.h;
+      if (hitLeft || hitRight) {
+        const targetLane = hitLeft ? Lane.Left : Lane.Right;
+        if (this.rallyOverride === targetLane) {
+          // Cancel — restore previous lanes
+          for (const b of this.game.state.buildings) {
+            if (b.playerId === this.pid && b.type !== BuildingType.Tower) {
+              const prev = this.rallyPrevLanes.get(b.id);
+              if (prev !== undefined) {
+                this.game.sendCommand({ type: 'toggle_lane', playerId: this.pid, buildingId: b.id, lane: prev });
+              }
+            }
+          }
+          this.rallyOverride = null;
+          this.rallyPrevLanes.clear();
+        } else {
+          // Activate — save current lanes then override all
+          this.rallyPrevLanes.clear();
+          for (const b of this.game.state.buildings) {
+            if (b.playerId === this.pid && b.type !== BuildingType.Tower) {
+              this.rallyPrevLanes.set(b.id, b.lane);
+            }
+          }
+          this.rallyOverride = targetLane;
+          this.game.sendCommand({ type: 'toggle_all_lanes', playerId: this.pid, lane: targetLane });
+        }
+        return true;
+      }
     }
 
     if (cy >= milY && cy < milY + milH) {
@@ -1797,7 +1856,9 @@ export class InputHandler {
       const abCostWood = Math.floor((abDef.baseCost.wood ?? 0) * growMult);
       const abCostStone = Math.floor((abDef.baseCost.stone ?? 0) * growMult);
       const abCostMana = Math.floor((abDef.baseCost.mana ?? 0) * growMult);
-      const abCostSouls = Math.floor((abDef.baseCost.souls ?? 0) * growMult);
+      const abCostSouls = player.race === Race.Geists
+        ? (abDef.baseCost.souls ?? 0) + 5 * player.abilityUseCount
+        : Math.floor((abDef.baseCost.souls ?? 0) * growMult);
       const abCostEssence = Math.floor((abDef.baseCost.deathEssence ?? 0) * growMult);
       const canAffordAbility = isTendersSeeds ? seedStacks > 0 : (!onCooldown &&
         player.gold >= abCostGold && player.wood >= abCostWood && player.stone >= abCostStone &&
@@ -1815,6 +1876,8 @@ export class InputHandler {
 
       const abCx = abX + milW / 2;
       const adjY = isActive ? milY - 6 : milY;
+      const abBaseY = isActive ? spriteBaseY - 6 : spriteBaseY;
+      const abTextY = abBaseY + 3;
 
       // Ability icon — try unit sprite for Horde troll, else canvas-drawn
       ctx.globalAlpha = (onCooldown || !canAffordAbility) ? 0.4 : 1;
@@ -1829,8 +1892,7 @@ export class InputHandler {
           const iconH = spriteSize;
           const aspect = def.frameW / def.frameH;
           const iconW = iconH * aspect;
-          const iconBaseY = isActive ? spriteBaseY - 6 : spriteBaseY;
-          drawSpriteFrame(ctx, img, def, frame, Math.round(abCx - iconW / 2), Math.round(iconBaseY - iconH * (def.groundY ?? 0.71)), iconW, iconH);
+          drawSpriteFrame(ctx, img, def, frame, Math.round(abCx - iconW / 2), Math.round(abBaseY - iconH * (def.groundY ?? 0.71)), iconW, iconH);
           drewSprite = true;
         }
       }
@@ -1840,7 +1902,7 @@ export class InputHandler {
       // Ability name
       ctx.fillStyle = (onCooldown || !canAffordAbility) ? '#888' : '#e1bee7';
       ctx.font = 'bold 11px monospace';
-      ctx.fillText(abilityInfo.name, abCx, adjY + 38);
+      ctx.fillText(abilityInfo.name, abCx, abTextY + 10);
       ctx.globalAlpha = 1;
 
       // Tenders: show stack count in bottom-left, cooldown timer when 0 stacks
@@ -1900,7 +1962,7 @@ export class InputHandler {
               if (i < abCostEntries.length - 1) totalW += gap;
             }
             let dx = abCx - totalW / 2;
-            const dy = adjY + 50;
+            const dy = abTextY + 24;
             for (let i = 0; i < abCostEntries.length; i++) {
               const e = abCostEntries[i];
               ctx.globalAlpha = canAffordAbility ? 1 : 0.45;
@@ -1989,6 +2051,49 @@ export class InputHandler {
       ctx.fillText('[R]', rr.x + rr.w / 2, rr.y + rr.h - 2);
     }
 
+    // === Rally override buttons (centered above tray) ===
+    if (player.race !== Race.Oozlings) {
+      const { rallyLeftRect: rl, rallyRightRect: rr2 } = this.getTrayLayout();
+      const isLandscape = this.game.state.mapDef.shapeAxis === 'x';
+      const leftLabel = isLandscape ? 'ALL TOP' : 'ALL LEFT';
+      const rightLabel = isLandscape ? 'ALL DOWN' : 'ALL RIGHT';
+      const isLeftActive = this.rallyOverride === Lane.Left;
+      const isRightActive = this.rallyOverride === Lane.Right;
+
+      // Sync: if rally is active, ensure any new buildings are also overridden
+      if (this.rallyOverride !== null) {
+        for (const b of this.game.state.buildings) {
+          if (b.playerId === this.pid && b.type !== BuildingType.Tower && b.lane !== this.rallyOverride) {
+            if (!this.rallyPrevLanes.has(b.id)) {
+              this.rallyPrevLanes.set(b.id, b.lane);
+            }
+            this.game.sendCommand({ type: 'toggle_lane', playerId: this.pid, buildingId: b.id, lane: this.rallyOverride });
+          }
+        }
+      }
+
+      // Draw rally buttons (same style as research/nuke)
+      const pad = 2;
+      const drawRallyBtn = (rect: { x: number; y: number; w: number; h: number }, label: string, active: boolean, disabled: boolean) => {
+        ctx.globalAlpha = disabled ? 0.35 : 1;
+        if (active) {
+          this.ui.drawBigRedButton(ctx, rect.x + pad, rect.y + pad, rect.w - pad * 2, rect.h - pad * 2, true);
+        } else {
+          this.ui.drawBigBlueButton(ctx, rect.x + pad, rect.y + pad, rect.w - pad * 2, rect.h - pad * 2);
+        }
+        ctx.globalAlpha = 1;
+        ctx.textAlign = 'center';
+        ctx.fillStyle = disabled ? '#888' : '#fff';
+        ctx.font = 'bold 11px monospace';
+        ctx.fillText(active ? 'CANCEL' : label, rect.x + rect.w / 2, rect.y + rect.h / 2 + 2);
+        ctx.fillStyle = '#888';
+        ctx.font = '11px monospace';
+        ctx.fillText(active ? '' : '[L]', rect.x + rect.w / 2, rect.y + rect.h - 2);
+      };
+      drawRallyBtn(rl, leftLabel, isLeftActive, isRightActive);
+      drawRallyBtn(rr2, rightLabel, isRightActive, isLeftActive);
+    }
+
     if (quickChatCdMs > 0) {
       ctx.textAlign = 'left';
       ctx.fillStyle = '#ffcc80';
@@ -2048,6 +2153,12 @@ export class InputHandler {
     if (this.buildingPopup.isOpen()) {
       this.buildingPopup.draw(ctx, this.camera, this.game.state, this.ui,
         W, this.canvas.clientHeight, player.gold, player.wood, player.stone, this.sprites);
+    }
+
+    // Hut popup (in-world)
+    if (this.hutPopup.isOpen()) {
+      this.hutPopup.draw(ctx, this.camera, this.game.state, this.ui,
+        W, this.canvas.clientHeight);
     }
 
     // Research popup
@@ -2213,8 +2324,8 @@ export class InputHandler {
           caster: BuildingType.CasterSpawner,
         };
         const bld = catToBld[u.category];
-        const tree = bld && (UPGRADE_TREES as any)[race]?.[bld]?.[u.upgradeNode];
-        const nodeName = tree?.name as string | undefined;
+        const tree = bld && getUpgradeNodeDef(race, bld, u.upgradeNode ?? '');
+        const nodeName = tree?.name;
         if (nodeName) name = nodeName;
       }
     }

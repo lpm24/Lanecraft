@@ -8,7 +8,7 @@ export const RACE_BUILDING_COSTS: Record<Race, Record<BuildingType, { gold: numb
     [BuildingType.MeleeSpawner]:  { gold: 85,  wood: 0,  stone: 0,  hp: 280 },
     [BuildingType.RangedSpawner]: { gold: 0,   wood: 30,  stone: 0,  hp: 230 },
     [BuildingType.CasterSpawner]: { gold: 75,  wood: 10, stone: 0,  hp: 200 },
-    [BuildingType.Tower]:         { gold: 113, wood: 0,  stone: 10, hp: 220 },
+    [BuildingType.Tower]:         { gold: 80,  wood: 10, stone: 0,  hp: 220 },
     [BuildingType.HarvesterHut]:  { gold: 50,  wood: 0,  stone: 0,  hp: 150 },
     [BuildingType.Research]:      { gold: 0,   wood: 0,  stone: 0,  hp: 500 },
   },
@@ -39,40 +39,40 @@ export const RACE_BUILDING_COSTS: Record<Race, Record<BuildingType, { gold: numb
     [BuildingType.HarvesterHut]:  { gold: 35,  wood: 0,  stone: 10, hp: 130 },
     [BuildingType.Research]:      { gold: 0,   wood: 0,  stone: 0,  hp: 500 },
   },
-  // Demon: Stone+Wood economy. No gold. Glass cannon, reduced costs.
+  // Demon: Stone+Wood economy. No gold. Variable — melee is stone-heavy, ranged is wood-heavy.
   [Race.Demon]: {
-    [BuildingType.MeleeSpawner]:  { gold: 0,  wood: 12, stone: 27, hp: 200 },
-    [BuildingType.RangedSpawner]: { gold: 0,  wood: 15, stone: 31, hp: 170 },
-    [BuildingType.CasterSpawner]: { gold: 0,  wood: 20, stone: 38, hp: 140 },
-    [BuildingType.Tower]:         { gold: 0,  wood: 15, stone: 32, hp: 160 },
-    [BuildingType.HarvesterHut]:  { gold: 0,  wood: 8,  stone: 14, hp: 120 },
+    [BuildingType.MeleeSpawner]:  { gold: 0,  wood: 5,  stone: 35, hp: 200 },
+    [BuildingType.RangedSpawner]: { gold: 0,  wood: 30, stone: 15, hp: 170 },
+    [BuildingType.CasterSpawner]: { gold: 0,  wood: 25, stone: 35, hp: 140 },
+    [BuildingType.Tower]:         { gold: 0,  wood: 8,  stone: 42, hp: 160 },
+    [BuildingType.HarvesterHut]:  { gold: 0,  wood: 15, stone: 8,  hp: 120 },
     [BuildingType.Research]:      { gold: 0,  wood: 0,  stone: 0,  hp: 500 },
   },
-  // Deep: Wood+Gold economy. Very durable buildings.
+  // Deep: Wood+Gold economy. Variable — melee is gold-heavy, ranged/tower are wood-heavy.
   [Race.Deep]: {
-    [BuildingType.MeleeSpawner]:  { gold: 68, wood: 10, stone: 0,  hp: 380 },
-    [BuildingType.RangedSpawner]: { gold: 30, wood: 55, stone: 0,  hp: 300 },
-    [BuildingType.CasterSpawner]: { gold: 30, wood: 55, stone: 0,  hp: 260 },
-    [BuildingType.Tower]:         { gold: 23, wood: 53, stone: 0,  hp: 280 },
-    [BuildingType.HarvesterHut]:  { gold: 15, wood: 30, stone: 0,  hp: 170 },
+    [BuildingType.MeleeSpawner]:  { gold: 55, wood: 20, stone: 0,  hp: 380 },
+    [BuildingType.RangedSpawner]: { gold: 15, wood: 55, stone: 0,  hp: 300 },
+    [BuildingType.CasterSpawner]: { gold: 40, wood: 40, stone: 0,  hp: 260 },
+    [BuildingType.Tower]:         { gold: 15, wood: 60, stone: 0,  hp: 280 },
+    [BuildingType.HarvesterHut]:  { gold: 25, wood: 18, stone: 0,  hp: 170 },
     [BuildingType.Research]:      { gold: 0,  wood: 0,  stone: 0,  hp: 500 },
   },
-  // Wild: Wood+Stone economy. No gold. Medium buildings.
+  // Wild: Wood+Stone economy. No gold. Variable — melee is wood-heavy, ranged is stone-heavy.
   [Race.Wild]: {
-    [BuildingType.MeleeSpawner]:  { gold: 0,  wood: 30, stone: 15, hp: 250 },
-    [BuildingType.RangedSpawner]: { gold: 0,  wood: 35, stone: 18, hp: 220 },
-    [BuildingType.CasterSpawner]: { gold: 0,  wood: 40, stone: 22, hp: 190 },
-    [BuildingType.Tower]:         { gold: 0,  wood: 34, stone: 19, hp: 200 },
-    [BuildingType.HarvesterHut]:  { gold: 0,  wood: 18, stone: 8,  hp: 140 },
+    [BuildingType.MeleeSpawner]:  { gold: 0,  wood: 40, stone: 5,  hp: 250 },
+    [BuildingType.RangedSpawner]: { gold: 0,  wood: 15, stone: 35, hp: 220 },
+    [BuildingType.CasterSpawner]: { gold: 0,  wood: 30, stone: 30, hp: 190 },
+    [BuildingType.Tower]:         { gold: 0,  wood: 42, stone: 10, hp: 200 },
+    [BuildingType.HarvesterHut]:  { gold: 0,  wood: 10, stone: 16, hp: 140 },
     [BuildingType.Research]:      { gold: 0,  wood: 0,  stone: 0,  hp: 500 },
   },
-  // Geists: Stone+Gold economy. Medium buildings.
+  // Geists: Stone+Gold economy. Variable ratios — melee is cheap stone, caster is gold-heavy.
   [Race.Geists]: {
-    [BuildingType.MeleeSpawner]:  { gold: 20, wood: 0,  stone: 35, hp: 240 },
-    [BuildingType.RangedSpawner]: { gold: 25, wood: 0,  stone: 40, hp: 210 },
-    [BuildingType.CasterSpawner]: { gold: 30, wood: 0,  stone: 48, hp: 180 },
-    [BuildingType.Tower]:         { gold: 19, wood: 0,  stone: 41, hp: 180 },
-    [BuildingType.HarvesterHut]:  { gold: 12, wood: 0,  stone: 18, hp: 130 },
+    [BuildingType.MeleeSpawner]:  { gold: 10, wood: 0,  stone: 45, hp: 240 },
+    [BuildingType.RangedSpawner]: { gold: 35, wood: 0,  stone: 25, hp: 210 },
+    [BuildingType.CasterSpawner]: { gold: 45, wood: 0,  stone: 30, hp: 180 },
+    [BuildingType.Tower]:         { gold: 15, wood: 0,  stone: 45, hp: 180 },
+    [BuildingType.HarvesterHut]:  { gold: 8,  wood: 0,  stone: 22, hp: 130 },
     [BuildingType.Research]:      { gold: 0,  wood: 0,  stone: 0,  hp: 500 },
   },
   // Tenders: Wood+Gold economy. Durable natural buildings.
@@ -91,11 +91,15 @@ export function getBuildingCost(race: Race, type: BuildingType) {
   return RACE_BUILDING_COSTS[race][type];
 }
 
-// Keep old BUILDING_COSTS as Crown defaults for any code that still uses it
-export const BUILDING_COSTS = RACE_BUILDING_COSTS[Race.Crown];
+/** Uppercase display labels for each race. */
+export const RACE_LABELS: Record<Race, string> = {
+  [Race.Crown]: 'CROWN', [Race.Horde]: 'HORDE', [Race.Goblins]: 'GOBLINS',
+  [Race.Oozlings]: 'OOZLINGS', [Race.Demon]: 'DEMON', [Race.Deep]: 'DEEP',
+  [Race.Wild]: 'WILD', [Race.Geists]: 'GEISTS', [Race.Tenders]: 'TENDERS',
+};
 
 // Race-specific upgrade costs
-export const RACE_UPGRADE_COSTS: Record<Race, { tier1: { gold: number; wood: number; stone: number; deathEssence?: number }; tier2: { gold: number; wood: number; stone: number; deathEssence?: number } }> = {
+export const RACE_UPGRADE_COSTS: Record<Race, { tier1: { gold: number; wood: number; stone: number; deathEssence?: number; souls?: number }; tier2: { gold: number; wood: number; stone: number; deathEssence?: number; souls?: number } }> = {
   [Race.Crown]:    { tier1: { gold: 55,  wood: 0,  stone: 0 },  tier2: { gold: 90,  wood: 30, stone: 0 } },
   [Race.Horde]:    { tier1: { gold: 30,  wood: 20, stone: 20 }, tier2: { gold: 60,  wood: 40, stone: 40 } },
   [Race.Goblins]:  { tier1: { gold: 45,  wood: 15, stone: 0 },  tier2: { gold: 90,  wood: 30, stone: 0 } },
@@ -103,17 +107,15 @@ export const RACE_UPGRADE_COSTS: Record<Race, { tier1: { gold: number; wood: num
   [Race.Demon]:    { tier1: { gold: 0,   wood: 15, stone: 35 }, tier2: { gold: 0,   wood: 30, stone: 70 } },
   [Race.Deep]:     { tier1: { gold: 20,  wood: 35, stone: 0 },  tier2: { gold: 40,  wood: 70, stone: 0 } },
   [Race.Wild]:     { tier1: { gold: 0,   wood: 25, stone: 15 }, tier2: { gold: 0,   wood: 50, stone: 30 } },
-  [Race.Geists]:   { tier1: { gold: 15,  wood: 0,  stone: 35 }, tier2: { gold: 30,  wood: 0,  stone: 70 } },
+  [Race.Geists]:   { tier1: { gold: 0,  wood: 0,  stone: 0, souls: 15 }, tier2: { gold: 0,  wood: 0,  stone: 0, souls: 25 } },
   [Race.Tenders]:  { tier1: { gold: 20,  wood: 35, stone: 0 },  tier2: { gold: 40,  wood: 70, stone: 0 } },
 };
 
-// Keep old flat export for backwards compat
-export const UPGRADE_COSTS = RACE_UPGRADE_COSTS[Race.Crown];
 
 // Get upgrade cost for a specific node, respecting per-node cost overrides
 export function getNodeUpgradeCost(
   race: Race, buildingType: BuildingType, currentPathLen: number, choice?: string
-): { gold: number; wood: number; stone: number; deathEssence?: number } {
+): { gold: number; wood: number; stone: number; deathEssence?: number; souls?: number } {
   const costs = RACE_UPGRADE_COSTS[race];
   // Check per-node cost override
   if (choice) {
@@ -196,7 +198,7 @@ export const UNIT_STATS: Record<Race, RaceUnits> = {
   // === CROWN (Humans) — Balanced Allrounders ===
   [Race.Crown]: {
     [BuildingType.MeleeSpawner]: {
-      name: 'Swordsman', hp: 94, damage: 11, attackSpeed: 1.1, moveSpeed: 3.5, range: 1, ascii: '[+]',
+      name: 'Swordsman', hp: 94, damage: 12, attackSpeed: 1.1, moveSpeed: 3.5, range: 1, ascii: '[+]',
     },
     [BuildingType.RangedSpawner]: {
       name: 'Bowman', hp: 38, damage: 11, attackSpeed: 1.3, moveSpeed: 3.5, range: 7, ascii: '>>',
@@ -226,7 +228,7 @@ export const UNIT_STATS: Record<Race, RaceUnits> = {
       name: 'Knifer', hp: 29, damage: 10, attackSpeed: 1.0, moveSpeed: 4.5, range: 6, ascii: '~>',
     },
     [BuildingType.CasterSpawner]: {
-      name: 'Hexer', hp: 31, damage: 10, attackSpeed: 2.2, moveSpeed: 3.5, range: 7, ascii: '{G}',
+      name: 'Hexer', hp: 31, damage: 12, attackSpeed: 2.2, moveSpeed: 3.5, range: 7, ascii: '{G}',
     },
   },
   // === OOZLINGS (Slimes) — Adaptive Swarm ===
@@ -235,7 +237,7 @@ export const UNIT_STATS: Record<Race, RaceUnits> = {
       name: 'Globule', hp: 46, damage: 5, attackSpeed: 0.9, moveSpeed: 4.2, range: 1, ascii: 'o', spawnCount: 2,
     },
     [BuildingType.RangedSpawner]: {
-      name: 'Spitter', hp: 24, damage: 6, attackSpeed: 1.1, moveSpeed: 3.8, range: 6, ascii: 'O~', spawnCount: 2,
+      name: 'Spitter', hp: 24, damage: 8, attackSpeed: 1.1, moveSpeed: 3.8, range: 6, ascii: 'O~', spawnCount: 2,
     },
     [BuildingType.CasterSpawner]: {
       name: 'Bloater', hp: 31, damage: 12, attackSpeed: 2.4, moveSpeed: 2.8, range: 6, ascii: '{O}', spawnCount: 2,
@@ -244,10 +246,10 @@ export const UNIT_STATS: Record<Race, RaceUnits> = {
   // === DEMON — Glass Cannon Chaos ===
   [Race.Demon]: {
     [BuildingType.MeleeSpawner]: {
-      name: 'Smasher', hp: 75, damage: 10, attackSpeed: 1.0, moveSpeed: 4.2, range: 1, ascii: '/X\\',
+      name: 'Smasher', hp: 75, damage: 12, attackSpeed: 1.0, moveSpeed: 4.2, range: 1, ascii: '/X\\',
     },
     [BuildingType.RangedSpawner]: {
-      name: 'Eye Sniper', hp: 38, damage: 14, attackSpeed: 1.4, moveSpeed: 3.5, range: 8, ascii: '@>',
+      name: 'Eye Sniper', hp: 38, damage: 16, attackSpeed: 1.4, moveSpeed: 3.5, range: 8, ascii: '@>',
     },
     [BuildingType.CasterSpawner]: {
       name: 'Overlord', hp: 40, damage: 15, attackSpeed: 2.2, moveSpeed: 2.5, range: 7, ascii: '{D}',
@@ -286,7 +288,7 @@ export const UNIT_STATS: Record<Race, RaceUnits> = {
       name: 'Wraith Bow', hp: 29, damage: 13, attackSpeed: 1.2, moveSpeed: 3.8, range: 7, ascii: '~>',
     },
     [BuildingType.CasterSpawner]: {
-      name: 'Necromancer', hp: 32, damage: 13, attackSpeed: 2.4, moveSpeed: 3.0, range: 7, ascii: '{V}',
+      name: 'Necromancer', hp: 32, damage: 15, attackSpeed: 2.4, moveSpeed: 3.0, range: 7, ascii: '{V}',
     },
   },
   // === TENDERS (Nature/Fey) — Sustain & Healing ===
@@ -416,6 +418,11 @@ export interface UpgradeNodeDef {
 }
 
 type UpgradeNode = 'B' | 'C' | 'D' | 'E' | 'F' | 'G';
+
+/** Typed accessor for UPGRADE_TREES — avoids `as any` casts when indexing with dynamic strings. */
+export function getUpgradeNodeDef(race: Race, type: BuildingType, node: string): UpgradeNodeDef | undefined {
+  return (UPGRADE_TREES[race]?.[type] as Record<string, UpgradeNodeDef> | undefined)?.[node];
+}
 
 // Upgrade trees: Race -> BuildingType -> Node -> Definition
 // Tree shape: A (base) -> B or C (tier 1) -> D/E (under B) or F/G (under C)
@@ -758,9 +765,9 @@ export const RACE_ABILITY_INFO: Record<Race, { name: string; key: string; desc: 
   [Race.Goblins]:  { name: 'Potions',   key: '5', desc: 'Build a Potion Shop. Buffs nearby allies.' },
   [Race.Oozlings]: { name: 'Globule',   key: '5', desc: 'Build a Globule. Spawns extra oozlings.' },
   [Race.Demon]:    { name: 'Fireball',  key: '5', desc: 'Hurl a fireball. Consumes ALL mana.' },
-  [Race.Deep]:     { name: 'Deluge',    key: '5', desc: 'Unleash a storm. Slows all enemies.' },
+  [Race.Deep]:     { name: 'Deluge',    key: '5', desc: 'Unleash a storm. Empowers Deep units, slows all others.' },
   [Race.Wild]:     { name: 'Frenzy',    key: '5', desc: 'Enrage allies in an area. +Speed +Damage.' },
-  [Race.Geists]:   { name: 'Summon',    key: '5', desc: 'Summon 5 skeleton warriors at target.' },
+  [Race.Geists]:   { name: 'Summon',    key: '5', desc: 'Summon skeletons at target. +1 per cast, +5 soul cost.' },
   [Race.Tenders]:  { name: 'Seeds',     key: '5', desc: 'Plant a seed. Grows into a random unit.' },
 };
 
@@ -937,10 +944,19 @@ export function getAllResearchUpgrades(race: Race): ResearchUpgradeDef[] {
 }
 
 /** Get cost for a research upgrade. Attack/defense: 80g base x 1.5^level. One-shots: 150g flat. */
-export function getResearchUpgradeCost(id: string, level: number, race: Race): { gold: number; wood: number; stone: number; mana?: number; deathEssence?: number } {
+export function getResearchUpgradeCost(id: string, level: number, race: Race): { gold: number; wood: number; stone: number; mana?: number; deathEssence?: number; souls?: number } {
   const allDefs = getAllResearchUpgrades(race);
   const def = allDefs.find(d => d.id === id);
   if (!def) return { gold: 999, wood: 999, stone: 999 };
+  // Geists: attack/defense research costs souls instead of resources
+  if (race === Race.Geists && (def.type === 'attack' || def.type === 'defense')) {
+    const cost = Math.round(20 * Math.pow(1.5, level));
+    return { gold: 0, wood: 0, stone: 0, souls: cost };
+  }
+  // Geists: one-shot racial upgrades cost souls
+  if (race === Race.Geists && def.oneShot && id.startsWith('geists_')) {
+    return { gold: 0, wood: 0, stone: 0, souls: 35 };
+  }
   // Oozlings: all research costs ooze (deathEssence) instead of resources
   if (race === Race.Oozlings) {
     if (def.oneShot) return { gold: 0, wood: 0, stone: 0, deathEssence: 50 };

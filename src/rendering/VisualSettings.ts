@@ -2,6 +2,7 @@ export interface VisualSettings {
   screenShake: boolean;
   weather: boolean;
   dayNight: boolean;
+  damageNumbers: boolean;
 }
 
 const STORAGE_KEY = 'lanecraft.visualSettings';
@@ -9,6 +10,7 @@ const DEFAULT_SETTINGS: VisualSettings = {
   screenShake: true,
   weather: true,
   dayNight: true,
+  damageNumbers: false,
 };
 
 type VisualSettingsListener = (settings: VisualSettings) => void;
@@ -18,6 +20,7 @@ function sanitize(value: Partial<VisualSettings> | null | undefined): VisualSett
     screenShake: value?.screenShake ?? DEFAULT_SETTINGS.screenShake,
     weather: value?.weather ?? DEFAULT_SETTINGS.weather,
     dayNight: value?.dayNight ?? DEFAULT_SETTINGS.dayNight,
+    damageNumbers: value?.damageNumbers ?? DEFAULT_SETTINGS.damageNumbers,
   };
 }
 

@@ -2,6 +2,7 @@ import { Camera } from '../rendering/Camera';
 import { UIAssets } from '../rendering/UIAssets';
 import { GameState, TILE_SIZE } from '../simulation/types';
 import { getAllResearchUpgrades, getResearchUpgradeCost } from '../simulation/data';
+import { getPopupSafeY } from './SafeArea';
 
 export type ResearchPopupAction =
   | { action: 'upgrade'; upgradeId: string }
@@ -122,8 +123,10 @@ export class ResearchPopup {
     const screen = camera.worldToScreen(worldPx, worldPy);
     let px = Math.round(screen.x - popupW / 2);
     let py = Math.round(screen.y - popupH - 20);
+    // Clamp within HUD-safe area (below top bar, above bottom tray + floating buttons)
+    const safeY = getPopupSafeY(canvasW, canvasH);
     px = Math.max(4, Math.min(canvasW - popupW - 4, px));
-    py = Math.max(4, Math.min(canvasH - popupH - 4, py));
+    py = Math.max(safeY.top, Math.min(safeY.bottom - popupH, py));
     this.rect = { x: px - panelPadW, y: py - panelPadH, w: popupW + panelPadW * 2, h: popupH + panelPadH * 2 };
 
     this.upgradeBtnRects = [];
@@ -218,9 +221,11 @@ export class ResearchPopup {
         const isOwned = def.oneShot && bu.raceUpgrades[def.id];
         const cost = getResearchUpgradeCost(def.id, level, race);
         const playerEssence = player.deathEssence ?? 0;
+        const playerSouls = player.souls ?? 0;
         const canAfford = playerGold >= cost.gold && playerWood >= cost.wood && playerStone >= cost.stone
           && (cost.mana === undefined || playerMana >= cost.mana)
-          && ((cost.deathEssence ?? 0) <= 0 || playerEssence >= (cost.deathEssence ?? 0));
+          && ((cost.deathEssence ?? 0) <= 0 || playerEssence >= (cost.deathEssence ?? 0))
+          && ((cost.souls ?? 0) <= 0 || playerSouls >= (cost.souls ?? 0));
 
         // Button background
         ctx.fillStyle = isOwned ? 'rgba(76, 175, 80, 0.3)' : canAfford ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.25)';
@@ -354,6 +359,18 @@ export class ResearchPopup {
             ctx.fillStyle = canAfford || playerEssence >= cost.deathEssence! ? '#69f0ae' : '#ff6666';
             ctx.textAlign = 'left';
             ctx.fillText(`${cost.deathEssence}`, costX, costY);
+          }
+          if ((cost.souls ?? 0) > 0) {
+            // Soul icon (purple circle)
+            const scx = costX + costIconSz / 2, scy = costY - costIconSz / 2;
+            ctx.fillStyle = '#ce93d8';
+            ctx.beginPath();
+            ctx.arc(scx, scy, costIconSz * 0.4, 0, Math.PI * 2);
+            ctx.fill();
+            costX += costIconSz + 1;
+            ctx.fillStyle = canAfford || playerSouls >= cost.souls! ? '#ce93d8' : '#ff6666';
+            ctx.textAlign = 'left';
+            ctx.fillText(`${cost.souls}`, costX, costY);
           }
 
           // Effect preview for scaling upgrades (right-aligned on cost row)

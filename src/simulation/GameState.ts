@@ -8,7 +8,7 @@ import {
   getMarginAtRow,
   LANE_PATHS, Vec2,
   GameCommand, BuildingType, BuildingState, ResourceType,
-  HarvesterAssignment, HarvesterState, UnitState, WarHero,
+  HarvesterAssignment, HarvesterState, UnitState, WarHero, WoodPileState,
   StatusType, SoundEvent, CombatEvent, createSeededRng, createResearchUpgradeState,
   type ProjectileVisual,
 } from './types';
@@ -17,8 +17,8 @@ import {
   SPAWN_INTERVAL_TICKS, UNIT_STATS, TOWER_STATS,
   HARVESTER_MOVE_SPEED, MINE_TIME_BASE_TICKS, MINE_TIME_DIAMOND_TICKS,
   HARVESTER_RESPAWN_TICKS, HARVESTER_MIN_SEPARATION,
-  UPGRADE_TREES, UpgradeNodeDef, RACE_UPGRADE_COSTS, getBuildingCost,
-  getRaceResourceRatio, getNodeUpgradeCost,
+  UPGRADE_TREES, RACE_UPGRADE_COSTS, getBuildingCost,
+  getRaceResourceRatio, getNodeUpgradeCost, getUpgradeNodeDef,
   HUT_COST_SCALE, TOWER_COST_SCALE, GOLD_YIELD_PER_TRIP, WOOD_YIELD_PER_TRIP, STONE_YIELD_PER_TRIP, DIAMOND_CELLS_PER_TRIP,
   RACE_ABILITY_DEFS,
   getAllResearchUpgrades, getResearchUpgradeCost,
@@ -26,8 +26,8 @@ import {
 
 function genId(state: GameState): number { return state.nextEntityId++; }
 const SELL_COOLDOWN_TICKS = 5 * TICK_RATE;
+const MATCH_TIMEOUT_TICKS = 30 * 60 * TICK_RATE; // 30 minute match timeout
 const WOOD_CARRY_PER_TRIP = WOOD_YIELD_PER_TRIP;
-const WOOD_DROP_BATCHES = 1;
 const WOOD_PICKUP_RADIUS = 2.35;
 const WOOD_PILE_SPREAD_RADIUS = 2.0;
 
@@ -83,6 +83,27 @@ const RANGED_VISUAL: Record<Race, ProjectileVisual> = {
   [Race.Tenders]:  'arrow',  // Tinker
 };
 
+/** Check if a player can afford a cost (gold/wood/stone + optional special resources). */
+function canAffordCost(player: { gold: number; wood: number; stone: number; mana: number; deathEssence: number; souls: number },
+  cost: { gold: number; wood: number; stone: number; mana?: number; deathEssence?: number; souls?: number }): boolean {
+  if (player.gold < cost.gold || player.wood < cost.wood || player.stone < cost.stone) return false;
+  if (cost.mana !== undefined && player.mana < cost.mana) return false;
+  if ((cost.deathEssence ?? 0) > 0 && player.deathEssence < (cost.deathEssence ?? 0)) return false;
+  if ((cost.souls ?? 0) > 0 && player.souls < (cost.souls ?? 0)) return false;
+  return true;
+}
+
+/** Deduct a cost from a player's resources. Caller must check canAffordCost first. */
+function deductCost(player: { gold: number; wood: number; stone: number; mana: number; deathEssence: number; souls: number },
+  cost: { gold: number; wood: number; stone: number; mana?: number; deathEssence?: number; souls?: number }): void {
+  player.gold -= cost.gold;
+  player.wood -= cost.wood;
+  player.stone -= cost.stone;
+  if (cost.mana !== undefined) player.mana -= cost.mana;
+  if (cost.deathEssence) player.deathEssence -= cost.deathEssence;
+  if (cost.souls) player.souls -= cost.souls;
+}
+
 /** Return the smartest harvester assignment for a new hut based on the race's
  *  spending profile and existing harvester distribution. */
 function getSmartHarvesterAssignment(race: Race, state: GameState, playerId: number): HarvesterAssignment {
@@ -129,7 +150,7 @@ function isValidUpgradeChoice(path: string[], choice: string): choice is Upgrade
   return false;
 }
 
-function getUpgradeCost(path: string[], race: Race, buildingType?: BuildingType, choice?: string): { gold: number; wood: number; stone: number; deathEssence?: number } | null {
+function getUpgradeCost(path: string[], race: Race, buildingType?: BuildingType, choice?: string): { gold: number; wood: number; stone: number; deathEssence?: number; souls?: number } | null {
   if (path.length === 1 || path.length === 2) {
     if (buildingType != null) return getNodeUpgradeCost(race, buildingType, path.length, choice);
     const costs = RACE_UPGRADE_COSTS[race];
@@ -162,9 +183,7 @@ export function getUnitUpgradeMultipliers(path: string[], race?: Race, buildingT
       if (def.spawnSpeedMult) spawnSpeed *= def.spawnSpeedMult;
       if (def.special) {
         // Merge specials (later nodes override/stack)
-        for (const [k, v] of Object.entries(def.special)) {
-          (special as any)[k] = v;
-        }
+        Object.assign(special, def.special);
       }
     } else {
       // Fallback: generic multipliers for missing tree data
@@ -258,47 +277,66 @@ function hasPathToEdge(cellMap: Map<string, GoldCell>, sx: number, sy: number, s
 
 class SpatialGrid {
   private cellSize: number;
-  private cells = new Map<string, UnitState[]>();
+  private cells = new Map<number, UnitState[]>();
+  private bucketPool: UnitState[][] = [];
+  private activeBuckets: UnitState[][] = [];
 
   constructor(cellSize: number) {
     this.cellSize = cellSize;
   }
 
   build(units: UnitState[]): void {
+    // Return active buckets to pool (clear but reuse arrays)
+    for (const b of this.activeBuckets) { b.length = 0; this.bucketPool.push(b); }
+    this.activeBuckets.length = 0;
     this.cells.clear();
     for (const u of units) {
       if (u.hp <= 0) continue;
-      const key = this._key(Math.floor(u.x / this.cellSize), Math.floor(u.y / this.cellSize));
+      const key = Math.floor(u.x / this.cellSize) * 10000 + Math.floor(u.y / this.cellSize);
       const bucket = this.cells.get(key);
-      if (bucket) bucket.push(u);
-      else this.cells.set(key, [u]);
+      if (bucket) { bucket.push(u); }
+      else {
+        const b = this.bucketPool.pop() ?? [];
+        b.push(u);
+        this.cells.set(key, b);
+        this.activeBuckets.push(b);
+      }
     }
   }
 
+  private _result: UnitState[] = [];
+
+  /** Returns a reusable array — contents are only valid until the next getNearby call. */
   getNearby(x: number, y: number, radius: number): UnitState[] {
     const cs = this.cellSize;
     const minCX = Math.floor((x - radius) / cs);
     const maxCX = Math.floor((x + radius) / cs);
     const minCY = Math.floor((y - radius) / cs);
     const maxCY = Math.floor((y + radius) / cs);
-    const result: UnitState[] = [];
+    this._result.length = 0;
     for (let cx = minCX; cx <= maxCX; cx++) {
       for (let cy = minCY; cy <= maxCY; cy++) {
-        const bucket = this.cells.get(this._key(cx, cy));
+        const bucket = this.cells.get(cx * 10000 + cy);
         if (bucket) {
-          for (const u of bucket) result.push(u);
+          for (const u of bucket) this._result.push(u);
         }
       }
     }
-    return result;
-  }
-
-  private _key(cx: number, cy: number): string {
-    return cx + ',' + cy;
+    return this._result;
   }
 }
 
 const _combatGrid = new SpatialGrid(8);
+
+// Module-level reusable structures (avoid per-tick allocations)
+const _unitById = new Map<number, UnitState>();
+const _attackerCount = new Map<number, number>();
+const _combatOrder: UnitState[] = [];
+const _spawnOrder: GameState['buildings'] = [];
+const _moveOrder: UnitState[] = [];
+
+// Diamond cell map — rebuilt once per tick in simulateTick, integer keys for hot-path collision lookups
+let _diamondCellMapInt = new Map<number, GoldCell>();
 
 // === Visual effect helpers ===
 
@@ -693,10 +731,12 @@ function buildDiamondCellMap(cells: GoldCell[]): Map<string, GoldCell> {
 }
 
 // === Debug: catch units teleporting or ending up at bad positions ===
+const DEBUG_POSITIONS = false; // Set true locally to enable position debugging
 const _debugPrevPositions = new Map<number, { x: number; y: number }>();
 // Max tiles a unit can legitimately move in one tick (fastest unit ~6 tiles/s / 20 ticks + hopAttack leaps ~15 tiles)
 const _MAX_LEGIT_JUMP = 20;
 function debugCheckUnitPositions(state: GameState, phase: string): void {
+  if (!DEBUG_POSITIONS) return;
   const mapW = state.mapDef?.width ?? MAP_WIDTH;
   const mapH = state.mapDef?.height ?? MAP_HEIGHT;
   for (const u of state.units) {
@@ -820,8 +860,10 @@ export function simulateTick(state: GameState, commands: GameCommand[]): void {
   // Tick race ability cooldowns and active effects
   tickAbilityEffects(state);
 
-  // Build diamond cell map once per tick (reused by harvesters and exposure check)
+  // Build diamond cell map once per tick (reused by harvesters, exposure check, and isBlocked)
   const diamondCellMap = buildDiamondCellMap(state.diamondCells);
+  _diamondCellMapInt.clear();
+  for (const c of state.diamondCells) _diamondCellMapInt.set(c.tileX * 10000 + c.tileY, c);
 
   // Update diamond exposed state (check every second, not every tick — BFS is expensive)
   if (state.diamond.state === 'hidden' && state.tick % TICK_RATE === 0) {
@@ -831,6 +873,9 @@ export function simulateTick(state: GameState, commands: GameCommand[]): void {
       addSound(state, 'diamond_exposed', state.diamond.x, state.diamond.y);
     }
   }
+
+  // Build spatial grid early — reused by tickUnitMovement and tickCombat
+  _combatGrid.build(state.units);
 
   tickSpawners(state);
   debugCheckUnitPositions(state, 'tickSpawners');
@@ -864,7 +909,7 @@ export function simulateTick(state: GameState, commands: GameCommand[]): void {
     }
   }
 
-  if (state.tick >= 30 * 60 * TICK_RATE) {
+  if (state.tick >= MATCH_TIMEOUT_TICKS) {
     state.matchPhase = 'ended';
     // Timeout: team with most HP wins
     let bestTeam: Team | null = null;
@@ -991,13 +1036,9 @@ function purchaseUpgrade(state: GameState, cmd: Extract<GameCommand, { type: 'pu
   const player = state.players[cmd.playerId];
   const cost = getUpgradeCost(building.upgradePath, player.race, building.type, cmd.choice);
   if (!cost) return;
-  if (player.gold < cost.gold || player.wood < cost.wood || player.stone < cost.stone) return;
-  if ((cost.deathEssence ?? 0) > 0 && player.deathEssence < (cost.deathEssence ?? 0)) return;
+  if (!canAffordCost(player, cost)) return;
 
-  player.gold -= cost.gold;
-  player.wood -= cost.wood;
-  player.stone -= cost.stone;
-  if (cost.deathEssence) player.deathEssence -= cost.deathEssence;
+  deductCost(player, cost);
   building.upgradePath.push(cmd.choice);
 
   // Apply HP upgrade to tower (scales maxHp, preserves ratio, then heals 30%)
@@ -1013,7 +1054,7 @@ function purchaseUpgrade(state: GameState, cmd: Extract<GameCommand, { type: 'pu
   }
 
   // Show upgrade name if available
-  const treeDef: UpgradeNodeDef | undefined = (UPGRADE_TREES[player.race]?.[building.type] as any)?.[cmd.choice];
+  const treeDef = getUpgradeNodeDef(player.race, building.type, cmd.choice);
   const label = treeDef ? treeDef.name : `UP ${cmd.choice}`;
   addFloatingText(state, building.worldX + 0.5, building.worldY, label, '#90caf9');
   addSound(state, 'upgrade_complete', building.worldX, building.worldY);
@@ -1045,15 +1086,9 @@ function processResearchUpgrade(state: GameState, cmd: Extract<GameCommand, { ty
   if (def.oneShot && bu.raceUpgrades[cmd.upgradeId]) return;
 
   const cost = getResearchUpgradeCost(cmd.upgradeId, currentLevel, player.race);
-  if (player.gold < cost.gold || player.wood < cost.wood || player.stone < cost.stone) return;
-  if (cost.mana !== undefined && player.mana < cost.mana) return;
-  if ((cost.deathEssence ?? 0) > 0 && player.deathEssence < (cost.deathEssence ?? 0)) return;
+  if (!canAffordCost(player, cost)) return;
 
-  player.gold -= cost.gold;
-  player.wood -= cost.wood;
-  player.stone -= cost.stone;
-  if (cost.mana !== undefined) player.mana -= cost.mana;
-  if (cost.deathEssence) player.deathEssence -= cost.deathEssence;
+  deductCost(player, cost);
 
   // Apply upgrade
   if (def.oneShot) {
@@ -1180,14 +1215,14 @@ function sellBuilding(state: GameState, cmd: Extract<GameCommand, { type: 'sell_
   const cost = getBuildingCost(player.race, building.type);
 
   // Calculate total invested: base cost + upgrade costs (respecting per-node overrides)
-  let totalGold = cost.gold, totalWood = cost.wood, totalStone = cost.stone, totalEssence = 0;
+  let totalGold = cost.gold, totalWood = cost.wood, totalStone = cost.stone, totalEssence = 0, totalSouls = 0;
   if (building.upgradePath.length >= 2) {
     const t1Cost = getUpgradeCost(['A'], player.race, building.type, building.upgradePath[1]);
-    if (t1Cost) { totalGold += t1Cost.gold; totalWood += t1Cost.wood; totalStone += t1Cost.stone; totalEssence += t1Cost.deathEssence ?? 0; }
+    if (t1Cost) { totalGold += t1Cost.gold; totalWood += t1Cost.wood; totalStone += t1Cost.stone; totalEssence += t1Cost.deathEssence ?? 0; totalSouls += t1Cost.souls ?? 0; }
   }
   if (building.upgradePath.length >= 3) {
     const t2Cost = getUpgradeCost(['A', building.upgradePath[1]], player.race, building.type, building.upgradePath[2]);
-    if (t2Cost) { totalGold += t2Cost.gold; totalWood += t2Cost.wood; totalStone += t2Cost.stone; totalEssence += t2Cost.deathEssence ?? 0; }
+    if (t2Cost) { totalGold += t2Cost.gold; totalWood += t2Cost.wood; totalStone += t2Cost.stone; totalEssence += t2Cost.deathEssence ?? 0; totalSouls += t2Cost.souls ?? 0; }
   }
 
   // Refund 50% of total invested resources
@@ -1198,6 +1233,7 @@ function sellBuilding(state: GameState, cmd: Extract<GameCommand, { type: 'sell_
   player.wood += refundWood;
   player.stone += refundStone;
   if (totalEssence > 0) player.deathEssence += Math.floor(totalEssence * 0.5);
+  if (totalSouls > 0) player.souls += Math.floor(totalSouls * 0.5);
 
   // If it's a hut, remove the associated harvester
   if (building.type === BuildingType.HarvesterHut) {
@@ -1317,12 +1353,14 @@ function useAbility(state: GameState, cmd: Extract<GameCommand, { type: 'use_abi
 
   // Calculate growing cost (non-Tenders)
   const growthMult = def.costGrowthFactor ? Math.pow(def.costGrowthFactor, player.abilityUseCount) : 1;
+  // Geists: additive soul cost scaling (+5 per cast)
+  const soulsCostAdditive = player.race === Race.Geists ? (def.baseCost.souls ?? 0) + 5 * player.abilityUseCount : 0;
   const cost = {
     gold: Math.floor((def.baseCost.gold ?? 0) * growthMult),
     wood: Math.floor((def.baseCost.wood ?? 0) * growthMult),
     stone: Math.floor((def.baseCost.stone ?? 0) * growthMult),
     mana: Math.floor((def.baseCost.mana ?? 0) * growthMult),
-    souls: Math.floor((def.baseCost.souls ?? 0) * growthMult),
+    souls: player.race === Race.Geists ? soulsCostAdditive : Math.floor((def.baseCost.souls ?? 0) * growthMult),
     deathEssence: Math.floor((def.baseCost.deathEssence ?? 0) * growthMult),
   };
 
@@ -1421,8 +1459,8 @@ function hordeAbility(state: GameState, player: PlayerState): void {
   state.units.push({
     id: genId(state), type: 'War Troll', playerId: player.id, team: player.team,
     x: hq.x + 2, y: hq.y + 1,
-    hp: Math.round(450 * scaleFactor), maxHp: Math.round(450 * scaleFactor),
-    damage: Math.round(55 * scaleFactor),
+    hp: Math.round(4500 * scaleFactor), maxHp: Math.round(4500 * scaleFactor),
+    damage: Math.round(82 * scaleFactor),
     attackSpeed: 1.8, attackTimer: 0,
     moveSpeed: 1.8, range: 1.5,
     targetId: null, lane, pathProgress: -1, carryingDiamond: false,
@@ -1491,9 +1529,9 @@ function demonAbility(state: GameState, player: PlayerState, cmd: Extract<GameCo
   const def = RACE_ABILITY_DEFS[player.race];
   const totalMana = (def.baseCost.mana ?? 50) + extraMana;
   const radius = def.aoeRadius ?? 6;
-  const baseDamage = 20;
-  const damagePerMana = 1.5;
-  const totalDamage = Math.round(baseDamage + totalMana * damagePerMana);
+  const baseDamage = 25;
+  const bonusMana = Math.max(0, totalMana - (def.baseCost.mana ?? 50));
+  const totalDamage = Math.round(baseDamage + bonusMana * 0.5);
 
   // Find Research building as the launch point
   const research = state.buildings.find(b => b.type === BuildingType.Research && b.playerId === player.id);
@@ -1562,8 +1600,8 @@ function explodeFireball(state: GameState, eff: { playerId: number; team: Team; 
 
 function geistsAbility(state: GameState, player: PlayerState, cmd: Extract<GameCommand, { type: 'use_ability' }>): void {
   if (cmd.x == null || cmd.y == null) return;
-  // Summon 5 skeleton warriors in a circle at target location, duration-limited
-  const skeletonCount = 5;
+  // Summon skeletons — count increases by 1 per cast (abilityUseCount already incremented)
+  const skeletonCount = 4 + player.abilityUseCount;
   const circleRadius = 2;
   const skeletonDuration = 15 * TICK_RATE; // 15 seconds
   const lane = state.rng() < 0.5 ? Lane.Left : Lane.Right;
@@ -1668,6 +1706,7 @@ function tendersAbility(state: GameState, player: PlayerState, cmd: Extract<Game
 function tickAbilityEffects(state: GameState): void {
   // Tick cooldowns + Tenders seed stack accumulation
   for (const p of state.players) {
+    if (p.isEmpty) continue;
     if (p.race === Race.Tenders) {
       // Stack-based: accumulate seeds on cooldown (max 10)
       if (p.abilityStacks < 10) {
@@ -1893,13 +1932,14 @@ function tickAbilityEffects(state: GameState): void {
     // Per-tick effect logic
     if (eff.type === 'deep_rain') {
       for (const u of state.units) {
-        if (u.team === eff.team) {
+        const unitRace = state.players[u.playerId]?.race;
+        if (u.team === eff.team && unitRace === Race.Deep) {
           // Deep allies: Haste (move faster)
           const haste = u.statusEffects.find(s => s.type === StatusType.Haste);
           if (haste) { haste.duration = Math.max(haste.duration, TICK_RATE); }
           else u.statusEffects.push({ type: StatusType.Haste, stacks: 1, duration: TICK_RATE });
-        } else {
-          // Enemies: Slow (move slower)
+        } else if (unitRace !== Race.Deep) {
+          // Non-Deep units: Slow (move slower)
           const slow = u.statusEffects.find(s => s.type === StatusType.Slow);
           if (slow) { slow.duration = Math.max(slow.duration, TICK_RATE); }
           else u.statusEffects.push({ type: StatusType.Slow, stacks: 1, duration: TICK_RATE });
@@ -2206,12 +2246,18 @@ function dropWoodPile(state: GameState, x: number, y: number, amount: number, an
   state.woodPiles.push(pile);
 }
 
+// Scratch buffer for collectWoodPiles — avoids per-call allocations
+const _woodScratch: { pile: WoodPileState; index: number; dist: number }[] = [];
 function collectWoodPiles(state: GameState, x: number, y: number, desiredAmount: number): number {
   if (desiredAmount <= 0) return 0;
-  const nearby = state.woodPiles
-    .map((pile, index) => ({ pile, index, dist: Math.hypot(pile.x - x, pile.y - y) }))
-    .filter(entry => entry.dist <= WOOD_PICKUP_RADIUS)
-    .sort((a, b) => a.dist - b.dist || a.pile.id - b.pile.id);
+  _woodScratch.length = 0;
+  for (let i = 0; i < state.woodPiles.length; i++) {
+    const pile = state.woodPiles[i];
+    const dist = Math.hypot(pile.x - x, pile.y - y);
+    if (dist <= WOOD_PICKUP_RADIUS) _woodScratch.push({ pile, index: i, dist });
+  }
+  _woodScratch.sort((a, b) => a.dist - b.dist || a.pile.id - b.pile.id);
+  const nearby = _woodScratch;
 
   let gathered = 0;
   const remove = new Set();
@@ -2261,7 +2307,15 @@ function killHarvester(state: GameState, h: HarvesterState): void {
 
 function tickSpawners(state: GameState): void {
   let spawnSounds = 0;
-  for (const building of state.buildings) {
+  // Shuffle spawn order to prevent first-player advantage in unit creation
+  _spawnOrder.length = 0;
+  for (const b of state.buildings) _spawnOrder.push(b);
+  const spawnOrder = _spawnOrder;
+  for (let i = spawnOrder.length - 1; i > 0; i--) {
+    const j = Math.floor(state.rng() * (i + 1));
+    const tmp = spawnOrder[i]; spawnOrder[i] = spawnOrder[j]; spawnOrder[j] = tmp;
+  }
+  for (const building of spawnOrder) {
     if (building.type === BuildingType.Tower || building.type === BuildingType.HarvesterHut || building.type === BuildingType.Research) continue;
     building.actionTimer--;
     if (building.actionTimer <= 0) {
@@ -2339,7 +2393,15 @@ function getEffectiveDamage(unit: UnitState): number {
 }
 
 function tickUnitMovement(state: GameState): void {
-  for (const unit of state.units) {
+  // Shuffle movement order to prevent first-mover positional advantage
+  _moveOrder.length = 0;
+  for (const u of state.units) _moveOrder.push(u);
+  const moveOrder = _moveOrder;
+  for (let i = moveOrder.length - 1; i > 0; i--) {
+    const j = Math.floor(state.rng() * (i + 1));
+    const tmp = moveOrder[i]; moveOrder[i] = moveOrder[j]; moveOrder[j] = tmp;
+  }
+  for (const unit of moveOrder) {
     if (unit.targetId !== null) continue;
 
     // Stop marching when an enemy alley building or HQ is within attack range.
@@ -2397,7 +2459,8 @@ function tickUnitMovement(state: GameState): void {
       // Only engage formation behavior when enemies are within threat range
       const threatRange = unit.range + 6;
       let enemyNearby = false;
-      for (const other of state.units) {
+      const nearbyUnits = _combatGrid.getNearby(unit.x, unit.y, threatRange);
+      for (const other of nearbyUnits) {
         if (other.team === unit.team) continue;
         const dx = other.x - unit.x, dy = other.y - unit.y;
         if (dx * dx + dy * dy <= threatRange * threatRange) { enemyNearby = true; break; }
@@ -2405,7 +2468,7 @@ function tickUnitMovement(state: GameState): void {
       if (enemyNearby) {
         let nearestMeleeProgress = -1;
         let nearestMeleeDist = Infinity;
-        for (const other of state.units) {
+        for (const other of nearbyUnits) {
           if (other.id === unit.id || other.team !== unit.team || other.lane !== unit.lane) continue;
           if (other.category !== 'melee' || other.pathProgress < 0) continue;
           const d = Math.abs(other.pathProgress - unit.pathProgress);
@@ -2427,7 +2490,8 @@ function tickUnitMovement(state: GameState): void {
     // Slight crowd slow-down so large groups keep a front line instead of "train" behavior.
     // Reduced from original values to prevent armies from stalling into immovable blobs.
     let nearbyFriendlies = 0;
-    for (const other of state.units) {
+    const crowdNearby = _combatGrid.getNearby(unit.x, unit.y, 1.35);
+    for (const other of crowdNearby) {
       if (other.id === unit.id || other.team !== unit.team || other.lane !== unit.lane) continue;
       if (other.pathProgress < 0 || unit.pathProgress < 0) continue;
       if (Math.abs(other.pathProgress - unit.pathProgress) > 0.04) continue;
@@ -2443,7 +2507,8 @@ function tickUnitMovement(state: GameState): void {
     // Formation offset so units naturally spread into lines while following lane flow.
     // Wider spread near enemies to create envelopment opportunities.
     let enemyClose = false;
-    for (const other of state.units) {
+    const formNearby = _combatGrid.getNearby(unit.x, unit.y, 8);
+    for (const other of formNearby) {
       if (other.team === unit.team || other.hp <= 0) continue;
       const ed = (other.x - unit.x) ** 2 + (other.y - unit.y) ** 2;
       if (ed < 64) { enemyClose = true; break; } // 8 tile radius
@@ -2829,10 +2894,14 @@ function dealDamage(state: GameState, target: UnitState, amount: number, showFlo
 
 function applyCasterSupport(state: GameState, caster: UnitState, race: Race, sp: Record<string, any> | undefined): void {
   const supportRange = 6;
-  const allies = state.units.filter(u =>
-    u.team === caster.team && u.id !== caster.id &&
-    Math.sqrt((u.x - caster.x) ** 2 + (u.y - caster.y) ** 2) <= supportRange
-  );
+  const nearby = _combatGrid.getNearby(caster.x, caster.y, supportRange);
+  const allies: UnitState[] = [];
+  for (const u of nearby) {
+    if (u.team === caster.team && u.id !== caster.id &&
+        (u.x - caster.x) ** 2 + (u.y - caster.y) ** 2 <= supportRange * supportRange) {
+      allies.push(u);
+    }
+  }
   const healBonus = sp?.healBonus ?? 0;
 
   switch (race) {
@@ -3187,7 +3256,7 @@ function isInsideAnyHQ(_x: number, _y: number, _pad: number): boolean {
 }
 
 /** Check if a point is inside an unmined gold cell in the diamond. */
-function isInsideUnminedDiamond(x: number, y: number, pad: number, cells: GoldCell[], mapDef?: MapDef): boolean {
+function isInsideUnminedDiamond(x: number, y: number, pad: number, _cells: GoldCell[], mapDef?: MapDef): boolean {
   // Quick bounding diamond check first
   const dcx = mapDef?.diamondCenter.x ?? DIAMOND_CENTER_X;
   const dcy = mapDef?.diamondCenter.y ?? DIAMOND_CENTER_Y;
@@ -3197,21 +3266,19 @@ function isInsideUnminedDiamond(x: number, y: number, pad: number, cells: GoldCe
   const dy = Math.abs(y - dcy) / (dhh + pad);
   if (dx + dy > 1.1) return false; // outside diamond shape entirely
 
-  // Check actual cells near this position
+  // O(1) lookup via cell map when available
   const tileX = Math.floor(x);
   const tileY = Math.floor(y);
   for (let oy = -1; oy <= 1; oy++) {
     for (let ox = -1; ox <= 1; ox++) {
       const cx = tileX + ox;
       const cy = tileY + oy;
-      for (const cell of cells) {
-        if (cell.gold <= 0) continue;
-        if (cell.tileX === cx && cell.tileY === cy) {
-          const cellCx = cell.tileX + 0.5;
-          const cellCy = cell.tileY + 0.5;
-          const d = Math.sqrt((x - cellCx) ** 2 + (y - cellCy) ** 2);
-          if (d < COLLISION_GOLD_CELL_RADIUS + pad) return true;
-        }
+      const cell = _diamondCellMapInt.get(cx * 10000 + cy);
+      if (cell && cell.gold > 0) {
+        const cellCx = cell.tileX + 0.5;
+        const cellCy = cell.tileY + 0.5;
+        const d = Math.sqrt((x - cellCx) ** 2 + (y - cellCy) ** 2);
+        if (d < COLLISION_GOLD_CELL_RADIUS + pad) return true;
       }
     }
   }
@@ -3596,20 +3663,34 @@ function tickUnitCollision(state: GameState): void {
 }
 
 function tickCombat(state: GameState): void {
-  const unitById = new Map(state.units.map(u => [u.id, u]));
+  // Reuse module-level structures to avoid per-tick allocations
+  _unitById.clear();
+  for (const u of state.units) _unitById.set(u.id, u);
+  const unitById = _unitById;
   _combatGrid.build(state.units);
   const AGGRO_BONUS = 2.5;
   const AGGRO_LEASH = 3.5;
   let meleeHitSounds = 0; // simulation-side throttle (SoundManager has its own per-category cooldown too)
 
   // Count how many units are already targeting each enemy (for target spreading)
-  const attackerCount = new Map<number, number>();
+  _attackerCount.clear();
   for (const u of state.units) {
     if (u.hp <= 0 || u.targetId === null) continue;
-    attackerCount.set(u.targetId, (attackerCount.get(u.targetId) ?? 0) + 1);
+    _attackerCount.set(u.targetId, (_attackerCount.get(u.targetId) ?? 0) + 1);
+  }
+  const attackerCount = _attackerCount;
+
+  // Shuffle combat processing order to prevent first-mover advantage
+  // Fisher-Yates shuffle using deterministic rng for lockstep safety
+  _combatOrder.length = 0;
+  for (const u of state.units) _combatOrder.push(u);
+  const combatOrder = _combatOrder;
+  for (let i = combatOrder.length - 1; i > 0; i--) {
+    const j = Math.floor(state.rng() * (i + 1));
+    const tmp = combatOrder[i]; combatOrder[i] = combatOrder[j]; combatOrder[j] = tmp;
   }
 
-  for (const unit of state.units) {
+  for (const unit of combatOrder) {
     // Goblin flee: when below 25% HP, run away for 2 seconds then re-engage
     const ownerRace = state.players[unit.playerId]?.race;
     if (ownerRace === Race.Goblins) {
@@ -4166,13 +4247,20 @@ function tickCombat(state: GameState): void {
       }
     }
 
-    // Deluge: Deep allies attack 2x faster, enemies attack at half speed
+    // Deluge: Deep allies attack 2x faster, non-Deep enemies attack at half speed
     const delugeEff = state.abilityEffects.find(e => e.type === 'deep_rain');
     if (delugeEff) {
-      const isDeepAlly = unit.team === delugeEff.team && state.players[unit.playerId]?.race === Race.Deep;
+      const unitRace = state.players[unit.playerId]?.race;
+      const isDeep = unitRace === Race.Deep;
+      const isDeepAlly = unit.team === delugeEff.team && isDeep;
       if (isDeepAlly) {
+        // Deep allies: attack timer ticks down by 2 (2x attack speed)
         if (unit.attackTimer > 0) unit.attackTimer = Math.max(0, unit.attackTimer - 2);
-      } else if (state.tick % 2 === 0) {
+      } else if (!isDeep && state.tick % 2 === 0) {
+        // Non-Deep units: attack timer ticks every other tick (half attack speed)
+        if (unit.attackTimer > 0) unit.attackTimer--;
+      } else {
+        // Deep enemies / non-Deep allies: normal tick
         if (unit.attackTimer > 0) unit.attackTimer--;
       }
     } else {
@@ -5298,7 +5386,7 @@ function tickHarvesters(state: GameState): void {
       h.miningTimer--;
       if (h.assignment === HarvesterAssignment.Wood) {
         const missingWood = Math.max(0, h.woodCarryTarget - h.queuedWoodAmount);
-        const batchCount = Math.max(1, Math.min(WOOD_DROP_BATCHES, missingWood));
+        const batchCount = 1;
         const progress = Math.max(0, MINE_TIME_BASE_TICKS - h.miningTimer);
         const desiredDrops = Math.min(batchCount, Math.floor((progress / MINE_TIME_BASE_TICKS) * batchCount));
         while (h.woodDropsCreated < desiredDrops) {

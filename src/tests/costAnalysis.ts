@@ -60,8 +60,9 @@ function eff(gold: number, wood: number, stone: number): number {
   return gold / 2 + wood + stone;
 }
 
-function effCost(c: { gold: number; wood: number; stone: number }): number {
-  return eff(c.gold, c.wood, c.stone);
+function effCost(c: { gold: number; wood: number; stone: number; souls?: number }): number {
+  // Souls valued at ~2 effective (similar to wood/stone, since they're a limited resource)
+  return eff(c.gold, c.wood, c.stone) + ((c as any).souls ?? 0) * 2;
 }
 
 // ==================== HARVESTER ECONOMICS ====================

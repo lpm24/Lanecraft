@@ -4,10 +4,11 @@ import { SpriteLoader, drawSpriteFrame, getSpriteFrame } from '../rendering/Spri
 import { GameState, BuildingType, BuildingState, TILE_SIZE, Race } from '../simulation/types';
 import { UPGRADE_TREES, UNIT_STATS, TOWER_STATS, getBuildingCost, getNodeUpgradeCost, type UpgradeNodeDef } from '../simulation/data';
 import { getUnitUpgradeMultipliers } from '../simulation/GameState';
+import { getPopupSafeY } from './SafeArea';
 
 export interface UpgradeOption {
   choice: string;
-  cost: { gold: number; wood: number; stone: number; deathEssence?: number };
+  cost: { gold: number; wood: number; stone: number; deathEssence?: number; souls?: number };
   name?: string;
   desc?: string;
 }
@@ -184,9 +185,10 @@ export class BuildingPopup {
     let px = Math.round(screen.x - popupW / 2);
     let py = Math.round(screen.y - popupH - 20);
 
-    // Clamp to canvas
+    // Clamp within HUD-safe area (below top bar, above bottom tray + floating buttons)
+    const safeY = getPopupSafeY(canvasW, canvasH);
     px = Math.max(4, Math.min(canvasW - popupW - 4, px));
-    py = Math.max(4, Math.min(canvasH - popupH - 4, py));
+    py = Math.max(safeY.top, Math.min(safeY.bottom - popupH, py));
 
     this.rect = { x: px, y: py, w: popupW, h: popupH };
 
@@ -252,9 +254,12 @@ export class BuildingPopup {
         const bx = px + PAD + (i > 0 ? btnW + GAP : 0);
         const by = curY;
         const essenceCost = opt.cost.deathEssence ?? 0;
+        const soulsCost = opt.cost.souls ?? 0;
         const playerEssence = state.players[building.playerId]?.deathEssence ?? 0;
+        const playerSouls = state.players[building.playerId]?.souls ?? 0;
         const canAfford = playerGold >= opt.cost.gold && playerWood >= opt.cost.wood && playerStone >= opt.cost.stone
-          && (essenceCost <= 0 || playerEssence >= essenceCost);
+          && (essenceCost <= 0 || playerEssence >= essenceCost)
+          && (soulsCost <= 0 || playerSouls >= soulsCost);
 
         this.upgradeBtnRects.push({ x: bx, y: by, w: btnW, h: UPGRADE_BTN_H, choice: opt.choice });
         this.drawUpgradeButton(ctx, ui, bx, by, btnW, UPGRADE_BTN_H, opt, canAfford,
@@ -517,6 +522,22 @@ export class BuildingPopup {
       ctx.fillStyle = canAfford ? '#69f0ae' : '#1b5e20';
       ctx.fillText(`${opt.cost.deathEssence}`, costX + oozeSz + 1, costY);
       costX += oozeSz + ctx.measureText(`${opt.cost.deathEssence}`).width + 6;
+    }
+    if ((opt.cost.souls ?? 0) > 0) {
+      // Soul icon (small skull-like circle)
+      const soulSz = iconSize;
+      const soulCx = costX + soulSz / 2, soulCy = costY - soulSz / 2 + 1;
+      ctx.globalAlpha = canAfford ? 1 : 0.4;
+      ctx.fillStyle = '#ce93d8';
+      ctx.beginPath();
+      ctx.arc(soulCx, soulCy, soulSz * 0.4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.textAlign = 'left';
+      shadowText(`${opt.cost.souls}`, costX + soulSz + 1, costY);
+      ctx.fillStyle = canAfford ? '#ce93d8' : '#4a148c';
+      ctx.fillText(`${opt.cost.souls}`, costX + soulSz + 1, costY);
+      costX += soulSz + ctx.measureText(`${opt.cost.souls}`).width + 6;
     }
   }
 

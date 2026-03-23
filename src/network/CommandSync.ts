@@ -20,7 +20,7 @@ import { GameCommand } from '../simulation/types';
 export const TICKS_PER_TURN = 4; // 200ms at 20tps
 const HASH_CHECK_INTERVAL = 25; // check hash every 25 turns = every 5 seconds
 const CONNECTION_TIMEOUT_MS = 15000; // 15 seconds to establish connection
-const TURN_CLEANUP_DELAY = 10; // keep last N turns before cleaning up
+const TURN_CLEANUP_DELAY = 50; // keep last N turns before cleaning up (~10s buffer)
 
 interface TurnData {
   cmds: GameCommand[] | null; // null when no commands (Firebase strips empty arrays)
@@ -147,11 +147,18 @@ export class CommandSync {
           this.checkAllReady();
         }
         if (snap.val() === null && this.connected) {
-          // Remote player disconnected
-          this.connected = false;
+          // Remote player disconnected — remove them individually, don't kill everything
           this.status = `slot ${remoteId} disconnected`;
           console.warn(`[CommandSync] ${this.status}`);
-          this.onDisconnect?.();
+          if (!this.leftSlotQueue.includes(remoteId)) {
+            this.leftSlotQueue.push(remoteId);
+          }
+          this.removeHumanSlot(remoteId);
+          // Only fully disconnect if ALL remote players are gone
+          if (this.remoteSlotIds.length === 0) {
+            this.connected = false;
+            this.onDisconnect?.();
+          }
         }
       });
       this.unsubs.push(readyUnsub);
@@ -332,10 +339,21 @@ export class CommandSync {
         if (this.isTurnComplete(turn)) {
           resolve(this.collectTurn(turn));
         } else {
-          // Some remote(s) never arrived — treat as disconnect
-          console.warn(`[CommandSync] Turn ${turn} timeout — missing remote data, treating as disconnect`);
-          this.connected = false;
-          this.onDisconnect?.();
+          // Identify which players timed out and remove them individually
+          const turnMap = this.turnBuffer.get(turn);
+          const missing = this.allHumanSlots.filter(id => id !== this.localSlotId && !turnMap?.has(id));
+          for (const slotId of missing) {
+            console.warn(`[CommandSync] Turn ${turn} timeout — slot ${slotId} missing, converting to bot`);
+            if (!this.leftSlotQueue.includes(slotId)) {
+              this.leftSlotQueue.push(slotId);
+            }
+            this.removeHumanSlot(slotId);
+          }
+          // Only fully disconnect if ALL remote players are gone
+          if (this.remoteSlotIds.length === 0) {
+            this.connected = false;
+            this.onDisconnect?.();
+          }
           resolve(this.collectTurn(turn));
         }
       }, timeoutMs);

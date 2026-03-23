@@ -17,6 +17,7 @@
     "src/tests/balanceSim.ts",
     "src/tests/wideVsTall.ts",
     "src/tests/difficultyTest.ts",
-    "src/tests/costAnalysis.ts"
+    "src/tests/costAnalysis.ts",
+    "src/tests/profileSim.ts"
   ]
 }

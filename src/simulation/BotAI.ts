@@ -34,8 +34,6 @@ export interface BotDifficulty {
   useDynamicShift: boolean;
   /** Whether bot uses matchup-aware upgrade scoring (vs fixed race bias) */
   useSmartUpgrades: boolean;
-  /** Whether to use per-race optimized nightmare profiles */
-  useNightmareProfiles: boolean;
   /** Chance to make a suboptimal random decision (0 = perfect, 1 = fully random) */
   mistakeRate: number;
   /** Max total spawners (melee+ranged+caster) the bot will build. 99 = unlimited */
@@ -58,7 +56,6 @@ export const BOT_DIFFICULTY_PRESETS: Record<BotDifficultyLevel, BotDifficulty> =
     useValueFunction: false,
     useDynamicShift: false,
     useSmartUpgrades: false,  // random upgrade picks (high mistake rate covers randomness)
-    useNightmareProfiles: false,
     mistakeRate: 0.30,        // 30% chance to make a wrong decision
     maxSpawners: 4,
     maxHuts: 3,
@@ -75,7 +72,6 @@ export const BOT_DIFFICULTY_PRESETS: Record<BotDifficultyLevel, BotDifficulty> =
     useValueFunction: false,
     useDynamicShift: false,
     useSmartUpgrades: true,   // uses matchup-aware upgrades, but mistake rate blunts it
-    useNightmareProfiles: false,
     mistakeRate: 0.12,        // 12% mistake rate — noticeably imperfect
     maxSpawners: 5,
     maxHuts: 4,
@@ -92,7 +88,6 @@ export const BOT_DIFFICULTY_PRESETS: Record<BotDifficultyLevel, BotDifficulty> =
     useValueFunction: true,
     useDynamicShift: true,
     useSmartUpgrades: true,
-    useNightmareProfiles: false,
     mistakeRate: 0.05,        // 5% mistake rate — nearly optimal
     maxSpawners: 7,
     maxHuts: 6,
@@ -109,7 +104,6 @@ export const BOT_DIFFICULTY_PRESETS: Record<BotDifficultyLevel, BotDifficulty> =
     useValueFunction: true,
     useDynamicShift: true,
     useSmartUpgrades: true,
-    useNightmareProfiles: false,  // standard profiles — nightmare profiles hurt in testing
     mistakeRate: 0,
     maxSpawners: 99,          // unlimited
     maxHuts: 8,
@@ -299,72 +293,169 @@ const RACE_PROFILES: Record<Race, RaceProfile> = {
 export { RACE_PROFILES };
 export type { RaceProfile };
 
-// --- Nightmare-optimized profiles (exploit best strategies per race) ---
-const NIGHTMARE_PROFILES: Record<Race, RaceProfile> = {
-  // Oozlings: all-in melee swarm, skip econ
-  [Race.Oozlings]: {
-    ...RACE_PROFILES[Race.Oozlings],
-    earlyMelee: 4, earlyRanged: 0, earlyHuts: 0, earlyTowers: 0,
-    midMelee: 4, midRanged: 2, midCasters: 1, midTowers: 0, midHuts: 1,
-    maxHuts: 2, pushThreshold: 0.7,
-  },
-  // Horde: rush melee + ranged, minimal econ
-  [Race.Horde]: {
-    ...RACE_PROFILES[Race.Horde],
-    earlyMelee: 3, earlyRanged: 1, earlyHuts: 0, earlyTowers: 0,
-    midMelee: 4, midRanged: 2, midCasters: 1, midTowers: 0, midHuts: 1,
-    maxHuts: 2, pushThreshold: 0.8,
-  },
-  // Demon: rush cheap melee + ranged, pure aggression
-  [Race.Demon]: {
-    ...RACE_PROFILES[Race.Demon],
-    earlyMelee: 3, earlyRanged: 1, earlyHuts: 0, earlyTowers: 0,
-    midMelee: 3, midRanged: 3, midCasters: 1, midTowers: 0, midHuts: 1,
-    maxHuts: 2, pushThreshold: 0.8,
-  },
-  // Goblins: mass cheap spawners, flood with bodies
-  [Race.Goblins]: {
-    ...RACE_PROFILES[Race.Goblins],
-    earlyMelee: 3, earlyRanged: 1, earlyHuts: 0, earlyTowers: 0,
-    midMelee: 4, midRanged: 3, midCasters: 1, midTowers: 0, midHuts: 1,
-    maxHuts: 2, pushThreshold: 0.8,
-  },
-  // Crown: balanced but invest in shield casters, upgrade for shields
-  [Race.Crown]: {
-    ...RACE_PROFILES[Race.Crown],
-    earlyMelee: 2, earlyRanged: 0, earlyHuts: 1, earlyTowers: 0,
-    midMelee: 3, midRanged: 2, midCasters: 2, midTowers: 1, midHuts: 3,
-    maxHuts: 4, pushThreshold: 1.1,
-  },
-  // Geists: rush melee for lifesteal, then upgrade
-  [Race.Geists]: {
-    ...RACE_PROFILES[Race.Geists],
-    earlyMelee: 3, earlyRanged: 0, earlyHuts: 1, earlyTowers: 0,
-    midMelee: 3, midRanged: 2, midCasters: 1, midTowers: 1, midHuts: 2,
-    maxHuts: 3, pushThreshold: 1.0,
-  },
-  // Deep: early tower + ranged, commit lanes at 5min
-  [Race.Deep]: {
-    ...RACE_PROFILES[Race.Deep],
-    earlyMelee: 1, earlyRanged: 1, earlyHuts: 1, earlyTowers: 1,
-    midMelee: 2, midRanged: 2, midCasters: 1, midTowers: 2, midHuts: 3,
-    lateTowers: 3, alleyTowers: 4, maxHuts: 4, pushThreshold: 0.9,
-  },
-  // Wild: aggressive poison, commit lanes early
-  [Race.Wild]: {
-    ...RACE_PROFILES[Race.Wild],
-    earlyMelee: 2, earlyRanged: 1, earlyHuts: 0, earlyTowers: 0,
-    midMelee: 3, midRanged: 3, midCasters: 2, midTowers: 1, midHuts: 2,
-    maxHuts: 3, pushThreshold: 0.8,
-  },
-  // Tenders: invest in upgrades, regen scales with quality
-  [Race.Tenders]: {
-    ...RACE_PROFILES[Race.Tenders],
-    earlyMelee: 1, earlyRanged: 0, earlyHuts: 2, earlyTowers: 0,
-    midMelee: 2, midRanged: 1, midCasters: 2, midTowers: 1, midHuts: 4,
-    lateTowers: 3, alleyTowers: 3, maxHuts: 5, pushThreshold: 0.9,
-  },
+// ==================== COMPOSITION PROFILES ====================
+// Each race has multiple composition strategies ranked by effectiveness.
+// Bots randomly select from this pool, gated by difficulty:
+//   Easy: any profile    Medium: exclude worst    Hard: exclude bottom 2    Nightmare: top 3 + matchup-aware
+//
+// Rankings derived from `npm run profile-sim` (damage dealt across all matchups).
+// Re-run profile-sim after balance changes and update rankings accordingly.
+
+export type ProfileId = 'default' | 'heavyMelee' | 'heavyRanged' | 'heavyCaster' | 'meleeCaster' | 'rangedCaster' | 'rush' | 'turtle';
+
+interface CompositionProfile {
+  id: ProfileId;
+  profile: RaceProfile;
+}
+
+/** Build a composition profile by overriding specific fields on the race's base profile */
+function compProfile(base: RaceProfile, id: ProfileId, overrides: Partial<RaceProfile>): CompositionProfile {
+  return { id, profile: { ...base, ...overrides } };
+}
+
+function buildCompositionProfiles(race: Race): CompositionProfile[] {
+  const base = RACE_PROFILES[race];
+  return [
+    compProfile(base, 'default', {}),
+    compProfile(base, 'heavyMelee', {
+      earlyMelee: 2, earlyRanged: 0, earlyHuts: 1, earlyTowers: 0,
+      midMelee: 4, midRanged: 1, midCasters: 0, midTowers: 1, midHuts: 3,
+      lateTowers: 2, alleyTowers: 2, maxHuts: 4, pushThreshold: 1.0,
+    }),
+    compProfile(base, 'heavyRanged', {
+      earlyMelee: 1, earlyRanged: 1, earlyHuts: 1, earlyTowers: 0,
+      midMelee: 1, midRanged: 4, midCasters: 0, midTowers: 1, midHuts: 3,
+      lateTowers: 2, alleyTowers: 2, maxHuts: 4, pushThreshold: 1.1,
+    }),
+    compProfile(base, 'heavyCaster', {
+      earlyMelee: 1, earlyRanged: 0, earlyHuts: 1, earlyTowers: 0,
+      midMelee: 2, midRanged: 0, midCasters: 3, midTowers: 1, midHuts: 3,
+      lateTowers: 2, alleyTowers: 2, maxHuts: 4, pushThreshold: 1.1,
+    }),
+    compProfile(base, 'meleeCaster', {
+      earlyMelee: 2, earlyRanged: 0, earlyHuts: 1, earlyTowers: 0,
+      midMelee: 3, midRanged: 0, midCasters: 2, midTowers: 1, midHuts: 3,
+      lateTowers: 2, alleyTowers: 2, maxHuts: 4, pushThreshold: 1.0,
+    }),
+    compProfile(base, 'rangedCaster', {
+      earlyMelee: 1, earlyRanged: 1, earlyHuts: 1, earlyTowers: 0,
+      midMelee: 1, midRanged: 3, midCasters: 2, midTowers: 1, midHuts: 3,
+      lateTowers: 2, alleyTowers: 2, maxHuts: 4, pushThreshold: 1.1,
+    }),
+    compProfile(base, 'rush', {
+      earlyMelee: 2, earlyRanged: 1, earlyHuts: 0, earlyTowers: 0,
+      midMelee: 3, midRanged: 2, midCasters: 1, midTowers: 0, midHuts: 1,
+      lateTowers: 1, alleyTowers: 1, maxHuts: 2, pushThreshold: 0.8,
+    }),
+    compProfile(base, 'turtle', {
+      earlyMelee: 0, earlyRanged: 0, earlyHuts: 2, earlyTowers: 1,
+      midMelee: 2, midRanged: 1, midCasters: 1, midTowers: 2, midHuts: 5,
+      lateTowers: 3, alleyTowers: 3, maxHuts: 6, pushThreshold: 1.3,
+    }),
+  ];
+}
+
+// Lazy-built profile lookup (race -> profileId -> CompositionProfile)
+let _compositionProfiles: Record<Race, CompositionProfile[]> | null = null;
+export function getCompositionProfiles(race: Race): CompositionProfile[] {
+  if (!_compositionProfiles) {
+    _compositionProfiles = {} as Record<Race, CompositionProfile[]>;
+    for (const r of Object.values(Race)) {
+      _compositionProfiles[r] = buildCompositionProfiles(r);
+    }
+  }
+  return _compositionProfiles[race];
+}
+
+// --- Profile rankings per race (best→worst, from profile-sim data) ---
+// Re-generate with: npm run profile-sim -- --race=<name> --matches=3 --difficulty=hard
+// Then update this table with the ranking order.
+const PROFILE_RANKINGS: Record<Race, ProfileId[]> = {
+  //                    #1              #2            #3              #4            #5              #6              #7            #8
+  [Race.Crown]:    ['heavyMelee',  'rush',       'default',      'turtle',     'heavyRanged',  'meleeCaster',  'heavyCaster', 'rangedCaster'],
+  [Race.Horde]:    ['heavyMelee',  'meleeCaster','rush',         'turtle',     'default',      'rangedCaster', 'heavyRanged', 'heavyCaster'],
+  [Race.Goblins]:  ['rush',        'turtle',     'heavyRanged',  'rangedCaster','heavyCaster', 'heavyMelee',   'default',     'meleeCaster'],
+  [Race.Oozlings]: ['heavyCaster', 'turtle',     'rush',         'heavyRanged','rangedCaster', 'default',      'heavyMelee',  'meleeCaster'],
+  [Race.Demon]:    ['default',     'rush',       'turtle',       'heavyMelee', 'heavyCaster',  'rangedCaster', 'heavyRanged', 'meleeCaster'],
+  [Race.Deep]:     ['heavyMelee',  'rush',       'meleeCaster',  'turtle',     'default',      'heavyRanged',  'rangedCaster','heavyCaster'],
+  [Race.Wild]:     ['heavyMelee',  'rangedCaster','turtle',      'heavyCaster','heavyRanged',  'default',      'meleeCaster', 'rush'],
+  [Race.Geists]:   ['rangedCaster','rush',       'heavyMelee',   'turtle',     'heavyRanged',  'default',      'heavyCaster', 'meleeCaster'],
+  [Race.Tenders]:  ['rush',        'rangedCaster','heavyRanged', 'default',    'meleeCaster',  'heavyCaster',  'heavyMelee',  'turtle'],
 };
+
+// --- Nightmare matchup-aware: best profile per enemy archetype ---
+// From profile-sim "BEST PROFILE PER MATCHUP" data.
+// Key = attacker race, value = map of enemy race → best profileId.
+// Only entries whose profile is in that race's top 3 ranking will actually be used;
+// other entries serve as documentation for future ranking updates.
+const MATCHUP_PROFILES: Record<Race, Partial<Record<Race, ProfileId>>> = {
+  // Crown top3: heavyMelee, rush, default
+  [Race.Crown]:    { [Race.Horde]: 'heavyMelee', [Race.Demon]: 'rush', [Race.Deep]: 'heavyMelee', [Race.Tenders]: 'rush' },
+  // Horde top3: heavyMelee, meleeCaster, rush
+  [Race.Horde]:    { [Race.Deep]: 'heavyMelee', [Race.Wild]: 'heavyMelee', [Race.Tenders]: 'rush', [Race.Geists]: 'meleeCaster' },
+  // Goblins top3: rush, turtle, heavyRanged
+  [Race.Goblins]:  { [Race.Horde]: 'heavyRanged', [Race.Demon]: 'turtle', [Race.Deep]: 'rush', [Race.Wild]: 'rush' },
+  // Oozlings top3: heavyCaster, turtle, rush
+  [Race.Oozlings]: { [Race.Crown]: 'heavyCaster', [Race.Goblins]: 'rush', [Race.Wild]: 'rush', [Race.Geists]: 'heavyCaster', [Race.Tenders]: 'heavyCaster' },
+  // Demon top3: default, rush, turtle
+  [Race.Demon]:    { [Race.Deep]: 'turtle', [Race.Tenders]: 'turtle' },
+  // Deep top3: heavyMelee, rush, meleeCaster
+  [Race.Deep]:     { [Race.Horde]: 'rush', [Race.Oozlings]: 'rush', [Race.Demon]: 'heavyMelee', [Race.Tenders]: 'meleeCaster' },
+  // Wild top3: heavyMelee, rangedCaster, turtle
+  [Race.Wild]:     { [Race.Oozlings]: 'rangedCaster', [Race.Demon]: 'heavyMelee', [Race.Geists]: 'rangedCaster', [Race.Goblins]: 'turtle' },
+  // Geists top3: rangedCaster, rush, heavyMelee
+  [Race.Geists]:   { [Race.Goblins]: 'rangedCaster', [Race.Oozlings]: 'rush', [Race.Demon]: 'heavyMelee' },
+  // Tenders top3: rush, rangedCaster, heavyRanged
+  [Race.Tenders]:  { [Race.Horde]: 'rangedCaster', [Race.Crown]: 'heavyRanged' },
+};
+
+/**
+ * Select a composition profile for a bot based on difficulty and matchup.
+ * Called once per bot at game start, result is cached in BotContext.
+ */
+function selectCompositionProfile(
+  race: Race, difficulty: BotDifficulty, enemyRaces: Race[], rng: () => number,
+): RaceProfile {
+  const rankings = PROFILE_RANKINGS[race];
+  const allProfiles = getCompositionProfiles(race);
+  const profileById = new Map(allProfiles.map(p => [p.id, p]));
+
+  // Nightmare with matchup awareness: pick best counter from top 3
+  if (difficulty.mistakeRate === 0 && enemyRaces.length > 0) {
+    const matchups = MATCHUP_PROFILES[race];
+    // Find the best matchup profile that's in our top 3
+    const top3 = new Set(rankings.slice(0, 3));
+    for (const enemy of enemyRaces) {
+      const best = matchups?.[enemy];
+      if (best && top3.has(best)) {
+        return profileById.get(best)!.profile;
+      }
+    }
+    // No specific matchup counter in top 3 — pick randomly from top 3
+    const idx = Math.floor(rng() * 3);
+    return profileById.get(rankings[idx])!.profile;
+  }
+
+  // Determine pool size based on difficulty
+  let poolSize: number;
+  if (difficulty.mistakeRate >= 0.25) {
+    // Easy: all profiles
+    poolSize = rankings.length;
+  } else if (difficulty.mistakeRate >= 0.10) {
+    // Medium: exclude worst 1
+    poolSize = rankings.length - 1;
+  } else if (difficulty.mistakeRate >= 0.03) {
+    // Hard: exclude worst 2
+    poolSize = rankings.length - 2;
+  } else {
+    // Nightmare (no matchup hit above): top 3
+    poolSize = 3;
+  }
+
+  const pool = rankings.slice(0, poolSize);
+  const pick = pool[Math.floor(rng() * pool.length)];
+  return profileById.get(pick)!.profile;
+}
 
 // Persistent per-bot state
 export interface BotContext {
@@ -385,6 +476,10 @@ export interface BotContext {
   defaultDifficulty: BotDifficulty;
   // Intelligence system
   intelligence: Record<number, BotIntelligence>;
+  // Per-player composition profile (selected once at game start based on difficulty)
+  selectedProfile: Record<number, RaceProfile>;
+  // Optional per-player profile overrides (for testing composition strategies via profile-sim)
+  profileOverride?: Record<number, RaceProfile>;
 }
 
 // ==================== BOT INTELLIGENCE SYSTEM ====================
@@ -1123,6 +1218,7 @@ export function createBotContext(
     difficulty: {},
     defaultDifficulty: BOT_DIFFICULTY_PRESETS[difficulty],
     intelligence: {},
+    selectedProfile: {},
   };
 }
 
@@ -1135,7 +1231,7 @@ const GLASS_CANNON_RACES: ReadonlySet<Race> = new Set([Race.Demon, Race.Wild]);
 function getEnemyRaces(state: GameState, playerId: number): Race[] {
   const myTeam = botTeam(playerId, state);
   return state.players
-    .filter(p => p.team !== myTeam)
+    .filter(p => p.team !== myTeam && !p.isEmpty)
     .map(p => p.race);
 }
 
@@ -1191,7 +1287,7 @@ function getTeammateIds(playerId: number, state?: GameState): number[] {
   if (state?.mapDef) {
     const myTeam = botTeam(playerId, state);
     return state.players
-      .filter(p => p.team === myTeam && p.id !== playerId)
+      .filter(p => p.team === myTeam && p.id !== playerId && !p.isEmpty)
       .map(p => p.id);
   }
   // Legacy 4-player fallback
@@ -1204,8 +1300,8 @@ function totalResources(state: GameState, playerId: number): number {
   return p.gold + p.wood + p.stone;
 }
 
-function resourceBundleTotal(cost: { gold: number; wood: number; stone: number; deathEssence?: number }): number {
-  return cost.gold + cost.wood + cost.stone + (cost.deathEssence ?? 0);
+function resourceBundleTotal(cost: { gold: number; wood: number; stone: number; deathEssence?: number; souls?: number }): number {
+  return cost.gold + cost.wood + cost.stone + (cost.deathEssence ?? 0) + (cost.souls ?? 0);
 }
 
 function buildingCategory(type: BuildingType): 'melee' | 'ranged' | 'caster' | null {
@@ -1379,11 +1475,14 @@ function estimateUpgradeValue(
   const choice = botPickUpgrade(state, ctx, building, profile, race, enemyRaces, diff);
   const tier = getNodeUpgradeCost(race, building.type, building.upgradePath.length, choice);
   const totalCost = resourceBundleTotal(tier);
-  if (totalCost <= 0 && !(tier.deathEssence ?? 0)) return { value: 0, choice: 'B' };
+  if (totalCost <= 0 && !(tier.deathEssence ?? 0) && !(tier.souls ?? 0)) return { value: 0, choice: 'B' };
   if (player.gold < tier.gold || player.wood < tier.wood || player.stone < tier.stone) {
     return { value: 0, choice };
   }
   if ((tier.deathEssence ?? 0) > 0 && player.deathEssence < (tier.deathEssence ?? 0)) {
+    return { value: 0, choice };
+  }
+  if ((tier.souls ?? 0) > 0 && player.souls < (tier.souls ?? 0)) {
     return { value: 0, choice };
   }
 
@@ -1539,7 +1638,7 @@ function estimateResearchValue(
   else if (upgradeId === 'caster_def') level = bu.casterDefLevel;
 
   const cost = getResearchUpgradeCost(upgradeId, level, race);
-  const totalCost = cost.gold + cost.wood + cost.stone + (cost.deathEssence ?? 0);
+  const totalCost = cost.gold + cost.wood + cost.stone + (cost.deathEssence ?? 0) + (cost.souls ?? 0);
   if (totalCost <= 0) return 0;
 
   // Get category counts
@@ -1821,9 +1920,18 @@ export function runAllBotAI(state: GameState, ctx: BotContext, emit: Emit): void
 function runSingleBotAI(state: GameState, ctx: BotContext, playerId: number, emit: Emit): void {
   const diff = ctx.difficulty[playerId] ?? ctx.defaultDifficulty;
   const player = state.players[playerId];
-  const profile = diff.useNightmareProfiles
-    ? NIGHTMARE_PROFILES[player.race]
-    : RACE_PROFILES[player.race];
+  const enemyRaces = getEnemyRaces(state, playerId);
+
+  // Select composition profile once per bot (first tick), then cache it
+  if (!ctx.selectedProfile[playerId] && !ctx.profileOverride?.[playerId]) {
+    ctx.selectedProfile[playerId] = selectCompositionProfile(
+      player.race, diff, enemyRaces, () => state.rng(),
+    );
+  }
+  const profile = ctx.profileOverride?.[playerId]
+    ?? ctx.selectedProfile[playerId]
+    ?? RACE_PROFILES[player.race];
+
   const myBuildings = state.buildings.filter(b => b.playerId === playerId);
   const meleeCount = myBuildings.filter(b => b.type === BuildingType.MeleeSpawner).length;
   const rangedCount = myBuildings.filter(b => b.type === BuildingType.RangedSpawner).length;
@@ -1831,7 +1939,6 @@ function runSingleBotAI(state: GameState, ctx: BotContext, playerId: number, emi
   const towerCount = myBuildings.filter(b => b.type === BuildingType.Tower && b.buildGrid === 'military').length;
   const alleyTowerCount = myBuildings.filter(b => b.type === BuildingType.Tower && b.buildGrid === 'alley').length;
   const hutCount = myBuildings.filter(b => b.type === BuildingType.HarvesterHut).length;
-  const enemyRaces = getEnemyRaces(state, playerId);
 
   const gameMinutes = state.tick / (20 * 60);
   const myTeam = botTeam(playerId, state);
@@ -2030,15 +2137,42 @@ function botValueBasedBuild(
   const spawnerTypes = [BuildingType.MeleeSpawner, BuildingType.RangedSpawner, BuildingType.CasterSpawner];
   const shift = (diff.useDynamicShift && intel?.buildShift) ? intel.buildShift : { melee: 0, ranged: 0, caster: 0 };
 
+  // Profile-based target for current game phase (used to steer value function)
+  const profileTarget = (type: BuildingType): number => {
+    if (gameMinutes < 1.5) {
+      if (type === BuildingType.MeleeSpawner) return profile.earlyMelee;
+      if (type === BuildingType.RangedSpawner) return profile.earlyRanged;
+      return 0;
+    } else if (gameMinutes < 5) {
+      if (type === BuildingType.MeleeSpawner) return profile.midMelee;
+      if (type === BuildingType.RangedSpawner) return profile.midRanged;
+      return profile.midCasters;
+    } else {
+      if (type === BuildingType.MeleeSpawner) return profile.midMelee + 1;
+      if (type === BuildingType.RangedSpawner) return profile.midRanged + 1;
+      return profile.midCasters + 1;
+    }
+  };
+
   for (const type of spawnerTypes) {
     const sv = estimateSpawnerValue(state, ctx, playerId, type);
     const cat = type === BuildingType.MeleeSpawner ? 'melee' : type === BuildingType.RangedSpawner ? 'ranged' : 'caster';
     const shiftBonus = Math.max(0, shift[cat]) * 0.02;
+
+    // Profile steering: boost value if below target, penalize if above
+    const currentCount = type === BuildingType.MeleeSpawner ? meleeCount
+      : type === BuildingType.RangedSpawner ? rangedCount : casterCount;
+    const target = profileTarget(type);
+    let profileMult = 1.0;
+    if (currentCount < target) profileMult = 1.25; // want more of this
+    else if (target === 0 && currentCount > 0) profileMult = 0.6; // profile says skip this
+    else if (currentCount > target) profileMult = 0.85; // already have enough
+
     const cost = costs[type];
     const canAfford = botCanAfford(state, playerId, type);
     const wait = canAfford ? 0 : timeToAfford(player, cost, plan);
     const spRT = (cost.gold > 0 ? 1 : 0) + (cost.wood > 0 ? 1 : 0) + (cost.stone > 0 ? 1 : 0);
-    options.push({ action: 'spawner', value: sv + shiftBonus, affordable: canAfford, waitSecs: wait, resourceTypes: spRT, type });
+    options.push({ action: 'spawner', value: (sv + shiftBonus) * profileMult, affordable: canAfford, waitSecs: wait, resourceTypes: spRT, type });
   }
 
   // --- Upgrade options (both affordable and unaffordable) ---
@@ -2174,14 +2308,15 @@ function botValueBasedBuild(
       else if (rDef.id === 'caster_def') rLevel = bu.casterDefLevel;
 
       const rCost = getResearchUpgradeCost(rDef.id, rLevel, race);
-      const rTotalCost = rCost.gold + rCost.wood + rCost.stone;
+      const rTotalCost = rCost.gold + rCost.wood + rCost.stone + (rCost.souls ?? 0);
       if (rTotalCost <= 0) continue;
 
-      const canAffordR = player.gold >= rCost.gold && player.wood >= rCost.wood && player.stone >= rCost.stone;
+      const canAffordR = player.gold >= rCost.gold && player.wood >= rCost.wood && player.stone >= rCost.stone
+        && ((rCost.souls ?? 0) <= 0 || player.souls >= (rCost.souls ?? 0));
       const rv = estimateResearchValue(state, ctx, playerId, rDef.id, race, bu, intel, myBuildings);
       if (rv > 0) {
         const waitR = canAffordR ? 0 : timeToAfford(player, rCost, plan);
-        const rRT = (rCost.gold > 0 ? 1 : 0) + (rCost.wood > 0 ? 1 : 0) + (rCost.stone > 0 ? 1 : 0);
+        const rRT = (rCost.gold > 0 ? 1 : 0) + (rCost.wood > 0 ? 1 : 0) + (rCost.stone > 0 ? 1 : 0) + ((rCost.souls ?? 0) > 0 ? 1 : 0);
         options.push({
           action: 'research', value: rv, affordable: canAffordR, waitSecs: waitR, resourceTypes: rRT,
           researchId: rDef.id,
@@ -2570,6 +2705,7 @@ function botUpgradeBuildings(
 
       const rCost = getResearchUpgradeCost(rDef.id, rLevel, player.race);
       if (player.gold < rCost.gold || player.wood < rCost.wood || player.stone < rCost.stone) continue;
+      if ((rCost.souls ?? 0) > 0 && player.souls < (rCost.souls ?? 0)) continue;
 
       const rv = estimateResearchValue(state, ctx, playerId, rDef.id, player.race, bu, intel, myBuildings);
       // Hard bots slightly undervalue research (0.8x) to prefer army investment
@@ -3044,7 +3180,9 @@ function botUseAbility(state: GameState, playerId: number, emit: Emit): void {
     const woodCost = Math.floor((def.baseCost.wood ?? 0) * growthMult);
     const stoneCost = Math.floor((def.baseCost.stone ?? 0) * growthMult);
     const manaCost = Math.floor((def.baseCost.mana ?? 0) * growthMult);
-    const soulsCost = Math.floor((def.baseCost.souls ?? 0) * growthMult);
+    const soulsCost = player.race === Race.Geists
+      ? (def.baseCost.souls ?? 0) + 5 * player.abilityUseCount
+      : Math.floor((def.baseCost.souls ?? 0) * growthMult);
     const essenceCost = Math.floor((def.baseCost.deathEssence ?? 0) * growthMult);
 
     if (player.gold < goldCost || player.wood < woodCost || player.stone < stoneCost) return;
@@ -3136,6 +3274,7 @@ function botManageResearch(
     const cost = getResearchUpgradeCost(def.id, level, race);
     if (player.gold < cost.gold || player.wood < cost.wood || player.stone < cost.stone) continue;
     if ((cost.deathEssence ?? 0) > 0 && player.deathEssence < (cost.deathEssence ?? 0)) continue;
+    if ((cost.souls ?? 0) > 0 && player.souls < (cost.souls ?? 0)) continue;
 
     // Score based on how many spawners of this category we have
     let categoryWeight = 0;
@@ -3145,7 +3284,7 @@ function botManageResearch(
     if (categoryWeight === 0) continue;
 
     let score = categoryWeight * 2; // attack multiplier
-    const totalCost = cost.gold + cost.wood + cost.stone + (cost.deathEssence ?? 0);
+    const totalCost = cost.gold + cost.wood + cost.stone + (cost.deathEssence ?? 0) + (cost.souls ?? 0);
     score /= Math.max(1, totalCost / 100);
 
     candidates.push({ id: def.id, score, cost });

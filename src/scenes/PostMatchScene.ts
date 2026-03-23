@@ -123,7 +123,7 @@ export class PostMatchScene implements Scene {
     }
 
     const { state, localPlayerId } = this.stats;
-    const localTeam = state.players[localPlayerId].team;
+    const localTeam = state.players[localPlayerId]?.team ?? Team.Bottom;
     const won = state.winner === localTeam;
     const fontSize = Math.max(14, Math.min(w / 28, 24));
 
@@ -458,8 +458,10 @@ export class PostMatchScene implements Scene {
       const frame = getSpriteFrame(tick, def);
       const sx = frame * def.frameW;
       const scale = def.scale ?? 1.0;
-      const dw = spriteSize * scale;
-      const dh = spriteSize * scale * (def.heightScale ?? 1.0);
+      const aspect = def.frameW / def.frameH;
+      const baseH = spriteSize * scale;
+      const dw = baseH * aspect;
+      const dh = baseH * (def.heightScale ?? 1.0);
       const spriteX = heroCardX + gap;
       const spriteY = heroCardY + (heroCardH - dh) / 2;
       ctx.drawImage(img, sx, 0, def.frameW, def.frameH, spriteX, spriteY, dw, dh);
@@ -524,7 +526,7 @@ export class PostMatchScene implements Scene {
       ctx.fillStyle = '#69f0ae'; // bright green
       ctx.fillText(`Survived (${aliveTime})`, textCenterX, line5Y);
     } else {
-      const deathTime = this.formatTickTime(hero.deathTick!);
+      const deathTime = this.formatTickTime(hero.deathTick ?? state.tick);
       ctx.fillStyle = '#ff6e6e'; // bright red
       const deathText = this.truncateText(ctx, `Slain at ${deathTime} (${aliveTime})`, textAvailW);
       ctx.fillText(deathText, textCenterX, line5Y);

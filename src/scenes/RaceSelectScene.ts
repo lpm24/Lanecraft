@@ -440,11 +440,17 @@ export class RaceSelectScene implements Scene {
         const spriteData = this.sprites.getUnitSprite(race.race, unitTypes[ui], 0);
         if (!spriteData) continue;
         const [img, def] = spriteData;
-        const fitSize = Math.min(spriteSlotW * 0.9, spriteZoneH);
+        const spriteScale = def.scale ?? 1.0;
         const aspect = def.frameW / def.frameH;
         const hScale = def.heightScale ?? 1.0;
-        const drawW = aspect >= 1 ? fitSize : fitSize * aspect;
-        const drawH = (aspect >= 1 ? fitSize / aspect : fitSize) * hScale;
+        const maxW = spriteSlotW * 0.9;
+        const maxH = spriteZoneH;
+        // Start with in-game proportional size (scale-aware)
+        let drawW = maxH * spriteScale * aspect;
+        let drawH = maxH * spriteScale * hScale;
+        // Clamp to fit within slot while preserving proportions
+        if (drawW > maxW) { const s = maxW / drawW; drawW *= s; drawH *= s; }
+        if (drawH > maxH) { const s = maxH / drawH; drawW *= s; drawH *= s; }
         const frame = isSelected ? getSpriteFrame(Math.floor(this.tick / 3), def) : 0;
         const slotCx = box.x + spriteSlotW * (ui + 0.5);
         const dx = Math.round(slotCx - drawW / 2);

@@ -46,3 +46,18 @@ export function getSafeRight(): number {
   if (measured > 0) return measured;
   return 0;
 }
+
+/** Returns the Y range where popups can safely appear without overlapping the top HUD or bottom build tray. */
+export function getPopupSafeY(canvasW: number, canvasH: number): { top: number; bottom: number } {
+  const compact = canvasW < 600;
+  const safeTop = getSafeTop();
+  const safeBottom = getSafeBottom();
+  // Top HUD bar height (matches Renderer.drawHUD)
+  const hudH = compact ? 42 : 56;
+  const topBarH = safeTop + Math.round(hudH * 1.10);
+  // Bottom build tray + floating buttons (matches InputHandler.getTrayLayout)
+  const trayH = 68;
+  const floatingBtnH = 72 + 4;
+  const bottomBarH = trayH + floatingBtnH + safeBottom;
+  return { top: topBarH + 4, bottom: canvasH - bottomBarH - 4 };
+}

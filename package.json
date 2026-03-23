@@ -15,7 +15,8 @@
     "test:sim": "tsc -p tsconfig.simtest.json && node -e \"require('fs').mkdirSync('dist-simtest',{recursive:true});require('fs').writeFileSync('dist-simtest/package.json','{\\\"type\\\":\\\"commonjs\\\"}')\" && node dist-simtest/tests/simSmoke.js",
     "balance": "tsc -p tsconfig.simtest.json && node -e \"require('fs').mkdirSync('dist-simtest',{recursive:true});require('fs').writeFileSync('dist-simtest/package.json','{\\\"type\\\":\\\"commonjs\\\"}')\" && node dist-simtest/tests/balanceSim.js",
     "sanity": "tsc -p tsconfig.simtest.json && node -e \"require('fs').mkdirSync('dist-simtest',{recursive:true});require('fs').writeFileSync('dist-simtest/package.json','{\\\"type\\\":\\\"commonjs\\\"}')\" && node dist-simtest/tests/balanceSim.js 1",
-    "cost-analysis": "tsc -p tsconfig.simtest.json && node -e \"require('fs').mkdirSync('dist-simtest',{recursive:true});require('fs').writeFileSync('dist-simtest/package.json','{\\\"type\\\":\\\"commonjs\\\"}')\" && node dist-simtest/tests/costAnalysis.js"
+    "cost-analysis": "tsc -p tsconfig.simtest.json && node -e \"require('fs').mkdirSync('dist-simtest',{recursive:true});require('fs').writeFileSync('dist-simtest/package.json','{\\\"type\\\":\\\"commonjs\\\"}')\" && node dist-simtest/tests/costAnalysis.js",
+    "profile-sim": "tsc -p tsconfig.simtest.json && node -e \"require('fs').mkdirSync('dist-simtest',{recursive:true});require('fs').writeFileSync('dist-simtest/package.json','{\\\"type\\\":\\\"commonjs\\\"}')\" && node dist-simtest/tests/profileSim.js"
   },
   "devDependencies": {
     "@capacitor/cli": "~8.0.1",

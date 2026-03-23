@@ -36,7 +36,8 @@ export class Game {
   private sounds: SoundManager;
   onMatchEnd: (() => void) | null = null;
   onQuitGame: (() => void) | null = null;
-  private matchEndTick = 0;
+  private matchEndTick = -1;
+  private connectingInterval: ReturnType<typeof setInterval> | null = null;
   private pagehideHandler: (() => void) | null = null;
 
   /** Per-slot display names for the results screen. */
@@ -89,8 +90,9 @@ export class Game {
         }
       }
 
-      // Shuffle remaining races for random assignment
-      const otherRaces = allRaces.filter(r => !usedRaces.has(r));
+      // Shuffle remaining races for random assignment (fall back to all if every race is taken)
+      let otherRaces = allRaces.filter(r => !usedRaces.has(r));
+      if (otherRaces.length === 0) otherRaces = [...allRaces];
       for (let i = otherRaces.length - 1; i > 0; i--) {
         const j = Math.floor(shuffleRng() * (i + 1));
         [otherRaces[i], otherRaces[j]] = [otherRaces[j], otherRaces[i]];
@@ -228,17 +230,17 @@ export class Game {
       // Show "Connecting..." while waiting for handshake, refresh periodically
       this.waitingForAllyMs = 1;
       this.drawConnectingScreen();
-      const connectingInterval = setInterval(() => this.drawConnectingScreen(), 500);
+      this.connectingInterval = setInterval(() => this.drawConnectingScreen(), 500);
       // Wait for P2P connection + handshake before starting game loop
       this.commandSync.whenReady().then(() => {
-        clearInterval(connectingInterval);
+        if (this.connectingInterval) { clearInterval(this.connectingInterval); this.connectingInterval = null; }
         console.log('[Game] P2P ready, starting game loop');
         this.waitingForAllyMs = 0;
         // Pre-seed turn 0 so the first tick doesn't stall
         this.turnCommands.set(0, []);
         this.loop.start();
       }).catch((err) => {
-        clearInterval(connectingInterval);
+        if (this.connectingInterval) { clearInterval(this.connectingInterval); this.connectingInterval = null; }
         console.error('[Game] P2P connection failed:', err);
         this.peerDisconnected = true;
         this.waitingForAllyMs = 0;
@@ -272,6 +274,7 @@ export class Game {
   }
 
   stop(): void {
+    if (this.connectingInterval) { clearInterval(this.connectingInterval); this.connectingInterval = null; }
     this.loop.stop();
     this.sounds.dispose();
     this.input.destroy();
@@ -303,8 +306,8 @@ export class Game {
   private handleConcede(): void {
     if (this.state.matchPhase === 'ended') return;
 
-    if (this.isMultiplayer && this.commandSync && this.localPlayerId !== 0) {
-      // Non-host in multiplayer: leave game (replaced by bot), show results locally
+    if (this.isMultiplayer && this.commandSync) {
+      // Multiplayer: broadcast leave so peers know we conceded, then force-end locally
       this.commandSync.broadcastLeave();
       const localTeam = this.state.players[this.localPlayerId]?.team ?? Team.Bottom;
       const enemyTeam = localTeam === Team.Bottom ? Team.Top : Team.Bottom;
@@ -313,7 +316,7 @@ export class Game {
       this.state.matchPhase = 'ended';
       this.state.soundEvents.push({ type: 'match_end_lose' });
     } else {
-      // Solo or host: send concede command through simulation (syncs to all players)
+      // Solo: send concede command through simulation
       this.sendCommand({ type: 'concede', playerId: this.localPlayerId });
     }
   }
@@ -490,7 +493,7 @@ export class Game {
 
     // Check for match end — delay 3 seconds so player can see the final moment
     if (this.state.matchPhase === 'ended') {
-      if (this.matchEndTick === 0) this.matchEndTick = this.state.tick;
+      if (this.matchEndTick < 0) this.matchEndTick = this.state.tick;
       if (this.onMatchEnd && this.state.tick - this.matchEndTick >= 60) { // 3s at 20tps
         this.onMatchEnd();
         this.onMatchEnd = null;

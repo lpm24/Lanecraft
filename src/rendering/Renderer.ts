@@ -7,6 +7,7 @@ import {
   HQ_WIDTH, HQ_HEIGHT, HQ_HP,
   BuildingType, Lane, Vec2,
   StatusType, Race, ResourceType, HarvesterAssignment,
+  createSeededRng,
   type MapDef,
   type BuildingState, type UnitState, type HarvesterState, type ProjectileState,
 } from '../simulation/types';
@@ -77,11 +78,8 @@ function quickChatStyle(message: string): { icon: string; color: string } {
   return { icon: '!', color: '#ffcc80' };
 }
 
-// Seeded random for deterministic decoration placement
-function seededRand(seed: number): () => number {
-  let s = seed;
-  return () => { s = (s * 16807 + 0) % 2147483647; return s / 2147483647; };
-}
+// Seeded random for deterministic decoration placement (reuses simulation's Mulberry32 PRNG)
+const seededRand = createSeededRng;
 
 export class Renderer {
   canvas: HTMLCanvasElement;
@@ -379,7 +377,12 @@ export class Renderer {
 
     // Update visual effects (respect user preferences)
     const vfxPrefs = getVisualSettings();
-    this.dayNight = vfxPrefs.dayNight ? getDayNight(elapsedSec) : getDayNight(0.25 * 240); // noon
+    // Cache day/night — only recompute when phase changes meaningfully (~4x/sec instead of 60)
+    const dnInput = vfxPrefs.dayNight ? elapsedSec : 0.25 * 240;
+    const newPhase = (dnInput % 240) / 240;
+    if (!this.dayNight || Math.abs(newPhase - this.dayNight.phase) > 0.004) {
+      this.dayNight = getDayNight(dnInput);
+    }
     if (vfxPrefs.screenShake) this.screenShake.update(dt); else { this.screenShake.offsetX = 0; this.screenShake.offsetY = 0; }
     if (vfxPrefs.weather) this.weather.update(dt, elapsedSec, this.dayNight.phase, this.dayNight.brightness);
     // Force heavy rain during Deep deluge ability
@@ -509,7 +512,11 @@ export class Renderer {
 
     // Snapshot positions at end of frame — used next frame to detect actual movement
     if (state.tick !== this.prevTickSeen) {
-      for (const u of state.units) this.prevTickUnitPos.set(u.id, { x: u.x, y: u.y });
+      for (const u of state.units) {
+        const prev = this.prevTickUnitPos.get(u.id);
+        if (prev) { prev.x = u.x; prev.y = u.y; }
+        else this.prevTickUnitPos.set(u.id, { x: u.x, y: u.y });
+      }
       this.prevTickSeen = state.tick;
     }
   }
@@ -3385,7 +3392,9 @@ export class Renderer {
   }
 
   private drawFloatingTexts(ctx: CanvasRenderingContext2D, state: GameState): void {
+    const showDmgNums = getVisualSettings().damageNumbers;
     for (const ft of state.floatingTexts) {
+      if (ft.ftType === 'damage' && !showDmgNums) continue;
       const t = ft.age / ft.maxAge; // 0→1 progress
       const isDmg = ft.ftType === 'damage';
       const isHeal = ft.ftType === 'heal';
@@ -3395,11 +3404,10 @@ export class Renderer {
 
       // Movement depends on type
       let xOff: number, yOff: number;
-      if (isDmg && ft.vx) {
-        // Arc trajectory: horizontal drift + gravity curve
-        xOff = ft.vx * ft.age * T * 1.5;
-        const initVy = ft.vy ?? -0.12;
-        yOff = (initVy * ft.age + 0.004 * ft.age * ft.age) * T; // gravity arc
+      if (isDmg) {
+        // Gentle rise (same as default easeOut)
+        xOff = ft.xOff * T;
+        yOff = -(1 - (1 - t) * (1 - t)) * 24;
       } else if (isHeal) {
         // Healing floats gently upward
         xOff = ft.xOff * T;
