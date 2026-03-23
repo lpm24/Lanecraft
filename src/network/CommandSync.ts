@@ -46,7 +46,7 @@ export class CommandSync {
   private connectionTimeout: ReturnType<typeof setTimeout> | null = null;
 
   // Firebase listeners to unsubscribe on stop
-  private unsubs: Unsubscribe[] = [];
+  private unsubs = new Set<Unsubscribe>();
 
   // Connection readiness
   private _connectedPromise: Promise<void>;
@@ -161,7 +161,7 @@ export class CommandSync {
           }
         }
       });
-      this.unsubs.push(readyUnsub);
+      this.unsubs.add(readyUnsub);
     }
 
     // Start latency measurement via Firebase server time
@@ -232,10 +232,10 @@ export class CommandSync {
         }
         // All data received — unsubscribe from this turn
         unsub();
-        this.unsubs = this.unsubs.filter(u => u !== unsub);
+        this.unsubs.delete(unsub);
       }
     });
-    this.unsubs.push(unsub);
+    this.unsubs.add(unsub);
   }
 
   /** Check if all human players have submitted data for this turn. */
@@ -431,7 +431,7 @@ export class CommandSync {
           this.removeHumanSlot(remoteId);
         }
       });
-      this.unsubs.push(unsub);
+      this.unsubs.add(unsub);
     }
   }
 
@@ -464,7 +464,7 @@ export class CommandSync {
     }
     // Unsubscribe all Firebase listeners
     for (const unsub of this.unsubs) unsub();
-    this.unsubs = [];
+    this.unsubs.clear();
     this.subscribedTurns.clear();
 
     // Clean up only our own ready signal — don't delete the whole game node

@@ -100,8 +100,8 @@ function deductCost(player: { gold: number; wood: number; stone: number; mana: n
   player.wood -= cost.wood;
   player.stone -= cost.stone;
   if (cost.mana !== undefined) player.mana -= cost.mana;
-  if (cost.deathEssence) player.deathEssence -= cost.deathEssence;
-  if (cost.souls) player.souls -= cost.souls;
+  if (cost.deathEssence !== undefined) player.deathEssence -= cost.deathEssence;
+  if (cost.souls !== undefined) player.souls -= cost.souls;
 }
 
 /** Return the smartest harvester assignment for a new hut based on the race's
@@ -230,7 +230,7 @@ function generateDiamondCells(mapDef?: MapDef): GoldCell[] {
   return cells;
 }
 
-function isDiamondExposed(cellMap: Map<string, GoldCell>, state: GameState): boolean {
+function isDiamondExposed(cellMap: Map<number, GoldCell>, state: GameState): boolean {
   const cx = state.diamond.x, cy = state.diamond.y;
   const neighbors = [
     { x: cx - 1, y: cy },
@@ -239,7 +239,7 @@ function isDiamondExposed(cellMap: Map<string, GoldCell>, state: GameState): boo
     { x: cx, y: cy + 1 },
   ];
   for (const n of neighbors) {
-    const cell = cellMap.get(`${n.x},${n.y}`);
+    const cell = cellMap.get(n.x * 10000 + n.y);
     if (!cell || cell.gold <= 0) {
       if (hasPathToEdge(cellMap, n.x, n.y, state)) return true;
     }
@@ -247,12 +247,12 @@ function isDiamondExposed(cellMap: Map<string, GoldCell>, state: GameState): boo
   return false;
 }
 
-function hasPathToEdge(cellMap: Map<string, GoldCell>, sx: number, sy: number, state: GameState): boolean {
+function hasPathToEdge(cellMap: Map<number, GoldCell>, sx: number, sy: number, state: GameState): boolean {
   const cx = state.diamond.x, cy = state.diamond.y;
   const hw = state.mapDef.diamondHalfW, hh = state.mapDef.diamondHalfH;
-  const visited = new Set<string>();
+  const visited = new Set<number>();
   const queue: { x: number; y: number }[] = [{ x: sx, y: sy }];
-  visited.add(`${sx},${sy}`);
+  visited.add(sx * 10000 + sy);
 
   while (queue.length > 0) {
     const cur = queue.shift()!;
@@ -261,7 +261,7 @@ function hasPathToEdge(cellMap: Map<string, GoldCell>, sx: number, sy: number, s
     if (dx > hw || dy > hh) return true;
 
     for (const [nx, ny] of [[cur.x-1,cur.y],[cur.x+1,cur.y],[cur.x,cur.y-1],[cur.x,cur.y+1]]) {
-      const key = `${nx},${ny}`;
+      const key = nx * 10000 + ny;
       if (visited.has(key)) continue;
       visited.add(key);
       const cell = cellMap.get(key);
@@ -277,12 +277,14 @@ function hasPathToEdge(cellMap: Map<string, GoldCell>, sx: number, sy: number, s
 
 class SpatialGrid {
   private cellSize: number;
+  private stride: number;   // row stride for hash key — must exceed max column count
   private cells = new Map<number, UnitState[]>();
   private bucketPool: UnitState[][] = [];
   private activeBuckets: UnitState[][] = [];
 
-  constructor(cellSize: number) {
+  constructor(cellSize: number, maxWorldDimension = 200) {
     this.cellSize = cellSize;
+    this.stride = Math.ceil(maxWorldDimension / cellSize) + 2;
   }
 
   build(units: UnitState[]): void {
@@ -290,9 +292,10 @@ class SpatialGrid {
     for (const b of this.activeBuckets) { b.length = 0; this.bucketPool.push(b); }
     this.activeBuckets.length = 0;
     this.cells.clear();
+    const s = this.stride;
     for (const u of units) {
       if (u.hp <= 0) continue;
-      const key = Math.floor(u.x / this.cellSize) * 10000 + Math.floor(u.y / this.cellSize);
+      const key = Math.floor(u.x / this.cellSize) * s + Math.floor(u.y / this.cellSize);
       const bucket = this.cells.get(key);
       if (bucket) { bucket.push(u); }
       else {
@@ -309,6 +312,7 @@ class SpatialGrid {
   /** Returns a reusable array — contents are only valid until the next getNearby call. */
   getNearby(x: number, y: number, radius: number): UnitState[] {
     const cs = this.cellSize;
+    const s = this.stride;
     const minCX = Math.floor((x - radius) / cs);
     const maxCX = Math.floor((x + radius) / cs);
     const minCY = Math.floor((y - radius) / cs);
@@ -316,7 +320,7 @@ class SpatialGrid {
     this._result.length = 0;
     for (let cx = minCX; cx <= maxCX; cx++) {
       for (let cy = minCY; cy <= maxCY; cy++) {
-        const bucket = this.cells.get(cx * 10000 + cy);
+        const bucket = this.cells.get(cx * s + cy);
         if (bucket) {
           for (const u of bucket) this._result.push(u);
         }
@@ -726,9 +730,9 @@ function getChokeSpreadMultiplier(x: number, y: number, mapDef?: MapDef): number
   return 1 + t * 1.2;
 }
 
-function buildDiamondCellMap(cells: GoldCell[]): Map<string, GoldCell> {
-  const m = new Map<string, GoldCell>();
-  for (const c of cells) m.set(`${c.tileX},${c.tileY}`, c);
+function buildDiamondCellMap(cells: GoldCell[]): Map<number, GoldCell> {
+  const m = new Map<number, GoldCell>();
+  for (const c of cells) m.set(c.tileX * 10000 + c.tileY, c);
   return m;
 }
 
@@ -866,8 +870,7 @@ export function simulateTick(state: GameState, commands: GameCommand[]): void {
 
   // Build diamond cell map once per tick (reused by harvesters, exposure check, and isBlocked)
   const diamondCellMap = buildDiamondCellMap(state.diamondCells);
-  _diamondCellMapInt.clear();
-  for (const c of state.diamondCells) _diamondCellMapInt.set(c.tileX * 10000 + c.tileY, c);
+  _diamondCellMapInt = diamondCellMap;
 
   // Update diamond exposed state (check every second, not every tick — BFS is expensive)
   if (state.diamond.state === 'hidden' && state.tick % TICK_RATE === 0) {

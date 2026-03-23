@@ -75,6 +75,11 @@ export class MusicPlayer {
       document.removeEventListener('visibilitychange', this.visibilityHandler);
       this.visibilityHandler = null;
     }
+    if (this.actx) {
+      this.actx.close().catch(() => {});
+      this.actx = null;
+      this.gainNode = null;
+    }
   }
 
   private getTracksForCategory(): string[] {

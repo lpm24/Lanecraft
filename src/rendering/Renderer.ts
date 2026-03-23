@@ -170,6 +170,9 @@ export class Renderer {
 
   destroy(): void {
     window.removeEventListener('resize', this.resizeHandler);
+    this.isoTerrainCache = null;
+    this.terrainCache = null;
+    this.waterCache = null;
   }
 
   /** Convert tile coordinates to world-pixel coordinates (isometric-aware) */

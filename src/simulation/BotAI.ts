@@ -428,12 +428,14 @@ function selectCompositionProfile(
     for (const enemy of enemyRaces) {
       const best = matchups?.[enemy];
       if (best && top3.has(best)) {
-        return profileById.get(best)!.profile;
+        const entry = profileById.get(best);
+        if (entry) return entry.profile;
       }
     }
     // No specific matchup counter in top 3 — pick randomly from top 3
     const idx = Math.floor(rng() * 3);
-    return profileById.get(rankings[idx])!.profile;
+    const fallback = profileById.get(rankings[idx]);
+    if (fallback) return fallback.profile;
   }
 
   // Determine pool size based on difficulty
@@ -454,7 +456,11 @@ function selectCompositionProfile(
 
   const pool = rankings.slice(0, poolSize);
   const pick = pool[Math.floor(rng() * pool.length)];
-  return profileById.get(pick)!.profile;
+  const selected = profileById.get(pick);
+  if (selected) return selected.profile;
+
+  // Fallback: return first available profile (should never reach here)
+  return allProfiles[0].profile;
 }
 
 // Persistent per-bot state
