@@ -4800,7 +4800,7 @@ function tickEffects(state: GameState): void {
 // === Status Effects ===
 
 function tickStatusEffects(state: GameState): void {
-  // Upgrade regen: heal once per second (suppressed by Blight: burn stacks >= 3)
+  // Upgrade regen: heal once per second (suppressed by burn, poison/slow, or blight)
   if (state.tick % TICK_RATE === 0) {
     for (const unit of state.units) {
       let regen = unit.upgradeSpecial?.regenPerSec ?? 0;
@@ -4810,9 +4810,10 @@ function tickStatusEffects(state: GameState): void {
         regen = Math.max(regen, 2);
       }
       if (regen > 0 && unit.hp < unit.maxHp) {
-        const burnEff = unit.statusEffects.find(e => e.type === StatusType.Burn);
-        const blighted = burnEff && burnEff.stacks >= 3;
-        if (!blighted) {
+        // Any burn or slow (poison) effect suppresses regen
+        const hasBurn = unit.statusEffects.some(e => e.type === StatusType.Burn);
+        const hasSlow = unit.statusEffects.some(e => e.type === StatusType.Slow);
+        if (!hasBurn && !hasSlow) {
           const regenAh = healUnit(unit, regen);
           if (regenAh > 0) trackHealing(state, unit, regenAh);
           addDeathParticles(state, unit.x, unit.y, '#4caf50', 1);

@@ -5,11 +5,11 @@ import type { RaceAbilityDef } from './types';
 export const RACE_BUILDING_COSTS: Record<Race, Record<BuildingType, { gold: number; wood: number; stone: number; hp: number }>> = {
   // Crown: Gold+Wood economy. Premium gold cost for strong units.
   [Race.Crown]: {
-    [BuildingType.MeleeSpawner]:  { gold: 85,  wood: 0,  stone: 0,  hp: 280 },
-    [BuildingType.RangedSpawner]: { gold: 0,   wood: 30,  stone: 0,  hp: 230 },
-    [BuildingType.CasterSpawner]: { gold: 75,  wood: 10, stone: 0,  hp: 200 },
-    [BuildingType.Tower]:         { gold: 80,  wood: 10, stone: 0,  hp: 220 },
-    [BuildingType.HarvesterHut]:  { gold: 50,  wood: 0,  stone: 0,  hp: 150 },
+    [BuildingType.MeleeSpawner]:  { gold: 72,  wood: 0,  stone: 0,  hp: 280 },
+    [BuildingType.RangedSpawner]: { gold: 0,   wood: 25,  stone: 0,  hp: 230 },
+    [BuildingType.CasterSpawner]: { gold: 65,  wood: 8,  stone: 0,  hp: 200 },
+    [BuildingType.Tower]:         { gold: 70,  wood: 8,  stone: 0,  hp: 220 },
+    [BuildingType.HarvesterHut]:  { gold: 42,  wood: 0,  stone: 0,  hp: 150 },
     [BuildingType.Research]:      { gold: 0,   wood: 0,  stone: 0,  hp: 500 },
   },
   // Horde: All 3 resources. Melee=meat, Ranged=wood, Caster=gold. Collect one of each T3 for auras.
@@ -32,11 +32,11 @@ export const RACE_BUILDING_COSTS: Record<Race, Record<BuildingType, { gold: numb
   },
   // Oozlings: Gold+Stone economy. Cheap (swarm units).
   [Race.Oozlings]: {
-    [BuildingType.MeleeSpawner]:  { gold: 60,  wood: 0,  stone: 0,  hp: 200 },
-    [BuildingType.RangedSpawner]: { gold: 70,  wood: 0,  stone: 20, hp: 180 },
-    [BuildingType.CasterSpawner]: { gold: 35,  wood: 0,  stone: 35, hp: 160 },
-    [BuildingType.Tower]:         { gold: 75,  wood: 0,  stone: 19, hp: 170 },
-    [BuildingType.HarvesterHut]:  { gold: 35,  wood: 0,  stone: 10, hp: 130 },
+    [BuildingType.MeleeSpawner]:  { gold: 50,  wood: 0,  stone: 0,  hp: 200 },
+    [BuildingType.RangedSpawner]: { gold: 60,  wood: 0,  stone: 16, hp: 180 },
+    [BuildingType.CasterSpawner]: { gold: 30,  wood: 0,  stone: 30, hp: 160 },
+    [BuildingType.Tower]:         { gold: 65,  wood: 0,  stone: 16, hp: 170 },
+    [BuildingType.HarvesterHut]:  { gold: 30,  wood: 0,  stone: 8,  hp: 130 },
     [BuildingType.Research]:      { gold: 0,   wood: 0,  stone: 0,  hp: 500 },
   },
   // Demon: Stone+Wood economy. No gold. Variable — melee is stone-heavy, ranged is wood-heavy.
@@ -100,10 +100,10 @@ export const RACE_LABELS: Record<Race, string> = {
 
 // Race-specific upgrade costs
 export const RACE_UPGRADE_COSTS: Record<Race, { tier1: { gold: number; wood: number; stone: number; deathEssence?: number; souls?: number }; tier2: { gold: number; wood: number; stone: number; deathEssence?: number; souls?: number } }> = {
-  [Race.Crown]:    { tier1: { gold: 55,  wood: 0,  stone: 0 },  tier2: { gold: 90,  wood: 30, stone: 0 } },
+  [Race.Crown]:    { tier1: { gold: 45,  wood: 0,  stone: 0 },  tier2: { gold: 78,  wood: 25, stone: 0 } },
   [Race.Horde]:    { tier1: { gold: 30,  wood: 20, stone: 20 }, tier2: { gold: 60,  wood: 40, stone: 40 } },
   [Race.Goblins]:  { tier1: { gold: 45,  wood: 15, stone: 0 },  tier2: { gold: 90,  wood: 30, stone: 0 } },
-  [Race.Oozlings]: { tier1: { gold: 50,  wood: 0,  stone: 15 }, tier2: { gold: 100, wood: 0,  stone: 30 } },
+  [Race.Oozlings]: { tier1: { gold: 42,  wood: 0,  stone: 12 }, tier2: { gold: 85, wood: 0,  stone: 25 } },
   [Race.Demon]:    { tier1: { gold: 0,   wood: 15, stone: 35 }, tier2: { gold: 0,   wood: 30, stone: 70 } },
   [Race.Deep]:     { tier1: { gold: 20,  wood: 35, stone: 0 },  tier2: { gold: 40,  wood: 70, stone: 0 } },
   [Race.Wild]:     { tier1: { gold: 0,   wood: 25, stone: 15 }, tier2: { gold: 0,   wood: 50, stone: 30 } },
