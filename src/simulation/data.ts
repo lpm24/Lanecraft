@@ -59,11 +59,11 @@ export const RACE_BUILDING_COSTS: Record<Race, Record<BuildingType, { gold: numb
   },
   // Wild: Wood+Stone economy. No gold. Variable — melee is wood-heavy, ranged is stone-heavy.
   [Race.Wild]: {
-    [BuildingType.MeleeSpawner]:  { gold: 0,  wood: 40, stone: 5,  hp: 250 },
-    [BuildingType.RangedSpawner]: { gold: 0,  wood: 15, stone: 35, hp: 220 },
-    [BuildingType.CasterSpawner]: { gold: 0,  wood: 30, stone: 30, hp: 190 },
-    [BuildingType.Tower]:         { gold: 0,  wood: 42, stone: 10, hp: 200 },
-    [BuildingType.HarvesterHut]:  { gold: 0,  wood: 10, stone: 16, hp: 140 },
+    [BuildingType.MeleeSpawner]:  { gold: 0,  wood: 38, stone: 4,  hp: 250 },
+    [BuildingType.RangedSpawner]: { gold: 0,  wood: 18, stone: 28, hp: 220 },
+    [BuildingType.CasterSpawner]: { gold: 0,  wood: 28, stone: 25, hp: 190 },
+    [BuildingType.Tower]:         { gold: 0,  wood: 38, stone: 8,  hp: 200 },
+    [BuildingType.HarvesterHut]:  { gold: 0,  wood: 10, stone: 12, hp: 140 },
     [BuildingType.Research]:      { gold: 0,  wood: 0,  stone: 0,  hp: 500 },
   },
   // Geists: Stone+Gold economy. Variable ratios — melee is cheap stone, caster is gold-heavy.
