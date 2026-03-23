@@ -8,8 +8,8 @@ import {
   getMarginAtRow,
   LANE_PATHS, Vec2,
   GameCommand, BuildingType, BuildingState, ResourceType,
-  HarvesterAssignment, HarvesterState, UnitState, WarHero, WoodPileState,
-  StatusType, SoundEvent, CombatEvent, createSeededRng, createResearchUpgradeState,
+  HarvesterAssignment, HarvesterState, UnitState, WarHero, WoodPileState, PotionType,
+  StatusType, SoundEvent, CombatEvent, AbilityEffect, createSeededRng, createResearchUpgradeState,
   type ProjectileVisual,
 } from './types';
 import { DUEL_MAP } from './maps';
@@ -442,6 +442,7 @@ export function createInitialState(
     units: [],
     harvesters: [],
     woodPiles: [],
+    potionDrops: [],
     projectiles: [],
     diamond,
     diamondCells: generateDiamondCells(map),
@@ -882,6 +883,7 @@ export function simulateTick(state: GameState, commands: GameCommand[]): void {
   tickUnitMovement(state);
   debugCheckUnitPositions(state, 'tickUnitMovement');
   tickUnitDiamondPickup(state);
+  tickPotionPickups(state);
   tickUnitCollision(state);
   debugCheckUnitPositions(state, 'tickUnitCollision');
   tickCombat(state);
@@ -1452,25 +1454,28 @@ function deepAbility(state: GameState, player: PlayerState): void {
 }
 
 function hordeAbility(state: GameState, player: PlayerState): void {
-  // Spawn a big troll from the HQ that walks the default lane
+  // Spawn a big troll from the HQ that joins the nearest lane point
   const hq = getHQPosition(player.team, state.mapDef);
   const lane = state.rng() < 0.5 ? Lane.Left : Lane.Right;
   const scaleFactor = 1 + 0.15 * (player.abilityUseCount - 1); // gets slightly stronger each cast
+  const trollX = hq.x + 2, trollY = hq.y + 1;
+  const trollPath = getLanePath(player.team, lane, state.mapDef);
+  const trollProgress = findNearestPathProgress(trollPath, trollX, trollY);
   state.units.push({
     id: genId(state), type: 'War Troll', playerId: player.id, team: player.team,
-    x: hq.x + 2, y: hq.y + 1,
+    x: trollX, y: trollY,
     hp: Math.round(4500 * scaleFactor), maxHp: Math.round(4500 * scaleFactor),
     damage: Math.round(82 * scaleFactor),
     attackSpeed: 1.8, attackTimer: 0,
-    moveSpeed: 1.8, range: 1.5,
-    targetId: null, lane, pathProgress: -1, carryingDiamond: false,
+    moveSpeed: 2.7, range: 1.5,
+    targetId: null, lane, pathProgress: trollProgress, carryingDiamond: false,
     statusEffects: [], hitCount: 0, shieldHp: 0,
     category: 'melee', upgradeTier: 0, upgradeNode: 'E', // Goblin troll warlord art
-    spriteRace: Race.Goblins,
+    spriteRace: Race.Goblins, visualScale: 2.0,
     upgradeSpecial: { knockbackChance: 0.3 }, kills: 0, lastDamagedByName: '', spawnTick: state.tick,
   });
-  addFloatingText(state, hq.x + 2, hq.y, 'WAR TROLL!', '#ff6600');
-  addSound(state, 'ability_troll', hq.x + 2, hq.y);
+  addFloatingText(state, trollX, trollY, 'WAR TROLL!', '#ff6600');
+  addSound(state, 'ability_troll', trollX, trollY);
 }
 
 /** Find first open alley slot for the player's team. */
@@ -1598,37 +1603,71 @@ function explodeFireball(state: GameState, eff: { playerId: number; team: Team; 
   });
 }
 
+const SKULL_SPEED = 0.8; // tiles per tick (16 tiles/sec) — slower than fireball for dramatic effect
+
 function geistsAbility(state: GameState, player: PlayerState, cmd: Extract<GameCommand, { type: 'use_ability' }>): void {
   if (cmd.x == null || cmd.y == null) return;
-  // Summon skeletons — count increases by 1 per cast (abilityUseCount already incremented)
   const skeletonCount = 4 + player.abilityUseCount;
-  const circleRadius = 2;
-  const skeletonDuration = 15 * TICK_RATE; // 15 seconds
+  const skeletonDuration = 15 * TICK_RATE;
   const lane = state.rng() < 0.5 ? Lane.Left : Lane.Right;
-
-  // Find nearest lane progress so skeletons join the battle line immediately
   const skelPath = getLanePath(player.team, lane, state.mapDef);
   const skelProgress = findNearestPathProgress(skelPath, cmd.x, cmd.y);
 
+  // Launch skull projectile from HQ toward target
+  const hq = getHQPosition(player.team, state.mapDef);
+  const dx = cmd.x - hq.x, dy = cmd.y - hq.y;
+  const dist = Math.sqrt(dx * dx + dy * dy);
+  const travelTicks = Math.max(1, Math.ceil(dist / SKULL_SPEED));
+
+  // Black hole telegraph at target — visible to all
+  state.abilityEffects.push({
+    id: genId(state), type: 'geist_summon_telegraph',
+    playerId: player.id, team: player.team,
+    x: cmd.x, y: cmd.y, radius: 2,
+    duration: travelTicks,
+  });
+
+  // In-flight skull projectile
+  state.abilityEffects.push({
+    id: genId(state), type: 'geist_summon_inbound',
+    playerId: player.id, team: player.team,
+    x: cmd.x, y: cmd.y, radius: 2,
+    duration: travelTicks + 2,
+    data: {
+      curX: hq.x, curY: hq.y, arrived: 0,
+      skeletonCount, skeletonDuration, laneIsLeft: lane === Lane.Left ? 1 : 0, pathProgress: skelProgress,
+    },
+  });
+
+  addSound(state, 'ability_summon', hq.x, hq.y);
+}
+
+function spawnGeistSkeletons(state: GameState, eff: AbilityEffect): void {
+  if (eff.x == null || eff.y == null || eff.data == null) return;
+  const player = state.players[eff.playerId];
+  const { skeletonCount, skeletonDuration, laneIsLeft, pathProgress } = eff.data;
+  const lane = laneIsLeft ? Lane.Left : Lane.Right;
+  const circleRadius = 2;
+
   for (let i = 0; i < skeletonCount; i++) {
     const angle = (i / skeletonCount) * Math.PI * 2;
-    const sx = cmd.x + Math.cos(angle) * circleRadius;
-    const sy = cmd.y + Math.sin(angle) * circleRadius;
+    const sx = eff.x + Math.cos(angle) * circleRadius;
+    const sy = eff.y + Math.sin(angle) * circleRadius;
     state.units.push({
       id: genId(state), type: 'Skeleton', playerId: player.id, team: player.team,
       x: sx, y: sy,
       hp: 60, maxHp: 60, damage: 18,
       attackSpeed: 1.2, attackTimer: 0, moveSpeed: 2.8, range: 1.5,
-      targetId: null, lane, pathProgress: skelProgress, carryingDiamond: false,
+      targetId: null, lane, pathProgress, carryingDiamond: false,
       statusEffects: [], hitCount: 0, shieldHp: 0,
       category: 'melee', upgradeTier: 0, upgradeNode: 'A',
       upgradeSpecial: { lifestealPct: 0.15 }, kills: 0, lastDamagedByName: '', spawnTick: state.tick,
       summonDuration: skeletonDuration,
     });
   }
-  addFloatingText(state, cmd.x, cmd.y, 'RISE!', '#ce93d8');
-  addSound(state, 'ability_summon', cmd.x, cmd.y);
-  addCombatEvent(state, { type: 'pulse', x: cmd.x, y: cmd.y, radius: circleRadius, color: '#ce93d8' });
+  addFloatingText(state, eff.x, eff.y, 'RISE!', '#ce93d8');
+  addSound(state, 'ability_summon', eff.x, eff.y);
+  addCombatEvent(state, { type: 'pulse', x: eff.x, y: eff.y, radius: circleRadius, color: '#ce93d8' });
 }
 
 function goblinsAbility(state: GameState, player: PlayerState, cmd: Extract<GameCommand, { type: 'use_ability' }>): void {
@@ -1678,11 +1717,13 @@ function tendersAbility(state: GameState, player: PlayerState, cmd: Extract<Game
   );
 
   if (existing) {
-    // Upgrade existing seed to next tier
-    const newTier = (existing.seedTier ?? 0) + 1;
+    // Upgrade existing seed to next tier, preserving elapsed time
+    const oldTier = existing.seedTier ?? 0;
+    const newTier = oldTier + 1;
     if (newTier > 2) return; // already T3
+    const elapsed = SEED_GROW_TIMES[oldTier] - (existing.seedTimer ?? 0);
     existing.seedTier = newTier;
-    existing.seedTimer = SEED_GROW_TIMES[newTier];
+    existing.seedTimer = Math.max(0, SEED_GROW_TIMES[newTier] - elapsed);
     const tierLabel = ['T2', 'T3'][newTier - 1];
     addFloatingText(state, existing.worldX, existing.worldY, `SEED → ${tierLabel}`, '#ffd740');
     addSound(state, 'building_placed', existing.worldX, existing.worldY);
@@ -1803,50 +1844,33 @@ function tickAbilityEffects(state: GameState): void {
         }
       }
 
-      // Goblin potion shop: periodically buff a nearby allied unit
+      // Goblin potion shop: periodically toss a random potion onto a nearby empty tile
       if (b.isPotionShop) {
         b.actionTimer = (b.actionTimer ?? 0) - TICK_RATE;
         if (b.actionTimer <= 0) {
           b.actionTimer = 8 * TICK_RATE; // drop every 8 seconds
           const owner = state.players[b.playerId];
           if (owner && !owner.isEmpty) {
-            // Find nearest allied unit within 15 tiles
-            const potionRange = 15;
-            let nearest: typeof state.units[0] | null = null;
-            let nearestDist = potionRange * potionRange;
-            for (const u of state.units) {
-              if (u.team !== owner.team || u.hp <= 0) continue;
-              const d2 = (u.x - b.worldX) ** 2 + (u.y - b.worldY) ** 2;
-              if (d2 < nearestDist) { nearestDist = d2; nearest = u; }
-            }
-            if (nearest) {
-              // Apply random potion buff
-              const roll = state.rng();
-              if (roll < 0.33) {
-                // Speed potion
-                const haste = nearest.statusEffects.find(s => s.type === StatusType.Haste);
-                if (haste) { haste.duration = 6 * TICK_RATE; }
-                else nearest.statusEffects.push({ type: StatusType.Haste, stacks: 1, duration: 6 * TICK_RATE });
-                addFloatingText(state, nearest.x, nearest.y, 'SPEED', '#69f0ae', undefined, undefined,
-                  { ftType: 'status', miniIcon: 'lightning' });
-              } else if (roll < 0.66) {
-                // Frenzy potion
-                const frenzy = nearest.statusEffects.find(s => s.type === StatusType.Frenzy);
-                if (frenzy) { frenzy.duration = 6 * TICK_RATE; }
-                else nearest.statusEffects.push({ type: StatusType.Frenzy, stacks: 1, duration: 6 * TICK_RATE });
-                addFloatingText(state, nearest.x, nearest.y, 'RAGE', '#ff5722', undefined, undefined,
-                  { ftType: 'status', miniIcon: 'sword' });
-              } else {
-                // Shield potion
-                const shield = nearest.statusEffects.find(s => s.type === StatusType.Shield);
-                if (shield) { shield.duration = 6 * TICK_RATE; shield.stacks = 20; }
-                else nearest.statusEffects.push({ type: StatusType.Shield, stacks: 20, duration: 6 * TICK_RATE });
-                nearest.shieldHp = Math.max(nearest.shieldHp, 20);
-                addFloatingText(state, nearest.x, nearest.y, 'SHIELD', '#42a5f5', undefined, undefined,
-                  { ftType: 'status', miniIcon: 'shield_icon' });
-              }
-              addSound(state, 'ability_potion', nearest.x, nearest.y);
-            }
+            // Pick random tile within 3-6 tiles of the shop
+            const angle = state.rng() * Math.PI * 2;
+            const dist = 3 + state.rng() * 3;
+            const dropX = b.worldX + Math.cos(angle) * dist;
+            const dropY = b.worldY + Math.sin(angle) * dist;
+            // Pick random potion type
+            const roll = state.rng();
+            const potionType: PotionType = roll < 0.33 ? 'speed' : roll < 0.66 ? 'rage' : 'shield';
+            const flightDist = Math.hypot(dropX - b.worldX, dropY - b.worldY);
+            const flightTicks = Math.round(Math.max(8, flightDist * 2.5)); // ~0.4-0.75s arc
+            state.potionDrops.push({
+              id: genId(state),
+              x: dropX, y: dropY,
+              srcX: b.worldX + 0.5, srcY: b.worldY,
+              type: potionType,
+              team: owner.team,
+              flightTicks,
+              flightProgress: 0,
+              remainingTicks: 30 * TICK_RATE, // despawn after 30 seconds
+            });
           }
         }
       }
@@ -1888,11 +1912,13 @@ function tickAbilityEffects(state: GameState): void {
         if (b.seedTimer <= 0) {
           const owner = state.players[b.playerId];
           if (owner && !owner.isEmpty) {
-            // Pop into a random unit category
+            // Pop into a random unit from any race
+            const allRaces = [Race.Crown, Race.Horde, Race.Goblins, Race.Oozlings, Race.Demon, Race.Deep, Race.Wild, Race.Geists, Race.Tenders];
             const categories: ('melee' | 'ranged' | 'caster')[] = ['melee', 'ranged', 'caster'];
             const cat = categories[Math.floor(state.rng() * categories.length)];
+            const seedRace = allRaces[Math.floor(state.rng() * allRaces.length)];
             const btMap: Record<string, BuildingType> = { melee: BuildingType.MeleeSpawner, ranged: BuildingType.RangedSpawner, caster: BuildingType.CasterSpawner };
-            const stats = UNIT_STATS[owner.race]?.[btMap[cat]];
+            const stats = UNIT_STATS[seedRace]?.[btMap[cat]];
             if (stats) {
               const tier = b.seedTier ?? 0;
               // Stat multiplier per tier: T1=1x, T2=1.5x, T3=2.2x
@@ -1958,6 +1984,21 @@ function tickAbilityEffects(state: GameState): void {
         } else {
           // Advance toward target
           const f = FIREBALL_SPEED / dist;
+          eff.data.curX = curX + dx * f;
+          eff.data.curY = curY + dy * f;
+        }
+      }
+    } else if (eff.type === 'geist_summon_inbound' && eff.x != null && eff.y != null && eff.data != null) {
+      if (eff.data.arrived === 0) {
+        const curX = eff.data.curX, curY = eff.data.curY;
+        const dx = eff.x - curX, dy = eff.y - curY;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist <= SKULL_SPEED) {
+          eff.data.arrived = 1;
+          spawnGeistSkeletons(state, eff);
+          eff.duration = 0;
+        } else {
+          const f = SKULL_SPEED / dist;
           eff.data.curX = curX + dx * f;
           eff.data.curY = curY + dy * f;
         }
@@ -2599,6 +2640,69 @@ function tickUnitMovement(state: GameState): void {
     } else {
       unit.stuckTicks = 0;
     }
+  }
+}
+
+const POTION_PICKUP_RADIUS = 1.5;
+
+function applyPotionBuff(state: GameState, unit: GameState['units'][0], type: PotionType): void {
+  if (type === 'speed') {
+    const haste = unit.statusEffects.find(s => s.type === StatusType.Haste);
+    if (haste) { haste.duration = 6 * TICK_RATE; }
+    else unit.statusEffects.push({ type: StatusType.Haste, stacks: 1, duration: 6 * TICK_RATE });
+    addFloatingText(state, unit.x, unit.y, 'SPEED', '#69f0ae', undefined, undefined,
+      { ftType: 'status', miniIcon: 'potion_blue' });
+  } else if (type === 'rage') {
+    const frenzy = unit.statusEffects.find(s => s.type === StatusType.Frenzy);
+    if (frenzy) { frenzy.duration = 6 * TICK_RATE; }
+    else unit.statusEffects.push({ type: StatusType.Frenzy, stacks: 1, duration: 6 * TICK_RATE });
+    addFloatingText(state, unit.x, unit.y, 'RAGE', '#ff5722', undefined, undefined,
+      { ftType: 'status', miniIcon: 'potion_red' });
+  } else {
+    const shield = unit.statusEffects.find(s => s.type === StatusType.Shield);
+    if (shield) { shield.duration = 6 * TICK_RATE; shield.stacks = 20; }
+    else unit.statusEffects.push({ type: StatusType.Shield, stacks: 20, duration: 6 * TICK_RATE });
+    unit.shieldHp = Math.max(unit.shieldHp, 20);
+    addFloatingText(state, unit.x, unit.y, 'SHIELD', '#42a5f5', undefined, undefined,
+      { ftType: 'status', miniIcon: 'potion_green' });
+  }
+  addSound(state, 'ability_potion', unit.x, unit.y);
+}
+
+function tickPotionPickups(state: GameState): void {
+  if (state.potionDrops.length === 0) return;
+  const toRemove = new Set<number>();
+
+  for (let i = 0; i < state.potionDrops.length; i++) {
+    const potion = state.potionDrops[i];
+
+    // Advance flight arc
+    if (potion.flightProgress < potion.flightTicks) {
+      potion.flightProgress++;
+      if (potion.flightProgress >= potion.flightTicks) {
+        // Just landed — play sound
+        addSound(state, 'ability_potion', potion.x, potion.y);
+      }
+      continue; // can't be picked up while in flight
+    }
+
+    potion.remainingTicks--;
+    if (potion.remainingTicks <= 0) { toRemove.add(i); continue; }
+
+    // Check if any allied unit walks over this potion
+    for (const u of state.units) {
+      if (u.hp <= 0 || u.team !== potion.team) continue;
+      const d2 = (u.x - potion.x) ** 2 + (u.y - potion.y) ** 2;
+      if (d2 <= POTION_PICKUP_RADIUS * POTION_PICKUP_RADIUS) {
+        applyPotionBuff(state, u, potion.type);
+        toRemove.add(i);
+        break;
+      }
+    }
+  }
+
+  if (toRemove.size > 0) {
+    state.potionDrops = state.potionDrops.filter((_, i) => !toRemove.has(i));
   }
 }
 
@@ -5787,6 +5891,7 @@ export function computeStateHash(state: GameState): number {
   mix(state.buildings.length);
   mix(state.projectiles.length);
   mix(state.harvesters.length);
+  mix(state.potionDrops.length);
 
   for (const p of state.players) {
     mix(p.gold * 100 | 0);

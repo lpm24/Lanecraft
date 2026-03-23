@@ -502,6 +502,7 @@ export class Game {
   }
 
   private render(): void {
+    this.input.updateCameraFollow();
     this.renderer.camera.tick();
     this.renderer.placingBuilding = this.input.placingBuilding;
     const latencyMs = this.isMultiplayer ? this.networkLatencyMs : undefined;

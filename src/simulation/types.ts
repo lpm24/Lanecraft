@@ -417,6 +417,7 @@ export interface UnitState {
   spriteRace?: Race;       // override race for sprite lookup (e.g. Horde troll uses Goblin troll art)
   stuckTicks?: number;     // consecutive ticks without moving — triggers path-snap escape
   soulStacks?: number;     // Geist Soul Gorger: stacks gained from nearby deaths (max 20)
+  visualScale?: number;    // extra render scale multiplier (e.g. 2.0 for War Troll)
 }
 
 // Snapshot of a notable unit for post-match display
@@ -472,6 +473,21 @@ export interface WoodPileState {
   x: number;
   y: number;
   amount: number;
+}
+
+export type PotionType = 'speed' | 'rage' | 'shield';
+
+export interface PotionDropState {
+  id: number;
+  x: number;          // landing position
+  y: number;
+  srcX: number;       // throw origin (shop position)
+  srcY: number;
+  type: PotionType;
+  team: Team;
+  flightTicks: number;    // total flight duration
+  flightProgress: number; // 0 = just launched, >= flightTicks = landed
+  remainingTicks: number; // despawn timer (counts down after landing)
 }
 
 export interface DiamondState {
@@ -662,6 +678,7 @@ export interface GameState {
   units: UnitState[];
   harvesters: HarvesterState[];
   woodPiles: WoodPileState[];
+  potionDrops: PotionDropState[];
   projectiles: ProjectileState[];
   diamond: DiamondState;
   diamondCells: GoldCell[]; // the mineable gold cells forming the obstacle

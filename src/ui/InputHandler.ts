@@ -4,9 +4,9 @@ import { Renderer } from '../rendering/Renderer';
 import {
   BuildingType, TILE_SIZE, Lane,
   HarvesterAssignment, Team, Race, UnitState, NUKE_RADIUS,
-  AbilityTargetMode,
+  AbilityTargetMode, HQ_WIDTH, HQ_HEIGHT, StatusEffect, StatusType,
 } from '../simulation/types';
-import { getBuildGridOrigin, getTeamAlleyOrigin, getHutGridOrigin } from '../simulation/GameState';
+import { getBuildGridOrigin, getTeamAlleyOrigin, getHutGridOrigin, getHQPosition } from '../simulation/GameState';
 import { RACE_BUILDING_COSTS, UNIT_STATS, TOWER_STATS, RACE_COLORS, RACE_ABILITY_INFO, RACE_ABILITY_DEFS, TOWER_COST_SCALE, getUpgradeNodeDef } from '../simulation/data';
 import { TICK_RATE } from '../simulation/types';
 import { UIAssets } from '../rendering/UIAssets';
@@ -14,7 +14,7 @@ import { SpriteLoader, drawSpriteFrame, getSpriteFrame } from '../rendering/Spri
 import { BuildingPopup } from './BuildingPopup';
 import { HutPopup } from './HutPopup';
 import { ResearchPopup } from './ResearchPopup';
-import { getSafeBottom, getSafeTop } from './SafeArea';
+import { getSafeBottom, getSafeTop, getPopupSafeY } from './SafeArea';
 import { getAudioSettings, updateAudioSettings } from '../audio/AudioSettings';
 import { getVisualSettings, updateVisualSettings } from '../rendering/VisualSettings';
 import { tileToPixel, pixelToTile } from '../rendering/Projection';
@@ -38,6 +38,17 @@ const ASSIGNMENT_LABELS: Record<HarvesterAssignment, string> = {
   [HarvesterAssignment.Stone]: 'M Meat',
   [HarvesterAssignment.Center]: 'C Center',
   [HarvesterAssignment.Mana]: '~ Mana',
+};
+
+// Buff/debuff icon metadata for the WoW-style status bar
+const BUFF_ICON_META: Record<StatusType, { icon: string; color: string; isDebuff: boolean; maxDur: number }> = {
+  [StatusType.Burn]:       { icon: '\u{1F525}', color: '#ff6622', isDebuff: true,  maxDur: 3 },
+  [StatusType.Slow]:       { icon: '\u2744',    color: '#66ccff', isDebuff: true,  maxDur: 3 },
+  [StatusType.Wound]:      { icon: '\u2620',    color: '#cc44ff', isDebuff: true,  maxDur: 6 },
+  [StatusType.Vulnerable]: { icon: '\u{1F534}', color: '#ff4466', isDebuff: true,  maxDur: 3 },
+  [StatusType.Haste]:      { icon: '\u26A1',    color: '#ffdd44', isDebuff: false, maxDur: 3 },
+  [StatusType.Shield]:     { icon: '\u{1F6E1}', color: '#44ddff', isDebuff: false, maxDur: 4 },
+  [StatusType.Frenzy]:     { icon: '\u2694',    color: '#ff8844', isDebuff: false, maxDur: 4 },
 };
 
 const LANE_MODE_STORAGE_KEY = 'lanecraft.laneToggleMode';
@@ -88,6 +99,9 @@ export class InputHandler {
   private abilityPlacing = false;  // BuildSlot ability: player is choosing an alley slot
   private tooltip: { text: string; x: number; y: number } | null = null;
   private selectedUnitId: number | null = null;
+  private selectedHarvesterId: number | null = null;
+  private cameraFollowing = false;
+  private followBtnRect: { x: number; y: number; w: number; h: number } | null = null;
   private hoveredUnitId: number | null = null;
   private showTutorial = true;
   private devOverlayOpen = false;
@@ -602,7 +616,7 @@ export class InputHandler {
         this.nukeTargeting = false;
         this.abilityTargeting = false;
         this.abilityPlacing = false;
-        this.selectedUnitId = null;
+        this.clearSelection();
         if (this.selectedBuilding === BuildingType.HarvesterHut) {
           this.selectedBuilding = null;
         } else {
@@ -650,7 +664,7 @@ export class InputHandler {
         this.nukeTargeting = false;
         this.abilityTargeting = false;
         this.abilityPlacing = false;
-        this.selectedUnitId = null;
+        this.clearSelection();
         if (this.selectedBuilding === item.type) {
           this.selectedBuilding = null;
         } else {
@@ -663,7 +677,7 @@ export class InputHandler {
       if (e.key === '6') {
         this.nukeTargeting = false;
         this.selectedBuilding = null;
-        this.selectedUnitId = null;
+        this.clearSelection();
         const player = this.game.state.players[this.pid];
         if (player) this.activateAbility(player);
         return;
@@ -691,7 +705,7 @@ export class InputHandler {
         this.nukeTargeting = false;
         this.abilityTargeting = false;
         this.abilityPlacing = false;
-        this.selectedUnitId = null;
+        this.clearSelection();
       }
       if (e.key === 'l' || e.key === 'L') {
         // Cancel any active rally override
@@ -794,6 +808,7 @@ export class InputHandler {
       if (Date.now() < this.suppressClicksUntil) return;
       if (this.devOverlayOpen) { this.devOverlayOpen = false; return; }
       if (this.handleHelpButtonClick(e)) return;
+      if (this.handleFollowBtnClick(e)) return;
       if (this.showTutorial) { this.showTutorial = false; return; }
       if (this.mobileHintVisible) this.dismissMobileHint();
 
@@ -1005,9 +1020,19 @@ export class InputHandler {
       const wy = tileYf;
       const unit = this.findUnitNear(wx, wy, 1.2);
       this.selectedUnitId = unit ? unit.id : null;
+      this.selectedHarvesterId = null;
+      if (unit) {
+        this.cameraFollowing = true;
+        this.camera.followTargetX = unit.x * TILE_SIZE;
+        this.camera.followTargetY = unit.y * TILE_SIZE;
+      } else {
+        this.cameraFollowing = false;
+        this.camera.followTargetX = null;
+        this.camera.followTargetY = null;
+      }
       return;
     }
-    this.selectedUnitId = null;
+    this.clearSelection();
     this.selectedBuildingId = building.id;
 
     // Click on research: open research popup
@@ -1211,8 +1236,8 @@ export class InputHandler {
 
   }
 
-  // Top-right layout (right to left): [⚙ settings] [ℹ info] [ping]
-  // Gap between buttons: 8px. Ping displayed as text to the left of info button.
+  // Top-right layout (right to left): [⚙ settings] [ℹ info] [★ mvp] [ping]
+  // Gap between buttons: 8px. Ping displayed as text to the left of mvp button.
   private getSettingsButtonRect(): { x: number; y: number; w: number; h: number } {
     const size = 30;
     return { x: this.canvas.clientWidth - size - 10, y: 10 + getSafeTop(), w: size, h: size };
@@ -1222,6 +1247,44 @@ export class InputHandler {
     const size = 30;
     const sr = this.getSettingsButtonRect();
     return { x: sr.x - size - 12, y: sr.y, w: size, h: size };
+  }
+
+  private getMvpButtonRect(): { x: number; y: number; w: number; h: number } {
+    const size = 30;
+    const ir = this.getInfoButtonRect();
+    return { x: ir.x - size - 8, y: ir.y, w: size, h: size };
+  }
+
+  private handleFollowBtnClick(e: MouseEvent): boolean {
+    if (!this.followBtnRect) return false;
+    if (this.selectedUnitId === null && this.selectedHarvesterId === null) return false;
+    const rect = this.canvas.getBoundingClientRect();
+    const cx = e.clientX - rect.left;
+    const cy = e.clientY - rect.top;
+    const b = this.followBtnRect;
+    if (cx >= b.x && cx <= b.x + b.w && cy >= b.y && cy <= b.y + b.h) {
+      this.cameraFollowing = !this.cameraFollowing;
+      if (this.cameraFollowing) {
+        let wx: number | null = null, wy: number | null = null;
+        if (this.selectedUnitId !== null) {
+          const u = this.game.state.units.find(u => u.id === this.selectedUnitId);
+          if (u) { wx = u.x; wy = u.y; }
+        } else if (this.selectedHarvesterId !== null) {
+          const h = this.game.state.harvesters.find(h => h.id === this.selectedHarvesterId);
+          if (h) { wx = h.x; wy = h.y; }
+        }
+        if (wx !== null && wy !== null) {
+          this.camera.followTargetX = wx * TILE_SIZE;
+          this.camera.followTargetY = wy * TILE_SIZE;
+          this.camera.panTo(wx * TILE_SIZE, wy * TILE_SIZE);
+        }
+      } else {
+        this.camera.followTargetX = null;
+        this.camera.followTargetY = null;
+      }
+      return true;
+    }
+    return false;
   }
 
   private handleHelpButtonClick(e: MouseEvent): boolean {
@@ -1242,6 +1305,13 @@ export class InputHandler {
     if (cx >= ir.x && cx <= ir.x + ir.w && cy >= ir.y && cy <= ir.y + ir.h) {
       this.showTutorial = !this.showTutorial;
       this.settingsOpen = false;
+      return true;
+    }
+
+    // MVP button (to the left of info) — select unit with most kills
+    const mr = this.getMvpButtonRect();
+    if (cx >= mr.x && cx <= mr.x + mr.w && cy >= mr.y && cy <= mr.y + mr.h) {
+      this.selectMvpUnit();
       return true;
     }
 
@@ -1287,16 +1357,30 @@ export class InputHandler {
       ctx.textAlign = 'start';
     }
 
-    // Ping display (to the left of info button, right-aligned)
+    // MVP button (to the left of info) — select top killer
+    const mr = this.getMvpButtonRect();
+    const hasKiller = this.game.state.units.some(u => u.team === this.myTeam && u.kills > 0);
+    ctx.fillStyle = 'rgba(18,18,18,0.92)';
+    ctx.fillRect(mr.x, mr.y, mr.w, mr.h);
+    ctx.strokeStyle = hasKiller ? '#ffd700' : '#555';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(mr.x, mr.y, mr.w, mr.h);
+    ctx.fillStyle = hasKiller ? '#ffd700' : '#666';
+    ctx.font = 'bold 14px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('★', mr.x + mr.w / 2, mr.y + 20);
+    ctx.textAlign = 'start';
+
+    // Ping display (to the left of mvp button, right-aligned)
     if (this.networkLatencyMs !== undefined) {
       const latText = `${this.networkLatencyMs}ms`;
       const latColor = this.networkLatencyMs < 80 ? '#4caf50' : this.networkLatencyMs < 200 ? '#ff9800' : '#f44336';
       ctx.font = 'bold 12px monospace';
       const latW = ctx.measureText(latText).width;
-      const pingX = ir.x - latW - 12;
-      const pingY = ir.y + ir.h / 2 + 4;
+      const pingX = mr.x - latW - 12;
+      const pingY = mr.y + mr.h / 2 + 4;
       ctx.fillStyle = 'rgba(0,0,0,0.5)';
-      ctx.fillRect(pingX - 4, ir.y + 4, latW + 8, ir.h - 8);
+      ctx.fillRect(pingX - 4, mr.y + 4, latW + 8, mr.h - 8);
       ctx.fillStyle = latColor;
       ctx.fillText(latText, pingX, pingY);
     }
@@ -1434,7 +1518,12 @@ export class InputHandler {
           } else if (result.action === 'center_builder') {
             const h = this.game.state.harvesters.find(h => h.hutId === bId);
             if (h) {
+              this.selectedUnitId = null;
+              this.selectedHarvesterId = h.id;
+              this.cameraFollowing = true;
               this.camera.panTo(h.x * TILE_SIZE, h.y * TILE_SIZE);
+              this.camera.followTargetX = h.x * TILE_SIZE;
+              this.camera.followTargetY = h.y * TILE_SIZE;
             }
             this.hutPopup.close();
           } else if (result.action === 'close') {
@@ -1540,7 +1629,7 @@ export class InputHandler {
         this.nukeTargeting = false;
         this.abilityTargeting = false;
         this.abilityPlacing = false;
-        this.selectedUnitId = null;
+        this.clearSelection();
         if (this.selectedBuilding === BuildingType.HarvesterHut) {
           this.selectedBuilding = null;
         } else {
@@ -1552,7 +1641,7 @@ export class InputHandler {
         this.nukeTargeting = false;
         this.abilityTargeting = false;
         this.abilityPlacing = false;
-        this.selectedUnitId = null;
+        this.clearSelection();
         if (this.selectedBuilding === item.type) {
           this.selectedBuilding = null;
         } else {
@@ -1563,7 +1652,7 @@ export class InputHandler {
         // Race ability button
         this.nukeTargeting = false;
         this.selectedBuilding = null;
-        this.selectedUnitId = null;
+        this.clearSelection();
         this.activateAbility(player);
       }
       return true;
@@ -2170,94 +2259,294 @@ export class InputHandler {
     ctx.textAlign = 'start';
   }
 
-  private drawSelectedUnit(ctx: CanvasRenderingContext2D, renderer: Renderer): void {
-    // Clean up stale selection
+  private clearSelection(): void {
+    this.selectedUnitId = null;
+    this.selectedHarvesterId = null;
+    this.cameraFollowing = false;
+    this.camera.followTargetX = null;
+    this.camera.followTargetY = null;
+    this.followBtnRect = null;
+  }
+
+  /** Select and pan to the friendly unit with the most kills. Tiebreak: furthest from HQ. */
+  private selectMvpUnit(): void {
+    const state = this.game.state;
+    const myTeam = this.myTeam;
+    const teamUnits = state.units.filter(u => u.team === myTeam && u.kills > 0);
+    if (teamUnits.length === 0) return;
+
+    const hq = getHQPosition(myTeam, state.mapDef);
+    const hqCx = hq.x + HQ_WIDTH / 2;
+    const hqCy = hq.y + HQ_HEIGHT / 2;
+
+    teamUnits.sort((a, b) => {
+      if (b.kills !== a.kills) return b.kills - a.kills;
+      // Tiebreak: furthest from base
+      const distA = (a.x - hqCx) ** 2 + (a.y - hqCy) ** 2;
+      const distB = (b.x - hqCx) ** 2 + (b.y - hqCy) ** 2;
+      return distB - distA;
+    });
+
+    const mvp = teamUnits[0];
+    this.selectedUnitId = mvp.id;
+    this.selectedHarvesterId = null;
+    this.cameraFollowing = true;
+    this.camera.followTargetX = mvp.x * TILE_SIZE;
+    this.camera.followTargetY = mvp.y * TILE_SIZE;
+    this.camera.panTo(mvp.x * TILE_SIZE, mvp.y * TILE_SIZE);
+    this.settingsOpen = false;
+    this.showTutorial = false;
+  }
+
+  updateCameraFollow(): void {
+    // Detect if camera cancelled follow via manual input
+    if (this.cameraFollowing && this.camera.followTargetX === null) {
+      this.cameraFollowing = false;
+    }
+    if (!this.cameraFollowing) return;
+
     if (this.selectedUnitId !== null) {
       const u = this.game.state.units.find(u => u.id === this.selectedUnitId);
-      if (!u) { this.selectedUnitId = null; return; }
+      if (u) {
+        this.camera.followTargetX = u.x * TILE_SIZE;
+        this.camera.followTargetY = u.y * TILE_SIZE;
+      } else {
+        this.cameraFollowing = false;
+        this.camera.followTargetX = null;
+        this.camera.followTargetY = null;
+      }
+    } else if (this.selectedHarvesterId !== null) {
+      const h = this.game.state.harvesters.find(h => h.id === this.selectedHarvesterId);
+      if (h && h.state !== 'dead') {
+        this.camera.followTargetX = h.x * TILE_SIZE;
+        this.camera.followTargetY = h.y * TILE_SIZE;
+      } else {
+        this.cameraFollowing = false;
+        this.camera.followTargetX = null;
+        this.camera.followTargetY = null;
+      }
+    }
+  }
 
-      const cam = renderer.camera;
+  private drawSelectedUnit(ctx: CanvasRenderingContext2D, renderer: Renderer): void {
+    let worldX: number | null = null;
+    let worldY: number | null = null;
+    let lines: string[] = [];
+    let raceColor = '#fff';
+    let unitShape: { race: Race; category: 'melee' | 'ranged' | 'caster'; team: Team; playerId: number; upgradeNode?: string } | null = null;
+    let statusEffects: StatusEffect[] = [];
 
-      // Draw selection ring on the unit in world space
-      ctx.save();
-      cam.applyTransform(ctx);
-      const { px: upx0, py: upy0 } = this.tp(u.x, u.y);
-      const px = upx0 + TILE_SIZE / 2;
-      const py = upy0 + TILE_SIZE / 2;
-      const ringR = TILE_SIZE * 0.6;
-      ctx.beginPath();
-      ctx.arc(px, py, ringR, 0, Math.PI * 2);
-      ctx.strokeStyle = '#fff';
-      ctx.lineWidth = 2;
-      ctx.setLineDash([4, 3]);
-      ctx.stroke();
-      ctx.setLineDash([]);
-      ctx.restore();
-      ctx.setTransform(window.devicePixelRatio || 1, 0, 0, window.devicePixelRatio || 1, 0, 0);
-
-      // Draw info panel at top of screen
+    // Unit selection
+    if (this.selectedUnitId !== null) {
+      const u = this.game.state.units.find(u => u.id === this.selectedUnitId);
+      if (!u) { this.clearSelection(); return; }
+      worldX = u.x;
+      worldY = u.y;
       const player = this.game.state.players[u.playerId];
       const race = player?.race;
-      const raceColor = race ? (RACE_COLORS[race]?.primary ?? '#fff') : '#fff';
+      raceColor = race ? (RACE_COLORS[race]?.primary ?? '#fff') : '#fff';
       const teamLabel = u.team === this.myTeam ? 'Ally' : 'Enemy';
-
-      const lines: string[] = [];
       lines.push(`${u.type}`);
       lines.push(`${teamLabel} ${u.category}  HP: ${u.hp}/${u.maxHp}${u.shieldHp > 0 ? ` +${u.shieldHp} shield` : ''}`);
       lines.push(`DMG: ${u.damage}  SPD: ${u.attackSpeed.toFixed(1)}s  RNG: ${u.range}  Move: ${u.moveSpeed.toFixed(1)}`);
-
-      // Status effects
-      if (u.statusEffects.length > 0) {
-        const effs = u.statusEffects.map(e => `${e.type}x${e.stacks}`).join('  ');
-        lines.push(`Status: ${effs}`);
-      }
-
-      // Kills
       if (u.kills > 0) lines.push(`Kills: ${u.kills}`);
-
-      const lineH = 16;
-      const padX = 14;
-      const padY = 8;
-      const boxH = lines.length * lineH + padY * 2;
-
-      ctx.font = '12px monospace';
-      let maxW = 0;
-      for (const line of lines) {
-        const m = ctx.measureText(line).width;
-        if (m > maxW) maxW = m;
-      }
-      const boxW = maxW + padX * 2;
-      const boxX = (this.canvas.clientWidth - boxW) / 2;
-      const boxY = 8;
-
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.92)';
-      ctx.fillRect(boxX, boxY, boxW, boxH);
-      ctx.strokeStyle = raceColor;
-      ctx.lineWidth = 1;
-      ctx.strokeRect(boxX, boxY, boxW, boxH);
-
-      // Draw unit shape in the panel
-      if (this.currentRenderer && race) {
-        this.currentRenderer.drawUnitShape(ctx, boxX + 20, boxY + boxH / 2, 10, race, u.category, u.team, raceColor);
-      }
-
-      ctx.textAlign = 'left';
-      const textStartX = boxX + 38;
-      for (let i = 0; i < lines.length; i++) {
-        if (i === 0) {
-          ctx.fillStyle = raceColor;
-          ctx.font = 'bold 13px monospace';
-        } else if (lines[i].startsWith('Status:')) {
-          ctx.fillStyle = '#ffcc80';
-          ctx.font = '11px monospace';
-        } else {
-          ctx.fillStyle = '#ccc';
-          ctx.font = '12px monospace';
-        }
-        ctx.fillText(lines[i], textStartX, boxY + padY + (i + 1) * lineH - 3);
-      }
-      ctx.textAlign = 'start';
+      statusEffects = u.statusEffects;
+      if (race) unitShape = { race, category: u.category, team: u.team, playerId: u.playerId, upgradeNode: u.upgradeNode };
     }
+    // Harvester selection
+    else if (this.selectedHarvesterId !== null) {
+      const h = this.game.state.harvesters.find(h => h.id === this.selectedHarvesterId);
+      if (!h || h.state === 'dead') { this.clearSelection(); return; }
+      worldX = h.x;
+      worldY = h.y;
+      const player = this.game.state.players[h.playerId];
+      const race = player?.race;
+      raceColor = race ? (RACE_COLORS[race]?.primary ?? '#fff') : '#fff';
+      const assignLabel = ASSIGNMENT_LABELS[h.assignment] ?? h.assignment;
+      lines.push('Miner');
+      lines.push(`HP: ${h.hp}/${h.maxHp}  Task: ${assignLabel}`);
+      lines.push(`State: ${h.state}${h.carryingDiamond ? '  Carrying diamond' : ''}${h.carryingResource ? `  Carrying ${h.carryingResource}` : ''}`);
+    }
+
+    if (worldX === null || worldY === null) { this.followBtnRect = null; return; }
+
+    const cam = renderer.camera;
+
+    // Draw selection ring in world space
+    ctx.save();
+    cam.applyTransform(ctx);
+    const { px: upx0, py: upy0 } = this.tp(worldX, worldY);
+    const px = upx0 + TILE_SIZE / 2;
+    const py = upy0 + TILE_SIZE / 2;
+    const ringR = TILE_SIZE * 0.6;
+    ctx.beginPath();
+    ctx.arc(px, py, ringR, 0, Math.PI * 2);
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([4, 3]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
+    ctx.setTransform(window.devicePixelRatio || 1, 0, 0, window.devicePixelRatio || 1, 0, 0);
+
+    // Draw info panel at top of screen
+    const lineH = 16;
+    const padX = 14;
+    const padY = 8;
+
+    // Measure follow button
+    ctx.font = '11px monospace';
+    const followLabel = this.cameraFollowing ? '[Following]' : '[Follow]';
+    const followW = ctx.measureText(followLabel).width + 12;
+    const followH = 18;
+
+    // Status effect buff bar sizing
+    const buffIconSize = 20;
+    const buffIconGap = 3;
+    const buffPadY = 4;
+
+    const textH = lines.length * lineH + padY * 2;
+
+    ctx.font = '12px monospace';
+    let maxW = 0;
+    for (const line of lines) {
+      const m = ctx.measureText(line).width;
+      if (m > maxW) maxW = m;
+    }
+    const boxW = Math.max(maxW + padX * 2, followW + padX * 2 + 38);
+
+    // Calculate buff bar rows (one icon per effect type, stack count shown on icon)
+    const buffAreaW = boxW - padX * 2;
+    const iconsPerRow = Math.max(1, Math.floor((buffAreaW + buffIconGap) / (buffIconSize + buffIconGap)));
+    const buffRows = statusEffects.length > 0 ? Math.ceil(statusEffects.length / iconsPerRow) : 0;
+    const buffBarH = buffRows > 0 ? buffRows * (buffIconSize + buffIconGap) + buffPadY : 0;
+
+    const boxH = textH + buffBarH + followH + 2;
+
+    const boxX = (this.canvas.clientWidth - boxW) / 2;
+    const safeY = getPopupSafeY(this.canvas.clientWidth, this.canvas.clientHeight);
+    const boxY = safeY.top;
+
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.92)';
+    ctx.fillRect(boxX, boxY, boxW, boxH);
+    ctx.strokeStyle = raceColor;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(boxX, boxY, boxW, boxH);
+
+    // Draw unit art in the panel
+    if (unitShape && this.sprites) {
+      const sprData = this.sprites.getUnitSprite(unitShape.race, unitShape.category, unitShape.playerId, false, unitShape.upgradeNode);
+      if (sprData) {
+        const [img, def] = sprData;
+        const drawH = textH - 6;
+        const aspect = def.frameW / def.frameH;
+        const drawW = drawH * aspect;
+        const drawX = boxX + 20 - drawW / 2;
+        const drawY = boxY + (textH - drawH) / 2;
+        drawSpriteFrame(ctx, img, def, 0, drawX, drawY, drawW, drawH);
+      } else if (this.currentRenderer) {
+        this.currentRenderer.drawUnitShape(ctx, boxX + 20, boxY + textH / 2, 10, unitShape.race, unitShape.category, unitShape.team, raceColor);
+      }
+    }
+
+    ctx.textAlign = 'left';
+    const textStartX = boxX + 38;
+    for (let i = 0; i < lines.length; i++) {
+      if (i === 0) {
+        ctx.fillStyle = raceColor;
+        ctx.font = 'bold 13px monospace';
+      } else {
+        ctx.fillStyle = '#ccc';
+        ctx.font = '12px monospace';
+      }
+      ctx.fillText(lines[i], textStartX, boxY + padY + (i + 1) * lineH - 3);
+    }
+
+    // === Buff/debuff icon bar (WoW-style) ===
+    if (statusEffects.length > 0) {
+      const buffStartY = boxY + textH + buffPadY;
+      const buffStartX = boxX + padX;
+      const tick = this.game.state.tick;
+
+      for (let i = 0; i < statusEffects.length; i++) {
+        const eff = statusEffects[i];
+        const col = i % iconsPerRow;
+        const row = Math.floor(i / iconsPerRow);
+        const ix = buffStartX + col * (buffIconSize + buffIconGap);
+        const iy = buffStartY + row * (buffIconSize + buffIconGap);
+
+        const meta = BUFF_ICON_META[eff.type];
+        const maxDuration = meta.maxDur * TICK_RATE;
+        const durFrac = Math.min(1, eff.duration / maxDuration);
+
+        // Icon background
+        ctx.fillStyle = meta.isDebuff ? 'rgba(80, 0, 0, 0.7)' : 'rgba(0, 50, 80, 0.7)';
+        ctx.fillRect(ix, iy, buffIconSize, buffIconSize);
+
+        // Icon symbol
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = meta.color;
+        ctx.font = 'bold 13px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(meta.icon, ix + buffIconSize / 2, iy + 14);
+
+        // Duration sweep: dark overlay that winds clockwise like a cooldown clock
+        // Covers the portion of time that has elapsed, clipped to icon bounds
+        const elapsed = 1 - durFrac;
+        if (elapsed > 0.01) {
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(ix, iy, buffIconSize, buffIconSize);
+          ctx.clip();
+          ctx.beginPath();
+          const cx = ix + buffIconSize / 2;
+          const cy = iy + buffIconSize / 2;
+          const r = buffIconSize;
+          ctx.moveTo(cx, cy);
+          const startAngle = -Math.PI / 2;
+          const endAngle = startAngle + elapsed * Math.PI * 2;
+          ctx.arc(cx, cy, r, startAngle, endAngle);
+          ctx.closePath();
+          ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
+          ctx.fill();
+          ctx.restore();
+        }
+
+        // Border (colored by buff/debuff, pulses when nearly expired)
+        const nearExpiry = durFrac < 0.25;
+        const pulse = nearExpiry ? 0.5 + 0.5 * Math.sin(tick * 0.3) : 1;
+        ctx.globalAlpha = pulse;
+        ctx.strokeStyle = meta.isDebuff ? '#ff4444' : '#44aaff';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(ix, iy, buffIconSize, buffIconSize);
+        ctx.globalAlpha = 1;
+
+        // Stack count (bottom-right corner, only if > 1 total stacks)
+        if (eff.stacks > 1) {
+          ctx.fillStyle = '#fff';
+          ctx.font = 'bold 9px monospace';
+          ctx.textAlign = 'right';
+          ctx.fillText(`${eff.stacks}`, ix + buffIconSize - 1, iy + buffIconSize - 2);
+        }
+      }
+    }
+
+    // Follow toggle button (right side of panel)
+    const fbx = boxX + boxW - followW - 6;
+    const fby = boxY + boxH - followH - 4;
+    this.followBtnRect = { x: fbx, y: fby, w: followW, h: followH };
+
+    ctx.fillStyle = this.cameraFollowing ? 'rgba(80, 200, 120, 0.3)' : 'rgba(255, 255, 255, 0.1)';
+    ctx.fillRect(fbx, fby, followW, followH);
+    ctx.strokeStyle = this.cameraFollowing ? '#50c878' : '#888';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(fbx, fby, followW, followH);
+    ctx.fillStyle = this.cameraFollowing ? '#50c878' : '#aaa';
+    ctx.font = '11px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(followLabel, fbx + followW / 2, fby + 13);
+
+    ctx.textAlign = 'start';
   }
 
   private findUnitNear(wx: number, wy: number, radius: number): UnitState | null {

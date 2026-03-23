@@ -44,6 +44,11 @@ import blackCastle from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (F
 // SPECIAL BUILDING SPRITES
 // ============================================================
 import seedPlantIdle from '../assets/images/Pixel Adventure 2/Enemies/Plant/Idle (44x42).png?url';
+// Crown Foundry — Ship Helm (single frame, static building sprite)
+import foundryHelmUrl from '../assets/images/Treasure Hunters/Treasure Hunters/Palm Tree Island/Sprites/Objects/Ship Helm/Ship Helm Idle 01.png?url';
+// Crown siege — Kings and Pigs Cannon
+import cannonIdle from '../assets/images/Kings and Pigs/Sprites/10-Cannon/Idle.png?url';
+import cannonShoot from '../assets/images/Kings and Pigs/Sprites/10-Cannon/Shoot (44x28).png?url';
 
 const SEED_SPRITE_DEF: SpriteDef = {
   url: seedPlantIdle,
@@ -135,6 +140,7 @@ import goblinsCaster from '../assets/images/Tiny Swords (Enemy Pack)/Tiny Swords
 import oozlingsMelee from '../assets/images/SLIMES BLOBS TENTACLES/[CHARACTER PACK] SLIMES, BLOBS & TENTACLES/01_GREEN/Slime_Lvl01_Move_5x1.png?url';
 import oozlingsRanged from '../assets/images/SLIMES BLOBS TENTACLES/[CHARACTER PACK] SLIMES, BLOBS & TENTACLES/01_GREEN/Slime_Lvl04_Move_6x1.png?url';
 import oozlingsCaster from '../assets/images/SLIMES BLOBS TENTACLES/[CHARACTER PACK] SLIMES, BLOBS & TENTACLES/01_GREEN/Slime_Lvl06_Move_6x1.png?url';
+import globuleSpriteUrl from '../assets/images/SLIMES BLOBS TENTACLES/[CHARACTER PACK] SLIMES, BLOBS & TENTACLES/01_GREEN/Slime_Lvl06_Idle_1x1.png?url';
 
 // ============================================================
 // UNIT SPRITES — Demon (CHARACTER MEGAPACK — animated strips)
@@ -375,6 +381,18 @@ import fxExplosion from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (F
 import fxDust from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Particle FX/Dust_01.png?url';
 // Nuke shockwave
 import fxNukeShockwave from '../assets/images/OVERBURN AssetPack/OVERBURN AssetPack/00 Yellow-Orange FX/FX_Fire00_ShockWave_6x4.png?url';
+// Geist summon telegraph
+import fxBlackHole from '../assets/images/OVERSTELLAR AssetPack/OVERSTELLAR AssetPack/FX_BlackHole/FX_BlackHole_Little_Orange_7x8.png?url';
+import goldenSkull from '../assets/images/Treasure Hunters/Treasure Hunters/Pirate Treasure/Sprites/Golden Skull/01.png?url';
+// Meteorite projectiles (10x6 grids — 10 cols animation, 6 rows rotation)
+import fxMeteoriteOrange from '../assets/images/OVERSTELLAR AssetPack/OVERSTELLAR AssetPack/FX_Meteorite/FX_Meteorite_Orange_10x6.png?url';
+import fxMeteoriteGreen from '../assets/images/OVERSTELLAR AssetPack/OVERSTELLAR AssetPack/FX_Meteorite/FX_Meteorite_Green_10x6.png?url';
+import fxMeteoritePurple from '../assets/images/OVERSTELLAR AssetPack/OVERSTELLAR AssetPack/FX_Meteorite/FX_Meteorite_Purple_10x6.png?url';
+// StarShine sparkle bursts (13x1 strips)
+import fxStarShineBlue from '../assets/images/OVERSTELLAR AssetPack/OVERSTELLAR AssetPack/FX_StarShine/FX_StarShine_Big_Blue_13x1.png?url';
+import fxStarShinePink from '../assets/images/OVERSTELLAR AssetPack/OVERSTELLAR AssetPack/FX_StarShine/FX_StarShine_Big_Pink_13x1.png?url';
+// Eclipse (20x1 strip)
+import fxEclipse from '../assets/images/OVERSTELLAR AssetPack/OVERSTELLAR AssetPack/FX_Eclipse/FX_Eclipse01_20x1.png?url';
 
 // ============================================================
 // NEW UPGRADE PATH SPRITES
@@ -431,6 +449,9 @@ import clownNoseRun from '../assets/images/Treasure Hunters/Treasure Hunters/Cap
 import clownNoseAtk from '../assets/images/Treasure Hunters/Treasure Hunters/Captain Clown Nose/Sprites/Captain Clown Nose/ClownNose_Attack.png?url';
 // --- Treasure Hunters - Diamond (combined strips) ---
 import blueDiamondIdle from '../assets/images/Treasure Hunters/Treasure Hunters/Pirate Treasure/Sprites/Blue Diamond/BlueDiamond_Idle.png?url';
+import bluePotionIdle from '../assets/images/Treasure Hunters/Treasure Hunters/Pirate Treasure/Sprites/Blue Potion/BluePotion_Idle.png?url';
+import redPotionIdle from '../assets/images/Treasure Hunters/Treasure Hunters/Pirate Treasure/Sprites/Red Potion/RedPotion_Idle.png?url';
+import greenPotionIdle from '../assets/images/Treasure Hunters/Treasure Hunters/Pirate Treasure/Sprites/Green Bottle/GreenBottle_Idle.png?url';
 
 // ============================================================
 // SPRITE DEFINITIONS
@@ -449,14 +470,12 @@ export interface SpriteDef {
   anchorX?: number;    // horizontal anchor as fraction of frame width (0=left, 0.5=center, 1=right; default 0.5)
 }
 
-/** Compute animation frame index from a tick counter (~20 ticks/sec). Respects animSpeed. */
+/** Compute animation frame index from a tick counter (~20 ticks/sec).
+ *  Always targets ~1 cycle per second regardless of frame count.
+ *  High-frame sprites (48+) skip frames to stay at 1s; low-frame sprites hold frames longer. */
 export function getSpriteFrame(tick: number, def: SpriteDef): number {
   const speed = def.animSpeed ?? 1.0;
-  if (speed !== 1.0) {
-    return Math.floor(tick * (def.cols * speed) / 20) % def.cols;
-  }
-  const ticksPerFrame = Math.max(1, Math.round(20 / def.cols));
-  return Math.floor(tick / ticksPerFrame) % def.cols;
+  return Math.floor(tick * def.cols * speed / 20) % def.cols;
 }
 
 // Tiny Swords spritesheets: divide total width by frame height to get frame count
@@ -509,9 +528,9 @@ interface RaceUnitSprites {
 
 const RACE_UNIT_SPRITES: Record<Race, RaceUnitSprites> = {
   [Race.Crown]: {
-    melee:  { 0: tsSheet(crownMeleeBlue, 1152, 192), 1: tsSheet(crownMeleePurple, 1152, 192), 2: tsSheet(crownMeleeRed, 1152, 192), 3: tsSheet(crownMeleeYellow, 1152, 192), 4: tsSheet(crownMeleeBlack, 1152, 192), 5: tsSheet(crownMeleeBlue, 1152, 192) },
-    ranged: { 0: tsSheet(crownRangedBlue, 768, 192), 1: tsSheet(crownRangedPurple, 768, 192), 2: tsSheet(crownRangedRed, 768, 192), 3: tsSheet(crownRangedYellow, 768, 192), 4: tsSheet(crownRangedBlack, 768, 192), 5: tsSheet(crownRangedBlue, 768, 192) },
-    caster: { 0: tsSheet(crownCasterBlue, 768, 192), 1: tsSheet(crownCasterPurple, 768, 192), 2: tsSheet(crownCasterRed, 768, 192), 3: tsSheet(crownCasterYellow, 768, 192), 4: tsSheet(crownCasterBlack, 768, 192), 5: tsSheet(crownCasterBlue, 768, 192) },
+    melee:  { 0: tsSheet(crownMeleeBlue, 1152, 192), 1: tsSheet(crownMeleePurple, 1152, 192), 2: tsSheet(crownMeleeRed, 1152, 192), 3: tsSheet(crownMeleeYellow, 1152, 192), 4: tsSheet(crownMeleeBlack, 1152, 192) },
+    ranged: { 0: tsSheet(crownRangedBlue, 768, 192), 1: tsSheet(crownRangedPurple, 768, 192), 2: tsSheet(crownRangedRed, 768, 192), 3: tsSheet(crownRangedYellow, 768, 192), 4: tsSheet(crownRangedBlack, 768, 192) },
+    caster: { 0: tsSheet(crownCasterBlue, 768, 192), 1: tsSheet(crownCasterPurple, 768, 192), 2: tsSheet(crownCasterRed, 768, 192), 3: tsSheet(crownCasterYellow, 768, 192), 4: tsSheet(crownCasterBlack, 768, 192) },
   },
   [Race.Horde]: {
     melee:  { ...cmStrip(hordeMelee, 57 * 5, 58, 5), scale: 0.9 },
@@ -558,9 +577,9 @@ const RACE_UNIT_SPRITES: Record<Race, RaceUnitSprites> = {
 // Attack animation sprites (same structure as RACE_UNIT_SPRITES)
 const RACE_ATK_SPRITES: Record<Race, Partial<RaceUnitSprites>> = {
   [Race.Crown]: {
-    melee:  { 0: tsSheet(crownMeleeAtkBlue, 768, 192), 1: tsSheet(crownMeleeAtkPurple, 768, 192), 2: tsSheet(crownMeleeAtkRed, 768, 192), 3: tsSheet(crownMeleeAtkYellow, 768, 192), 4: tsSheet(crownMeleeAtkBlack, 768, 192), 5: tsSheet(crownMeleeAtkBlue, 768, 192) },
-    ranged: { 0: tsSheet(crownRangedAtkBlue, 1536, 192), 1: tsSheet(crownRangedAtkPurple, 1536, 192), 2: tsSheet(crownRangedAtkRed, 1536, 192), 3: tsSheet(crownRangedAtkYellow, 1536, 192), 4: tsSheet(crownRangedAtkBlack, 1536, 192), 5: tsSheet(crownRangedAtkBlue, 1536, 192) },
-    caster: { 0: tsSheet(crownCasterAtkBlue, 2112, 192), 1: tsSheet(crownCasterAtkPurple, 2112, 192), 2: tsSheet(crownCasterAtkRed, 2112, 192), 3: tsSheet(crownCasterAtkYellow, 2112, 192), 4: tsSheet(crownCasterAtkBlack, 2112, 192), 5: tsSheet(crownCasterAtkBlue, 2112, 192) },
+    melee:  { 0: tsSheet(crownMeleeAtkBlue, 768, 192), 1: tsSheet(crownMeleeAtkPurple, 768, 192), 2: tsSheet(crownMeleeAtkRed, 768, 192), 3: tsSheet(crownMeleeAtkYellow, 768, 192), 4: tsSheet(crownMeleeAtkBlack, 768, 192) },
+    ranged: { 0: tsSheet(crownRangedAtkBlue, 1536, 192), 1: tsSheet(crownRangedAtkPurple, 1536, 192), 2: tsSheet(crownRangedAtkRed, 1536, 192), 3: tsSheet(crownRangedAtkYellow, 1536, 192), 4: tsSheet(crownRangedAtkBlack, 1536, 192) },
+    caster: { 0: tsSheet(crownCasterAtkBlue, 2112, 192), 1: tsSheet(crownCasterAtkPurple, 2112, 192), 2: tsSheet(crownCasterAtkRed, 2112, 192), 3: tsSheet(crownCasterAtkYellow, 2112, 192), 4: tsSheet(crownCasterAtkBlack, 2112, 192) },
   },
   [Race.Horde]: {
     melee:  { ...cmStrip(hordeMeleeAtk, 684, 58, 12), scale: 0.9 },
@@ -614,10 +633,10 @@ const UPGRADE_MOVE_SPRITES: Record<string, SpriteDef> = {
   [upgradeKey(Race.Geists, 'melee', 'C')]: { ...cmStrip(mimicL1Move, 602, 32, 14), scale: 0.8 },
   [upgradeKey(Race.Geists, 'melee', 'F')]: { ...cmStrip(mimicL2Move, 696, 38, 24), scale: 0.8 },
   [upgradeKey(Race.Geists, 'melee', 'G')]: cmStrip(mimicL4Move, 1200, 69, 16),
-  // --- Crown ranged: Archer → Dwarfette branch (C/F/G) ---
+  // --- Crown ranged: Archer → Dwarfette branch (C/F), Cannon siege (G) ---
   [upgradeKey(Race.Crown, 'ranged', 'C')]: { ...cmStrip(dwarfetteL1Move, 368, 36, 8, 0.72), scale: 0.7 },
   [upgradeKey(Race.Crown, 'ranged', 'F')]: { ...cmStrip(dwarfetteL2Move, 530, 35, 10, 0.89), scale: 0.7 },
-  [upgradeKey(Race.Crown, 'ranged', 'G')]: { ...cmStrip(dwarfetteL4Move, 1876, 52, 28, 0.94), scale: 0.8 },
+  [upgradeKey(Race.Crown, 'ranged', 'G')]: singleFrame(cannonIdle, 44, 28, 0.95),
   // --- Horde: Orc color variants (B=Blue, C=Red for melee/ranged/caster) ---
   [upgradeKey(Race.Horde, 'melee', 'B')]: { ...cmStrip(hordeMeleeBlue, 57 * 5, 58, 5), scale: 0.9 },
   [upgradeKey(Race.Horde, 'melee', 'C')]: { ...cmStrip(hordeMeleeRed, 57 * 5, 58, 5), scale: 0.9 },
@@ -686,7 +705,7 @@ const UPGRADE_MOVE_SPRITES: Record<string, SpriteDef> = {
   // --- Crown melee: Warrior → King Human branch (C/F/G) — faces RIGHT natively ---
   [upgradeKey(Race.Crown, 'melee', 'C')]: cmStrip(kingHumanRun, 624, 58, 8, 0.74),
   [upgradeKey(Race.Crown, 'melee', 'F')]: cmStrip(kingHumanRun, 624, 58, 8, 0.74),
-  [upgradeKey(Race.Crown, 'melee', 'G')]: cmStrip(kingHumanRun, 624, 58, 8, 0.74),
+  [upgradeKey(Race.Crown, 'melee', 'G')]: { ...cmStrip(dwarfetteL4Move, 1876, 52, 28, 0.94), scale: 0.8 },
   // --- Deep melee: → Whale branch (B/D/E) — bigger aquatic elite ---
   [upgradeKey(Race.Deep, 'melee', 'B')]: { ...cmStrip(whaleRun, 952, 46, 14, 0.98), scale: 0.5 },
   [upgradeKey(Race.Deep, 'melee', 'D')]: { ...cmStrip(whaleRun, 952, 46, 14, 0.98), scale: 0.6 },
@@ -745,10 +764,10 @@ const UPGRADE_ATK_SPRITES: Record<string, SpriteDef> = {
   [upgradeKey(Race.Geists, 'melee', 'C')]: { ...cmStrip(mimicL1Atk, 602, 32, 14), scale: 0.8 },
   [upgradeKey(Race.Geists, 'melee', 'F')]: { ...cmStrip(mimicL2Atk, 290, 38, 10), scale: 0.8 },
   [upgradeKey(Race.Geists, 'melee', 'G')]: cmStrip(mimicL4Atk, 1050, 69, 14),
-  // --- Crown ranged: Dwarfette dash attacks ---
+  // --- Crown ranged: Dwarfette dash attacks (C/F), Cannon shoot (G) ---
   [upgradeKey(Race.Crown, 'ranged', 'C')]: { ...cmStrip(dwarfetteL1Atk, 368, 36, 8, 0.72), scale: 0.7 },
   [upgradeKey(Race.Crown, 'ranged', 'F')]: { ...cmStrip(dwarfetteL2Atk, 742, 35, 14, 0.89), scale: 0.7 },
-  [upgradeKey(Race.Crown, 'ranged', 'G')]: { ...cmStrip(dwarfetteL4Atk, 1072, 52, 16, 0.94), scale: 0.8 },
+  [upgradeKey(Race.Crown, 'ranged', 'G')]: cmStrip(cannonShoot, 176, 28, 4, 0.95),
   // --- Horde: Orc color variant attacks ---
   [upgradeKey(Race.Horde, 'melee', 'B')]: { ...cmStrip(hordeMeleeAtkBlue, 684, 58, 12), scale: 0.9 },
   [upgradeKey(Race.Horde, 'melee', 'C')]: { ...cmStrip(hordeMeleeAtkRed, 684, 58, 12), scale: 0.9 },
@@ -795,10 +814,10 @@ const UPGRADE_ATK_SPRITES: Record<string, SpriteDef> = {
   [upgradeKey(Race.Tenders, 'melee', 'B')]: cmStrip(entL2Atk, 690, 45, 10, 0.94),
   [upgradeKey(Race.Tenders, 'melee', 'D')]: cmStrip(entL3Atk, 688, 56, 8, 0.94),
   [upgradeKey(Race.Tenders, 'melee', 'E')]: cmStrip(entL4Atk, 1888, 70, 32, 0.94),
-  // --- Crown melee: King Human sword attacks — faces RIGHT natively ---
+  // --- Crown melee: King Human sword attacks (C/F), Dwarfette Champion (G) — faces RIGHT natively ---
   [upgradeKey(Race.Crown, 'melee', 'C')]: cmStrip(kingHumanAtk, 234, 58, 3, 0.74),
   [upgradeKey(Race.Crown, 'melee', 'F')]: cmStrip(kingHumanAtk, 234, 58, 3, 0.74),
-  [upgradeKey(Race.Crown, 'melee', 'G')]: cmStrip(kingHumanAtk, 234, 58, 3, 0.74),
+  [upgradeKey(Race.Crown, 'melee', 'G')]: { ...cmStrip(dwarfetteL4Atk, 1072, 52, 16, 0.94), scale: 0.8 },
   // --- Deep melee: Whale bite (B/D/E) ---
   [upgradeKey(Race.Deep, 'melee', 'B')]: { ...cmStrip(whaleAtk, 748, 46, 11, 0.98), scale: 0.5 },
   [upgradeKey(Race.Deep, 'melee', 'D')]: { ...cmStrip(whaleAtk, 748, 46, 11, 0.98), scale: 0.6 },
@@ -885,12 +904,14 @@ const HARVESTER_SPRITES: { [pid: number]: HarvesterSpriteSet } = {
   2: pawnSet(harvesterRed, harvesterRedRun, harvesterRedRunGold, harvesterRedRunWood, harvesterRedRunMeat, harvesterRedMineGold, harvesterRedMineWood, harvesterRedMineStone),
   3: pawnSet(harvesterYellow, harvesterYellowRun, harvesterYellowRunGold, harvesterYellowRunWood, harvesterYellowRunMeat, harvesterYellowMineGold, harvesterYellowMineWood, harvesterYellowMineStone),
   4: pawnSet(harvesterBlack, harvesterBlackRun, harvesterBlackRunGold, harvesterBlackRunWood, harvesterBlackRunMeat, harvesterBlackMineGold, harvesterBlackMineWood, harvesterBlackMineStone),
-  5: pawnSet(harvesterBlue, harvesterBlueRun, harvesterBlueRunGold, harvesterBlueRunWood, harvesterBlueRunMeat, harvesterBlueMineGold, harvesterBlueMineWood, harvesterBlueMineStone),
 };
 
 // ============================================================
 // BUILDING SPRITE LOOKUP
 // ============================================================
+
+// Number of unique building/harvester sprite color variants (Blue, Purple, Red, Yellow, Black)
+const NUM_SPRITE_VARIANTS = 5;
 
 // Player-keyed building URLs: "playerId/buildingKey"
 const BUILDING_URLS: Record<string, string> = {
@@ -904,14 +925,12 @@ const BUILDING_URLS: Record<string, string> = {
   '3/caster': yellowMonastery, '3/tower': yellowTower, '3/hq': yellowCastle, '3/research': yellowBarracks,
   '4/hut': blackHouse, '4/melee': blackBarracks, '4/ranged': blackArchery,
   '4/caster': blackMonastery, '4/tower': blackTower, '4/hq': blackCastle, '4/research': blackBarracks,
-  '5/hut': blueHouse, '5/melee': blueBarracks, '5/ranged': blueArchery,
-  '5/caster': blueMonastery, '5/tower': blueTower, '5/hq': blueCastle, '5/research': blueBarracks,
 };
 
 // Isometric House2 variants for hut buildings
 const ISO_HUT_URLS: Record<number, string> = {
   0: blueHouse2, 1: purpleHouse2, 2: redHouse2,
-  3: yellowHouse2, 4: blackHouse2, 5: blueHouse2,
+  3: yellowHouse2, 4: blackHouse2,
 };
 
 const BUILDING_KEY: Partial<Record<BuildingType, string>> = {
@@ -1082,23 +1101,53 @@ export class SpriteLoader {
   getBuildingSprite(type: BuildingType, playerId: number, isometric = false): HTMLImageElement | null {
     const bKey = BUILDING_KEY[type];
     if (!bKey) return null;
+    const vid = playerId % NUM_SPRITE_VARIANTS;
     // In isometric mode, huts use House2 sprite
     if (isometric && bKey === 'hut') {
-      const isoUrl = ISO_HUT_URLS[playerId];
+      const isoUrl = ISO_HUT_URLS[vid];
       if (isoUrl) return this.loadImage(isoUrl);
     }
-    const url = BUILDING_URLS[`${playerId}/${bKey}`];
+    const url = BUILDING_URLS[`${vid}/${bKey}`];
     return url ? this.loadImage(url) : null;
   }
 
   getHQSprite(playerId: number): HTMLImageElement | null {
-    const url = BUILDING_URLS[`${playerId}/hq`];
+    const url = BUILDING_URLS[`${playerId % NUM_SPRITE_VARIANTS}/hq`];
     return url ? this.loadImage(url) : null;
   }
 
   getSeedSprite(): [HTMLImageElement, SpriteDef] | null {
     const img = this.loadImage(SEED_SPRITE_DEF.url);
     return img ? [img, SEED_SPRITE_DEF] : null;
+  }
+
+  getFoundrySprite(): HTMLImageElement | null {
+    return this.loadImage(foundryHelmUrl);
+  }
+
+  getGlobuleSprite(): HTMLImageElement | null {
+    return this.loadImage(globuleSpriteUrl);
+  }
+
+  getBlackHoleSprite(): HTMLImageElement | null {
+    return this.loadImage(fxBlackHole);
+  }
+
+  getGoldenSkullSprite(): HTMLImageElement | null {
+    return this.loadImage(goldenSkull);
+  }
+
+  getMeteoriteSprite(color: 'orange' | 'green' | 'purple'): HTMLImageElement | null {
+    const url = color === 'orange' ? fxMeteoriteOrange : color === 'green' ? fxMeteoriteGreen : fxMeteoritePurple;
+    return this.loadImage(url);
+  }
+
+  getStarShineSprite(color: 'blue' | 'pink'): HTMLImageElement | null {
+    return this.loadImage(color === 'blue' ? fxStarShineBlue : fxStarShinePink);
+  }
+
+  getEclipseSprite(): HTMLImageElement | null {
+    return this.loadImage(fxEclipse);
   }
 
   // --- Units ---
@@ -1139,7 +1188,7 @@ export class SpriteLoader {
       const atkSprites = RACE_ATK_SPRITES[race];
       const atkRaw = atkSprites?.[category];
       if (atkRaw) {
-        const atkDef: SpriteDef = (0 in atkRaw) ? (atkRaw as PlayerVariants)[playerId] ?? (atkRaw as PlayerVariants)[0] : atkRaw as SpriteDef;
+        const atkDef: SpriteDef = (0 in atkRaw) ? (atkRaw as PlayerVariants)[playerId % NUM_SPRITE_VARIANTS] ?? (atkRaw as PlayerVariants)[0] : atkRaw as SpriteDef;
         const atkImg = this.loadImage(atkDef.url);
         if (atkImg) return [atkImg, atkDef];
       }
@@ -1148,7 +1197,7 @@ export class SpriteLoader {
     const raceSprites = RACE_UNIT_SPRITES[race];
     if (!raceSprites) return null;
     const raw = raceSprites[category];
-    const def: SpriteDef = (0 in raw) ? (raw as PlayerVariants)[playerId] ?? (raw as PlayerVariants)[0] : raw as SpriteDef;
+    const def: SpriteDef = (0 in raw) ? (raw as PlayerVariants)[playerId % NUM_SPRITE_VARIANTS] ?? (raw as PlayerVariants)[0] : raw as SpriteDef;
     const img = this.loadImage(def.url);
     return img ? [img, def] : null;
   }
@@ -1161,7 +1210,7 @@ export class SpriteLoader {
     carryingResource: ResourceType | null,
     assignment: string,
   ): [HTMLImageElement, SpriteDef] | null {
-    const set = HARVESTER_SPRITES[playerId] ?? HARVESTER_SPRITES[0];
+    const set = HARVESTER_SPRITES[playerId % NUM_SPRITE_VARIANTS] ?? HARVESTER_SPRITES[0];
     let def: SpriteDef;
 
     if (state === 'mining') {
@@ -1207,6 +1256,20 @@ export class SpriteLoader {
     const def = ARROW_SPRITES[team] ?? ARROW_SPRITES[0];
     const img = this.loadImage(def.url);
     return img ? [img, def] : null;
+  }
+
+  // --- Potions (Goblin Potion Shop) ---
+
+  private static POTION_DEFS: Record<string, { url: string; def: SpriteDef }> = {
+    blue:  { url: bluePotionIdle,  def: { url: bluePotionIdle,  frameW: 13, frameH: 17, cols: 7, groundY: 0.9 } },
+    red:   { url: redPotionIdle,   def: { url: redPotionIdle,   frameW: 13, frameH: 17, cols: 7, groundY: 0.9 } },
+    green: { url: greenPotionIdle, def: { url: greenPotionIdle, frameW: 13, frameH: 17, cols: 7, groundY: 0.9 } },
+  };
+
+  getPotionSprite(color: 'blue' | 'red' | 'green'): [HTMLImageElement, SpriteDef] | null {
+    const p = SpriteLoader.POTION_DEFS[color];
+    const img = this.loadImage(p.url);
+    return img ? [img, p.def] : null;
   }
 
   /** Get bone projectile sprite (Wild Bonechucker) */

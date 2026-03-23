@@ -292,7 +292,7 @@ export class PostMatchScene implements Scene {
         const maxTextW = colX[1] - textX - hdrIconSz - 4;
         const truncated = this.truncateText(ctx, fullText, maxTextW);
         ctx.textAlign = 'left';
-        const pc = PLAYER_COLORS[i];
+        const pc = PLAYER_COLORS[i % PLAYER_COLORS.length];
         ctx.fillStyle = this.darkenColor(pc, 0.6);
         ctx.fillText(truncated, textX, y);
 
@@ -411,7 +411,7 @@ export class PostMatchScene implements Scene {
 
         // Player name in their color
         ctx.font = `bold ${Math.max(11, fontSize * 0.65)}px monospace`;
-        ctx.fillStyle = this.darkenColor(PLAYER_COLORS[a.playerId], 0.7);
+        ctx.fillStyle = this.darkenColor(PLAYER_COLORS[a.playerId % PLAYER_COLORS.length], 0.7);
         const name = this.truncateText(ctx, this.slotLabel(a.playerId), cardW - inset * 2);
         ctx.fillText(name, cardCenterX, cy + inset + iconSz + fontSize * 1.35);
 
@@ -429,7 +429,7 @@ export class PostMatchScene implements Scene {
     if (heroes.length === 0) return;
     const hero = heroes[0];
 
-    const playerColor = PLAYER_COLORS[hero.playerId];
+    const playerColor = PLAYER_COLORS[hero.playerId % PLAYER_COLORS.length];
     const raceColor = RACE_COLORS[hero.race]?.primary ?? '#fff';
 
     // Card dimensions — sized to fit content

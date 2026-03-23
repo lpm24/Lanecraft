@@ -14,6 +14,9 @@ export class Camera {
   private panTargetX: number | null = null;
   private panTargetY: number | null = null;
   private panTargetZoom: number | null = null;
+  // Continuous follow target (world-pixel coords) — set each frame, cleared on manual input
+  followTargetX: number | null = null;
+  followTargetY: number | null = null;
 
   private get minZoom(): number {
     let worldW: number, worldH: number;
@@ -117,10 +120,12 @@ export class Camera {
 
     c.addEventListener('wheel', (e) => {
       e.preventDefault();
-      // Manual zoom cancels smooth pan
+      // Manual zoom cancels smooth pan and follow
       this.panTargetX = null;
       this.panTargetY = null;
       this.panTargetZoom = null;
+      this.followTargetX = null;
+      this.followTargetY = null;
       const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
       const rect = c.getBoundingClientRect();
       const cursorX = e.clientX - rect.left;
@@ -174,10 +179,12 @@ export class Camera {
       this.keys.has('d') || this.keys.has('arrowright');
 
     if (hasKeyInput || this.isDragging) {
-      // Manual input cancels smooth pan
+      // Manual input cancels smooth pan and follow
       this.panTargetX = null;
       this.panTargetY = null;
       this.panTargetZoom = null;
+      this.followTargetX = null;
+      this.followTargetY = null;
     }
 
     if (this.keys.has('w') || this.keys.has('arrowup')) this.y -= panSpeed / this.zoom;
@@ -202,6 +209,15 @@ export class Camera {
         this.panTargetY = null;
         this.panTargetZoom = null;
       }
+    }
+
+    // Continuous follow target — smoothly track a moving entity
+    if (this.followTargetX !== null && this.followTargetY !== null) {
+      const tx = this.followTargetX - this.canvas.clientWidth / (2 * this.zoom);
+      const ty = this.followTargetY - this.canvas.clientHeight / (2 * this.zoom);
+      const flerp = 0.15;
+      this.x += (tx - this.x) * flerp;
+      this.y += (ty - this.y) * flerp;
     }
 
     this.clamp();

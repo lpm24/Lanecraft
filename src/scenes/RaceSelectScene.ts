@@ -19,15 +19,15 @@ interface RaceOption {
 }
 
 const RACES: RaceOption[] = [
-  { race: Race.Crown, label: 'CROWN', desc: 'Shield + balance', econ: ['uiGold', 'uiWood'] },
-  { race: Race.Horde, label: 'HORDE', desc: 'Brute force + knockback', econ: ['uiGold', 'uiMeat'] },
-  { race: Race.Goblins, label: 'GOBLINS', desc: 'Speed + poison', econ: ['uiGold', 'uiWood'] },
-  { race: Race.Oozlings, label: 'OOZLINGS', desc: 'Swarm + haste', econ: ['uiGold', 'uiMeat'] },
-  { race: Race.Demon, label: 'DEMON', desc: 'Glass cannon + burn', econ: ['uiMeat', 'uiWood'] },
-  { race: Race.Deep, label: 'DEEP', desc: 'Control + slow', econ: ['uiWood', 'uiGold'] },
-  { race: Race.Wild, label: 'WILD', desc: 'Aggro + poison', econ: ['uiWood', 'uiMeat'] },
-  { race: Race.Geists, label: 'GEISTS', desc: 'Undying + lifesteal', econ: ['uiMeat', 'uiGold'] },
-  { race: Race.Tenders, label: 'TENDERS', desc: 'Regen + healing', econ: ['uiWood', 'uiGold'] },
+  { race: Race.Crown, label: 'CROWN', desc: 'Hold the line, wear them down', econ: ['uiGold', 'uiWood'] },
+  { race: Race.Horde, label: 'HORDE', desc: 'Hit hard, send them flying', econ: ['uiGold', 'uiMeat'] },
+  { race: Race.Goblins, label: 'GOBLINS', desc: 'Fast, cheap, and filthy', econ: ['uiGold', 'uiWood'] },
+  { race: Race.Oozlings, label: 'OOZLINGS', desc: 'Strength in numbers', econ: ['uiGold', 'uiMeat'] },
+  { race: Race.Demon, label: 'DEMON', desc: 'Everything burns', econ: ['uiMeat', 'uiWood'] },
+  { race: Race.Deep, label: 'DEEP', desc: 'Crush them slowly', econ: ['uiWood', 'uiGold'] },
+  { race: Race.Wild, label: 'WILD', desc: 'Feral and relentless', econ: ['uiWood', 'uiMeat'] },
+  { race: Race.Geists, label: 'GEISTS', desc: 'Death is only the beginning', econ: ['uiMeat', 'uiGold'] },
+  { race: Race.Tenders, label: 'TENDERS', desc: 'Outlast and overgrow', econ: ['uiWood', 'uiGold'] },
 ];
 
 const RANDOM_INDEX = RACES.length; // index 9

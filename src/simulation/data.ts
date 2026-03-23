@@ -791,7 +791,8 @@ export const RACE_ABILITY_DEFS: Record<Race, RaceAbilityDef> = {
     race: Race.Goblins, name: 'Potion Shop',
     targetMode: AbilityTargetMode.BuildSlot,
     baseCooldownTicks: 0,
-    baseCost: { gold: 80, wood: 30 },
+    baseCost: { gold: 60, wood: 10 },
+    costGrowthFactor: 1.3,
   },
   [Race.Oozlings]: {
     race: Race.Oozlings, name: 'Globule',
@@ -818,7 +819,7 @@ export const RACE_ABILITY_DEFS: Record<Race, RaceAbilityDef> = {
     race: Race.Wild, name: 'Frenzy',
     targetMode: AbilityTargetMode.Targeted,
     baseCooldownTicks: 40 * TICK_RATE,
-    baseCost: { stone: 80 },
+    baseCost: { stone: 30 },
     costGrowthFactor: 1.3,
     aoeRadius: 8,
   },

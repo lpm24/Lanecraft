@@ -109,6 +109,7 @@ export class Renderer {
   private lastUnitPositions = new Map<number, { x: number; y: number; team: number; race?: Race }>();
   // Per-game-tick position snapshot for walk/idle detection (compare across ticks, not render frames)
   private prevTickUnitPos = new Map<number, { x: number; y: number }>();
+  private movedThisTick = new Set<number>();
   private prevTickSeen = -1;
   private lastUnitRenders = new Map<number, UnitRenderSnapshot>();
   private lastBuildingIds = new Set<number>();
@@ -452,6 +453,24 @@ export class Renderer {
       }
     }
 
+    // Snapshot unit positions once per tick — compute which units moved
+    // before overwriting, so ALL renders within the same tick see consistent results.
+    if (state.tick !== this.prevTickSeen) {
+      this.movedThisTick.clear();
+      for (const u of state.units) {
+        const prev = this.prevTickUnitPos.get(u.id);
+        if (prev) {
+          if (Math.abs(u.x - prev.x) >= 0.04 || Math.abs(u.y - prev.y) >= 0.04) {
+            this.movedThisTick.add(u.id);
+          }
+          prev.x = u.x; prev.y = u.y;
+        } else {
+          this.prevTickUnitPos.set(u.id, { x: u.x, y: u.y });
+        }
+      }
+      this.prevTickSeen = state.tick;
+    }
+
     const ctx = this.ctx;
     const dpr = window.devicePixelRatio || 1;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -510,15 +529,7 @@ export class Renderer {
     this.drawQuickChats(ctx, state);
     this.drawMinimap(ctx, state);
 
-    // Snapshot positions at end of frame — used next frame to detect actual movement
-    if (state.tick !== this.prevTickSeen) {
-      for (const u of state.units) {
-        const prev = this.prevTickUnitPos.get(u.id);
-        if (prev) { prev.x = u.x; prev.y = u.y; }
-        else this.prevTickUnitPos.set(u.id, { x: u.x, y: u.y });
-      }
-      this.prevTickSeen = state.tick;
-    }
+    // (Position snapshots moved to start of frame — see movedThisTick)
   }
 
   // === Terrain (Pre-rendered) ===
@@ -1380,6 +1391,44 @@ export class Renderer {
       : state.woodPiles;
     for (const pile of strayPiles) drawWoodPile(pile.x, pile.y, pile.amount);
 
+    // Potion drops (Goblin Potion Shop — thrown arc + ground pickup)
+    for (const potion of state.potionDrops) {
+      const potionColor = potion.type === 'speed' ? 'blue' as const : potion.type === 'rage' ? 'red' as const : 'green' as const;
+      const potionData = this.sprites.getPotionSprite(potionColor);
+      if (!potionData) continue;
+      const [pImg, pDef] = potionData;
+      const potionSz = T * 0.9;
+      const frame = Math.floor(Date.now() / 150 + potion.id) % pDef.cols;
+      const fsx = frame * pDef.frameW;
+
+      if (potion.flightProgress < potion.flightTicks) {
+        // In flight — parabolic arc from shop to landing spot
+        const t = potion.flightProgress / potion.flightTicks;
+        const curX = potion.srcX + (potion.x - potion.srcX) * t;
+        const curY = potion.srcY + (potion.y - potion.srcY) * t;
+        const dist = Math.hypot(potion.x - potion.srcX, potion.y - potion.srcY);
+        const arcHeight = dist * 0.6;
+        const heightOffset = -arcHeight * 4 * t * (1 - t);
+        const { px: fpx, py: fpy } = this.tp(curX, curY);
+        const spin = t * Math.PI * 2;
+        ctx.save();
+        ctx.translate(fpx, fpy + heightOffset * T / 2);
+        ctx.rotate(spin);
+        ctx.drawImage(pImg, fsx, 0, pDef.frameW, pDef.frameH,
+          -potionSz / 2, -potionSz / 2, potionSz, potionSz);
+        ctx.restore();
+      } else {
+        // On ground — bob and fade
+        const { px: ppx, py: ppy } = this.tp(potion.x, potion.y);
+        const bob = Math.sin(Date.now() / 400 + potion.id) * T * 0.06;
+        const fadeAlpha = potion.remainingTicks < 60 ? potion.remainingTicks / 60 : 1;
+        ctx.globalAlpha = fadeAlpha;
+        ctx.drawImage(pImg, fsx, 0, pDef.frameW, pDef.frameH,
+          ppx - potionSz / 2, ppy - potionSz + bob, potionSz, potionSz);
+        ctx.globalAlpha = 1;
+      }
+    }
+
     // Gold nodes near HQs — bigger gold resource sprite
     const goldData = this.sprites.getResourceSprite('goldResource');
     const bHQ = getHQPosition(Team.Bottom, state.mapDef);
@@ -1799,7 +1848,7 @@ export class Renderer {
       ctx.translate(cx, py + T / 2 + popY);
       ctx.rotate(rotation);
       ctx.scale(1, flatten);
-      this.drawUnitShape(ctx, 0, 0, radius, dead.race, dead.category, dead.team, PLAYER_COLORS[dead.playerId] || '#888');
+      this.drawUnitShape(ctx, 0, 0, radius, dead.race, dead.category, dead.team, PLAYER_COLORS[dead.playerId % PLAYER_COLORS.length]);
     }
 
     ctx.restore();
@@ -1880,22 +1929,27 @@ export class Renderer {
     {
       const player = state.players[b.playerId];
       const rc = RACE_COLORS[player.race];
-      const playerColor = PLAYER_COLORS[b.playerId] || '#888';
+      const playerColor = PLAYER_COLORS[b.playerId % PLAYER_COLORS.length];
       const { px: _bpx, py: _bpy } = this.tp(b.worldX + 0.5, b.worldY + 0.5);
       const px = _bpx;
       const py = _bpy;
       const half = T / 2 - 2;
 
       const upgradeTier = b.upgradePath.length - 1; // 0=base, 1=tier1, 2=tier2
-      const sprite = this.sprites.getBuildingSprite(b.type, b.playerId, this.isometric);
+      const sprite = b.isGlobule
+        ? this.sprites.getGlobuleSprite()
+        : b.isPotionShop
+          ? this.sprites.getBuildingSprite(BuildingType.CasterSpawner, b.playerId, this.isometric)
+          : this.sprites.getBuildingSprite(b.type, b.playerId, this.isometric);
 
       if (sprite) {
         // Draw sprite scaled to fit one tile, anchored at bottom-center
         // Scale up slightly per upgrade tier to show leveling
         // Research: 2x size
         const researchScale = b.type === BuildingType.Research ? 2.0 : 1.0;
+        const globuleScale = b.isGlobule ? 2.0 : 1.0; // big blob sprite
         const tierScale = 1.0 + upgradeTier * 0.08;
-        const baseDrawW = (T + 4) * tierScale * researchScale;
+        const baseDrawW = (T + 4) * tierScale * researchScale * globuleScale;
         const baseDrawH = (baseDrawW / sprite.width) * sprite.height;
 
         // Construction animation: scale-up bounce
@@ -1907,7 +1961,8 @@ export class Renderer {
 
         // Building shadow (day/night responsive) — anchored at building visual base
         // Tiny Swords sprites have ~29% transparent padding below the building (groundY=0.71)
-        const bGroundY = drawY + drawH * 0.71;
+        // Slime sprites are tightly cropped (groundY=0.93)
+        const bGroundY = drawY + drawH * (b.isGlobule ? 0.93 : 0.71);
         const bShadowLen = this.dayNight.shadowLength;
         const bShadowX = Math.cos(this.dayNight.shadowAngle) * bShadowLen * 3;
         ctx.fillStyle = `rgba(0,0,0,${this.dayNight.brightness * 0.15})`;
@@ -1962,11 +2017,24 @@ export class Renderer {
           ctx.globalAlpha = 1;
         }
 
-        // Special ability buildings (non-seed) — tint overlay only, no floating label
-        if (b.isFoundry || b.isPotionShop || b.isGlobule) {
-          const tint = b.isFoundry ? '#ffd700' : b.isPotionShop ? '#69f0ae' : '#7c4dff';
-          ctx.globalAlpha = 0.25;
-          ctx.fillStyle = tint;
+        // Special ability buildings (non-seed)
+        if (b.isFoundry) {
+          // Crown Foundry — draw ship helm sprite on top of building
+          const helmImg = this.sprites.getFoundrySprite();
+          if (helmImg) {
+            const helmSize = T * 1.6 * buildScale;
+            const helmAspect = helmImg.naturalWidth / helmImg.naturalHeight;
+            const helmW = helmSize * helmAspect;
+            const helmH = helmSize;
+            const helmFeetY = py + half + 2;
+            const helmDrawY = helmFeetY - helmH * 0.85;
+            ctx.drawImage(helmImg, px - helmW / 2, helmDrawY, helmW, helmH);
+          }
+        } else if (b.isGlobule) {
+          // Globule uses its own slime sprite — add a subtle pulsing glow
+          const pulse = 0.15 + 0.1 * Math.sin(state.tick * 0.08);
+          ctx.globalAlpha = pulse;
+          ctx.fillStyle = '#69f0ae';
           ctx.fillRect(drawX, drawY, drawW, drawH);
           ctx.globalAlpha = 1;
         } else if (b.type === BuildingType.Tower) {
@@ -2331,7 +2399,7 @@ export class Renderer {
 
   private drawOneUnit(ctx: CanvasRenderingContext2D, state: GameState, u: UnitState): void {
     {
-      const playerColor = PLAYER_COLORS[u.playerId] || '#888';
+      const playerColor = PLAYER_COLORS[u.playerId % PLAYER_COLORS.length];
       const { px, py } = this.tp(u.x, u.y);
       const laneColor = u.lane === Lane.Left ? LANE_LEFT_COLOR : LANE_RIGHT_COLOR;
       const r = u.range > 2 ? 3 : 4;
@@ -2373,20 +2441,29 @@ export class Renderer {
       if (spriteData) {
         const [img, def] = spriteData;
         const spriteScale = def.scale ?? 1.0;
-        const baseH = T * 1.82 * spriteScale * tierScale;
+        const unitVisScale = u.visualScale ?? 1.0;
+        const baseH = T * 1.82 * spriteScale * tierScale * unitVisScale;
         const aspect = def.frameW / def.frameH;
         const drawW = baseH * aspect;
         const drawH = baseH * (def.heightScale ?? 1.0);
+        // Check if this unit has a dedicated attack sprite
+        const hasAtkSprite = isAttacking && race != null && this.sprites.hasAttackSprite(race, cat, u.upgradeNode);
         // Ranged/caster units stand still when attacking without a dedicated attack sprite
-        const idleWhileAttacking = isAttacking && (cat === 'ranged' || cat === 'caster')
-          && race != null && !this.sprites.hasAttackSprite(race, cat, u.upgradeNode);
-        // Check if unit is actually moving — compare against previous game tick position
-        // (not previous render frame) so walk/idle doesn't flicker at 60fps vs 20tps
-        const lastTickPos = this.prevTickUnitPos.get(u.id);
-        const isStationary = lastTickPos != null
-          && Math.abs(u.x - lastTickPos.x) < 0.04 && Math.abs(u.y - lastTickPos.y) < 0.04;
-        // Normalize animation: ~1 cycle per second (20 ticks) regardless of frame count
-        const frame = (idleWhileAttacking || isRangedOnCooldown || (isStationary && !isAttacking)) ? 0 : getSpriteFrame(state.tick, def);
+        const idleWhileAttacking = isAttacking && (cat === 'ranged' || cat === 'caster') && !hasAtkSprite;
+        // Check if unit moved this tick (pre-computed once per tick so all renders agree)
+        const isStationary = !this.movedThisTick.has(u.id);
+        // Determine animation frame
+        let frame: number;
+        if (idleWhileAttacking || isRangedOnCooldown || (isStationary && !isAttacking)) {
+          frame = 0;
+        } else if (hasAtkSprite) {
+          // Dedicated attack sprite: play full animation from frame 0, fitted to the attack window
+          const elapsed = attackCooldownTicks - u.attackTimer; // 0 at swing start, increases
+          const window = Math.max(1, Math.ceil(attackCooldownTicks * 0.5));
+          frame = Math.min(def.cols - 1, Math.floor(elapsed * def.cols / window));
+        } else {
+          frame = getSpriteFrame(state.tick, def);
+        }
         // Anchor feet at consistent ground level
         const feetY = py + T * 0.70;
         const drawY = feetY - drawH * (def.groundY ?? 0.71);
@@ -2965,7 +3042,7 @@ export class Renderer {
         }
       } else {
         // Fallback procedural
-        let color = PLAYER_COLORS[h.playerId] || (h.team === Team.Bottom ? '#64b5f6' : '#ef9a9a');
+        let color = PLAYER_COLORS[h.playerId % PLAYER_COLORS.length];
         if (h.state === 'fighting') color = '#ff5722';
         ctx.beginPath();
         ctx.moveTo(px, py - 4); ctx.lineTo(px + 4, py + 4); ctx.lineTo(px - 4, py + 4);
@@ -3345,6 +3422,7 @@ export class Renderer {
         this.facing.delete(id);
         this.smoothHp.delete(id);
         this.prevTickUnitPos.delete(id);
+        this.movedThisTick.delete(id);
       }
     }
     this.lastUnitIds = currentUnitIds;
@@ -3669,6 +3747,19 @@ export class Renderer {
         ctx.fill();
         break;
       }
+      case 'potion_blue':
+      case 'potion_red':
+      case 'potion_green': {
+        const potionColor = icon === 'potion_blue' ? 'blue' as const : icon === 'potion_red' ? 'red' as const : 'green' as const;
+        const potionData = this.sprites.getPotionSprite(potionColor);
+        if (potionData) {
+          const [pImg, pDef] = potionData;
+          const frame = Math.floor(Date.now() / 120) % pDef.cols;
+          const fsx = frame * pDef.frameW;
+          ctx.drawImage(pImg, fsx, 0, pDef.frameW, pDef.frameH, x, y, sz, sz);
+        }
+        break;
+      }
     }
     ctx.lineCap = 'butt';
   }
@@ -3836,54 +3927,116 @@ export class Renderer {
 
       } else if (eff.type === 'demon_fireball_inbound' && eff.data != null) {
         const { px: cx, py: cy } = this.tp(eff.data.curX, eff.data.curY);
-        const orbR = 14;
 
-        // Glow halo
-        const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, orbR * 2.5);
-        glow.addColorStop(0, 'rgba(255, 220, 80, 0.45)');
-        glow.addColorStop(0.5, 'rgba(255, 80, 0, 0.2)');
+        // Calculate flight angle toward target
+        let angle = Math.PI; // default: flying left
+        if (eff.x != null && eff.y != null) {
+          const { px: tx, py: ty } = this.tp(eff.x, eff.y);
+          angle = Math.atan2(ty - cy, tx - cx);
+        }
+
+        const meteorImg = this.sprites.getMeteoriteSprite('orange');
+        if (meteorImg) {
+          // 10x6 grid: 10 columns (animation), 6 rows (rotation angles)
+          // Row 0 = flying right, rows rotate clockwise in 60° steps
+          const cols = 10, rows = 6;
+          const frameW = meteorImg.width / cols;
+          const frameH = meteorImg.height / rows;
+          // Map angle to row (6 rows = 60° each)
+          const normAngle = ((angle % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+          const row = Math.round(normAngle / (Math.PI * 2) * rows + rows) % rows;
+          const col = Math.floor(tick * 0.4) % cols;
+          const sx = col * frameW;
+          const sy = row * frameH;
+          const drawSize = T * 3;
+          const aspect = frameW / frameH;
+          ctx.drawImage(meteorImg, sx, sy, frameW, frameH, cx - drawSize * aspect / 2, cy - drawSize / 2, drawSize * aspect, drawSize);
+        }
+
+        // Glow halo behind meteorite
+        const orbR = 14;
+        const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, orbR * 2);
+        glow.addColorStop(0, 'rgba(255, 220, 80, 0.35)');
+        glow.addColorStop(0.5, 'rgba(255, 80, 0, 0.15)');
         glow.addColorStop(1, 'rgba(200, 20, 0, 0)');
         ctx.beginPath();
-        ctx.arc(cx, cy, orbR * 2.5, 0, Math.PI * 2);
+        ctx.arc(cx, cy, orbR * 2, 0, Math.PI * 2);
         ctx.fillStyle = glow;
         ctx.fill();
 
-        // Fire trail — draw several fading circles behind current position
+      } else if (eff.type === 'geist_summon_telegraph' && eff.x != null && eff.y != null) {
+        // Animated black hole at summon target
+        const { px, py } = this.tp(eff.x, eff.y);
+        const bhImg = this.sprites.getBlackHoleSprite();
+        if (bhImg) {
+          // 7x8 spritesheet (56 frames)
+          const cols = 7, rows = 8;
+          const frameW = bhImg.width / cols;
+          const frameH = bhImg.height / rows;
+          const frame = Math.floor(tick * 0.3) % (cols * rows);
+          const sx = (frame % cols) * frameW;
+          const sy = Math.floor(frame / cols) * frameH;
+          const drawSize = T * 3;
+          ctx.globalAlpha = 0.85;
+          ctx.drawImage(bhImg, sx, sy, frameW, frameH, px - drawSize / 2, py - drawSize / 2, drawSize, drawSize);
+          ctx.globalAlpha = 1;
+        } else {
+          // Fallback: purple swirling ring
+          ctx.beginPath();
+          ctx.arc(px, py, T * 1.5, 0, Math.PI * 2);
+          ctx.strokeStyle = `rgba(206, 147, 216, ${0.4 + 0.3 * Math.sin(tick * 0.15)})`;
+          ctx.lineWidth = 2;
+          ctx.stroke();
+        }
+
+      } else if (eff.type === 'geist_summon_inbound' && eff.data != null) {
+        // Golden skull projectile flying toward target
+        const { px: cx, py: cy } = this.tp(eff.data.curX, eff.data.curY);
+        const skullImg = this.sprites.getGoldenSkullSprite();
+        if (skullImg) {
+          const skullSize = T * 1.4;
+          // Bobbing motion
+          const bob = Math.sin(tick * 0.25) * 3;
+          ctx.save();
+          ctx.translate(cx, cy + bob);
+          // Subtle rotation toward target
+          if (eff.x != null && eff.y != null) {
+            const { px: tx, py: ty } = this.tp(eff.x, eff.y);
+            const angle = Math.atan2(ty - cy, tx - cx);
+            ctx.rotate(angle * 0.15);
+          }
+          ctx.drawImage(skullImg, -skullSize / 2, -skullSize / 2, skullSize, skullSize);
+          ctx.restore();
+        }
+
+        // Purple ghostly trail behind skull
         if (eff.x != null && eff.y != null) {
           const { px: tx, py: ty } = this.tp(eff.x, eff.y);
           const totalDx = tx - cx, totalDy = ty - cy;
           const totalDist = Math.sqrt(totalDx * totalDx + totalDy * totalDy) || 1;
-          const trailSteps = 6;
+          const trailSteps = 5;
           for (let ti = 0; ti < trailSteps; ti++) {
             const t = (ti + 1) / trailSteps;
-            const trailX = cx - (totalDx / totalDist) * t * orbR * 2;
-            const trailY = cy - (totalDy / totalDist) * t * orbR * 2;
+            const trailX = cx - (totalDx / totalDist) * t * T * 0.8;
+            const trailY = cy - (totalDy / totalDist) * t * T * 0.8;
             const alpha = (1 - t) * 0.35;
-            const tr = orbR * (1 - t * 0.6);
+            const tr = T * 0.3 * (1 - t * 0.5);
             ctx.beginPath();
             ctx.arc(trailX, trailY, tr, 0, Math.PI * 2);
-            ctx.fillStyle = `rgba(255, ${80 + Math.round(t * 80)}, 0, ${alpha})`;
+            ctx.fillStyle = `rgba(206, 147, 216, ${alpha})`;
             ctx.fill();
           }
         }
 
-        // Core orb
-        const core = ctx.createRadialGradient(cx - orbR * 0.3, cy - orbR * 0.3, 1, cx, cy, orbR);
-        core.addColorStop(0, 'rgba(255, 255, 200, 1)');
-        core.addColorStop(0.35, 'rgba(255, 200, 50, 0.95)');
-        core.addColorStop(0.7, 'rgba(255, 80, 0, 0.9)');
-        core.addColorStop(1, 'rgba(180, 20, 0, 0.8)');
+        // Glow halo around skull
+        const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, T * 1.2);
+        glow.addColorStop(0, 'rgba(206, 147, 216, 0.3)');
+        glow.addColorStop(0.5, 'rgba(128, 0, 128, 0.15)');
+        glow.addColorStop(1, 'rgba(128, 0, 128, 0)');
         ctx.beginPath();
-        ctx.arc(cx, cy, orbR, 0, Math.PI * 2);
-        ctx.fillStyle = core;
+        ctx.arc(cx, cy, T * 1.2, 0, Math.PI * 2);
+        ctx.fillStyle = glow;
         ctx.fill();
-
-        // Outer shimmer
-        ctx.beginPath();
-        ctx.arc(cx, cy, orbR + 3, 0, Math.PI * 2);
-        ctx.strokeStyle = `rgba(255, 160, 0, ${0.5 + 0.3 * Math.sin(tick * 0.5)})`;
-        ctx.lineWidth = 1.5;
-        ctx.stroke();
 
       } else if (eff.type === 'demon_fireball' && eff.x != null && eff.y != null && eff.radius != null) {
         const maxDurFB = Math.round(0.8 * TICK_RATE);
@@ -4055,8 +4208,8 @@ export class Renderer {
       ctx.fill();
     });
 
-    // Timer — right-aligned but leaving room for top-right buttons (ping + info + settings ~120px)
-    const hudRightEdge = W - 120;
+    // Timer — right-aligned but leaving room for top-right buttons (ping + mvp + info + settings ~158px)
+    const hudRightEdge = W - 158;
     const secs = Math.floor(state.tick / 20);
     const timerText = `${Math.floor(secs / 60)}:${(secs % 60).toString().padStart(2, '0')}`;
     ctx.fillStyle = '#888';
@@ -4128,7 +4281,7 @@ export class Renderer {
     const unitText = `${myUnits}v${enemyUnits}`;
     const unitTextW = ctx.measureText(unitText).width;
     ctx.fillStyle = '#aaa';
-    ctx.fillText(unitText, W - pad - unitTextW, y2);
+    ctx.fillText(unitText, hudRightEdge - unitTextW, y2);
 
     // WC3-style network status panel
     if (peerDisconnected) {
@@ -4452,7 +4605,7 @@ export class Renderer {
     // Units as dots (player colored) — fog-filtered
     for (const u of state.units) {
       if (fog && u.team !== localTeam && !this.isTileVisible(state, u.x, u.y)) continue;
-      ctx.fillStyle = PLAYER_COLORS[u.playerId] || '#888';
+      ctx.fillStyle = PLAYER_COLORS[u.playerId % PLAYER_COLORS.length];
       const up = tileToMM(u.x, u.y);
       ctx.fillRect(up.mx - 1, up.my - 1, 2, 2);
     }
@@ -4474,7 +4627,7 @@ export class Renderer {
     for (const h of state.harvesters) {
       if (h.state === 'dead') continue;
       if (fog && state.players[h.playerId]?.team !== localTeam && !this.isTileVisible(state, h.x, h.y)) continue;
-      ctx.fillStyle = PLAYER_COLORS[h.playerId] || '#888';
+      ctx.fillStyle = PLAYER_COLORS[h.playerId % PLAYER_COLORS.length];
       ctx.globalAlpha = 0.7;
       const hp = tileToMM(h.x, h.y);
       ctx.fillRect(hp.mx, hp.my, 1, 1);
@@ -4484,7 +4637,7 @@ export class Renderer {
     // Buildings as slightly larger dots — fog-filtered
     for (const b of state.buildings) {
       if (fog && state.players[b.playerId]?.team !== localTeam && !this.isTileVisible(state, b.worldX, b.worldY)) continue;
-      ctx.fillStyle = PLAYER_COLORS[b.playerId] || '#888';
+      ctx.fillStyle = PLAYER_COLORS[b.playerId % PLAYER_COLORS.length];
       const bp = tileToMM(b.worldX, b.worldY);
       ctx.fillRect(bp.mx - 1, bp.my - 1, 3, 2);
     }
