@@ -1988,6 +1988,20 @@ export class Renderer {
           } else {
             ctx.drawImage(sprite, drawX, drawY, drawW, drawH);
           }
+          // Pink StarShine sparkle around growing seeds
+          const seedStarImg = this.sprites.getStarShineSprite('pink');
+          if (seedStarImg && b.seedTimer != null) {
+            const starCols = 13;
+            const starFW = seedStarImg.width / starCols;
+            const starFH = seedStarImg.height;
+            const starFrame = Math.floor(state.tick * 0.15 + b.id * 5) % starCols;
+            const starSize = T * 1.5 * tierScale;
+            const starAspect = starFW / starFH;
+            ctx.globalAlpha = 0.45;
+            ctx.drawImage(seedStarImg, starFrame * starFW, 0, starFW, starFH,
+              px - starSize * starAspect / 2, py - starSize * 0.3, starSize * starAspect, starSize);
+            ctx.globalAlpha = 1;
+          }
           // Seed progress bar (color by tier)
           if (b.seedTimer != null) {
             const seedGrowTimes = [30 * TICK_RATE, 60 * TICK_RATE, 120 * TICK_RATE];
@@ -2037,6 +2051,29 @@ export class Renderer {
           ctx.fillStyle = '#69f0ae';
           ctx.fillRect(drawX, drawY, drawW, drawH);
           ctx.globalAlpha = 1;
+        } else if (b.isPotionShop) {
+          // Potion shop — draw goblin caster unit on top of building
+          const casterData = this.sprites.getUnitSprite(Race.Goblins, 'caster', b.playerId, false);
+          if (casterData) {
+            const [cImg, cDef] = casterData;
+            const cScale = cDef.scale ?? 1.0;
+            const cSize = T * 1.5 * cScale * buildScale;
+            const cAspect = cDef.frameW / cDef.frameH;
+            const cW = cSize * cAspect;
+            const cH = cSize * (cDef.heightScale ?? 1.0);
+            const cGY = cDef.groundY ?? 0.95;
+            const cFeetY = drawY + drawH * 0.4;
+            const cUnitY = cFeetY - cH * cGY;
+            if (player.team === Team.Top) {
+              ctx.save();
+              ctx.translate(px, 0);
+              ctx.scale(-1, 1);
+              drawSpriteFrame(ctx, cImg, cDef, 0, -cW / 2, cUnitY, cW, cH);
+              ctx.restore();
+            } else {
+              drawSpriteFrame(ctx, cImg, cDef, 0, px - cW / 2, cUnitY, cW, cH);
+            }
+          }
         } else if (b.type === BuildingType.Tower) {
           const towerStats = TOWER_STATS[player.race];
           const towerUpgrade = getUnitUpgradeMultipliers(b.upgradePath, player.race, BuildingType.Tower);
@@ -2075,7 +2112,16 @@ export class Renderer {
               // Idle: hold frame 0
               frame = 0;
             }
-            drawSpriteFrame(ctx, unitImg, unitDef, frame, unitX, unitY, uW, uH);
+            // Top team faces left (toward enemy), bottom faces right (default)
+            if (player.team === Team.Top) {
+              ctx.save();
+              ctx.translate(px, 0);
+              ctx.scale(-1, 1);
+              drawSpriteFrame(ctx, unitImg, unitDef, frame, -uW / 2, unitY, uW, uH);
+              ctx.restore();
+            } else {
+              drawSpriteFrame(ctx, unitImg, unitDef, frame, unitX, unitY, uW, uH);
+            }
           }
         }
 
@@ -2315,14 +2361,41 @@ export class Renderer {
         drewSprite = true;
       }
     } else if (p.visual === 'circle') {
-      // Caster AoE — use circle sprite (bigger, more dramatic)
-      const circRace = race ?? Race.Crown;
-      const circData = this.sprites.getCircleSprite(circRace);
-      if (circData) {
-        const [img, def] = circData;
-        const size = T * 1.6;
-        drawGridFrame(ctx, img, def, animFrame, px - size / 2, py - size / 2, size, size);
+      // Caster AoE — use meteorite sprites for specific races, circle for others
+      const meteorColor = race === Race.Goblins ? 'green' as const
+        : race === Race.Demon ? 'orange' as const
+        : race === Race.Geists ? 'purple' as const
+        : null;
+      const meteorImg = meteorColor ? this.sprites.getMeteoriteSprite(meteorColor) : null;
+      if (meteorImg) {
+        // 10x6 grid: 10 cols (animation), 6 rows (lifecycle variants)
+        // All rows face right-to-left; use row 0 (most dramatic) and canvas-rotate
+        const cols = 10, rows = 6;
+        const frameW = meteorImg.width / cols;
+        const frameH = meteorImg.height / rows;
+        const target = state.units.find(u => u.id === p.targetId);
+        const angle = target
+          ? Math.atan2(target.y - p.y, target.x - p.x)
+          : p.team === Team.Bottom ? -Math.PI / 2 : Math.PI / 2;
+        const col = Math.floor(state.tick * 0.4) % cols;
+        const drawSize = T * 1.8;
+        const aspect = frameW / frameH;
+        ctx.save();
+        ctx.translate(px, py);
+        ctx.rotate(angle + Math.PI); // sprite faces left natively, flip to match direction
+        ctx.drawImage(meteorImg, col * frameW, 0, frameW, frameH,
+          -drawSize * aspect / 2, -drawSize / 2, drawSize * aspect, drawSize);
+        ctx.restore();
         drewSprite = true;
+      } else {
+        const circRace = race ?? Race.Crown;
+        const circData = this.sprites.getCircleSprite(circRace);
+        if (circData) {
+          const [img, def] = circData;
+          const size = T * 1.6;
+          drawGridFrame(ctx, img, def, animFrame, px - size / 2, py - size / 2, size, size);
+          drewSprite = true;
+        }
       }
     } else if (p.visual === 'cannonball') {
       // HQ cannonball or siege cannonball — large dark sphere with fiery trail
@@ -2433,10 +2506,12 @@ export class Renderer {
       const cat = u.category as 'melee' | 'ranged' | 'caster';
       const attackCooldownTicks = Math.round(u.attackSpeed * TICK_RATE);
       const justFired = u.attackTimer > attackCooldownTicks * 0.5;
-      const isAttacking = u.targetId !== null && justFired;
+      const isSiege = !!u.upgradeSpecial?.isSiegeUnit;
+      // Siege units fire at buildings without setting targetId — detect attack from attackTimer alone
+      const isAttacking = justFired && (u.targetId !== null || isSiege);
       // Ranged/caster on cooldown but past attack anim window — idle, don't walk
-      const isRangedOnCooldown = u.targetId !== null && u.attackTimer > 0 && !justFired
-        && (cat === 'ranged' || cat === 'caster');
+      const isRangedOnCooldown = u.attackTimer > 0 && !justFired
+        && (u.targetId !== null || isSiege) && (cat === 'ranged' || cat === 'caster');
       const spriteData = race ? this.sprites.getUnitSprite(race, cat, u.playerId, isAttacking, u.upgradeNode) : null;
       if (spriteData) {
         const [img, def] = spriteData;
@@ -2475,17 +2550,33 @@ export class Renderer {
           if (target) {
             const dx = target.x - u.x;
             if (Math.abs(dx) > 0.5) {
-              // Target has meaningful horizontal offset — face toward it
               faceLeft = dx < 0;
             } else {
-              // Target is mostly vertical — use team default facing
               faceLeft = u.team === Team.Top;
             }
             this.facing.set(u.id, faceLeft);
           }
+        } else if (isSiege) {
+          // Siege units target buildings, not units — face toward nearest enemy building
+          let bestDx = 0, bestDist = Infinity;
+          for (const b of state.buildings) {
+            if (b.buildGrid !== 'alley' || b.hp <= 0) continue;
+            const bp = state.players[b.playerId];
+            if (!bp || bp.team === u.team) continue;
+            const bx = b.worldX + 0.5 - u.x, by = b.worldY + 0.5 - u.y;
+            const bd = bx * bx + by * by;
+            if (bd < bestDist) { bestDist = bd; bestDx = bx; }
+          }
+          if (bestDist < Infinity) {
+            // Face toward building; if mostly vertical, use team default
+            faceLeft = Math.abs(bestDx) > 0.5 ? bestDx < 0 : u.team === Team.Top;
+            this.facing.set(u.id, faceLeft);
+          }
         }
         const ax = def.anchorX ?? 0.5;
-        if (faceLeft) {
+        // flipX sprites face left natively — invert facing so they match right-facing convention
+        const effectiveFaceLeft = def.flipX ? !faceLeft : faceLeft;
+        if (effectiveFaceLeft) {
           ctx.save();
           ctx.translate(cx, 0);
           ctx.scale(-1, 1);
@@ -2498,7 +2589,7 @@ export class Renderer {
         if (this.hitFlash.consume(u.id)) {
           ctx.globalAlpha = 0.55;
           ctx.globalCompositeOperation = 'lighter';
-          if (faceLeft) {
+          if (effectiveFaceLeft) {
             ctx.save();
             ctx.translate(cx, 0);
             ctx.scale(-1, 1);
@@ -2593,6 +2684,20 @@ export class Renderer {
             const shieldSize = fxSize * 1.3;
             ctx.globalAlpha = 0.5;
             drawGridFrame(ctx, fxImg, fxDef as GridSpriteDef, fxTick + u.id, ux - shieldSize / 2, uy - shieldSize / 2, shieldSize, shieldSize);
+            ctx.globalAlpha = 1;
+          }
+          // Blue StarShine sparkle overlay on shielded units
+          const starImg = this.sprites.getStarShineSprite('blue');
+          if (starImg) {
+            const starCols = 13;
+            const starFW = starImg.width / starCols;
+            const starFH = starImg.height;
+            const starFrame = (fxTick + u.id * 3) % starCols;
+            const starSize = fxSize * 1.1;
+            const starAspect = starFW / starFH;
+            ctx.globalAlpha = 0.55;
+            ctx.drawImage(starImg, starFrame * starFW, 0, starFW, starFH,
+              ux - starSize * starAspect / 2, uy - starSize * 0.8, starSize * starAspect, starSize);
             ctx.globalAlpha = 1;
           }
         }
@@ -3473,6 +3578,7 @@ export class Renderer {
     const showDmgNums = getVisualSettings().damageNumbers;
     for (const ft of state.floatingTexts) {
       if (ft.ftType === 'damage' && !showDmgNums) continue;
+      if (ft.ownerOnly != null && ft.ownerOnly !== this.localPlayerId) continue;
       const t = ft.age / ft.maxAge; // 0→1 progress
       const isDmg = ft.ftType === 'damage';
       const isHeal = ft.ftType === 'heal';
@@ -3791,6 +3897,20 @@ export class Renderer {
           ctx.globalAlpha = 1;
         }
 
+        // Eclipse overlay — pulsing sun ring at detonation center
+        const eclipseImg = this.sprites.getEclipseSprite();
+        if (eclipseImg) {
+          const eclipseCols = 20;
+          const eclipseFW = eclipseImg.width / eclipseCols;
+          const eclipseFH = eclipseImg.height;
+          const eclipseFrame = Math.floor((progress / 0.4) * eclipseCols) % eclipseCols;
+          const eclipseSize = r * 1.6 * (0.5 + progress * 1.2);
+          ctx.globalAlpha = 0.75 * (1 - progress / 0.4);
+          ctx.drawImage(eclipseImg, eclipseFrame * eclipseFW, 0, eclipseFW, eclipseFH,
+            px - eclipseSize / 2, py - eclipseSize / 2, eclipseSize, eclipseSize);
+          ctx.globalAlpha = 1;
+        }
+
         // Explosion sprites at center
         const explData = this.sprites.getFxSprite('explosion');
         if (explData) {
@@ -3937,20 +4057,20 @@ export class Renderer {
 
         const meteorImg = this.sprites.getMeteoriteSprite('orange');
         if (meteorImg) {
-          // 10x6 grid: 10 columns (animation), 6 rows (rotation angles)
-          // Row 0 = flying right, rows rotate clockwise in 60° steps
-          const cols = 10, rows = 6;
+          // 10x6 grid: 10 cols (animation), 6 rows (lifecycle variants)
+          // All rows face right-to-left; use row 0 and canvas-rotate
+          const cols = 10;
           const frameW = meteorImg.width / cols;
-          const frameH = meteorImg.height / rows;
-          // Map angle to row (6 rows = 60° each)
-          const normAngle = ((angle % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
-          const row = Math.round(normAngle / (Math.PI * 2) * rows + rows) % rows;
+          const frameH = meteorImg.height / 6;
           const col = Math.floor(tick * 0.4) % cols;
-          const sx = col * frameW;
-          const sy = row * frameH;
           const drawSize = T * 3;
           const aspect = frameW / frameH;
-          ctx.drawImage(meteorImg, sx, sy, frameW, frameH, cx - drawSize * aspect / 2, cy - drawSize / 2, drawSize * aspect, drawSize);
+          ctx.save();
+          ctx.translate(cx, cy);
+          ctx.rotate(angle + Math.PI); // sprite faces left natively
+          ctx.drawImage(meteorImg, col * frameW, 0, frameW, frameH,
+            -drawSize * aspect / 2, -drawSize / 2, drawSize * aspect, drawSize);
+          ctx.restore();
         }
 
         // Glow halo behind meteorite

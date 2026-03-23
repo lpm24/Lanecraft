@@ -468,6 +468,7 @@ export interface SpriteDef {
   heightScale?: number; // squash/stretch height independently of width (default 1.0)
   animSpeed?: number;  // animation speed multiplier (default 1.0, higher = faster)
   anchorX?: number;    // horizontal anchor as fraction of frame width (0=left, 0.5=center, 1=right; default 0.5)
+  flipX?: boolean;     // if true, sprite faces left natively and should be flipped to match right-facing convention
 }
 
 /** Compute animation frame index from a tick counter (~20 ticks/sec).
@@ -636,7 +637,7 @@ const UPGRADE_MOVE_SPRITES: Record<string, SpriteDef> = {
   // --- Crown ranged: Archer → Dwarfette branch (C/F), Cannon siege (G) ---
   [upgradeKey(Race.Crown, 'ranged', 'C')]: { ...cmStrip(dwarfetteL1Move, 368, 36, 8, 0.72), scale: 0.7 },
   [upgradeKey(Race.Crown, 'ranged', 'F')]: { ...cmStrip(dwarfetteL2Move, 530, 35, 10, 0.89), scale: 0.7 },
-  [upgradeKey(Race.Crown, 'ranged', 'G')]: singleFrame(cannonIdle, 44, 28, 0.95),
+  [upgradeKey(Race.Crown, 'ranged', 'G')]: { ...singleFrame(cannonIdle, 44, 28, 0.95), flipX: true },
   // --- Horde: Orc color variants (B=Blue, C=Red for melee/ranged/caster) ---
   [upgradeKey(Race.Horde, 'melee', 'B')]: { ...cmStrip(hordeMeleeBlue, 57 * 5, 58, 5), scale: 0.9 },
   [upgradeKey(Race.Horde, 'melee', 'C')]: { ...cmStrip(hordeMeleeRed, 57 * 5, 58, 5), scale: 0.9 },
@@ -767,7 +768,7 @@ const UPGRADE_ATK_SPRITES: Record<string, SpriteDef> = {
   // --- Crown ranged: Dwarfette dash attacks (C/F), Cannon shoot (G) ---
   [upgradeKey(Race.Crown, 'ranged', 'C')]: { ...cmStrip(dwarfetteL1Atk, 368, 36, 8, 0.72), scale: 0.7 },
   [upgradeKey(Race.Crown, 'ranged', 'F')]: { ...cmStrip(dwarfetteL2Atk, 742, 35, 14, 0.89), scale: 0.7 },
-  [upgradeKey(Race.Crown, 'ranged', 'G')]: cmStrip(cannonShoot, 176, 28, 4, 0.95),
+  [upgradeKey(Race.Crown, 'ranged', 'G')]: { ...cmStrip(cannonShoot, 176, 28, 4, 0.95), flipX: true },
   // --- Horde: Orc color variant attacks ---
   [upgradeKey(Race.Horde, 'melee', 'B')]: { ...cmStrip(hordeMeleeAtkBlue, 684, 58, 12), scale: 0.9 },
   [upgradeKey(Race.Horde, 'melee', 'C')]: { ...cmStrip(hordeMeleeAtkRed, 684, 58, 12), scale: 0.9 },

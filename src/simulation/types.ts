@@ -542,6 +542,7 @@ export interface FloatingText {
   ftType?: 'damage' | 'heal' | 'resource' | 'status' | 'ability'; // animation variant
   magnitude?: number; // for scaling text size (e.g. damage amount)
   miniIcon?: string;  // canvas-drawn mini icon: 'sword', 'arrow', 'fire', 'skull', 'shield_icon', 'lightning', 'poison', 'heart'
+  ownerOnly?: number; // if set, only render for this player index (e.g. mana/souls/ooze)
 }
 
 export interface Particle {

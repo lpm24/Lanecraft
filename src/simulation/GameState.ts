@@ -341,7 +341,7 @@ let _diamondCellMapInt = new Map<number, GoldCell>();
 // === Visual effect helpers ===
 
 function addFloatingText(state: GameState, x: number, y: number, text: string, color: string, icon?: string, big?: boolean,
-  opts?: { ftType?: 'damage' | 'heal' | 'resource' | 'status' | 'ability'; magnitude?: number; miniIcon?: string }
+  opts?: { ftType?: 'damage' | 'heal' | 'resource' | 'status' | 'ability'; magnitude?: number; miniIcon?: string; ownerOnly?: number }
 ): void {
   const rng1 = state.rng();
   const isDmg = opts?.ftType === 'damage';
@@ -363,6 +363,7 @@ function addFloatingText(state: GameState, x: number, y: number, text: string, c
     ftType: opts?.ftType,
     magnitude: opts?.magnitude,
     miniIcon: opts?.miniIcon,
+    ownerOnly: opts?.ownerOnly,
   });
 }
 
@@ -849,10 +850,12 @@ export function simulateTick(state: GameState, commands: GameCommand[]): void {
       // Demon: passive mana generation (+1/sec)
       if (p.race === Race.Demon) {
         p.mana += 1;
-        // Show floating text at HQ every 5 seconds to avoid spam
+        // Show floating text at research building every 5 seconds to avoid spam
         if (state.tick % (5 * TICK_RATE) === 0) {
-          const hq = getHQPosition(p.team, state.mapDef);
-          addFloatingText(state, hq.x + HQ_WIDTH / 2, hq.y, '+5', '#7c4dff', 'mana');
+          const research = state.buildings.find(b => b.type === BuildingType.Research && b.playerId === p.id);
+          if (research) {
+            addFloatingText(state, research.worldX, research.worldY, '+5', '#7c4dff', 'mana', undefined, { ownerOnly: p.id });
+          }
         }
       }
     }
@@ -1704,7 +1707,7 @@ function oozlingsAbility(state: GameState, player: PlayerState, cmd: Extract<Gam
   addSound(state, 'building_placed', world.x, world.y);
 }
 
-const SEED_GROW_TIMES = [30 * TICK_RATE, 60 * TICK_RATE, 120 * TICK_RATE]; // T1=30s, T2=60s, T3=120s
+export const SEED_GROW_TIMES = [30 * TICK_RATE, 60 * TICK_RATE, 120 * TICK_RATE]; // T1=30s, T2=60s, T3=120s
 
 function tendersAbility(state: GameState, player: PlayerState, cmd: Extract<GameCommand, { type: 'use_ability' }>): void {
   const slot = (cmd.gridX != null && cmd.gridY != null) ? { gx: cmd.gridX, gy: cmd.gridY } : findOpenAlleySlot(state, player);
@@ -2037,7 +2040,7 @@ function trackDeathResources(state: GameState, deadUnit: UnitState): void {
     p.souls++;
     // Show floating text at death location (throttle: only every 3rd soul to reduce spam)
     if (p.souls % 3 === 0) {
-      addFloatingText(state, deadUnit.x, deadUnit.y - 0.5, '+3', '#ce93d8', 'soul');
+      addFloatingText(state, deadUnit.x, deadUnit.y - 0.5, '+3', '#ce93d8', 'soul', undefined, { ownerOnly: p.id });
     }
   }
 
@@ -2045,7 +2048,7 @@ function trackDeathResources(state: GameState, deadUnit: UnitState): void {
   const owner = state.players[deadUnit.playerId];
   if (owner && owner.race === Race.Oozlings) {
     owner.deathEssence++;
-    addFloatingText(state, deadUnit.x, deadUnit.y - 0.5, '+1', '#69f0ae', 'ooze');
+    addFloatingText(state, deadUnit.x, deadUnit.y - 0.5, '+1', '#69f0ae', 'ooze', undefined, { ownerOnly: deadUnit.playerId });
   }
 
   // Geists caster: chance to summon mini-skeleton from nearby deaths
@@ -5425,7 +5428,7 @@ function tickHarvesters(state: GameState): void {
           const manaOwner = state.players[h.playerId];
           if (manaOwner) {
             manaOwner.mana += 2;
-            addFloatingText(state, h.x, h.y - 0.3, '+2', '#7c4dff', 'mana');
+            addFloatingText(state, h.x, h.y - 0.3, '+2', '#7c4dff', 'mana', undefined, { ownerOnly: h.playerId });
           }
           h.miningTimer = MANA_CHANNEL_TICKS;
         }

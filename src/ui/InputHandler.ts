@@ -14,6 +14,7 @@ import { SpriteLoader, drawSpriteFrame, getSpriteFrame } from '../rendering/Spri
 import { BuildingPopup } from './BuildingPopup';
 import { HutPopup } from './HutPopup';
 import { ResearchPopup } from './ResearchPopup';
+import { SeedPopup } from './SeedPopup';
 import { getSafeBottom, getSafeTop, getPopupSafeY } from './SafeArea';
 import { getAudioSettings, updateAudioSettings } from '../audio/AudioSettings';
 import { getVisualSettings, updateVisualSettings } from '../rendering/VisualSettings';
@@ -113,6 +114,7 @@ export class InputHandler {
   private buildingPopup = new BuildingPopup();
   private hutPopup = new HutPopup();
   private researchPopup = new ResearchPopup();
+  private seedPopup = new SeedPopup();
   private trayTick = 0;
   /** Active rally override — all spawners send to this lane while set. */
   private rallyOverride: Lane | null = null;
@@ -688,13 +690,14 @@ export class InputHandler {
         const resBuilding = st.buildings.find(b => b.playerId === this.pid && b.type === BuildingType.Research);
         if (resBuilding) {
           if (this.researchPopup.isOpen()) { this.researchPopup.close(); }
-          else { this.buildingPopup.close(); this.hutPopup.close(); this.researchPopup.open(resBuilding.id); this.selectedBuildingId = resBuilding.id; }
+          else { this.buildingPopup.close(); this.hutPopup.close(); this.seedPopup.close(); this.researchPopup.open(resBuilding.id); this.selectedBuildingId = resBuilding.id; }
         }
         return;
       }
       if (e.key === 'Escape') {
         if (this.researchPopup.isOpen()) { this.researchPopup.close(); return; }
         if (this.hutPopup.isOpen()) { this.hutPopup.close(); return; }
+        if (this.seedPopup.isOpen()) { this.seedPopup.close(); return; }
         if (this.buildingPopup.isOpen()) { this.buildingPopup.close(); return; }
         if (this.showTutorial) { this.showTutorial = false; return; }
         this.quickChatRadialActive = false;
@@ -1016,6 +1019,9 @@ export class InputHandler {
       if (this.hutPopup.isOpen()) {
         this.hutPopup.close();
       }
+      if (this.seedPopup.isOpen()) {
+        this.seedPopup.close();
+      }
       const wx = tileXf;
       const wy = tileYf;
       const unit = this.findUnitNear(wx, wy, 1.2);
@@ -1050,11 +1056,21 @@ export class InputHandler {
       return;
     }
 
+    // Click on seed: open seed popup
+    if (building.isSeed) {
+      this.buildingPopup.close();
+      this.researchPopup.close();
+      this.hutPopup.close();
+      this.seedPopup.open(building.id);
+      return;
+    }
+
     // Skip popup for special ability buildings (no upgrades)
-    if (building.isFoundry || building.isPotionShop || building.isGlobule || building.isSeed) return;
+    if (building.isFoundry || building.isPotionShop || building.isGlobule) return;
 
     // Open building popup for spawners and towers
     this.hutPopup.close();
+    this.seedPopup.close();
     const isMobile = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
     this.buildingPopup.open(building.id, isMobile);
   }
@@ -1537,6 +1553,24 @@ export class InputHandler {
       // Click outside popup — close it
       this.hutPopup.close();
     }
+
+    // Seed popup
+    if (this.seedPopup.isOpen()) {
+      const result = this.seedPopup.handleClickWithState(popupCx, popupCy, this.game.state, this.pid);
+      if (result) {
+        if (result.action === 'upgrade') {
+          this.game.sendCommand({
+            type: 'use_ability', playerId: this.pid,
+            gridX: result.gridX, gridY: result.gridY,
+          });
+        } else if (result.action === 'close') {
+          this.seedPopup.close();
+        }
+        return true;
+      }
+      if (this.seedPopup.containsPoint(popupCx, popupCy)) return true;
+      this.seedPopup.close();
+    }
     const cx = e.clientX - rect.left;
     const cy = e.clientY - rect.top;
     const player = this.game.state.players[this.pid];
@@ -1581,6 +1615,7 @@ export class InputHandler {
       if (resBuilding) {
         this.buildingPopup.close();
         this.hutPopup.close();
+        this.seedPopup.close();
         this.researchPopup.open(resBuilding.id);
         this.selectedBuildingId = resBuilding.id;
       }
@@ -2254,6 +2289,12 @@ export class InputHandler {
     if (this.researchPopup.isOpen()) {
       this.researchPopup.draw(ctx, this.camera, this.game.state, this.ui,
         W, this.canvas.clientHeight, player.gold, player.wood, player.stone, player.mana);
+    }
+
+    // Seed popup (in-world)
+    if (this.seedPopup.isOpen()) {
+      this.seedPopup.draw(ctx, this.camera, this.game.state, this.ui,
+        W, this.canvas.clientHeight, this.pid);
     }
 
     ctx.textAlign = 'start';
