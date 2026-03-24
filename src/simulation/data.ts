@@ -2,91 +2,90 @@ import { BuildingType, Race, TICK_RATE, AbilityTargetMode } from './types';
 import type { RaceAbilityDef } from './types';
 
 // Race-specific building costs
-export const RACE_BUILDING_COSTS: Record<Race, Record<BuildingType, { gold: number; wood: number; stone: number; hp: number }>> = {
+export const RACE_BUILDING_COSTS: Record<Race, Record<BuildingType, { gold: number; wood: number; meat: number; hp: number }>> = {
   // Crown: Gold+Wood economy. Premium gold cost for strong units.
   [Race.Crown]: {
-    [BuildingType.MeleeSpawner]:  { gold: 72,  wood: 0,  stone: 0,  hp: 280 },
-    [BuildingType.RangedSpawner]: { gold: 0,   wood: 25,  stone: 0,  hp: 230 },
-    [BuildingType.CasterSpawner]: { gold: 65,  wood: 8,  stone: 0,  hp: 200 },
-    [BuildingType.Tower]:         { gold: 70,  wood: 8,  stone: 0,  hp: 220 },
-    [BuildingType.HarvesterHut]:  { gold: 42,  wood: 0,  stone: 0,  hp: 150 },
-    [BuildingType.Research]:      { gold: 0,   wood: 0,  stone: 0,  hp: 500 },
+    [BuildingType.MeleeSpawner]:  { gold: 72,  wood: 0,  meat: 0,  hp: 280 },
+    [BuildingType.RangedSpawner]: { gold: 0,   wood: 25,  meat: 0,  hp: 230 },
+    [BuildingType.CasterSpawner]: { gold: 65,  wood: 8,  meat: 0,  hp: 200 },
+    [BuildingType.Tower]:         { gold: 70,  wood: 8,  meat: 0,  hp: 220 },
+    [BuildingType.HarvesterHut]:  { gold: 42,  wood: 0,  meat: 0,  hp: 150 },
+    [BuildingType.Research]:      { gold: 0,   wood: 0,  meat: 0,  hp: 500 },
   },
   // Horde: All 3 resources. Melee=meat, Ranged=wood, Caster=gold. Collect one of each T3 for auras.
   [Race.Horde]: {
-    [BuildingType.MeleeSpawner]:  { gold: 0,   wood: 0,  stone: 40, hp: 350 },
-    [BuildingType.RangedSpawner]: { gold: 0,   wood: 40, stone: 0,  hp: 300 },
-    [BuildingType.CasterSpawner]: { gold: 100, wood: 0,  stone: 0,  hp: 250 },
-    [BuildingType.Tower]:         { gold: 50,  wood: 30, stone: 30, hp: 280 },
-    [BuildingType.HarvesterHut]:  { gold: 30,  wood: 10, stone: 10, hp: 180 },
-    [BuildingType.Research]:      { gold: 0,   wood: 0,  stone: 0,  hp: 500 },
+    [BuildingType.MeleeSpawner]:  { gold: 0,   wood: 0,  meat: 40, hp: 350 },
+    [BuildingType.RangedSpawner]: { gold: 0,   wood: 40, meat: 0,  hp: 300 },
+    [BuildingType.CasterSpawner]: { gold: 100, wood: 0,  meat: 0,  hp: 250 },
+    [BuildingType.Tower]:         { gold: 50,  wood: 30, meat: 30, hp: 280 },
+    [BuildingType.HarvesterHut]:  { gold: 35,  wood: 15, meat: 0,  hp: 180 },
+    [BuildingType.Research]:      { gold: 0,   wood: 0,  meat: 0,  hp: 500 },
   },
   // Goblins: Gold+Wood economy. Very cheap, fragile buildings.
   [Race.Goblins]: {
-    [BuildingType.MeleeSpawner]:  { gold: 0,   wood: 15, stone: 0,  hp: 180 },
-    [BuildingType.RangedSpawner]: { gold: 55,  wood: 0,  stone: 0,  hp: 160 },
-    [BuildingType.CasterSpawner]: { gold: 44,  wood: 13, stone: 0,  hp: 140 },
-    [BuildingType.Tower]:         { gold: 36,  wood: 12, stone: 0,  hp: 150 },
-    [BuildingType.HarvesterHut]:  { gold: 21,  wood: 7,  stone: 0,  hp: 110 },
-    [BuildingType.Research]:      { gold: 0,   wood: 0,  stone: 0,  hp: 500 },
+    [BuildingType.MeleeSpawner]:  { gold: 0,   wood: 15, meat: 0,  hp: 180 },
+    [BuildingType.RangedSpawner]: { gold: 55,  wood: 0,  meat: 0,  hp: 160 },
+    [BuildingType.CasterSpawner]: { gold: 44,  wood: 13, meat: 0,  hp: 140 },
+    [BuildingType.Tower]:         { gold: 36,  wood: 12, meat: 0,  hp: 150 },
+    [BuildingType.HarvesterHut]:  { gold: 21,  wood: 7,  meat: 0,  hp: 110 },
+    [BuildingType.Research]:      { gold: 0,   wood: 0,  meat: 0,  hp: 500 },
   },
-  // Oozlings: Gold+Stone economy. Cheap (swarm units).
+  // Oozlings: Gold+Meat economy. Cheap (swarm units).
   [Race.Oozlings]: {
-    [BuildingType.MeleeSpawner]:  { gold: 50,  wood: 0,  stone: 0,  hp: 200 },
-    [BuildingType.RangedSpawner]: { gold: 60,  wood: 0,  stone: 16, hp: 180 },
-    [BuildingType.CasterSpawner]: { gold: 30,  wood: 0,  stone: 30, hp: 160 },
-    [BuildingType.Tower]:         { gold: 65,  wood: 0,  stone: 16, hp: 170 },
-    [BuildingType.HarvesterHut]:  { gold: 30,  wood: 0,  stone: 8,  hp: 130 },
-    [BuildingType.Research]:      { gold: 0,   wood: 0,  stone: 0,  hp: 500 },
+    [BuildingType.MeleeSpawner]:  { gold: 50,  wood: 0,  meat: 0,  hp: 200 },
+    [BuildingType.RangedSpawner]: { gold: 60,  wood: 0,  meat: 16, hp: 180 },
+    [BuildingType.CasterSpawner]: { gold: 30,  wood: 0,  meat: 30, hp: 160 },
+    [BuildingType.Tower]:         { gold: 65,  wood: 0,  meat: 16, hp: 170 },
+    [BuildingType.HarvesterHut]:  { gold: 30,  wood: 0,  meat: 8,  hp: 130 },
+    [BuildingType.Research]:      { gold: 0,   wood: 0,  meat: 0,  hp: 500 },
   },
-  // Demon: Stone+Wood economy. No gold. Variable — melee is stone-heavy, ranged is wood-heavy.
+  // Demon: Meat+Wood economy. No gold. Variable — melee is meat-heavy, ranged is wood-heavy.
   [Race.Demon]: {
-    [BuildingType.MeleeSpawner]:  { gold: 0,  wood: 5,  stone: 35, hp: 200 },
-    [BuildingType.RangedSpawner]: { gold: 0,  wood: 30, stone: 15, hp: 170 },
-    [BuildingType.CasterSpawner]: { gold: 0,  wood: 25, stone: 35, hp: 140 },
-    [BuildingType.Tower]:         { gold: 0,  wood: 8,  stone: 42, hp: 160 },
-    [BuildingType.HarvesterHut]:  { gold: 0,  wood: 15, stone: 8,  hp: 120 },
-    [BuildingType.Research]:      { gold: 0,  wood: 0,  stone: 0,  hp: 500 },
+    [BuildingType.MeleeSpawner]:  { gold: 0,  wood: 5,  meat: 35, hp: 200 },
+    [BuildingType.RangedSpawner]: { gold: 0,  wood: 30, meat: 15, hp: 170 },
+    [BuildingType.CasterSpawner]: { gold: 0,  wood: 25, meat: 35, hp: 140 },
+    [BuildingType.Tower]:         { gold: 0,  wood: 8,  meat: 42, hp: 160 },
+    [BuildingType.HarvesterHut]:  { gold: 0,  wood: 15, meat: 8,  hp: 120 },
+    [BuildingType.Research]:      { gold: 0,  wood: 0,  meat: 0,  hp: 500 },
   },
   // Deep: Wood+Gold economy. Variable — melee is gold-heavy, ranged/tower are wood-heavy.
   [Race.Deep]: {
-    [BuildingType.MeleeSpawner]:  { gold: 55, wood: 20, stone: 0,  hp: 380 },
-    [BuildingType.RangedSpawner]: { gold: 15, wood: 55, stone: 0,  hp: 300 },
-    [BuildingType.CasterSpawner]: { gold: 40, wood: 40, stone: 0,  hp: 260 },
-    [BuildingType.Tower]:         { gold: 15, wood: 60, stone: 0,  hp: 280 },
-    [BuildingType.HarvesterHut]:  { gold: 25, wood: 18, stone: 0,  hp: 170 },
-    [BuildingType.Research]:      { gold: 0,  wood: 0,  stone: 0,  hp: 500 },
+    [BuildingType.MeleeSpawner]:  { gold: 55, wood: 20, meat: 0,  hp: 380 },
+    [BuildingType.RangedSpawner]: { gold: 15, wood: 55, meat: 0,  hp: 300 },
+    [BuildingType.CasterSpawner]: { gold: 40, wood: 40, meat: 0,  hp: 260 },
+    [BuildingType.Tower]:         { gold: 15, wood: 60, meat: 0,  hp: 280 },
+    [BuildingType.HarvesterHut]:  { gold: 25, wood: 18, meat: 0,  hp: 170 },
+    [BuildingType.Research]:      { gold: 0,  wood: 0,  meat: 0,  hp: 500 },
   },
-  // Wild: Wood+Stone economy. No gold. Variable — melee is wood-heavy, ranged is stone-heavy.
+  // Wild: Wood+Meat economy. No gold. Variable — melee is wood-heavy, ranged is meat-heavy.
   [Race.Wild]: {
-    [BuildingType.MeleeSpawner]:  { gold: 0,  wood: 38, stone: 4,  hp: 250 },
-    [BuildingType.RangedSpawner]: { gold: 0,  wood: 18, stone: 28, hp: 220 },
-    [BuildingType.CasterSpawner]: { gold: 0,  wood: 28, stone: 25, hp: 190 },
-    [BuildingType.Tower]:         { gold: 0,  wood: 38, stone: 8,  hp: 200 },
-    [BuildingType.HarvesterHut]:  { gold: 0,  wood: 10, stone: 12, hp: 140 },
-    [BuildingType.Research]:      { gold: 0,  wood: 0,  stone: 0,  hp: 500 },
+    [BuildingType.MeleeSpawner]:  { gold: 0,  wood: 38, meat: 4,  hp: 250 },
+    [BuildingType.RangedSpawner]: { gold: 0,  wood: 18, meat: 28, hp: 220 },
+    [BuildingType.CasterSpawner]: { gold: 0,  wood: 28, meat: 25, hp: 190 },
+    [BuildingType.Tower]:         { gold: 0,  wood: 38, meat: 8,  hp: 200 },
+    [BuildingType.HarvesterHut]:  { gold: 0,  wood: 10, meat: 12, hp: 140 },
+    [BuildingType.Research]:      { gold: 0,  wood: 0,  meat: 0,  hp: 500 },
   },
-  // Geists: Stone+Gold economy. Variable ratios — melee is cheap stone, caster is gold-heavy.
+  // Geists: Meat+Gold economy. Variable ratios — melee is cheap meat, caster is gold-heavy.
   [Race.Geists]: {
-    [BuildingType.MeleeSpawner]:  { gold: 10, wood: 0,  stone: 45, hp: 240 },
-    [BuildingType.RangedSpawner]: { gold: 35, wood: 0,  stone: 25, hp: 210 },
-    [BuildingType.CasterSpawner]: { gold: 45, wood: 0,  stone: 30, hp: 180 },
-    [BuildingType.Tower]:         { gold: 15, wood: 0,  stone: 45, hp: 180 },
-    [BuildingType.HarvesterHut]:  { gold: 8,  wood: 0,  stone: 22, hp: 130 },
-    [BuildingType.Research]:      { gold: 0,  wood: 0,  stone: 0,  hp: 500 },
+    [BuildingType.MeleeSpawner]:  { gold: 10, wood: 0,  meat: 45, hp: 240 },
+    [BuildingType.RangedSpawner]: { gold: 35, wood: 0,  meat: 25, hp: 210 },
+    [BuildingType.CasterSpawner]: { gold: 45, wood: 0,  meat: 30, hp: 180 },
+    [BuildingType.Tower]:         { gold: 15, wood: 0,  meat: 45, hp: 180 },
+    [BuildingType.HarvesterHut]:  { gold: 8,  wood: 0,  meat: 22, hp: 130 },
+    [BuildingType.Research]:      { gold: 0,  wood: 0,  meat: 0,  hp: 500 },
   },
   // Tenders: Wood+Gold economy. Durable natural buildings.
   [Race.Tenders]: {
-    [BuildingType.MeleeSpawner]:  { gold: 0,  wood: 48, stone: 0,  hp: 320 },
-    [BuildingType.RangedSpawner]: { gold: 60,  wood: 0,  stone: 0,  hp: 270 },
-    [BuildingType.CasterSpawner]: { gold: 26, wood: 45, stone: 0,  hp: 240 },
-    [BuildingType.Tower]:         { gold: 17, wood: 37, stone: 0,  hp: 300 },
-    [BuildingType.HarvesterHut]:  { gold: 11, wood: 21, stone: 0,  hp: 160 },
-    [BuildingType.Research]:      { gold: 0,  wood: 0,  stone: 0,  hp: 500 },
+    [BuildingType.MeleeSpawner]:  { gold: 0,  wood: 48, meat: 0,  hp: 320 },
+    [BuildingType.RangedSpawner]: { gold: 60,  wood: 0,  meat: 0,  hp: 270 },
+    [BuildingType.CasterSpawner]: { gold: 26, wood: 45, meat: 0,  hp: 240 },
+    [BuildingType.Tower]:         { gold: 17, wood: 37, meat: 0,  hp: 300 },
+    [BuildingType.HarvesterHut]:  { gold: 11, wood: 21, meat: 0,  hp: 160 },
+    [BuildingType.Research]:      { gold: 0,  wood: 0,  meat: 0,  hp: 500 },
   },
 };
 
-// Backwards-compatible helper (used by code that doesn't have race context)
 export function getBuildingCost(race: Race, type: BuildingType) {
   return RACE_BUILDING_COSTS[race][type];
 }
@@ -99,23 +98,23 @@ export const RACE_LABELS: Record<Race, string> = {
 };
 
 // Race-specific upgrade costs
-export const RACE_UPGRADE_COSTS: Record<Race, { tier1: { gold: number; wood: number; stone: number; deathEssence?: number; souls?: number }; tier2: { gold: number; wood: number; stone: number; deathEssence?: number; souls?: number } }> = {
-  [Race.Crown]:    { tier1: { gold: 45,  wood: 0,  stone: 0 },  tier2: { gold: 78,  wood: 25, stone: 0 } },
-  [Race.Horde]:    { tier1: { gold: 30,  wood: 20, stone: 20 }, tier2: { gold: 60,  wood: 40, stone: 40 } },
-  [Race.Goblins]:  { tier1: { gold: 45,  wood: 15, stone: 0 },  tier2: { gold: 90,  wood: 30, stone: 0 } },
-  [Race.Oozlings]: { tier1: { gold: 42,  wood: 0,  stone: 12 }, tier2: { gold: 85, wood: 0,  stone: 25 } },
-  [Race.Demon]:    { tier1: { gold: 0,   wood: 15, stone: 35 }, tier2: { gold: 0,   wood: 30, stone: 70 } },
-  [Race.Deep]:     { tier1: { gold: 20,  wood: 35, stone: 0 },  tier2: { gold: 40,  wood: 70, stone: 0 } },
-  [Race.Wild]:     { tier1: { gold: 0,   wood: 25, stone: 15 }, tier2: { gold: 0,   wood: 50, stone: 30 } },
-  [Race.Geists]:   { tier1: { gold: 0,  wood: 0,  stone: 0, souls: 15 }, tier2: { gold: 0,  wood: 0,  stone: 0, souls: 25 } },
-  [Race.Tenders]:  { tier1: { gold: 20,  wood: 35, stone: 0 },  tier2: { gold: 40,  wood: 70, stone: 0 } },
+export const RACE_UPGRADE_COSTS: Record<Race, { tier1: { gold: number; wood: number; meat: number; deathEssence?: number; souls?: number }; tier2: { gold: number; wood: number; meat: number; deathEssence?: number; souls?: number } }> = {
+  [Race.Crown]:    { tier1: { gold: 45,  wood: 0,  meat: 0 },  tier2: { gold: 78,  wood: 25, meat: 0 } },
+  [Race.Horde]:    { tier1: { gold: 30,  wood: 20, meat: 20 }, tier2: { gold: 60,  wood: 40, meat: 40 } },
+  [Race.Goblins]:  { tier1: { gold: 45,  wood: 15, meat: 0 },  tier2: { gold: 90,  wood: 30, meat: 0 } },
+  [Race.Oozlings]: { tier1: { gold: 42,  wood: 0,  meat: 12 }, tier2: { gold: 85, wood: 0,  meat: 25 } },
+  [Race.Demon]:    { tier1: { gold: 0,   wood: 15, meat: 35 }, tier2: { gold: 0,   wood: 30, meat: 70 } },
+  [Race.Deep]:     { tier1: { gold: 20,  wood: 35, meat: 0 },  tier2: { gold: 40,  wood: 70, meat: 0 } },
+  [Race.Wild]:     { tier1: { gold: 0,   wood: 25, meat: 15 }, tier2: { gold: 0,   wood: 50, meat: 30 } },
+  [Race.Geists]:   { tier1: { gold: 0,  wood: 0,  meat: 0, souls: 15 }, tier2: { gold: 0,  wood: 0,  meat: 0, souls: 25 } },
+  [Race.Tenders]:  { tier1: { gold: 20,  wood: 35, meat: 0 },  tier2: { gold: 40,  wood: 70, meat: 0 } },
 };
 
 
 // Get upgrade cost for a specific node, respecting per-node cost overrides
 export function getNodeUpgradeCost(
   race: Race, buildingType: BuildingType, currentPathLen: number, choice?: string
-): { gold: number; wood: number; stone: number; deathEssence?: number; souls?: number } {
+): { gold: number; wood: number; meat: number; deathEssence?: number; souls?: number } {
   const costs = RACE_UPGRADE_COSTS[race];
   // Check per-node cost override
   if (choice) {
@@ -126,41 +125,41 @@ export function getNodeUpgradeCost(
 }
 
 // Which resources a race actually uses (across buildings + upgrades)
-export function getRaceUsedResources(race: Race): { gold: boolean; wood: boolean; stone: boolean } {
+export function getRaceUsedResources(race: Race): { gold: boolean; wood: boolean; meat: boolean } {
   const costs = RACE_BUILDING_COSTS[race];
   const upgrades = RACE_UPGRADE_COSTS[race];
-  let gold = false, wood = false, stone = false;
+  let gold = false, wood = false, meat = false;
   for (const c of Object.values(costs)) {
     if (c.gold > 0) gold = true;
     if (c.wood > 0) wood = true;
-    if (c.stone > 0) stone = true;
+    if (c.meat > 0) meat = true;
   }
   for (const t of [upgrades.tier1, upgrades.tier2]) {
     if (t.gold > 0) gold = true;
     if (t.wood > 0) wood = true;
-    if (t.stone > 0) stone = true;
+    if (t.meat > 0) meat = true;
   }
-  return { gold, wood, stone };
+  return { gold, wood, meat };
 }
 
 /** Compute ideal harvester ratio for a race based on total resource spending profile.
- *  Returns { gold, wood, stone } where each is 0-1 and they sum to 1. */
-export function getRaceResourceRatio(race: Race): { gold: number; wood: number; stone: number } {
+ *  Returns { gold, wood, meat } where each is 0-1 and they sum to 1. */
+export function getRaceResourceRatio(race: Race): { gold: number; wood: number; meat: number } {
   const costs = RACE_BUILDING_COSTS[race];
   const upgrades = RACE_UPGRADE_COSTS[race];
-  let gold = 0, wood = 0, stone = 0;
+  let gold = 0, wood = 0, meat = 0;
   // Sum building costs (excluding Research which is free, and HarvesterHut which is meta)
   for (const [type, c] of Object.entries(costs)) {
     if (type === String(BuildingType.Research)) continue;
-    gold += c.gold; wood += c.wood; stone += c.stone;
+    gold += c.gold; wood += c.wood; meat += c.meat;
   }
   // Add upgrade costs (weight T1 and T2 equally — players buy both)
   for (const t of [upgrades.tier1, upgrades.tier2]) {
-    gold += t.gold; wood += t.wood; stone += t.stone;
+    gold += t.gold; wood += t.wood; meat += t.meat;
   }
-  const total = gold + wood + stone;
-  if (total === 0) return { gold: 1, wood: 0, stone: 0 };
-  return { gold: gold / total, wood: wood / total, stone: stone / total };
+  const total = gold + wood + meat;
+  if (total === 0) return { gold: 1, wood: 0, meat: 0 };
+  return { gold: gold / total, wood: wood / total, meat: meat / total };
 }
 
 // Escalating hut cost
@@ -175,7 +174,7 @@ export const TOWER_COST_SCALE = 1.65;
 // Harvester yields per trip (must match GameState.ts tickHarvesters)
 export const GOLD_YIELD_PER_TRIP = 4;
 export const WOOD_YIELD_PER_TRIP = 10;
-export const STONE_YIELD_PER_TRIP = 10;
+export const MEAT_YIELD_PER_TRIP = 10;
 
 // Spawn interval in ticks
 export const SPAWN_INTERVAL_TICKS = Math.round(16.8 * TICK_RATE); // 16.8 seconds (20% slower than 14s)
@@ -345,7 +344,7 @@ export const PLAYER_COLORS: string[] = [
 
 // Harvester constants
 export const HARVESTER_MOVE_SPEED = 3;           // tiles per second
-export const MINE_TIME_BASE_TICKS = 2 * TICK_RATE;    // gold/wood/stone
+export const MINE_TIME_BASE_TICKS = 2 * TICK_RATE;    // gold/wood/meat
 export const MINE_TIME_DIAMOND_TICKS = 8 * TICK_RATE; // diamond extraction
 export const DIAMOND_CELLS_PER_TRIP = 1; // full cells a miner clears before walking home
 export const HARVESTER_RESPAWN_TICKS = 10 * TICK_RATE;
@@ -414,7 +413,7 @@ export interface UpgradeNodeDef {
   rangeMult?: number;
   spawnSpeedMult?: number;    // <1 = faster spawns (e.g. 0.85 = 15% faster). Stacks across tiers.
   special?: UpgradeSpecial;
-  cost?: { gold: number; wood: number; stone: number };  // per-node cost override (replaces race tier default)
+  cost?: { gold: number; wood: number; meat: number };  // per-node cost override (replaces race tier default)
 }
 
 type UpgradeNode = 'B' | 'C' | 'D' | 'E' | 'F' | 'G';
@@ -468,39 +467,39 @@ export const UPGRADE_TREES: Record<Race, Partial<Record<BuildingType, Record<Upg
   [Race.Horde]: {
     [BuildingType.MeleeSpawner]: {
       // B path = meat (stays on starting resource)
-      B: { name: 'Iron Brute', desc: '+45% HP, +20% dmg', hpMult: 1.45, damageMult: 1.20, spawnSpeedMult: 0.88, cost: { gold: 0, wood: 0, stone: 45 } },
+      B: { name: 'Iron Brute', desc: '+45% HP, +20% dmg', hpMult: 1.45, damageMult: 1.20, spawnSpeedMult: 0.88, cost: { gold: 0, wood: 0, meat: 45 } },
       // C path = gold (switches resource)
-      C: { name: 'Raging Brute', desc: '+30% dmg, faster atk', damageMult: 1.30, attackSpeedMult: 0.85, spawnSpeedMult: 0.88, cost: { gold: 45, wood: 0, stone: 0 } },
+      C: { name: 'Raging Brute', desc: '+30% dmg, faster atk', damageMult: 1.30, attackSpeedMult: 0.85, spawnSpeedMult: 0.88, cost: { gold: 45, wood: 0, meat: 0 } },
       // D,E under B (meat)
-      D: { name: 'Warchief', desc: '+70% HP, AURA: +10% armor', hpMult: 1.70, special: { damageReductionPct: 0.15, auraArmorBonus: 0.10 }, spawnSpeedMult: 0.82, cost: { gold: 0, wood: 0, stone: 90 } },
-      E: { name: 'Berserker', desc: '+55% dmg, AURA: +3 dmg', damageMult: 1.55, special: { knockbackEveryN: 2, auraDamageBonus: 3 }, spawnSpeedMult: 0.82, cost: { gold: 0, wood: 0, stone: 90 } },
+      D: { name: 'Warchief', desc: '+70% HP, AURA: +10% armor', hpMult: 1.70, special: { damageReductionPct: 0.15, auraArmorBonus: 0.10 }, spawnSpeedMult: 0.82, cost: { gold: 0, wood: 0, meat: 90 } },
+      E: { name: 'Berserker', desc: '+55% dmg, AURA: +3 dmg', damageMult: 1.55, special: { knockbackEveryN: 2, auraDamageBonus: 3 }, spawnSpeedMult: 0.82, cost: { gold: 0, wood: 0, meat: 90 } },
       // F,G under C (gold)
-      F: { name: 'Bloodrager', desc: '+50% dmg, AURA: +10% speed', damageMult: 1.50, special: { guaranteedHaste: true, auraSpeedBonus: 0.10 }, spawnSpeedMult: 0.82, cost: { gold: 90, wood: 0, stone: 0 } },
-      G: { name: 'Skull Crusher', desc: '+60% dmg, AURA: +4 dmg', damageMult: 1.60, attackSpeedMult: 0.80, special: { auraDamageBonus: 4 }, spawnSpeedMult: 0.82, cost: { gold: 90, wood: 0, stone: 0 } },
+      F: { name: 'Bloodrager', desc: '+50% dmg, AURA: +10% speed', damageMult: 1.50, special: { guaranteedHaste: true, auraSpeedBonus: 0.10 }, spawnSpeedMult: 0.82, cost: { gold: 90, wood: 0, meat: 0 } },
+      G: { name: 'Skull Crusher', desc: '+60% dmg, AURA: +4 dmg', damageMult: 1.60, attackSpeedMult: 0.80, special: { auraDamageBonus: 4 }, spawnSpeedMult: 0.82, cost: { gold: 90, wood: 0, meat: 0 } },
     },
     [BuildingType.RangedSpawner]: {
       // B path = wood (stays on starting resource)
-      B: { name: 'Heavy Cleaver', desc: '+30% HP, +30% dmg', hpMult: 1.30, damageMult: 1.30, spawnSpeedMult: 0.88, cost: { gold: 0, wood: 45, stone: 0 } },
+      B: { name: 'Heavy Cleaver', desc: '+30% HP, +30% dmg', hpMult: 1.30, damageMult: 1.30, spawnSpeedMult: 0.88, cost: { gold: 0, wood: 45, meat: 0 } },
       // C path = full SIEGE path (all 3 nodes are siege)
-      C: { name: 'Orc Catapult', desc: 'SIEGE: 11 range, slow, devastating vs buildings', hpMult: 0.65, damageMult: 1.68, attackSpeedMult: 2.00, moveSpeedMult: 0.55, rangeMult: 1.57, spawnSpeedMult: 0.88, cost: { gold: 0, wood: 0, stone: 45 }, special: { isSiegeUnit: true, buildingDamageMult: 3.0, splashRadius: 2.5, splashDamagePct: 0.55, auraDamageBonus: 2 } },
+      C: { name: 'Orc Catapult', desc: 'SIEGE: 11 range, slow, devastating vs buildings', hpMult: 0.65, damageMult: 1.68, attackSpeedMult: 2.00, moveSpeedMult: 0.55, rangeMult: 1.57, spawnSpeedMult: 0.88, cost: { gold: 0, wood: 0, meat: 45 }, special: { isSiegeUnit: true, buildingDamageMult: 3.0, splashRadius: 2.5, splashDamagePct: 0.55, auraDamageBonus: 2 } },
       // D,E under B (wood) — normal ranged
-      D: { name: 'War Thrower', desc: '+45% dmg, AURA: +10% speed', damageMult: 1.45, special: { knockbackEveryN: 2, auraSpeedBonus: 0.10 }, spawnSpeedMult: 0.82, cost: { gold: 0, wood: 90, stone: 0 } },
-      E: { name: 'Battle Cleaver', desc: '+40% dmg, splash, AURA: +2 dmg', damageMult: 1.40, special: { splashRadius: 2, splashDamagePct: 0.55, auraDamageBonus: 2 }, spawnSpeedMult: 0.82, cost: { gold: 0, wood: 90, stone: 0 } },
+      D: { name: 'War Thrower', desc: '+45% dmg, AURA: +10% speed', damageMult: 1.45, special: { knockbackEveryN: 2, auraSpeedBonus: 0.10 }, spawnSpeedMult: 0.82, cost: { gold: 0, wood: 90, meat: 0 } },
+      E: { name: 'Battle Cleaver', desc: '+40% dmg, splash, AURA: +2 dmg', damageMult: 1.40, special: { splashRadius: 2, splashDamagePct: 0.55, auraDamageBonus: 2 }, spawnSpeedMult: 0.82, cost: { gold: 0, wood: 90, meat: 0 } },
       // F,G under C (siege T3s)
-      F: { name: 'Horde Bombard', desc: 'SIEGE: 13 range, AURA: +10% armor', hpMult: 0.76, damageMult: 1.72, attackSpeedMult: 1.35, moveSpeedMult: 0.79, rangeMult: 1.18, spawnSpeedMult: 0.82, cost: { gold: 0, wood: 0, stone: 90 }, special: { isSiegeUnit: true, buildingDamageMult: 4.0, splashRadius: 3.5, splashDamagePct: 0.65, auraArmorBonus: 0.10 } },
-      G: { name: 'Doom Catapult', desc: 'SIEGE: 14 range, massive AoE, AURA: +4 dmg', hpMult: 0.87, damageMult: 2.04, attackSpeedMult: 1.46, moveSpeedMult: 0.73, rangeMult: 1.27, spawnSpeedMult: 0.82, cost: { gold: 0, wood: 0, stone: 90 }, special: { isSiegeUnit: true, buildingDamageMult: 5.0, splashRadius: 4, splashDamagePct: 0.70, auraDamageBonus: 4 } },
+      F: { name: 'Horde Bombard', desc: 'SIEGE: 13 range, AURA: +10% armor', hpMult: 0.76, damageMult: 1.72, attackSpeedMult: 1.35, moveSpeedMult: 0.79, rangeMult: 1.18, spawnSpeedMult: 0.82, cost: { gold: 0, wood: 0, meat: 90 }, special: { isSiegeUnit: true, buildingDamageMult: 4.0, splashRadius: 3.5, splashDamagePct: 0.65, auraArmorBonus: 0.10 } },
+      G: { name: 'Doom Catapult', desc: 'SIEGE: 14 range, massive AoE, AURA: +4 dmg', hpMult: 0.87, damageMult: 2.04, attackSpeedMult: 1.46, moveSpeedMult: 0.73, rangeMult: 1.27, spawnSpeedMult: 0.82, cost: { gold: 0, wood: 0, meat: 90 }, special: { isSiegeUnit: true, buildingDamageMult: 5.0, splashRadius: 4, splashDamagePct: 0.70, auraDamageBonus: 4 } },
     },
     [BuildingType.CasterSpawner]: {
       // B path = gold (stays on starting resource)
-      B: { name: 'Battle Chanter', desc: '+30% HP, +5 haste targets', hpMult: 1.30, special: { healBonus: 5 }, spawnSpeedMult: 0.88, cost: { gold: 45, wood: 0, stone: 0 } },
+      B: { name: 'Battle Chanter', desc: '+30% HP, +5 haste targets', hpMult: 1.30, special: { healBonus: 5 }, spawnSpeedMult: 0.88, cost: { gold: 45, wood: 0, meat: 0 } },
       // C path = wood (switches resource)
-      C: { name: 'War Drummer', desc: 'Faster atk, +25% range', attackSpeedMult: 0.80, rangeMult: 1.25, spawnSpeedMult: 0.88, cost: { gold: 0, wood: 45, stone: 0 } },
+      C: { name: 'War Drummer', desc: 'Faster atk, +25% range', attackSpeedMult: 0.80, rangeMult: 1.25, spawnSpeedMult: 0.88, cost: { gold: 0, wood: 45, meat: 0 } },
       // D,E under B (gold)
-      D: { name: 'Blood Chanter', desc: '+40% dmg, AURA: +3 dmg', damageMult: 1.40, special: { healBonus: 8, auraDamageBonus: 3 }, spawnSpeedMult: 0.82, cost: { gold: 90, wood: 0, stone: 0 } },
-      E: { name: 'Rage Shaman', desc: '+45% dmg, AURA: +15% speed', damageMult: 1.45, special: { aoeRadiusBonus: 2, auraSpeedBonus: 0.15 }, spawnSpeedMult: 0.82, cost: { gold: 90, wood: 0, stone: 0 } },
+      D: { name: 'Blood Chanter', desc: '+40% dmg, AURA: +3 dmg', damageMult: 1.40, special: { healBonus: 8, auraDamageBonus: 3 }, spawnSpeedMult: 0.82, cost: { gold: 90, wood: 0, meat: 0 } },
+      E: { name: 'Rage Shaman', desc: '+45% dmg, AURA: +15% speed', damageMult: 1.45, special: { aoeRadiusBonus: 2, auraSpeedBonus: 0.15 }, spawnSpeedMult: 0.82, cost: { gold: 90, wood: 0, meat: 0 } },
       // F,G under C (wood)
-      F: { name: 'Swift Chanter', desc: 'Very fast, AURA: +10% armor', attackSpeedMult: 0.65, special: { healBonus: 5, auraArmorBonus: 0.10 }, spawnSpeedMult: 0.82, cost: { gold: 0, wood: 90, stone: 0 } },
-      G: { name: 'Doom Chanter', desc: '+55% dmg, AURA: +4 dmg', damageMult: 1.55, rangeMult: 1.30, special: { auraDamageBonus: 4 }, spawnSpeedMult: 0.82, cost: { gold: 0, wood: 90, stone: 0 } },
+      F: { name: 'Swift Chanter', desc: 'Very fast, AURA: +10% armor', attackSpeedMult: 0.65, special: { healBonus: 5, auraArmorBonus: 0.10 }, spawnSpeedMult: 0.82, cost: { gold: 0, wood: 90, meat: 0 } },
+      G: { name: 'Doom Chanter', desc: '+55% dmg, AURA: +4 dmg', damageMult: 1.55, rangeMult: 1.30, special: { auraDamageBonus: 4 }, spawnSpeedMult: 0.82, cost: { gold: 0, wood: 90, meat: 0 } },
     },
     [BuildingType.Tower]: {
       B: { name: 'Orc Palisade', desc: '+60% HP, +35% dmg', hpMult: 1.60, damageMult: 1.35 },
@@ -724,28 +723,28 @@ export const UPGRADE_TREES: Record<Race, Partial<Record<BuildingType, Record<Upg
   // ============ TENDERS (Nature) — Regen & Heal [TALL] ============
   [Race.Tenders]: {
     [BuildingType.MeleeSpawner]: {
-      B: { name: 'Young Ent', desc: '+35% HP, +20% dmg', hpMult: 1.35, damageMult: 1.20, spawnSpeedMult: 0.90, cost: { gold: 0, wood: 45, stone: 0 } },
-      C: { name: 'Wild Radish', desc: '+20% HP, regen 2/s', hpMult: 1.20, special: { regenPerSec: 2 }, spawnSpeedMult: 0.90, cost: { gold: 90, wood: 0, stone: 0 } },
-      D: { name: 'Elder Ent', desc: '+45% HP, +20% dmg', hpMult: 1.45, damageMult: 1.20, spawnSpeedMult: 0.85, cost: { gold: 0, wood: 90, stone: 0 } },
-      E: { name: 'Ancient Ent', desc: '+50% dmg, knockback/2', damageMult: 1.50, special: { knockbackEveryN: 2 }, spawnSpeedMult: 0.85, cost: { gold: 0, wood: 90, stone: 0 } },
-      F: { name: 'Radish Brute', desc: '+25% dmg, +20% HP, regen 3/s', damageMult: 1.25, hpMult: 1.20, special: { regenPerSec: 3 }, spawnSpeedMult: 0.85, cost: { gold: 180, wood: 0, stone: 0 } },
-      G: { name: 'Radish King', desc: '+40% dmg, +20% speed, +2 slow', damageMult: 1.40, moveSpeedMult: 1.20, special: { extraSlowStacks: 2 }, spawnSpeedMult: 0.85, cost: { gold: 180, wood: 0, stone: 0 } },
+      B: { name: 'Young Ent', desc: '+35% HP, +20% dmg', hpMult: 1.35, damageMult: 1.20, spawnSpeedMult: 0.90, cost: { gold: 0, wood: 45, meat: 0 } },
+      C: { name: 'Wild Radish', desc: '+20% HP, regen 2/s', hpMult: 1.20, special: { regenPerSec: 2 }, spawnSpeedMult: 0.90, cost: { gold: 90, wood: 0, meat: 0 } },
+      D: { name: 'Elder Ent', desc: '+45% HP, +20% dmg', hpMult: 1.45, damageMult: 1.20, spawnSpeedMult: 0.85, cost: { gold: 0, wood: 90, meat: 0 } },
+      E: { name: 'Ancient Ent', desc: '+50% dmg, knockback/2', damageMult: 1.50, special: { knockbackEveryN: 2 }, spawnSpeedMult: 0.85, cost: { gold: 0, wood: 90, meat: 0 } },
+      F: { name: 'Radish Brute', desc: '+25% dmg, +20% HP, regen 3/s', damageMult: 1.25, hpMult: 1.20, special: { regenPerSec: 3 }, spawnSpeedMult: 0.85, cost: { gold: 180, wood: 0, meat: 0 } },
+      G: { name: 'Radish King', desc: '+40% dmg, +20% speed, +2 slow', damageMult: 1.40, moveSpeedMult: 1.20, special: { extraSlowStacks: 2 }, spawnSpeedMult: 0.85, cost: { gold: 180, wood: 0, meat: 0 } },
     },
     [BuildingType.RangedSpawner]: {
-      B: { name: 'Heavy Tinker', desc: '+35% HP, +30% dmg', hpMult: 1.35, damageMult: 1.30, spawnSpeedMult: 0.90, cost: { gold: 45, wood: 0, stone: 0 } },
-      C: { name: 'Thorn Thrower', desc: 'Faster atk, +2 slow', attackSpeedMult: 0.80, special: { extraSlowStacks: 2 }, spawnSpeedMult: 0.90, cost: { gold: 0, wood: 0, stone: 45 } },
-      D: { name: 'Blight Tinker', desc: '+40% dmg, splash 2t', damageMult: 1.40, special: { splashRadius: 2, splashDamagePct: 0.50 }, spawnSpeedMult: 0.85, cost: { gold: 90, wood: 0, stone: 0 } },
-      E: { name: 'Grand Tinker', desc: '+45% dmg, splash 3t', damageMult: 1.45, special: { splashRadius: 3, splashDamagePct: 0.45 }, spawnSpeedMult: 0.85, cost: { gold: 90, wood: 0, stone: 0 } },
-      F: { name: 'Toxic Hurler', desc: '+35% dmg, +2 burn', damageMult: 1.35, special: { extraBurnStacks: 2 }, spawnSpeedMult: 0.85, cost: { gold: 0, wood: 0, stone: 90 } },
-      G: { name: 'Vine Siege', desc: 'SIEGE: 10 range, slow, devastating vs buildings + slows', hpMult: 0.50, damageMult: 2.16, attackSpeedMult: 3.20, moveSpeedMult: 0.38, rangeMult: 1.42, spawnSpeedMult: 0.85, cost: { gold: 0, wood: 0, stone: 90 }, special: { isSiegeUnit: true, buildingDamageMult: 3.0, splashRadius: 3, splashDamagePct: 0.65, extraSlowStacks: 2 } },
+      B: { name: 'Heavy Tinker', desc: '+35% HP, +30% dmg', hpMult: 1.35, damageMult: 1.30, spawnSpeedMult: 0.90, cost: { gold: 45, wood: 0, meat: 0 } },
+      C: { name: 'Thorn Thrower', desc: 'Faster atk, +2 slow', attackSpeedMult: 0.80, special: { extraSlowStacks: 2 }, spawnSpeedMult: 0.90, cost: { gold: 0, wood: 0, meat: 45 } },
+      D: { name: 'Blight Tinker', desc: '+40% dmg, splash 2t', damageMult: 1.40, special: { splashRadius: 2, splashDamagePct: 0.50 }, spawnSpeedMult: 0.85, cost: { gold: 90, wood: 0, meat: 0 } },
+      E: { name: 'Grand Tinker', desc: '+45% dmg, splash 3t', damageMult: 1.45, special: { splashRadius: 3, splashDamagePct: 0.45 }, spawnSpeedMult: 0.85, cost: { gold: 90, wood: 0, meat: 0 } },
+      F: { name: 'Toxic Hurler', desc: '+35% dmg, +2 burn', damageMult: 1.35, special: { extraBurnStacks: 2 }, spawnSpeedMult: 0.85, cost: { gold: 0, wood: 0, meat: 90 } },
+      G: { name: 'Vine Siege', desc: 'SIEGE: 10 range, slow, devastating vs buildings + slows', hpMult: 0.50, damageMult: 2.16, attackSpeedMult: 3.20, moveSpeedMult: 0.38, rangeMult: 1.42, spawnSpeedMult: 0.85, cost: { gold: 0, wood: 0, meat: 90 }, special: { isSiegeUnit: true, buildingDamageMult: 3.0, splashRadius: 3, splashDamagePct: 0.65, extraSlowStacks: 2 } },
     },
     [BuildingType.CasterSpawner]: {
-      B: { name: 'Deep Root', desc: '+35% HP, +5 heal', hpMult: 1.35, special: { healBonus: 5 }, spawnSpeedMult: 0.90, cost: { gold: 0, wood: 0, stone: 45 } },
-      C: { name: 'Spore Weaver', desc: 'Faster atk, +3 slow', attackSpeedMult: 0.80, special: { extraSlowStacks: 3 }, spawnSpeedMult: 0.90, cost: { gold: 0, wood: 45, stone: 0 } },
-      D: { name: 'Fungal Hulk', desc: '+35% dmg, +8 heal, +2 slow', damageMult: 1.35, special: { healBonus: 8, extraSlowStacks: 2 }, spawnSpeedMult: 0.85, cost: { gold: 0, wood: 0, stone: 90 } },
-      E: { name: 'Bloom Shaper', desc: '+40% dmg, +2 AoE', damageMult: 1.40, special: { aoeRadiusBonus: 2 }, spawnSpeedMult: 0.85, cost: { gold: 0, wood: 0, stone: 90 } },
-      F: { name: 'Mycelium Sage', desc: 'Very fast, +6 heal', attackSpeedMult: 0.65, special: { healBonus: 6 }, spawnSpeedMult: 0.85, cost: { gold: 0, wood: 90, stone: 0 } },
-      G: { name: 'Fungal Lord', desc: '+50% dmg, +35% range', damageMult: 1.50, rangeMult: 1.35, spawnSpeedMult: 0.85, cost: { gold: 0, wood: 90, stone: 0 } },
+      B: { name: 'Deep Root', desc: '+35% HP, +5 heal', hpMult: 1.35, special: { healBonus: 5 }, spawnSpeedMult: 0.90, cost: { gold: 0, wood: 0, meat: 45 } },
+      C: { name: 'Spore Weaver', desc: 'Faster atk, +3 slow', attackSpeedMult: 0.80, special: { extraSlowStacks: 3 }, spawnSpeedMult: 0.90, cost: { gold: 0, wood: 45, meat: 0 } },
+      D: { name: 'Fungal Hulk', desc: '+35% dmg, +8 heal, +2 slow', damageMult: 1.35, special: { healBonus: 8, extraSlowStacks: 2 }, spawnSpeedMult: 0.85, cost: { gold: 0, wood: 0, meat: 90 } },
+      E: { name: 'Bloom Shaper', desc: '+40% dmg, +2 AoE', damageMult: 1.40, special: { aoeRadiusBonus: 2 }, spawnSpeedMult: 0.85, cost: { gold: 0, wood: 0, meat: 90 } },
+      F: { name: 'Mycelium Sage', desc: 'Very fast, +6 heal', attackSpeedMult: 0.65, special: { healBonus: 6 }, spawnSpeedMult: 0.85, cost: { gold: 0, wood: 90, meat: 0 } },
+      G: { name: 'Fungal Lord', desc: '+50% dmg, +35% range', damageMult: 1.50, rangeMult: 1.35, spawnSpeedMult: 0.85, cost: { gold: 0, wood: 90, meat: 0 } },
     },
     [BuildingType.Tower]: {
       B: { name: 'Thorn Wall', desc: '+60% HP, +30% dmg', hpMult: 1.60, damageMult: 1.30 },
@@ -784,7 +783,7 @@ export const RACE_ABILITY_DEFS: Record<Race, RaceAbilityDef> = {
     race: Race.Horde, name: 'War Troll',
     targetMode: AbilityTargetMode.Instant,
     baseCooldownTicks: 60 * TICK_RATE,
-    baseCost: { gold: 100, wood: 50, stone: 50 },
+    baseCost: { gold: 0, wood: 100, meat: 100 },
     costGrowthFactor: 1.5,
   },
   [Race.Goblins]: {
@@ -819,7 +818,7 @@ export const RACE_ABILITY_DEFS: Record<Race, RaceAbilityDef> = {
     race: Race.Wild, name: 'Frenzy',
     targetMode: AbilityTargetMode.Targeted,
     baseCooldownTicks: 40 * TICK_RATE,
-    baseCost: { stone: 30 },
+    baseCost: { meat: 30 },
     costGrowthFactor: 1.3,
     aoeRadius: 8,
   },
@@ -972,7 +971,7 @@ export const RACE_ABILITY_UPGRADES: Record<Race, ResearchUpgradeDef[]> = {
     { id: 'deep_ability_3', category: 'ability', type: 'race_ability', name: 'Freezing Depths', desc: 'Slowed units move 15% slower', oneShot: true },
   ],
   [Race.Wild]: [
-    { id: 'wild_ability_1', category: 'ability', type: 'race_ability', name: 'Meat Harvest', desc: '30% chance to gain +3 stone on kill', oneShot: true },
+    { id: 'wild_ability_1', category: 'ability', type: 'race_ability', name: 'Meat Harvest', desc: '30% chance to gain +3 meat on kill', oneShot: true },
     { id: 'wild_ability_2', category: 'ability', type: 'race_ability', name: 'Blood Frenzy', desc: 'Kill frenzy radius doubled', oneShot: true },
     { id: 'wild_ability_3', category: 'ability', type: 'race_ability', name: 'Pack Speed', desc: '+10% global move speed (units and workers)', oneShot: true },
   ],
@@ -994,26 +993,26 @@ export function getAllResearchUpgrades(race: Race): ResearchUpgradeDef[] {
 }
 
 /** Get cost for a research upgrade. Attack/defense: 80g base x 1.5^level. One-shots: 150g flat. */
-export function getResearchUpgradeCost(id: string, level: number, race: Race): { gold: number; wood: number; stone: number; mana?: number; deathEssence?: number; souls?: number } {
+export function getResearchUpgradeCost(id: string, level: number, race: Race): { gold: number; wood: number; meat: number; mana?: number; deathEssence?: number; souls?: number } {
   const allDefs = getAllResearchUpgrades(race);
   const def = allDefs.find(d => d.id === id);
-  if (!def) return { gold: 999, wood: 999, stone: 999 };
+  if (!def) return { gold: 999, wood: 999, meat: 999 };
   // Geists: attack/defense research costs souls instead of resources
   if (race === Race.Geists && (def.type === 'attack' || def.type === 'defense')) {
     const cost = Math.round(20 * Math.pow(1.5, level));
-    return { gold: 0, wood: 0, stone: 0, souls: cost };
+    return { gold: 0, wood: 0, meat: 0, souls: cost };
   }
   // Geists: one-shot racial upgrades cost souls (ability tab: 1 resource + souls)
   if (race === Race.Geists && def.oneShot && id.startsWith('geists_')) {
-    if (def.type === 'race_ability') return { gold: 50, wood: 0, stone: 0, souls: 25 };
-    return { gold: 0, wood: 0, stone: 0, souls: 35 };
+    if (def.type === 'race_ability') return { gold: 50, wood: 0, meat: 0, souls: 25 };
+    return { gold: 0, wood: 0, meat: 0, souls: 35 };
   }
   // Oozlings: all research costs ooze (deathEssence) instead of resources
   if (race === Race.Oozlings) {
-    if (def.type === 'race_ability') return { gold: 0, wood: 0, stone: 0, deathEssence: 60 };
-    if (def.oneShot) return { gold: 0, wood: 0, stone: 0, deathEssence: 50 };
+    if (def.type === 'race_ability') return { gold: 0, wood: 0, meat: 0, deathEssence: 60 };
+    if (def.oneShot) return { gold: 0, wood: 0, meat: 0, deathEssence: 50 };
     const cost = Math.round(30 * Math.pow(1.4, level));
-    return { gold: 0, wood: 0, stone: 0, deathEssence: cost };
+    return { gold: 0, wood: 0, meat: 0, deathEssence: cost };
   }
   if (def.oneShot) {
     // Demon racial one-shots: melee/ranged/caster cost mana; ability tab costs resources
@@ -1026,32 +1025,32 @@ export function getResearchUpgradeCost(id: string, level: number, race: Race): {
         demon_caster_1: 140, // Flame Conduit
         demon_caster_2: 140, // Immolation
       };
-      return { gold: 0, wood: 0, stone: 0, mana: demonManaCosts[id] ?? 120 };
+      return { gold: 0, wood: 0, meat: 0, mana: demonManaCosts[id] ?? 120 };
     }
     // Race ability upgrades cost more than regular one-shots
     if (def.type === 'race_ability') {
       const used = getRaceUsedResources(race);
-      if (!used.gold && used.stone && used.wood) return { gold: 0, wood: 55, stone: 50 };
-      if (!used.gold && used.stone) return { gold: 0, wood: 0, stone: 100 };
-      if (!used.gold && used.wood) return { gold: 0, wood: 100, stone: 0 };
-      return { gold: 200, wood: 0, stone: 0 };
+      if (!used.gold && used.meat && used.wood) return { gold: 0, wood: 55, meat: 50 };
+      if (!used.gold && used.meat) return { gold: 0, wood: 0, meat: 100 };
+      if (!used.gold && used.wood) return { gold: 0, wood: 100, meat: 0 };
+      return { gold: 200, wood: 0, meat: 0 };
     }
     // One-shot: flat cost scaled to race economy
-    // Non-gold races pay half raw amounts since wood/stone are worth 2× gold
+    // Non-gold races pay half raw amounts since wood/meat are worth 2× gold
     const used = getRaceUsedResources(race);
-    if (!used.gold && used.stone && used.wood) return { gold: 0, wood: 40, stone: 35 };
-    if (!used.gold && used.stone) return { gold: 0, wood: 0, stone: 75 };
-    if (!used.gold && used.wood) return { gold: 0, wood: 75, stone: 0 };
-    return { gold: 150, wood: 0, stone: 0 };
+    if (!used.gold && used.meat && used.wood) return { gold: 0, wood: 40, meat: 35 };
+    if (!used.gold && used.meat) return { gold: 0, wood: 0, meat: 75 };
+    if (!used.gold && used.wood) return { gold: 0, wood: 75, meat: 0 };
+    return { gold: 150, wood: 0, meat: 0 };
   }
   // Infinite scaling: 80 base x 1.5^level
-  // Gold races pay in gold (80g = 40 eff). Non-gold races pay half raw in wood/stone
+  // Gold races pay in gold (80g = 40 eff). Non-gold races pay half raw in wood/meat
   // so effective cost is equal (e.g. 20w+20s = 40 eff ≈ 80g/2 = 40 eff).
   const cost = Math.round(80 * Math.pow(1.5, level));
   const used = getRaceUsedResources(race);
-  const half = Math.round(cost / 2); // non-gold races pay half raw (wood/stone worth 2× gold)
-  if (!used.gold && used.stone && used.wood) return { gold: 0, wood: Math.round(half * 0.5), stone: Math.round(half * 0.5) };
-  if (!used.gold && used.stone) return { gold: 0, wood: 0, stone: half };
-  if (!used.gold && used.wood) return { gold: 0, wood: half, stone: 0 };
-  return { gold: cost, wood: 0, stone: 0 };
+  const half = Math.round(cost / 2); // non-gold races pay half raw (wood/meat worth 2× gold)
+  if (!used.gold && used.meat && used.wood) return { gold: 0, wood: Math.round(half * 0.5), meat: Math.round(half * 0.5) };
+  if (!used.gold && used.meat) return { gold: 0, wood: 0, meat: half };
+  if (!used.gold && used.wood) return { gold: 0, wood: half, meat: 0 };
+  return { gold: cost, wood: 0, meat: 0 };
 }

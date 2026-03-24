@@ -391,16 +391,17 @@ export class RaceSelectScene implements Scene {
     ctx.fillStyle = '#fff';
     ctx.fillText('CHOOSE YOUR RACE', w / 2, ribbonY + ribbonH * 0.58);
 
-    const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
-    if (!isTouchDevice) {
+    const boxes = this.getBoxLayout();
+    const boxW = boxes[0].w;
+    const isNarrow = boxW <= 170;
+    if (!isNarrow) {
       const hintSize = Math.max(11, Math.min(w / 55, 12));
       ctx.font = `${hintSize}px monospace`;
       ctx.fillStyle = 'rgba(255,255,255,0.5)';
       ctx.fillText('Arrow keys + Enter  |  Click to select', w / 2, ribbonY + ribbonH + 12);
     }
 
-    const boxes = this.getBoxLayout();
-    const fontSize = Math.max(11, Math.min(boxes[0].w / 8, 16));
+    const fontSize = Math.max(11, Math.min(boxW / 8, 16));
 
     for (let i = 0; i < RACES.length; i++) {
       const race = RACES[i];
@@ -465,14 +466,14 @@ export class RaceSelectScene implements Scene {
       const nameColor = isSelected ? colors.primary : '#fff';
       woodText(ctx, race.label, cx, nameY, nameColor, 'rgba(0,0,0,0.7)');
 
-      if (!isTouchDevice) {
+      if (!isNarrow) {
         ctx.font = `${Math.max(11, fontSize * 0.72)}px monospace`;
         woodText(ctx, race.desc, cx, nameY + nameFontSize * 0.85, '#ddd', 'rgba(0,0,0,0.5)');
       }
 
       const iconSize = fontSize * 1.8;
       const iconGap = iconSize * 0.5;
-      const iconY = box.y + box.h * (isTouchDevice ? 0.67 : 0.73);
+      const iconY = box.y + box.h * (isNarrow ? 0.67 : 0.73);
       const iconCount = race.econ.length;
       const totalIconW = iconSize * iconCount + iconGap * (iconCount - 1);
       const iconStartX = cx - totalIconW / 2;
@@ -531,16 +532,26 @@ export class RaceSelectScene implements Scene {
       }
 
       const randFontSize = Math.max(11, Math.min(rb.h * 0.55, 14));
+      const diceSize = Math.round(rb.h * 0.75);
+      const labelText = 'RANDOM';
       ctx.font = `bold ${randFontSize}px monospace`;
+      const textW = ctx.measureText(labelText).width;
+      const gap = Math.round(diceSize * 0.25);
+      const totalW = diceSize + gap + textW;
+      const startX = rb.x + (rb.w - totalW) / 2;
+      const iconColor = isRandSelected ? randColor : 'rgba(255,255,255,0.6)';
+      this.ui.drawIcon(ctx, 'dice', startX, rb.y + (rb.h - diceSize) / 2, diceSize);
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      woodText(ctx, '? RANDOM ?', rb.x + rb.w / 2, rb.y + rb.h / 2, isRandSelected ? randColor : 'rgba(255,255,255,0.6)');
+      woodText(ctx, labelText, startX + diceSize + gap + textW / 2, rb.y + rb.h / 2, iconColor);
+
+      ctx.restore();
 
       if (isRandSelected) {
         const selRibW = rb.w * 0.35;
         const selRibH = randFontSize * 1.2;
-        const selRibX = rb.x + rb.w - selRibW - 8;
-        const selRibY = rb.y + (rb.h - selRibH) / 2;
+        const selRibX = rb.x + (rb.w - selRibW) / 2;
+        const selRibY = rb.y + rb.h - selRibH / 2;
         this.ui.drawSmallRibbon(ctx, selRibX, selRibY, selRibW, selRibH, 0);
         ctx.font = `bold ${randFontSize * 0.55}px monospace`;
         ctx.fillStyle = '#fff';
@@ -548,8 +559,6 @@ export class RaceSelectScene implements Scene {
         ctx.textBaseline = 'middle';
         ctx.fillText('SELECTED', selRibX + selRibW / 2, selRibY + selRibH * 0.55);
       }
-
-      ctx.restore();
     }
 
     // Bottom button row: BACK (left) + NEXT (right)

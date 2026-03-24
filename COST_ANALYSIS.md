@@ -1,8 +1,8 @@
 ```
 ================================================================================
   COST-BENEFIT ANALYSIS — All 9 Races
-  Exchange rate: 2 gold = 1 wood = 1 stone
-  Gold yield: 4/trip, Wood: 10/trip, Stone: 10/trip
+  Exchange rate: 2 gold = 1 wood = 1 meat
+  Gold yield: 4/trip, Wood: 10/trip, Meat: 10/trip
   Spawn interval: 16.8s base
 ================================================================================
 
@@ -11,7 +11,7 @@
 Race      |  Melee |  Ranged |  Caster |  Tower |   Hut
 ----------+--------+---------+---------+--------+------
 Crown     |   36.0 |    25.0 |    40.5 |   43.0 |  21.0
-Horde     |   40.0 |    40.0 |    50.0 |   85.0 |  35.0
+Horde     |   40.0 |    40.0 |    50.0 |   85.0 |  32.5
 Goblins   |   15.0 |    27.5 |    35.0 |   30.0 |  17.5
 Oozlings  |   25.0 |    46.0 |    45.0 |   48.5 |  23.0
 Demon     |   40.0 |    45.0 |    60.0 |   50.0 |  23.0
@@ -150,7 +150,7 @@ Horde     |  1100 |  9.3 |  10267 |  85.0 |  120.8 |      6
 
   Gold harvester:  0.571 gold/s  (0.286 eff/s, cycle 7.0s)
   Wood harvester:  0.262 wood/s  (0.262 eff/s, cycle 38.2s)
-  Stone harvester: 0.262 stone/s (0.262 eff/s, cycle 38.2s)
+  Meat harvester: 0.262 meat/s (0.262 eff/s, cycle 38.2s)
 
 Race      |  Hut1 $ |  Pay1 |  Hut2 $ |  Pay2 |  Hut3 $ |  Pay3 |  Hut4 $ |  Pay4
 ----------+---------+-------+---------+-------+---------+-------+---------+------
@@ -162,7 +162,7 @@ Demon     |    23.0 |   81s |    30.0 |  115s |    41.0 |  157s |    55.0 |  210
 Geists    |    26.0 |   91s |    34.0 |  130s |    47.0 |  179s |    63.5 |  242s
 Tenders   |    26.5 |   93s |    35.0 |  134s |    48.0 |  183s |    64.5 |  246s
 Deep      |    30.5 |  107s |    40.5 |  155s |    54.5 |  208s |    74.5 |  284s
-Horde     |    35.0 |  123s |    46.0 |  176s |    63.0 |  241s |    84.5 |  323s
+Horde     |    32.5 |  114s |    43.5 |  166s |    58.5 |  223s |    79.0 |  302s
 
 ## SUMMARY RANKINGS
 
@@ -208,7 +208,7 @@ Horde     |    35.0 |  123s |    46.0 |  176s |    63.0 |  241s |    84.5 |  323
     6. Geists     91s
     7. Tenders    93s
     8. Deep       107s
-    9. Horde      123s
+    9. Horde      114s
 
 ================================================================================
   Analysis complete. Re-run after balance changes to compare.

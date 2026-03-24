@@ -18,7 +18,7 @@ interface MatchRecord {
     nukeKills: number;
     goldEarned: number;
     woodEarned: number;
-    stoneEarned: number;
+    meatEarned: number;
     diamondPickups: number;
     diamondTimeHeld: number;
     buildingCount: number;
@@ -76,7 +76,7 @@ export function recordMatch(state: GameState): void {
         nukeKills: s.nukeKills,
         goldEarned: s.totalGoldEarned,
         woodEarned: s.totalWoodEarned,
-        stoneEarned: s.totalStoneEarned,
+        meatEarned: s.totalMeatEarned,
         diamondPickups: s.diamondPickups,
         diamondTimeHeld: s.diamondTimeHeld,
         buildingCount: state.buildings.filter(b => b.playerId === i).length,
@@ -111,7 +111,7 @@ function printMatchSummary(r: MatchRecord): void {
     'K/D': p.unitsLost > 0 ? ((p.unitsSpawned - p.unitsLost) / p.unitsLost).toFixed(1) : '∞',
     Gold: p.goldEarned,
     Wood: p.woodEarned,
-    Meat: p.stoneEarned,
+    Meat: p.meatEarned,
     Nukes: p.nukeKills,
     Diamond: p.diamondPickups,
     Buildings: p.buildingCount,
@@ -134,7 +134,7 @@ function printBalanceReport(records: MatchRecord[]): void {
       a.games++;
       if (p.won) a.wins++; else a.losses++;
       a.totalDamage += p.damageDealt;
-      a.totalResources += p.goldEarned + p.woodEarned + p.stoneEarned;
+      a.totalResources += p.goldEarned + p.woodEarned + p.meatEarned;
       a.totalUnitsSpawned += p.unitsSpawned;
       a.totalUnitsLost += p.unitsLost;
       a.totalNukeKills += p.nukeKills;

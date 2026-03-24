@@ -29,7 +29,7 @@ export const ZONES = {
 } as const;
 
 // Peanut/hourglass-shaped map: wide bases, narrow necks, widest at diamond center.
-// The shape bulges outward at diamond level creating left/right tips for wood/stone.
+// The shape bulges outward at diamond level creating left/right tips for wood/meat.
 export const SHAPE_BASE_WIDTH = 64;        // playable width at base zones
 export const SHAPE_NECK_WIDTH = 34;        // narrowed ~10% to tighten mid/neck walkable area
 export const SHAPE_CENTER_WIDTH = 67;      // narrowed ~10%; keeps base/player spaces unchanged
@@ -84,7 +84,7 @@ export const GOLD_PER_CELL = 10;
 
 // Side resource node positions (moved inward to stay aligned with narrower walkable area)
 export const WOOD_NODE_X = 12;
-export const STONE_NODE_X = 68;
+export const MEAT_NODE_X = 68;
 
 // HQ
 export const HQ_WIDTH = 4;
@@ -205,7 +205,7 @@ export interface MapDef {
   getPlayableRange(axisPos: number): { min: number; max: number };
   /** Which axis the shape varies along: 'y' for portrait maps, 'x' for landscape */
   shapeAxis: 'y' | 'x';
-  /** Multiplier for wood/stone harvester deposits. Default 1. */
+  /** Multiplier for wood/meat harvester deposits. Default 1. */
   resourceYield?: number;
 }
 
@@ -245,13 +245,13 @@ export enum BuildingType {
 export enum ResourceType {
   Gold = 'gold',
   Wood = 'wood',
-  Stone = 'stone',
+  Meat = 'meat',
 }
 
 export enum HarvesterAssignment {
   BaseGold = 'base_gold',
   Wood = 'wood',
-  Stone = 'stone',
+  Meat = 'meat',
   Center = 'center', // mine gold cells, then compete for diamond once exposed
   Mana = 'mana',     // Demon: harvester generates mana instead of resources
 }
@@ -305,10 +305,10 @@ export interface PlayerState {
   race: Race;
   gold: number;
   wood: number;
-  stone: number;
+  meat: number;
   goldFrac?: number;  // fractional accumulator for passive income < 1/sec
   woodFrac?: number;
-  stoneFrac?: number;
+  meatFrac?: number;
   nukeAvailable: boolean;
   connected: boolean;
   isBot: boolean;
@@ -339,7 +339,7 @@ export interface RaceAbilityDef {
   name: string;
   targetMode: AbilityTargetMode;
   baseCooldownTicks: number;
-  baseCost: { gold?: number; wood?: number; stone?: number; mana?: number; souls?: number; deathEssence?: number };
+  baseCost: { gold?: number; wood?: number; meat?: number; mana?: number; souls?: number; deathEssence?: number };
   costGrowthFactor?: number;  // multiplier per use (for growing costs)
   requiresVision?: boolean;   // Demon fireball, Geist skeletons
   aoeRadius?: number;         // for targeted abilities
@@ -648,7 +648,7 @@ export interface SoundEvent {
 export interface PlayerStats {
   totalGoldEarned: number;
   totalWoodEarned: number;
-  totalStoneEarned: number;
+  totalMeatEarned: number;
   totalDamageDealt: number;
   totalDamageNearHQ: number; // within 20 tiles of own HQ
   totalDamageTaken: number;
@@ -667,7 +667,7 @@ export interface PlayerStats {
 
 export function createPlayerStats(): PlayerStats {
   return {
-    totalGoldEarned: 0, totalWoodEarned: 0, totalStoneEarned: 0,
+    totalGoldEarned: 0, totalWoodEarned: 0, totalMeatEarned: 0,
     totalDamageDealt: 0, totalDamageNearHQ: 0,
     totalDamageTaken: 0, towerDamageDealt: 0,
     burnDamageDealt: 0, abilityDamageDealt: 0, nukeDamageDealt: 0,

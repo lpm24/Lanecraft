@@ -47,7 +47,7 @@ interface MatchResult {
     unitsLost: number;
     goldEarned: number;
     woodEarned: number;
-    stoneEarned: number;
+    meatEarned: number;
     buildingCount: number;
     nukeKills: number;
     diamondPickups: number;
@@ -118,7 +118,7 @@ function runHeadlessMatch(
         unitsLost: s.unitsLost,
         goldEarned: s.totalGoldEarned,
         woodEarned: s.totalWoodEarned,
-        stoneEarned: s.totalStoneEarned,
+        meatEarned: s.totalMeatEarned,
         buildingCount: state.buildings.filter(b => b.playerId === i).length,
         nukeKills: s.nukeKills,
         diamondPickups: s.diamondPickups,
@@ -207,7 +207,7 @@ interface RaceStats {
   totalUnitsLost: number;
   totalGold: number;
   totalWood: number;
-  totalStone: number;
+  totalMeat: number;
   totalNukeKills: number;
   totalDiamondPickups: number;
   totalHqHp: number;
@@ -243,7 +243,7 @@ function aggregate(results: MatchResult[]) {
           totalDamageTaken: 0, totalTowerDamage: 0, totalBurnDamage: 0,
           totalAbilityDamage: 0, totalHealing: 0,
           totalUnitsSpawned: 0, totalUnitsLost: 0,
-          totalGold: 0, totalWood: 0, totalStone: 0,
+          totalGold: 0, totalWood: 0, totalMeat: 0,
           totalNukeKills: 0, totalDiamondPickups: 0,
           totalHqHp: 0,
           appearances: 0, totalDurationTicks: 0,
@@ -265,7 +265,7 @@ function aggregate(results: MatchResult[]) {
       s.totalUnitsLost += p.unitsLost;
       s.totalGold += p.goldEarned;
       s.totalWood += p.woodEarned;
-      s.totalStone += p.stoneEarned;
+      s.totalMeat += p.meatEarned;
       s.totalNukeKills += p.nukeKills;
       s.totalDiamondPickups += p.diamondPickups;
       s.totalHqHp += p.hqHp;
@@ -479,7 +479,7 @@ function printResults(results: MatchResult[], mapLabel: string, raceFilter?: Rac
     const n = s.appearances || 1;
     const g = Math.round(s.totalGold / n);
     const w = Math.round(s.totalWood / n);
-    const st = Math.round(s.totalStone / n);
+    const st = Math.round(s.totalMeat / n);
     const avgDurMin = (s.totalDurationTicks / n / TICK_RATE) / 60;
     const resPerMin = avgDurMin > 0 ? Math.round((g + w + st) / avgDurMin) : 0;
     console.log('  ' + pad(race, 10) + pad(String(g), 10) + pad(String(w), 10) + pad(String(st), 10) +

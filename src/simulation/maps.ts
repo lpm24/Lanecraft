@@ -14,7 +14,7 @@ import {
   SHARED_ALLEY_COLS, SHARED_ALLEY_ROWS,
   ZONES, CROSS_BASE_MARGIN, CROSS_BASE_WIDTH,
   DIAMOND_CENTER_X, DIAMOND_CENTER_Y, DIAMOND_HALF_W, DIAMOND_HALF_H,
-  WOOD_NODE_X, STONE_NODE_X,
+  WOOD_NODE_X, MEAT_NODE_X,
   LANE_PATHS,
   getMarginAtRow,
 } from './types';
@@ -129,7 +129,7 @@ export const DUEL_MAP: MapDef = {
 
   resourceNodes: [
     { type: ResourceType.Wood, x: WOOD_NODE_X, y: 60 },
-    { type: ResourceType.Stone, x: STONE_NODE_X, y: 60 },
+    { type: ResourceType.Meat, x: MEAT_NODE_X, y: 60 },
   ],
 
   isPlayable(x: number, y: number): boolean {
@@ -319,7 +319,7 @@ export const SKIRMISH_MAP: MapDef = {
 
   resourceNodes: [
     { type: ResourceType.Wood, x: SK_DIAMOND_X, y: 6 },
-    { type: ResourceType.Stone, x: SK_DIAMOND_X, y: SK_H - 6 },
+    { type: ResourceType.Meat, x: SK_DIAMOND_X, y: SK_H - 6 },
   ],
 
   isPlayable(x: number, y: number): boolean {
@@ -475,7 +475,7 @@ export const WARZONE_MAP: MapDef = {
 
   resourceNodes: [
     { type: ResourceType.Wood, x: WZ_DIAMOND_X, y: 6 },
-    { type: ResourceType.Stone, x: WZ_DIAMOND_X, y: WZ_H - 6 },
+    { type: ResourceType.Meat, x: WZ_DIAMOND_X, y: WZ_H - 6 },
   ],
 
   isPlayable(x: number, y: number): boolean {

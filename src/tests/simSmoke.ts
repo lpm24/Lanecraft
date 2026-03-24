@@ -21,9 +21,9 @@ function testTeamAlleyOccupancy(): void {
   ]);
   const bottomAlley = getTeamAlleyOrigin(Team.Bottom);
   const topAlley = getTeamAlleyOrigin(Team.Top);
-  state.players[0].stone = 100;
-  state.players[1].stone = 100;
-  state.players[2].stone = 100;
+  state.players[0].meat = 100;
+  state.players[1].meat = 100;
+  state.players[2].meat = 100;
 
   runTick(state, [{ type: 'place_building', playerId: 0, buildingType: BuildingType.Tower, gridType: 'alley', gridX: 0, gridY: 0 }]);
   const bottomTeamTowerCount = state.buildings.filter(b => b.buildGrid === 'alley' && b.gridX === 0 && b.gridY === 0).length;
@@ -58,7 +58,7 @@ function testLaneToggleAllSpawners(): void {
   ]);
   state.players[0].gold = 1000;
   state.players[0].wood = 100;
-  state.players[0].stone = 100;
+  state.players[0].meat = 100;
 
   runTick(state, [{ type: 'place_building', playerId: 0, buildingType: BuildingType.MeleeSpawner, gridX: 0, gridY: 0 }]);
   runTick(state, [{ type: 'place_building', playerId: 0, buildingType: BuildingType.RangedSpawner, gridX: 1, gridY: 0 }]);
@@ -86,7 +86,7 @@ function testSellCooldown(): void {
     { race: Race.Deep, isBot: true },
   ]);
   state.players[0].gold = 1000;
-  state.players[0].stone = 100;
+  state.players[0].meat = 100;
 
   runTick(state, [{ type: 'place_building', playerId: 0, buildingType: BuildingType.MeleeSpawner, gridX: 0, gridY: 0 }]);
   const placed = state.buildings.find(b => b.playerId === 0 && b.type === BuildingType.MeleeSpawner);
@@ -116,7 +116,7 @@ function testPurchaseUpgradeAffectsFutureSpawns(): void {
 
   state.players[0].gold = 1000;
   state.players[0].wood = 500;
-  state.players[0].stone = 500;
+  state.players[0].meat = 500;
 
   runTick(state, [{ type: 'place_building', playerId: 0, buildingType: BuildingType.MeleeSpawner, gridX: 0, gridY: 0 }]);
   const spawner = state.buildings.find(b => b.playerId === 0 && b.type === BuildingType.MeleeSpawner);

@@ -340,7 +340,7 @@ export class PostMatchScene implements Scene {
     // Panel background — moved up 100px, 10% wider
     const panelW = Math.min(w * 0.96, 1160);
     const panelTop = tabBarBottom - 16;
-    const panelH = h * 0.90;
+    const panelH = h * 0.96 - panelTop;
     const panelX = (w - panelW) / 2;
     const bgPadX = Math.round(panelW * 0.05);
     const bgPadY = Math.round(panelH * 0.05);
@@ -578,7 +578,7 @@ export class PostMatchScene implements Scene {
         ctx.textAlign = 'right';
         ctx.fillText(`${ps?.totalGoldEarned ?? 0}`, colX[1], y);
         ctx.fillText(`${ps?.totalWoodEarned ?? 0}`, colX[2], y);
-        ctx.fillText(`${ps?.totalStoneEarned ?? 0}`, colX[3], y);
+        ctx.fillText(`${ps?.totalMeatEarned ?? 0}`, colX[3], y);
         ctx.fillText(`${ps?.enemyUnitsKilled ?? 0}`, colX[4], y);
         ctx.fillText(`${ps?.unitsLost ?? 0}`, colX[5], y);
         ctx.font = `bold ${tableFontSize}px monospace`;
@@ -994,7 +994,7 @@ export class PostMatchScene implements Scene {
     };
 
     best(ps => ps.totalDamageDealt, 'MVP Damage', v => `${v} dmg`);
-    best(ps => ps.totalGoldEarned + ps.totalWoodEarned + ps.totalStoneEarned, 'Best Economy', v => `${v} resources`);
+    best(ps => ps.totalGoldEarned + ps.totalWoodEarned + ps.totalMeatEarned, 'Best Economy', v => `${v} resources`);
     best(ps => ps.totalDamageNearHQ, 'Best Defender', v => `${v} dmg near HQ`);
     best(ps => ps.totalDamageTaken, 'Most Tanked', v => `${v} taken`);
     best(ps => ps.towerDamageDealt, 'Tower Damage', v => `${v} dmg`);

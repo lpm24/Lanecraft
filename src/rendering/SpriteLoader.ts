@@ -3,7 +3,7 @@ import { BuildingType, Race, ResourceType } from '../simulation/types';
 // ============================================================
 // BUILDING SPRITES (Tiny Swords)
 // ============================================================
-// P0 = Blue, P1 = Purple, P2 = Red (team 0), P3 = Yellow, P4 = Black, P5 = Blue (team 1)
+// P0 = Blue, P1 = Purple, P2 = Red, P3 = Yellow, P4 = Black
 import blueHouse from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Buildings/Blue Buildings/House1.png?url';
 import blueHouse2 from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Buildings/Blue Buildings/House2.png?url';
 import blueBarracks from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Buildings/Blue Buildings/Barracks.png?url';
@@ -61,7 +61,7 @@ const SEED_SPRITE_DEF: SpriteDef = {
 };
 
 // ============================================================
-// UNIT SPRITES — Crown (Tiny Swords humans, Blue + Red)
+// UNIT SPRITES — Crown (Tiny Swords humans)
 // ============================================================
 // P0=Blue, P1=Purple, P2=Red, P3=Yellow
 import crownMeleeBlue from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Units/Blue Units/Warrior/Warrior_Run.png?url';
@@ -74,7 +74,7 @@ import harvesterBlueRunWood from '../assets/images/Tiny Swords (Free Pack)/Tiny 
 import harvesterBlueRunMeat from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Units/Blue Units/Pawn/Pawn_Run Meat.png?url';
 import harvesterBlueMineGold from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Units/Blue Units/Pawn/Pawn_Interact Pickaxe.png?url';
 import harvesterBlueMineWood from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Units/Blue Units/Pawn/Pawn_Interact Axe.png?url';
-import harvesterBlueMineStone from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Units/Blue Units/Pawn/Pawn_Interact Knife.png?url';
+import harvesterBlueMineMeat from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Units/Blue Units/Pawn/Pawn_Interact Knife.png?url';
 import crownMeleePurple from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Units/Purple Units/Warrior/Warrior_Run.png?url';
 import crownRangedPurple from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Units/Purple Units/Archer/Archer_Run.png?url';
 import crownCasterPurple from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Units/Purple Units/Monk/Run.png?url';
@@ -85,7 +85,7 @@ import harvesterPurpleRunWood from '../assets/images/Tiny Swords (Free Pack)/Tin
 import harvesterPurpleRunMeat from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Units/Purple Units/Pawn/Pawn_Run Meat.png?url';
 import harvesterPurpleMineGold from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Units/Purple Units/Pawn/Pawn_Interact Pickaxe.png?url';
 import harvesterPurpleMineWood from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Units/Purple Units/Pawn/Pawn_Interact Axe.png?url';
-import harvesterPurpleMineStone from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Units/Purple Units/Pawn/Pawn_Interact Knife.png?url';
+import harvesterPurpleMineMeat from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Units/Purple Units/Pawn/Pawn_Interact Knife.png?url';
 import crownMeleeRed from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Units/Red Units/Warrior/Warrior_Run.png?url';
 import crownRangedRed from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Units/Red Units/Archer/Archer_Run.png?url';
 import crownCasterRed from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Units/Red Units/Monk/Run.png?url';
@@ -96,7 +96,7 @@ import harvesterRedRunWood from '../assets/images/Tiny Swords (Free Pack)/Tiny S
 import harvesterRedRunMeat from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Units/Red Units/Pawn/Pawn_Run Meat.png?url';
 import harvesterRedMineGold from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Units/Red Units/Pawn/Pawn_Interact Pickaxe.png?url';
 import harvesterRedMineWood from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Units/Red Units/Pawn/Pawn_Interact Axe.png?url';
-import harvesterRedMineStone from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Units/Red Units/Pawn/Pawn_Interact Knife.png?url';
+import harvesterRedMineMeat from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Units/Red Units/Pawn/Pawn_Interact Knife.png?url';
 import crownMeleeYellow from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Units/Yellow Units/Warrior/Warrior_Run.png?url';
 import crownRangedYellow from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Units/Yellow Units/Archer/Archer_Run.png?url';
 import crownCasterYellow from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Units/Yellow Units/Monk/Run.png?url';
@@ -107,7 +107,7 @@ import harvesterYellowRunWood from '../assets/images/Tiny Swords (Free Pack)/Tin
 import harvesterYellowRunMeat from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Units/Yellow Units/Pawn/Pawn_Run Meat.png?url';
 import harvesterYellowMineGold from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Units/Yellow Units/Pawn/Pawn_Interact Pickaxe.png?url';
 import harvesterYellowMineWood from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Units/Yellow Units/Pawn/Pawn_Interact Axe.png?url';
-import harvesterYellowMineStone from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Units/Yellow Units/Pawn/Pawn_Interact Knife.png?url';
+import harvesterYellowMineMeat from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Units/Yellow Units/Pawn/Pawn_Interact Knife.png?url';
 import crownMeleeBlack from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Units/Black Units/Warrior/Warrior_Run.png?url';
 import crownRangedBlack from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Units/Black Units/Archer/Archer_Run.png?url';
 import crownCasterBlack from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Units/Black Units/Monk/Run.png?url';
@@ -118,7 +118,7 @@ import harvesterBlackRunWood from '../assets/images/Tiny Swords (Free Pack)/Tiny
 import harvesterBlackRunMeat from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Units/Black Units/Pawn/Pawn_Run Meat.png?url';
 import harvesterBlackMineGold from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Units/Black Units/Pawn/Pawn_Interact Pickaxe.png?url';
 import harvesterBlackMineWood from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Units/Black Units/Pawn/Pawn_Interact Axe.png?url';
-import harvesterBlackMineStone from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Units/Black Units/Pawn/Pawn_Interact Knife.png?url';
+import harvesterBlackMineMeat from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Units/Black Units/Pawn/Pawn_Interact Knife.png?url';
 
 // ============================================================
 // UNIT SPRITES — Horde (CHARACTER MEGAPACK Orcs — animated strips)
@@ -876,20 +876,20 @@ const UPGRADE_ATK_SPRITES: Record<string, SpriteDef> = {
 };
 
 // Harvester (Pawn) — player colored, state-based animations
-// idle=8fr(1536), run=6fr(1152), runGold/runWood/runMeat=6fr(1152), mineGold=6fr(1152), mineWood=6fr(1152), mineStone=4fr(768)
+// idle=8fr(1536), run=6fr(1152), runGold/runWood/runMeat=6fr(1152), mineGold=6fr(1152), mineWood=6fr(1152), mineMeat=4fr(768)
 interface HarvesterSpriteSet {
   idle: SpriteDef;
   run: SpriteDef;
   runGold: SpriteDef;
   runWood: SpriteDef;
-  runMeat: SpriteDef;  // also used for stone
+  runMeat: SpriteDef;
   mineGold: SpriteDef;
   mineWood: SpriteDef;
-  mineStone: SpriteDef;
+  mineMeat: SpriteDef;
 }
 
 function pawnSet(idle: string, run: string, runGold: string, runWood: string, runMeat: string,
-  mineGold: string, mineWood: string, mineStone: string): HarvesterSpriteSet {
+  mineGold: string, mineWood: string, mineMeat: string): HarvesterSpriteSet {
   return {
     idle: tsSheet(idle, 1536, 192),
     run: tsSheet(run, 1152, 192),
@@ -898,16 +898,16 @@ function pawnSet(idle: string, run: string, runGold: string, runWood: string, ru
     runMeat: tsSheet(runMeat, 1152, 192),
     mineGold: tsSheet(mineGold, 1152, 192),
     mineWood: tsSheet(mineWood, 1152, 192),
-    mineStone: tsSheet(mineStone, 768, 192),
+    mineMeat: tsSheet(mineMeat, 768, 192),
   };
 }
 
 const HARVESTER_SPRITES: { [pid: number]: HarvesterSpriteSet } = {
-  0: pawnSet(harvesterBlue, harvesterBlueRun, harvesterBlueRunGold, harvesterBlueRunWood, harvesterBlueRunMeat, harvesterBlueMineGold, harvesterBlueMineWood, harvesterBlueMineStone),
-  1: pawnSet(harvesterPurple, harvesterPurpleRun, harvesterPurpleRunGold, harvesterPurpleRunWood, harvesterPurpleRunMeat, harvesterPurpleMineGold, harvesterPurpleMineWood, harvesterPurpleMineStone),
-  2: pawnSet(harvesterRed, harvesterRedRun, harvesterRedRunGold, harvesterRedRunWood, harvesterRedRunMeat, harvesterRedMineGold, harvesterRedMineWood, harvesterRedMineStone),
-  3: pawnSet(harvesterYellow, harvesterYellowRun, harvesterYellowRunGold, harvesterYellowRunWood, harvesterYellowRunMeat, harvesterYellowMineGold, harvesterYellowMineWood, harvesterYellowMineStone),
-  4: pawnSet(harvesterBlack, harvesterBlackRun, harvesterBlackRunGold, harvesterBlackRunWood, harvesterBlackRunMeat, harvesterBlackMineGold, harvesterBlackMineWood, harvesterBlackMineStone),
+  0: pawnSet(harvesterBlue, harvesterBlueRun, harvesterBlueRunGold, harvesterBlueRunWood, harvesterBlueRunMeat, harvesterBlueMineGold, harvesterBlueMineWood, harvesterBlueMineMeat),
+  1: pawnSet(harvesterPurple, harvesterPurpleRun, harvesterPurpleRunGold, harvesterPurpleRunWood, harvesterPurpleRunMeat, harvesterPurpleMineGold, harvesterPurpleMineWood, harvesterPurpleMineMeat),
+  2: pawnSet(harvesterRed, harvesterRedRun, harvesterRedRunGold, harvesterRedRunWood, harvesterRedRunMeat, harvesterRedMineGold, harvesterRedMineWood, harvesterRedMineMeat),
+  3: pawnSet(harvesterYellow, harvesterYellowRun, harvesterYellowRunGold, harvesterYellowRunWood, harvesterYellowRunMeat, harvesterYellowMineGold, harvesterYellowMineWood, harvesterYellowMineMeat),
+  4: pawnSet(harvesterBlack, harvesterBlackRun, harvesterBlackRunGold, harvesterBlackRunWood, harvesterBlackRunMeat, harvesterBlackMineGold, harvesterBlackMineWood, harvesterBlackMineMeat),
 };
 
 // ============================================================
@@ -1159,8 +1159,6 @@ export class SpriteLoader {
 
   // --- Units ---
 
-  /** Returns [image, spriteDef] or null if not loaded yet.
-   *  upgradeNode: optional upgrade node key (e.g. 'C', 'F', 'G') to use upgrade-path art */
   /** Check if a dedicated attack sprite exists for this unit config. */
   hasAttackSprite(race: Race, category: UnitCategory, upgradeNode?: string): boolean {
     if (upgradeNode) {
@@ -1223,12 +1221,12 @@ export class SpriteLoader {
     if (state === 'mining') {
       // Mining animation based on resource assignment
       if (assignment === 'wood') def = set.mineWood;
-      else if (assignment === 'stone') def = set.mineStone;
+      else if (assignment === 'meat') def = set.mineMeat;
       else def = set.mineGold; // base_gold and center both mine gold
     } else if (state === 'walking_home' && carryingResource) {
       // Carrying resource home
       if (carryingResource === ResourceType.Wood) def = set.runWood;
-      else if (carryingResource === ResourceType.Stone) def = set.runMeat;
+      else if (carryingResource === ResourceType.Meat) def = set.runMeat;
       else def = set.runGold;
     } else if (state === 'walking_to_node' || state === 'walking_home') {
       def = set.run;

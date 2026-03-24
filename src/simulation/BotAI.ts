@@ -3,8 +3,8 @@ import {
   HarvesterAssignment, HQ_HP, MapDef, TICK_RATE, NUKE_RADIUS,
   AbilityTargetMode, ResearchUpgradeState,
 } from './types';
-import { RACE_BUILDING_COSTS, UPGRADE_TREES, UpgradeNodeDef, UNIT_STATS, SPAWN_INTERVAL_TICKS, TOWER_STATS, getNodeUpgradeCost, HUT_COST_SCALE, TOWER_COST_SCALE, GOLD_YIELD_PER_TRIP, WOOD_YIELD_PER_TRIP, STONE_YIELD_PER_TRIP, RACE_ABILITY_DEFS, getAllResearchUpgrades, getResearchUpgradeCost } from './data';
-import { getHQPosition, getUnitUpgradeMultipliers, PASSIVE_INCOME } from './GameState';
+import { RACE_BUILDING_COSTS, UPGRADE_TREES, UpgradeNodeDef, UNIT_STATS, SPAWN_INTERVAL_TICKS, TOWER_STATS, getNodeUpgradeCost, HUT_COST_SCALE, TOWER_COST_SCALE, GOLD_YIELD_PER_TRIP, WOOD_YIELD_PER_TRIP, MEAT_YIELD_PER_TRIP, RACE_ABILITY_DEFS, getAllResearchUpgrades, getResearchUpgradeCost } from './data';
+import { getHQPosition, getUnitUpgradeMultipliers, PASSIVE_INCOME, getTeamAlleyOrigin, getBaseGoldPosition } from './GameState';
 
 // --- Bot Difficulty System ---
 
@@ -144,7 +144,7 @@ interface RaceProfile {
 //   Don't rush — units too expensive. Invest in upgrades mid-game.
 //   Diamond: YES (gold harvesters can pivot to center easily)
 //
-// HORDE (Gold+Stone, 200g/25s start, 20g/2s passive)
+// HORDE (Gold+Meat, 200g/25s start, 20g/2s passive)
 //   Best DPS/cost in game (Brute 12dps @ 60 total cost = 0.20 dps/$).
 //   Strategy: Rush 2 melee immediately (20g+40s each), overwhelm early.
 //   Minimal econ — just 1 hut, spend everything on melee pressure.
@@ -156,15 +156,15 @@ interface RaceProfile {
 //   Flood with quantity. Poison stacks from volume.
 //   Diamond: YES (gold-based economy)
 //
-// OOZLINGS (Gold+Stone, 200g/25s start, 20g/2s passive)
+// OOZLINGS (Gold+Meat, 200g/25s start, 20g/2s passive)
 //   Melee spawns 2 at 60g (0.33 dps/cost!). Pure swarm.
 //   Strategy: Rush 3 melee spawners for 6 units/wave. Huts later.
 //   Overwhelm with bodies, bloater caster for AOE support.
-//   Diamond: SKIP until late (stone-needy, harvesters better on resources)
+//   Diamond: SKIP until late (meat-needy, harvesters better on resources)
 //
-// DEMON (Stone+Wood, 0g/50w/150s start, 2w/20s passive)
+// DEMON (Meat+Wood, 0g/50w/150s start, 2w/20s passive)
 //   Glass cannon: 15.6 dps melee @ 46 cost. Burns everything.
-//   Strategy: Rush melee (14w+32s, very cheap with stone start).
+//   Strategy: Rush melee (14w+32s, very cheap with meat start).
 //   Build 2 melee + 1 ranged fast, hut after. Pure aggression.
 //   Diamond: SKIP (no gold economy, harvesters wasted on center gold)
 //
@@ -174,17 +174,17 @@ interface RaceProfile {
 //   Build tower early for defense while economy ramps. Slow push late.
 //   Diamond: SKIP (gold-poor, harvesters should gather wood)
 //
-// WILD (Wood+Stone, 0g/150w/50s start, 20w/2s passive)
+// WILD (Wood+Meat, 0g/150w/50s start, 20w/2s passive)
 //   Poison + aggression. Ranged decent (7dps @ 53 cost). No gold.
 //   Strategy: Melee + ranged early (both cheap in wood). 2 huts.
 //   Push early while poison stacks. Caster for AOE poison mid.
 //   Diamond: SKIP (no gold economy)
 //
-// GEISTS (Stone+Gold, 50g/0w/150s start, 2g/20s passive)
-//   Undying melee (125hp + lifesteal). Stone-heavy costs.
+// GEISTS (Meat+Gold, 50g/0w/150s start, 2g/20s passive)
+//   Undying melee (125hp + lifesteal). Meat-heavy costs.
 //   Strategy: Rush melee (20g+35s, cheap). Lifesteal = sustain.
 //   2 melee early, 1 hut, ranged mid. Grind enemies down.
-//   Diamond: SKIP until late (stone economy, center gives gold)
+//   Diamond: SKIP until late (meat economy, center gives gold)
 //
 // TENDERS (Wood+Gold, 50g/150w start, 2g/20w passive)
 //   Tanky healers (120hp melee + regen). Expensive (75 total melee).
@@ -198,11 +198,11 @@ const RACE_LIKES_DIAMOND: Record<Race, boolean> = {
   [Race.Crown]: true,     // gold-based, diamond center = more gold
   [Race.Horde]: true,     // gold-based
   [Race.Goblins]: true,   // gold-based
-  [Race.Oozlings]: false, // needs stone more than center gold
+  [Race.Oozlings]: false, // needs meat more than center gold
   [Race.Demon]: false,    // no gold economy at all
   [Race.Deep]: false,     // wood-primary, gold is secondary
   [Race.Wild]: false,     // no gold economy
-  [Race.Geists]: false,   // stone-primary, gold is secondary
+  [Race.Geists]: false,   // meat-primary, gold is secondary
   [Race.Tenders]: false,  // wood-primary, gold is secondary
 };
 
@@ -502,15 +502,15 @@ interface CategoryPerf {
 interface ResourceProjection {
   totalGoldNeeded: number;
   totalWoodNeeded: number;
-  totalStoneNeeded: number;
+  totalMeatNeeded: number;
   goldIncome: number;
   woodIncome: number;
-  stoneIncome: number;
+  meatIncome: number;
   goldSecsToTarget: number;
   woodSecsToTarget: number;
-  stoneSecsToTarget: number;
+  meatSecsToTarget: number;
   bottleneck: HarvesterAssignment;
-  /** Ideal harvester split: [gold, wood, stone, center] */
+  /** Ideal harvester split: [gold, wood, meat, center] */
   idealSplit: [number, number, number, number];
 }
 
@@ -971,7 +971,7 @@ function botPlanResources(
   }
 
   // --- Build shopping list: next 3-4 purchases ---
-  const list: { gold: number; wood: number; stone: number }[] = [];
+  const list: { gold: number; wood: number; meat: number }[] = [];
 
   // Determine phase-appropriate targets (with build shift applied)
   let meleeTarget: number, rangedTarget: number, casterTarget: number, hutTarget: number;
@@ -1007,7 +1007,7 @@ function botPlanResources(
     list.push({
       gold: Math.floor(hutCost.gold * mult),
       wood: Math.floor(hutCost.wood * mult),
-      stone: Math.floor(hutCost.stone * mult),
+      meat: Math.floor(hutCost.meat * mult),
     });
   }
 
@@ -1025,63 +1025,63 @@ function botPlanResources(
   }
 
   // Sum next 3-4 items on list
-  let totalGold = 0, totalWood = 0, totalStone = 0;
+  let totalGold = 0, totalWood = 0, totalMeat = 0;
   const lookahead = Math.min(4, list.length);
   for (let i = 0; i < lookahead; i++) {
     totalGold += list[i].gold;
     totalWood += list[i].wood;
-    totalStone += list[i].stone;
+    totalMeat += list[i].meat;
   }
 
   // Deficits (what we need minus what we have)
   const goldNeeded = Math.max(0, totalGold - player.gold);
   const woodNeeded = Math.max(0, totalWood - player.wood);
-  const stoneNeeded = Math.max(0, totalStone - player.stone);
+  const meatNeeded = Math.max(0, totalMeat - player.meat);
 
   // --- Estimate income ---
   const passive = PASSIVE_RATES[race];
   // Harvester rates: yield / estimated round-trip time (~8.5s for nearby nodes)
   const GOLD_HARVEST_RATE = GOLD_YIELD_PER_TRIP / 8.5;   // ~0.59/sec
   const WOOD_HARVEST_RATE = WOOD_YIELD_PER_TRIP / 8.5;   // ~1.18/sec
-  const STONE_HARVEST_RATE = STONE_YIELD_PER_TRIP / 8.5;  // ~1.18/sec
+  const MEAT_HARVEST_RATE = MEAT_YIELD_PER_TRIP / 8.5;  // ~1.18/sec
   const harvesters = state.harvesters.filter(h => h.playerId === playerId);
-  let goldH = 0, woodH = 0, stoneH = 0;
+  let goldH = 0, woodH = 0, meatH = 0;
   for (const h of harvesters) {
     if (h.assignment === HarvesterAssignment.BaseGold || h.assignment === HarvesterAssignment.Center) goldH++;
     else if (h.assignment === HarvesterAssignment.Wood) woodH++;
-    else stoneH++;
+    else meatH++;
   }
 
   const goldIncome = passive.gold + goldH * GOLD_HARVEST_RATE;
   const woodIncome = passive.wood + woodH * WOOD_HARVEST_RATE;
-  const stoneIncome = passive.stone + stoneH * STONE_HARVEST_RATE;
+  const meatIncome = passive.meat + meatH * MEAT_HARVEST_RATE;
 
   // Time to afford each resource
   const goldSecs = goldIncome > 0.01 ? goldNeeded / goldIncome : (goldNeeded > 0 ? 999 : 0);
   const woodSecs = woodIncome > 0.01 ? woodNeeded / woodIncome : (woodNeeded > 0 ? 999 : 0);
-  const stoneSecs = stoneIncome > 0.01 ? stoneNeeded / stoneIncome : (stoneNeeded > 0 ? 999 : 0);
+  const meatSecs = meatIncome > 0.01 ? meatNeeded / meatIncome : (meatNeeded > 0 ? 999 : 0);
 
   // Bottleneck = resource with longest time-to-afford
   let bottleneck = HarvesterAssignment.BaseGold;
   let maxTime = goldSecs;
   if (woodSecs > maxTime) { bottleneck = HarvesterAssignment.Wood; maxTime = woodSecs; }
-  if (stoneSecs > maxTime) { bottleneck = HarvesterAssignment.Stone; maxTime = stoneSecs; }
+  if (meatSecs > maxTime) { bottleneck = HarvesterAssignment.Meat; maxTime = meatSecs; }
 
   // --- Calculate ideal harvester split ---
   // Distribute harvesters proportional to resource deficit, not current stockpiles
-  const totalDeficit = goldNeeded + woodNeeded + stoneNeeded;
+  const totalDeficit = goldNeeded + woodNeeded + meatNeeded;
   const totalHarvesters = harvesters.length;
-  let idealGold = 0, idealWood = 0, idealStone = 0, idealCenter = 0;
+  let idealGold = 0, idealWood = 0, idealMeat = 0, idealCenter = 0;
 
   if (totalDeficit > 0 && totalHarvesters > 0) {
     const goldPct = goldNeeded / totalDeficit;
     const woodPct = woodNeeded / totalDeficit;
-    const stonePct = stoneNeeded / totalDeficit;
+    const meatPct = meatNeeded / totalDeficit;
 
     // Assign harvesters proportionally, minimum 1 per needed resource
     idealGold = Math.max(goldNeeded > 10 ? 1 : 0, Math.round(goldPct * totalHarvesters));
     idealWood = Math.max(woodNeeded > 10 ? 1 : 0, Math.round(woodPct * totalHarvesters));
-    idealStone = Math.max(stoneNeeded > 10 ? 1 : 0, Math.round(stonePct * totalHarvesters));
+    idealMeat = Math.max(meatNeeded > 10 ? 1 : 0, Math.round(meatPct * totalHarvesters));
 
     // If race likes diamond and game is late enough, dedicate 1 to center
     if (RACE_LIKES_DIAMOND[race] && gameMinutes > 3 && totalHarvesters >= 3) {
@@ -1089,39 +1089,39 @@ function botPlanResources(
     }
 
     // Normalize to total harvesters
-    const total = idealGold + idealWood + idealStone + idealCenter;
+    const total = idealGold + idealWood + idealMeat + idealCenter;
     if (total > totalHarvesters) {
       // Scale down proportionally, keep center if assigned
-      const scale = (totalHarvesters - idealCenter) / Math.max(1, idealGold + idealWood + idealStone);
+      const scale = (totalHarvesters - idealCenter) / Math.max(1, idealGold + idealWood + idealMeat);
       idealGold = Math.round(idealGold * scale);
       idealWood = Math.round(idealWood * scale);
-      idealStone = totalHarvesters - idealGold - idealWood - idealCenter;
+      idealMeat = totalHarvesters - idealGold - idealWood - idealCenter;
     } else if (total < totalHarvesters) {
       // Extra harvesters go to bottleneck
       const extra = totalHarvesters - total;
       if (bottleneck === HarvesterAssignment.Wood) idealWood += extra;
-      else if (bottleneck === HarvesterAssignment.Stone) idealStone += extra;
+      else if (bottleneck === HarvesterAssignment.Meat) idealMeat += extra;
       else idealGold += extra;
     }
   } else if (totalHarvesters > 0) {
     // No deficit — distribute based on what race needs most (from building costs)
     const totalCosts = costs[BuildingType.MeleeSpawner];
-    const costTotal = totalCosts.gold + totalCosts.wood + totalCosts.stone;
+    const costTotal = totalCosts.gold + totalCosts.wood + totalCosts.meat;
     if (costTotal > 0) {
       idealGold = Math.max(1, Math.round((totalCosts.gold / costTotal) * totalHarvesters));
       idealWood = Math.max(totalCosts.wood > 0 ? 1 : 0, Math.round((totalCosts.wood / costTotal) * totalHarvesters));
-      idealStone = totalHarvesters - idealGold - idealWood;
+      idealMeat = totalHarvesters - idealGold - idealWood;
     } else {
       idealGold = totalHarvesters;
     }
   }
 
   return {
-    totalGoldNeeded: totalGold, totalWoodNeeded: totalWood, totalStoneNeeded: totalStone,
-    goldIncome, woodIncome, stoneIncome,
-    goldSecsToTarget: goldSecs, woodSecsToTarget: woodSecs, stoneSecsToTarget: stoneSecs,
+    totalGoldNeeded: totalGold, totalWoodNeeded: totalWood, totalMeatNeeded: totalMeat,
+    goldIncome, woodIncome, meatIncome,
+    goldSecsToTarget: goldSecs, woodSecsToTarget: woodSecs, meatSecsToTarget: meatSecs,
     bottleneck,
-    idealSplit: [idealGold, idealWood, idealStone, idealCenter],
+    idealSplit: [idealGold, idealWood, idealMeat, idealCenter],
   };
 }
 
@@ -1263,7 +1263,7 @@ function botEnemyTeam(playerId: number, state?: GameState): Team {
 function botCanAfford(state: GameState, playerId: number, type: BuildingType): boolean {
   const player = state.players[playerId];
   const cost = RACE_BUILDING_COSTS[player.race][type];
-  return player.gold >= cost.gold && player.wood >= cost.wood && player.stone >= cost.stone;
+  return player.gold >= cost.gold && player.wood >= cost.wood && player.meat >= cost.meat;
 }
 
 function botCanAffordTower(state: GameState, playerId: number, towerCount: number): boolean {
@@ -1273,7 +1273,7 @@ function botCanAffordTower(state: GameState, playerId: number, towerCount: numbe
   const mult = Math.pow(TOWER_COST_SCALE, Math.max(0, towerCount - 1));
   return player.gold >= Math.floor(baseCost.gold * mult)
     && player.wood >= Math.floor(baseCost.wood * mult)
-    && player.stone >= Math.floor(baseCost.stone * mult);
+    && player.meat >= Math.floor(baseCost.meat * mult);
 }
 
 function botCanAffordHut(state: GameState, playerId: number, hutCount: number): boolean {
@@ -1282,7 +1282,7 @@ function botCanAffordHut(state: GameState, playerId: number, hutCount: number): 
   const mult = Math.pow(HUT_COST_SCALE, Math.max(0, hutCount - 1));
   return player.gold >= Math.floor(hutRes.gold * mult)
     && player.wood >= Math.floor(hutRes.wood * mult)
-    && player.stone >= Math.floor(hutRes.stone * mult);
+    && player.meat >= Math.floor(hutRes.meat * mult);
 }
 
 function unitStrength(u: GameState['units'][0]): number {
@@ -1303,11 +1303,11 @@ function getTeammateIds(playerId: number, state?: GameState): number[] {
 /** Total resource value available to spend */
 function totalResources(state: GameState, playerId: number): number {
   const p = state.players[playerId];
-  return p.gold + p.wood + p.stone;
+  return p.gold + p.wood + p.meat;
 }
 
-function resourceBundleTotal(cost: { gold: number; wood: number; stone: number; deathEssence?: number; souls?: number }): number {
-  return cost.gold + cost.wood + cost.stone + (cost.deathEssence ?? 0) + (cost.souls ?? 0);
+function resourceBundleTotal(cost: { gold: number; wood: number; meat: number; deathEssence?: number; souls?: number }): number {
+  return cost.gold + cost.wood + cost.meat + (cost.deathEssence ?? 0) + (cost.souls ?? 0);
 }
 
 function buildingCategory(type: BuildingType): 'melee' | 'ranged' | 'caster' | null {
@@ -1421,18 +1421,18 @@ function detectPowerSpike(
  * Returns seconds. 0 = can afford now. 999 = can never afford.
  */
 function timeToAfford(
-  player: GameState['players'][0], cost: { gold: number; wood: number; stone: number },
+  player: GameState['players'][0], cost: { gold: number; wood: number; meat: number },
   plan: ResourceProjection | null,
 ): number {
   const goldNeed = Math.max(0, cost.gold - player.gold);
   const woodNeed = Math.max(0, cost.wood - player.wood);
-  const stoneNeed = Math.max(0, cost.stone - player.stone);
-  if (goldNeed === 0 && woodNeed === 0 && stoneNeed === 0) return 0;
+  const meatNeed = Math.max(0, cost.meat - player.meat);
+  if (goldNeed === 0 && woodNeed === 0 && meatNeed === 0) return 0;
   if (!plan) return 999;
   const goldSecs = plan.goldIncome > 0.01 ? goldNeed / plan.goldIncome : (goldNeed > 0 ? 999 : 0);
   const woodSecs = plan.woodIncome > 0.01 ? woodNeed / plan.woodIncome : (woodNeed > 0 ? 999 : 0);
-  const stoneSecs = plan.stoneIncome > 0.01 ? stoneNeed / plan.stoneIncome : (stoneNeed > 0 ? 999 : 0);
-  return Math.max(goldSecs, woodSecs, stoneSecs);
+  const meatSecs = plan.meatIncome > 0.01 ? meatNeed / plan.meatIncome : (meatNeed > 0 ? 999 : 0);
+  return Math.max(goldSecs, woodSecs, meatSecs);
 }
 
 function estimateSpawnerValue(
@@ -1482,7 +1482,7 @@ function estimateUpgradeValue(
   const tier = getNodeUpgradeCost(race, building.type, building.upgradePath.length, choice);
   const totalCost = resourceBundleTotal(tier);
   if (totalCost <= 0 && !(tier.deathEssence ?? 0) && !(tier.souls ?? 0)) return { value: 0, choice: 'B' };
-  if (player.gold < tier.gold || player.wood < tier.wood || player.stone < tier.stone) {
+  if (player.gold < tier.gold || player.wood < tier.wood || player.meat < tier.meat) {
     return { value: 0, choice };
   }
   if ((tier.deathEssence ?? 0) > 0 && player.deathEssence < (tier.deathEssence ?? 0)) {
@@ -1672,7 +1672,7 @@ function estimateResearchValue(
   else if (upgradeId === 'caster_def') level = bu.casterDefLevel;
 
   const cost = getResearchUpgradeCost(upgradeId, level, race);
-  const totalCost = cost.gold + cost.wood + cost.stone + (cost.deathEssence ?? 0) + (cost.souls ?? 0);
+  const totalCost = cost.gold + cost.wood + cost.meat + (cost.deathEssence ?? 0) + (cost.souls ?? 0);
   if (totalCost <= 0) return 0;
 
   // Race ability upgrades: flat moderate value (bots will buy them mid-late game)
@@ -1744,31 +1744,31 @@ function estimateHutPaybackSeconds(
   const race = state.players[playerId].race;
   const hutBase = RACE_BUILDING_COSTS[race][BuildingType.HarvesterHut];
   const mult = Math.pow(HUT_COST_SCALE, Math.max(0, hutCount - 1));
-  const totalCost = Math.floor(hutBase.gold * mult) + Math.floor(hutBase.wood * mult) + Math.floor(hutBase.stone * mult);
+  const totalCost = Math.floor(hutBase.gold * mult) + Math.floor(hutBase.wood * mult) + Math.floor(hutBase.meat * mult);
   if (totalCost <= 0) return 999;
 
   const plan = ctx.intelligence[playerId]?.resourcePlan;
   const passive = PASSIVE_RATES[race];
   const harvesters = state.harvesters.filter(h => h.playerId === playerId);
-  let goldH = 0, woodH = 0, stoneH = 0;
+  let goldH = 0, woodH = 0, meatH = 0;
   for (const h of harvesters) {
     if (h.assignment === HarvesterAssignment.BaseGold || h.assignment === HarvesterAssignment.Center) goldH++;
     else if (h.assignment === HarvesterAssignment.Wood) woodH++;
-    else stoneH++;
+    else meatH++;
   }
 
   const goldIncome = plan?.goldIncome ?? (passive.gold + goldH * (GOLD_YIELD_PER_TRIP / 8.5));
   const woodIncome = plan?.woodIncome ?? (passive.wood + woodH * (WOOD_YIELD_PER_TRIP / 8.5));
-  const stoneIncome = plan?.stoneIncome ?? (passive.stone + stoneH * (STONE_YIELD_PER_TRIP / 8.5));
+  const meatIncome = plan?.meatIncome ?? (passive.meat + meatH * (MEAT_YIELD_PER_TRIP / 8.5));
 
   const costTime = Math.max(
     hutBase.gold > 0 ? Math.floor(hutBase.gold * mult) / Math.max(0.1, goldIncome) : 0,
     hutBase.wood > 0 ? Math.floor(hutBase.wood * mult) / Math.max(0.1, woodIncome) : 0,
-    hutBase.stone > 0 ? Math.floor(hutBase.stone * mult) / Math.max(0.1, stoneIncome) : 0
+    hutBase.meat > 0 ? Math.floor(hutBase.meat * mult) / Math.max(0.1, meatIncome) : 0
   );
 
   // Avg harvester income: weighted by resource types the race uses
-  const avgHarvestRate = (GOLD_YIELD_PER_TRIP + WOOD_YIELD_PER_TRIP + STONE_YIELD_PER_TRIP) / 3 / 8.5;
+  const avgHarvestRate = (GOLD_YIELD_PER_TRIP + WOOD_YIELD_PER_TRIP + MEAT_YIELD_PER_TRIP) / 3 / 8.5;
   const directPayback = totalCost / avgHarvestRate;
   return Math.max(directPayback, costTime * 1.2);
 }
@@ -1796,7 +1796,7 @@ function shouldBuildHutNow(
 
   const payback = estimateHutPaybackSeconds(state, ctx, playerId, hutCount);
   const bottleneckWait = intel?.resourcePlan
-    ? Math.max(intel.resourcePlan.goldSecsToTarget, intel.resourcePlan.woodSecsToTarget, intel.resourcePlan.stoneSecsToTarget)
+    ? Math.max(intel.resourcePlan.goldSecsToTarget, intel.resourcePlan.woodSecsToTarget, intel.resourcePlan.meatSecsToTarget)
     : 0;
 
   // When behind hard: never invest in economy, spend on army
@@ -2212,7 +2212,7 @@ function botValueBasedBuild(
     const cost = costs[type];
     const canAfford = botCanAfford(state, playerId, type);
     const wait = canAfford ? 0 : timeToAfford(player, cost, plan);
-    const spRT = (cost.gold > 0 ? 1 : 0) + (cost.wood > 0 ? 1 : 0) + (cost.stone > 0 ? 1 : 0);
+    const spRT = (cost.gold > 0 ? 1 : 0) + (cost.wood > 0 ? 1 : 0) + (cost.meat > 0 ? 1 : 0);
     options.push({ action: 'spawner', value: (sv + shiftBonus) * profileMult, affordable: canAfford, waitSecs: wait, resourceTypes: spRT, type });
   }
 
@@ -2224,7 +2224,7 @@ function botValueBasedBuild(
     for (const b of upgradeable) {
       const choice = botPickUpgrade(state, ctx, b, profile, race, enemyRaces, diff);
       const tier = getNodeUpgradeCost(race, b.type, b.upgradePath.length, choice);
-      const canAfford = player.gold >= tier.gold && player.wood >= tier.wood && player.stone >= tier.stone
+      const canAfford = player.gold >= tier.gold && player.wood >= tier.wood && player.meat >= tier.meat
         && ((tier.deathEssence ?? 0) <= 0 || player.deathEssence >= (tier.deathEssence ?? 0));
 
       // Compute value even if can't afford (for save-for comparison)
@@ -2261,7 +2261,7 @@ function botValueBasedBuild(
 
       if (uv > 0) {
         const wait = canAfford ? 0 : timeToAfford(player, tier, plan);
-        const upRT = (tier.gold > 0 ? 1 : 0) + (tier.wood > 0 ? 1 : 0) + (tier.stone > 0 ? 1 : 0);
+        const upRT = (tier.gold > 0 ? 1 : 0) + (tier.wood > 0 ? 1 : 0) + (tier.meat > 0 ? 1 : 0);
         options.push({
           action: 'upgrade', value: uv, affordable: canAfford, waitSecs: wait, resourceTypes: upRT,
           building: b, upgradeChoice: choice,
@@ -2281,27 +2281,27 @@ function botValueBasedBuild(
       const timeHorizon = Math.max(60, 300 - gameMinutes * 30);
       const avgSpawnerCost = spawnerTypes.reduce((sum, t) => sum + resourceBundleTotal(costs[t]), 0) / 3;
       const avgThroughput = spawnerTypes.reduce((sum, t) => sum + getSpawnerThroughput(race, t), 0) / 3;
-      const additionalIncome = (GOLD_YIELD_PER_TRIP + WOOD_YIELD_PER_TRIP + STONE_YIELD_PER_TRIP) / 3 / 8.5;
+      const additionalIncome = (GOLD_YIELD_PER_TRIP + WOOD_YIELD_PER_TRIP + MEAT_YIELD_PER_TRIP) / 3 / 8.5;
       const enabledThroughput = avgSpawnerCost > 0
         ? (additionalIncome * timeHorizon / avgSpawnerCost) * avgThroughput
         : 0;
       const hutBase = costs[BuildingType.HarvesterHut];
       const mult = Math.pow(HUT_COST_SCALE, Math.max(0, hutCount - 1));
-      const hutTotalCost = Math.floor(hutBase.gold * mult) + Math.floor(hutBase.wood * mult) + Math.floor(hutBase.stone * mult);
+      const hutTotalCost = Math.floor(hutBase.gold * mult) + Math.floor(hutBase.wood * mult) + Math.floor(hutBase.meat * mult);
       let hv = hutTotalCost > 0 ? enabledThroughput / hutTotalCost : 0;
       // Scale down if payback is long
       if (payback > 60) hv *= 60 / payback;
       // Pressure bonus when resource-starved
       const pressureBonus = plan
         ? Math.min(0.15, Math.max(0, Math.max(
-          plan.goldSecsToTarget, plan.woodSecsToTarget, plan.stoneSecsToTarget,
+          plan.goldSecsToTarget, plan.woodSecsToTarget, plan.meatSecsToTarget,
         ) - 15) * 0.005)
         : 0;
       hv += pressureBonus;
       if (hv > 0) {
         const canAffordHut = botCanAffordHut(state, playerId, hutCount);
         const hutBase2 = costs[BuildingType.HarvesterHut];
-        const hutRT = (hutBase2.gold > 0 ? 1 : 0) + (hutBase2.wood > 0 ? 1 : 0) + (hutBase2.stone > 0 ? 1 : 0);
+        const hutRT = (hutBase2.gold > 0 ? 1 : 0) + (hutBase2.wood > 0 ? 1 : 0) + (hutBase2.meat > 0 ? 1 : 0);
         options.push({ action: 'hut', value: hv, affordable: canAffordHut, waitSecs: 0, resourceTypes: hutRT });
       }
     }
@@ -2313,8 +2313,8 @@ function botValueBasedBuild(
     const ts = TOWER_STATS[race];
     const towerBaseCost = costs[BuildingType.Tower];
     const towerMult = totalTowers > 0 ? Math.pow(TOWER_COST_SCALE, Math.max(0, totalTowers - 1)) : 1;
-    const towerCost = { gold: Math.floor(towerBaseCost.gold * towerMult), wood: Math.floor(towerBaseCost.wood * towerMult), stone: Math.floor(towerBaseCost.stone * towerMult) };
-    const totalCostT = towerCost.gold + towerCost.wood + towerCost.stone;
+    const towerCost = { gold: Math.floor(towerBaseCost.gold * towerMult), wood: Math.floor(towerBaseCost.wood * towerMult), meat: Math.floor(towerBaseCost.meat * towerMult) };
+    const totalCostT = towerCost.gold + towerCost.wood + towerCost.meat;
     const towerDPS = ts.damage / ts.attackSpeed;
     let towerVal = totalCostT > 0 ? (towerDPS + ts.hp * 0.005) / totalCostT : 0;
     // Towers more valuable when losing
@@ -2325,10 +2325,10 @@ function botValueBasedBuild(
     if (totalTowers === 0) towerVal *= 5;
     const canAffordTower = botCanAffordTower(state, playerId, totalTowers);
     if (alleyTowerCount < profile.alleyTowers) {
-      const twRT = (towerCost.gold > 0 ? 1 : 0) + (towerCost.wood > 0 ? 1 : 0) + (towerCost.stone > 0 ? 1 : 0);
+      const twRT = (towerCost.gold > 0 ? 1 : 0) + (towerCost.wood > 0 ? 1 : 0) + (towerCost.meat > 0 ? 1 : 0);
       options.push({ action: 'alley_tower', value: towerVal, affordable: canAffordTower, waitSecs: 0, resourceTypes: twRT });
     } else if (towerCount < profile.lateTowers) {
-      const twRT2 = (towerCost.gold > 0 ? 1 : 0) + (towerCost.wood > 0 ? 1 : 0) + (towerCost.stone > 0 ? 1 : 0);
+      const twRT2 = (towerCost.gold > 0 ? 1 : 0) + (towerCost.wood > 0 ? 1 : 0) + (towerCost.meat > 0 ? 1 : 0);
       options.push({ action: 'tower', value: towerVal, affordable: canAffordTower, waitSecs: 0, resourceTypes: twRT2, type: BuildingType.Tower });
     }
   }
@@ -2349,15 +2349,15 @@ function botValueBasedBuild(
       else if (rDef.id === 'caster_def') rLevel = bu.casterDefLevel;
 
       const rCost = getResearchUpgradeCost(rDef.id, rLevel, race);
-      const rTotalCost = rCost.gold + rCost.wood + rCost.stone + (rCost.souls ?? 0);
+      const rTotalCost = rCost.gold + rCost.wood + rCost.meat + (rCost.souls ?? 0);
       if (rTotalCost <= 0) continue;
 
-      const canAffordR = player.gold >= rCost.gold && player.wood >= rCost.wood && player.stone >= rCost.stone
+      const canAffordR = player.gold >= rCost.gold && player.wood >= rCost.wood && player.meat >= rCost.meat
         && ((rCost.souls ?? 0) <= 0 || player.souls >= (rCost.souls ?? 0));
       const rv = estimateResearchValue(state, ctx, playerId, rDef.id, race, bu, intel, myBuildings);
       if (rv > 0) {
         const waitR = canAffordR ? 0 : timeToAfford(player, rCost, plan);
-        const rRT = (rCost.gold > 0 ? 1 : 0) + (rCost.wood > 0 ? 1 : 0) + (rCost.stone > 0 ? 1 : 0) + ((rCost.souls ?? 0) > 0 ? 1 : 0);
+        const rRT = (rCost.gold > 0 ? 1 : 0) + (rCost.wood > 0 ? 1 : 0) + (rCost.meat > 0 ? 1 : 0) + ((rCost.souls ?? 0) > 0 ? 1 : 0);
         options.push({
           action: 'research', value: rv, affordable: canAffordR, waitSecs: waitR, resourceTypes: rRT,
           researchId: rDef.id,
@@ -2630,8 +2630,17 @@ function botPlaceAlleyTower(state: GameState, playerId: number, emit: Emit): boo
   );
   const occupied = new Set(teamAlleyBuildings.map(b => `${b.gridX},${b.gridY}`));
   const freeSlots: { gx: number; gy: number }[] = [];
+  // Compute gold mine exclusion zone for landscape maps
+  let exGX = -999, exGY = -999;
+  if (state.mapDef.shapeAxis === 'x') {
+    const origin = getTeamAlleyOrigin(myTeam, state.mapDef);
+    const goldPos = getBaseGoldPosition(myTeam, state.mapDef);
+    exGX = Math.round(goldPos.x - origin.x);
+    exGY = Math.round(goldPos.y - origin.y);
+  }
   for (let gy = 0; gy < state.mapDef.towerAlleyRows; gy++) {
     for (let gx = 0; gx < state.mapDef.towerAlleyCols; gx++) {
+      if (gx >= exGX - 3 && gx < exGX + 3 && gy >= exGY - 3 && gy < exGY + 3) continue;
       if (!occupied.has(`${gx},${gy}`)) freeSlots.push({ gx, gy });
     }
   }
@@ -2693,11 +2702,11 @@ function botUpgradeBuildings(
   for (const b of upgradeable) {
     const uv = estimateUpgradeValue(state, ctx, playerId, b, profile, enemyRaces, diff);
     const cost = getNodeUpgradeCost(player.race, b.type, b.upgradePath.length, uv.choice);
-    if (player.gold < cost.gold || player.wood < cost.wood || player.stone < cost.stone) continue;
+    if (player.gold < cost.gold || player.wood < cost.wood || player.meat < cost.meat) continue;
     if ((cost.deathEssence ?? 0) > 0 && player.deathEssence < (cost.deathEssence ?? 0)) continue;
 
     // Don't spend all resources on upgrades if we need buildings
-    const resAfter = (player.gold - cost.gold) + (player.wood - cost.wood) + (player.stone - cost.stone);
+    const resAfter = (player.gold - cost.gold) + (player.wood - cost.wood) + (player.meat - cost.meat);
     if (gameMinutes < 3 && resAfter < 30 && spawnerCount < 3) continue;
     if (uv.value <= 0) continue;
 
@@ -2745,7 +2754,7 @@ function botUpgradeBuildings(
       else if (rDef.id === 'caster_def') rLevel = bu.casterDefLevel;
 
       const rCost = getResearchUpgradeCost(rDef.id, rLevel, player.race);
-      if (player.gold < rCost.gold || player.wood < rCost.wood || player.stone < rCost.stone) continue;
+      if (player.gold < rCost.gold || player.wood < rCost.wood || player.meat < rCost.meat) continue;
       if ((rCost.souls ?? 0) > 0 && player.souls < (rCost.souls ?? 0)) continue;
 
       const rv = estimateResearchValue(state, ctx, playerId, rDef.id, player.race, bu, intel, myBuildings);
@@ -3028,10 +3037,10 @@ function botManageHarvesters(
 
   if (plan) {
     // Use the ideal split calculated by resource planner
-    const [idealGold, idealWood, idealStone, idealCenter] = plan.idealSplit;
+    const [idealGold, idealWood, idealMeat, idealCenter] = plan.idealSplit;
     for (let i = 0; i < idealGold; i++) assignments.push(HarvesterAssignment.BaseGold);
     for (let i = 0; i < idealWood; i++) assignments.push(HarvesterAssignment.Wood);
-    for (let i = 0; i < idealStone; i++) assignments.push(HarvesterAssignment.Stone);
+    for (let i = 0; i < idealMeat; i++) assignments.push(HarvesterAssignment.Meat);
     for (let i = 0; i < idealCenter; i++) assignments.push(HarvesterAssignment.Center);
 
     // Pad or trim to match actual harvester count
@@ -3045,17 +3054,17 @@ function botManageHarvesters(
     // Fallback: use legacy primary/secondary resource logic
     const race = player.race;
     const costs = RACE_BUILDING_COSTS[race];
-    let totalGoldNeed = 0, totalWoodNeed = 0, totalStoneNeed = 0;
+    let totalGoldNeed = 0, totalWoodNeed = 0, totalMeatNeed = 0;
     for (const type of [BuildingType.MeleeSpawner, BuildingType.RangedSpawner, BuildingType.CasterSpawner, BuildingType.Tower]) {
       const c = costs[type];
       totalGoldNeed += c.gold;
       totalWoodNeed += c.wood;
-      totalStoneNeed += c.stone;
+      totalMeatNeed += c.meat;
     }
     const resNeeds: [HarvesterAssignment, number][] = [
       [HarvesterAssignment.BaseGold, totalGoldNeed],
       [HarvesterAssignment.Wood, totalWoodNeed],
-      [HarvesterAssignment.Stone, totalStoneNeed],
+      [HarvesterAssignment.Meat, totalMeatNeed],
     ];
     resNeeds.sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
     const primaryRes = resNeeds[0][1] > 0 ? resNeeds[0][0] : HarvesterAssignment.BaseGold;
@@ -3219,14 +3228,14 @@ function botUseAbility(state: GameState, playerId: number, emit: Emit): void {
     const growthMult = def.costGrowthFactor ? Math.pow(def.costGrowthFactor, player.abilityUseCount) : 1;
     const goldCost = Math.floor((def.baseCost.gold ?? 0) * growthMult);
     const woodCost = Math.floor((def.baseCost.wood ?? 0) * growthMult);
-    const stoneCost = Math.floor((def.baseCost.stone ?? 0) * growthMult);
+    const meatCost = Math.floor((def.baseCost.meat ?? 0) * growthMult);
     const manaCost = Math.floor((def.baseCost.mana ?? 0) * growthMult);
     const soulsCost = player.race === Race.Geists
       ? (def.baseCost.souls ?? 0) + 5 * player.abilityUseCount
       : Math.floor((def.baseCost.souls ?? 0) * growthMult);
     const essenceCost = Math.floor((def.baseCost.deathEssence ?? 0) * growthMult);
 
-    if (player.gold < goldCost || player.wood < woodCost || player.stone < stoneCost) return;
+    if (player.gold < goldCost || player.wood < woodCost || player.meat < meatCost) return;
     if (player.mana < manaCost || player.souls < soulsCost || player.deathEssence < essenceCost) return;
   }
 
@@ -3299,7 +3308,7 @@ function botManageResearch(
   // Medium: only attack upgrades
   const allDefs = getAllResearchUpgrades(race);
 
-  type UpgradeCandidate = { id: string; score: number; cost: { gold: number; wood: number; stone: number } };
+  type UpgradeCandidate = { id: string; score: number; cost: { gold: number; wood: number; meat: number } };
   const candidates: UpgradeCandidate[] = [];
 
   for (const def of allDefs) {
@@ -3313,7 +3322,7 @@ function botManageResearch(
     else if (def.id === 'caster_atk') level = bu.casterAtkLevel;
 
     const cost = getResearchUpgradeCost(def.id, level, race);
-    if (player.gold < cost.gold || player.wood < cost.wood || player.stone < cost.stone) continue;
+    if (player.gold < cost.gold || player.wood < cost.wood || player.meat < cost.meat) continue;
     if ((cost.deathEssence ?? 0) > 0 && player.deathEssence < (cost.deathEssence ?? 0)) continue;
     if ((cost.souls ?? 0) > 0 && player.souls < (cost.souls ?? 0)) continue;
 
@@ -3325,7 +3334,7 @@ function botManageResearch(
     if (categoryWeight === 0) continue;
 
     let score = categoryWeight * 2; // attack multiplier
-    const totalCost = cost.gold + cost.wood + cost.stone + (cost.deathEssence ?? 0) + (cost.souls ?? 0);
+    const totalCost = cost.gold + cost.wood + cost.meat + (cost.deathEssence ?? 0) + (cost.souls ?? 0);
     score /= Math.max(1, totalCost / 100);
 
     candidates.push({ id: def.id, score, cost });

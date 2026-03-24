@@ -6,18 +6,32 @@ const FADE_MS = 1500;
 // Discover all mp3 files at build time, keyed by relative path
 const allAudio = import.meta.glob('../assets/audio/**/*.mp3', { eager: true, query: '?url', import: 'default' }) as Record<string, string>;
 
+interface TrackInfo {
+  url: string;
+  name: string;
+}
+
+/** Extract a display name from a glob key like "../assets/audio/Foo/My Track(1).mp3" → "My Track" */
+function trackNameFromKey(key: string): string {
+  const filename = key.split('/').pop() ?? key;
+  return filename
+    .replace(/\.mp3$/i, '')      // strip extension
+    .replace(/\s*\(\d+\)$/, '')  // strip trailing "(1)" duplicates
+    .trim();
+}
+
 // Organize URLs by folder category
-function collectFolder(folder: string): string[] {
+function collectFolder(folder: string): TrackInfo[] {
   const prefix = `../assets/audio/${folder}/`;
   return Object.entries(allAudio)
     .filter(([k]) => k.startsWith(prefix))
-    .map(([, url]) => url);
+    .map(([k, url]) => ({ url, name: trackNameFromKey(k) }));
 }
 
 const MENU_TRACKS = collectFolder('Main Menu');
 const RACE_SELECT_TRACKS = collectFolder('Character Select');
 
-const COMBAT_TRACKS: Partial<Record<Race, string[]>> = {
+const COMBAT_TRACKS: Partial<Record<Race, TrackInfo[]>> = {
   [Race.Crown]: collectFolder('CombatCrown'),
   [Race.Horde]: collectFolder('CombatHorde'),
   [Race.Goblins]: collectFolder('CombatGoblins'),
@@ -49,6 +63,9 @@ export class MusicPlayer {
   private lastTrackUrl = '';
   private visibilityHandler: (() => void) | null = null;
   private wasPlaying = false;
+
+  /** Called when a new track starts playing. */
+  onTrackChange: ((name: string) => void) | null = null;
 
   private actx: AudioContext | null = null;
   private gainNode: GainNode | null = null;
@@ -99,7 +116,7 @@ export class MusicPlayer {
     this.bufferCache.clear();
   }
 
-  private getTracksForCategory(): string[] {
+  private getTracksForCategory(): TrackInfo[] {
     switch (this.category) {
       case 'menu': return MENU_TRACKS;
       case 'raceSelect': return RACE_SELECT_TRACKS;
@@ -108,14 +125,14 @@ export class MusicPlayer {
     }
   }
 
-  private pickRandom(tracks: string[]): string {
-    if (tracks.length === 0) return '';
+  private pickRandom(tracks: TrackInfo[]): TrackInfo | null {
+    if (tracks.length === 0) return null;
     if (tracks.length === 1) return tracks[0];
-    let url = tracks[Math.floor(Math.random() * tracks.length)];
-    if (url === this.lastTrackUrl) {
-      url = tracks[(tracks.indexOf(url) + 1) % tracks.length];
+    let pick = tracks[Math.floor(Math.random() * tracks.length)];
+    if (pick.url === this.lastTrackUrl) {
+      pick = tracks[(tracks.indexOf(pick) + 1) % tracks.length];
     }
-    return url;
+    return pick;
   }
 
   /** Lazily create AudioContext + gain — pure Web Audio stays in ambient
@@ -143,9 +160,9 @@ export class MusicPlayer {
     return audioBuffer;
   }
 
-  private async startTrack(url: string): Promise<void> {
-    if (!url) return;
-    this.lastTrackUrl = url;
+  private async startTrack(track: TrackInfo): Promise<void> {
+    if (!track.url) return;
+    this.lastTrackUrl = track.url;
     this.fadeTarget = 0;
 
     this.ensureAudioContext();
@@ -158,7 +175,7 @@ export class MusicPlayer {
 
     let buffer: AudioBuffer;
     try {
-      buffer = await this.fetchBuffer(url);
+      buffer = await this.fetchBuffer(track.url);
     } catch {
       return; // network error — silently skip
     }
@@ -182,6 +199,7 @@ export class MusicPlayer {
     this.sourceNode = source;
     this.playing = true;
     this.fadeIn();
+    this.onTrackChange?.(track.name);
   }
 
   private stopSource(): void {
@@ -206,9 +224,9 @@ export class MusicPlayer {
   private playNextInCategory(): void {
     const tracks = this.getTracksForCategory();
     if (tracks.length === 0) return;
-    const url = this.pickRandom(tracks);
-    if (!url) return;
-    void this.startTrack(url);
+    const track = this.pickRandom(tracks);
+    if (!track) return;
+    void this.startTrack(track);
   }
 
   private fadeIn(): void {
@@ -263,9 +281,9 @@ export class MusicPlayer {
 
     // Evict cached buffers not in the new category to limit memory on mobile.
     // Decoded PCM buffers are ~10x larger than compressed MP3.
-    const keep = new Set(this.getTracksForCategory());
+    const keepUrls = new Set(this.getTracksForCategory().map(t => t.url));
     for (const key of this.bufferCache.keys()) {
-      if (!keep.has(key)) this.bufferCache.delete(key);
+      if (!keepUrls.has(key)) this.bufferCache.delete(key);
     }
 
     const tracks = this.getTracksForCategory();
@@ -274,13 +292,13 @@ export class MusicPlayer {
       return;
     }
 
-    const url = this.pickRandom(tracks);
-    if (!url) return;
+    const track = this.pickRandom(tracks);
+    if (!track) return;
 
     if (this.playing) {
-      this.fadeOut(() => void this.startTrack(url));
+      this.fadeOut(() => void this.startTrack(track));
     } else {
-      void this.startTrack(url);
+      void this.startTrack(track);
     }
   }
 

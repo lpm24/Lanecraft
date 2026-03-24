@@ -6,7 +6,6 @@ export class Camera {
   y = 0;
   zoom = 1;
   private get maxZoom(): number { return this.isometric ? 5 : 3; }
-  // Configurable world size (set via setWorldSize for non-default maps)
   worldTilesW = MAP_WIDTH;
   worldTilesH = MAP_HEIGHT;
   isometric = false;

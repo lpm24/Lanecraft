@@ -40,7 +40,7 @@ const ASSIGNMENT_DEFS: AssignmentDef[] = [
     color: '#81c784',
   },
   {
-    assignment: HarvesterAssignment.Stone,
+    assignment: HarvesterAssignment.Meat,
     label: 'Meat',
     desc: 'Butcher creatures for meat.',
     icon: 'meat',
@@ -165,7 +165,7 @@ export class HutPopup {
       if (a.assignment === HarvesterAssignment.Mana) return isDemon;
       if (a.assignment === HarvesterAssignment.BaseGold) return used.gold;
       if (a.assignment === HarvesterAssignment.Wood) return used.wood;
-      if (a.assignment === HarvesterAssignment.Stone) return used.stone;
+      if (a.assignment === HarvesterAssignment.Meat) return used.meat;
       return true; // Center always available
     });
 
@@ -278,7 +278,7 @@ export class HutPopup {
         }
 
         const iconSz = isMobile ? 16 : 20;
-        let textX = bx + 10;
+        let textX = bx + 24;
 
         // Resource icon
         if (def.icon) {

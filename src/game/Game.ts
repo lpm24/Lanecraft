@@ -49,6 +49,10 @@ export class Game {
   /** Per-slot bot difficulty labels (absent = human). */
   slotBotDifficulties: { [slot: string]: string } = {};
 
+  setNowPlaying(name: string): void {
+    this.input.setNowPlaying(name);
+  }
+
   private botCtx!: BotContext;
 
   // Multiplayer state
@@ -238,7 +242,6 @@ export class Game {
       // Wait for P2P connection + handshake before starting game loop
       this.commandSync.whenReady().then(() => {
         if (this.connectingInterval) { clearInterval(this.connectingInterval); this.connectingInterval = null; }
-        console.log('[Game] P2P ready, starting game loop');
         this.waitingForAllyMs = 0;
         // Pre-seed turn 0 so the first tick doesn't stall
         this.turnCommands.set(0, []);
@@ -333,7 +336,6 @@ export class Game {
     // Set Nightmare difficulty for the replacement bot
     const preset = BOT_DIFFICULTY_PRESETS[BotDifficultyLevel.Nightmare];
     if (preset) this.botCtx.difficulty[slotId] = preset;
-    console.log(`[Game] Player ${slotId} left — replaced with Nightmare bot`);
   }
 
   sendCommand(cmd: GameCommand): void {

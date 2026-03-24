@@ -12,7 +12,7 @@ import {
   type BuildingState, type UnitState, type HarvesterState, type ProjectileState,
 } from '../simulation/types';
 import { DUEL_MAP } from '../simulation/maps';
-import { getHQPosition, getBuildGridOrigin, getHutGridOrigin, getTeamAlleyOrigin, getUnitUpgradeMultipliers } from '../simulation/GameState';
+import { getHQPosition, getBuildGridOrigin, getHutGridOrigin, getTeamAlleyOrigin, getBaseGoldPosition, getUnitUpgradeMultipliers } from '../simulation/GameState';
 import { RACE_COLORS, TOWER_STATS, PLAYER_COLORS, getRaceUsedResources } from '../simulation/data';
 import {
   getDayNight, DayNightState,
@@ -539,8 +539,6 @@ export class Renderer {
     this.drawHUD(ctx, state, networkLatencyMs, desyncDetected, peerDisconnected, waitingForAllyMs);
     this.drawQuickChats(ctx, state);
     this.drawMinimap(ctx, state);
-
-    // (Position snapshots moved to start of frame — see movedThisTick)
   }
 
   // === Terrain (Pre-rendered) ===
@@ -1267,7 +1265,7 @@ export class Renderer {
 
     // Wood node — larger stitched forest cluster with visible chopped wood piles.
     const woodNode = state.mapDef.resourceNodes.find(n => n.type === ResourceType.Wood);
-    const stoneNode = state.mapDef.resourceNodes.find(n => n.type === ResourceType.Stone);
+    const meatNode = state.mapDef.resourceNodes.find(n => n.type === ResourceType.Meat);
     const tree1Data = this.sprites.getResourceSprite('tree');
     const tree2Data = this.sprites.getResourceSprite('tree2');
     const tree3Data = this.sprites.getResourceSprite('tree3');
@@ -1368,11 +1366,11 @@ export class Renderer {
         .forEach(pile => drawWoodPile(pile.x, pile.y, pile.amount));
     }
 
-    // Stone node — herd of sheep
+    // Meat node — herd of sheep
     const sheepData = this.sprites.getResourceSprite('sheep');
     const sheepGrassData = this.sprites.getResourceSprite('sheepGrass');
-    if (sheepData && stoneNode) {
-      const { px: cx, py: cy } = this.tp(stoneNode.x, stoneNode.y);
+    if (sheepData && meatNode) {
+      const { px: cx, py: cy } = this.tp(meatNode.x, meatNode.y);
       const drawSize = T * 1.8;
       const tick = Math.floor(Date.now() / 200);
       const [img, def] = sheepData;
@@ -1392,8 +1390,8 @@ export class Renderer {
         const frame = (tick + i * 2) % sDef.cols;
         drawSpriteFrame(ctx, sImg, sDef, frame, p.x - drawSize / 2, p.y - drawSize / 2, drawSize, drawSize);
       }
-    } else if (stoneNode) {
-      drawNodeFallback(stoneNode.x, stoneNode.y, 'STONE', 'rgba(158, 158, 158, 0.2)');
+    } else if (meatNode) {
+      drawNodeFallback(meatNode.x, meatNode.y, 'MEAT', 'rgba(158, 158, 158, 0.2)');
     }
 
     // Stray wood piles (dropped by killed/interrupted harvesters far from the forest)
@@ -1646,6 +1644,35 @@ export class Renderer {
         ctx.moveTo(lx1, ly1);
         ctx.lineTo(lx2, ly2);
         ctx.stroke();
+      }
+
+      // Gold mine exclusion zone (landscape maps only)
+      if (state.mapDef.shapeAxis === 'x') {
+        const goldPos = getBaseGoldPosition(team, state.mapDef);
+        const mineGX = Math.round(goldPos.x - origin.x);
+        const mineGY = Math.round(goldPos.y - origin.y);
+        const R = 3; // must match GOLD_MINE_EXCLUSION_HALF
+        const exX = origin.x + mineGX - R;
+        const exY = origin.y + mineGY - R;
+        const exW = R * 2;
+        const exH = R * 2;
+        ctx.fillStyle = 'rgba(180,40,40,0.25)';
+        if (this.isometric) {
+          this.drawIsoQuad(ctx, exX, exY, exW, exH, 'fill');
+        } else {
+          const { px: ex1, py: ey1 } = this.tp(exX, exY);
+          const { px: ex2, py: ey2 } = this.tp(exX + exW, exY + exH);
+          ctx.fillRect(ex1, ey1, ex2 - ex1, ey2 - ey1);
+        }
+        ctx.strokeStyle = 'rgba(180,40,40,0.5)';
+        ctx.lineWidth = 1;
+        if (this.isometric) {
+          this.drawIsoQuad(ctx, exX, exY, exW, exH, 'stroke');
+        } else {
+          const { px: ex1, py: ey1 } = this.tp(exX, exY);
+          const { px: ex2, py: ey2 } = this.tp(exX + exW, exY + exH);
+          ctx.strokeRect(ex1, ey1, ex2 - ex1, ey2 - ey1);
+        }
       }
 
       ctx.strokeStyle = `rgba(${color},0.65)`;
@@ -2152,7 +2179,7 @@ export class Renderer {
               // Mana assignment or Demon base gold
               this.ui.drawIcon(ctx, 'mana', iconX, iconY2, iconSz);
             } else {
-              const iconMap: Record<string, 'gold' | 'wood' | 'meat'> = { base_gold: 'gold', wood: 'wood', stone: 'meat' };
+              const iconMap: Record<string, 'gold' | 'wood' | 'meat'> = { base_gold: 'gold', wood: 'wood', meat: 'meat' };
               this.ui.drawIcon(ctx, iconMap[harv.assignment] || 'gold', iconX, iconY2, iconSz);
             }
           }
@@ -2216,7 +2243,7 @@ export class Renderer {
               } else if (harv.assignment === HarvesterAssignment.Mana) {
                 this.ui.drawIcon(ctx, 'mana', iconX, iconY2, iconSz);
               } else {
-                const iconMap: Record<string, 'gold' | 'wood' | 'meat'> = { base_gold: 'gold', wood: 'wood', stone: 'meat' };
+                const iconMap: Record<string, 'gold' | 'wood' | 'meat'> = { base_gold: 'gold', wood: 'wood', meat: 'meat' };
                 this.ui.drawIcon(ctx, iconMap[harv.assignment] || 'gold', iconX, iconY2, iconSz);
               }
             }
@@ -4263,12 +4290,12 @@ export class Renderer {
 
     const goldRate = ps ? (ps.totalGoldEarned / elapsed).toFixed(1) : '?';
     const woodRate = ps ? (ps.totalWoodEarned / elapsed).toFixed(1) : '?';
-    const stoneRate = ps ? (ps.totalStoneEarned / elapsed).toFixed(1) : '?';
+    const meatRate = ps ? (ps.totalMeatEarned / elapsed).toFixed(1) : '?';
 
     const used = getRaceUsedResources(player.race);
     if (used.gold) drawRes('gold', player.gold, '#ffd700', goldRate);
     if (used.wood) drawRes('wood', player.wood, '#4caf50', woodRate);
-    if (used.stone) drawRes('meat', player.stone, '#e57373', stoneRate);
+    if (used.meat) drawRes('meat', player.meat, '#e57373', meatRate);
 
     // Race-specific special resources
     const drawSpecialRes = (val: number, color: string, icon: IconName) => {
@@ -4282,17 +4309,16 @@ export class Renderer {
     if (player.race === Race.Geists) drawSpecialRes(player.souls, '#ce93d8', 'souls');
     if (player.race === Race.Oozlings) drawSpecialRes(player.deathEssence, '#69f0ae', 'ooze');
 
-    // Timer — right-aligned but leaving room for top-right buttons (ping + mvp + info + settings ~158px)
-    const hudRightEdge = W - 158;
-    const secs = Math.floor(state.tick / 20);
-    const timerText = `${Math.floor(secs / 60)}:${(secs % 60).toString().padStart(2, '0')}`;
-    ctx.fillStyle = '#888';
-    ctx.fillText(timerText, hudRightEdge - ctx.measureText(timerText).width, y1 + fontSize * 0.35);
-
-    // Row 2: HQ bars (centered horizontally) + diamond + units
+    // Row 2: Timer (left) + HQ bars (centered) + diamond + units
     const y2 = safeTop + (compact ? 32 : 42);
     const smallFont = 11;
     ctx.font = `bold ${smallFont}px monospace`;
+
+    // Game clock — left-aligned under resources
+    const secs = Math.floor(state.tick / 20);
+    const timerText = `${Math.floor(secs / 60)}:${(secs % 60).toString().padStart(2, '0')}`;
+    ctx.fillStyle = '#888';
+    ctx.fillText(timerText, pad, y2 + smallFont * 0.35);
 
     // HQ health bars — centered horizontally, with labels inside
     const localTeamHud = player.team;
@@ -4303,18 +4329,15 @@ export class Renderer {
     const hqBarH = compact ? 14 : 16;
     const hqGap = compact ? 6 : 10;
 
-    // Diamond status text (measured for centering)
-    const goldRemaining = state.diamondCells.reduce((s, c) => s + c.gold, 0);
-    const totalGold = state.diamondCells.reduce((s, c) => s + c.maxGold, 0);
-    const minedPct = Math.round((1 - goldRemaining / totalGold) * 100);
-    const diamondText = state.diamond.exposed
-      ? (compact ? 'DIAMOND!' : 'DIAMOND EXPOSED!')
-      : (compact ? `${minedPct}%` : `MINE ${minedPct}%`);
+    // Unit counts (centered between bars)
+    const myUnits = state.units.filter(u => u.team === player.team).length;
+    const enemyUnits = state.units.filter(u => u.team !== player.team).length;
+    const unitText = `${myUnits}v${enemyUnits}`;
     ctx.font = `bold ${smallFont}px monospace`;
-    const diamondTextW = ctx.measureText(diamondText).width;
+    const unitTextW = ctx.measureText(unitText).width;
 
-    // Total width: [US bar] [gap] [diamond] [gap] [EN bar]
-    const totalRow2W = hqBarW + hqGap + diamondTextW + hqGap + hqBarW;
+    // Total width: [US bar] [gap] [units] [gap] [EN bar]
+    const totalRow2W = hqBarW + hqGap + unitTextW + hqGap + hqBarW;
     let x2 = (W - totalRow2W) / 2;
     const barY = y2 - hqBarH / 2;
     const barLabelFont = 11;
@@ -4338,24 +4361,15 @@ export class Renderer {
     drawHQBar('Us', ourHp, '#2979ff', x2);
     x2 += hqBarW + hqGap;
 
-    // Diamond status (centered between bars)
+    // Unit count (centered between bars)
     ctx.font = `bold ${smallFont}px monospace`;
-    ctx.fillStyle = state.diamond.exposed ? '#fff' : '#aa8800';
-    ctx.fillText(diamondText, x2, y2);
-    x2 += diamondTextW + hqGap;
+    ctx.fillStyle = '#aaa';
+    ctx.fillText(unitText, x2, y2);
+    x2 += unitTextW + hqGap;
 
     // "Them" bar
     drawHQBar('Them', enemyHp, '#ff1744', x2);
     x2 += hqBarW;
-
-    // Right side of row 2: unit counts
-    ctx.font = `bold ${smallFont}px monospace`;
-    const myUnits = state.units.filter(u => u.team === player.team).length;
-    const enemyUnits = state.units.filter(u => u.team !== player.team).length;
-    const unitText = `${myUnits}v${enemyUnits}`;
-    const unitTextW = ctx.measureText(unitText).width;
-    ctx.fillStyle = '#aaa';
-    ctx.fillText(unitText, hudRightEdge - unitTextW, y2);
 
     // WC3-style network status panel
     if (peerDisconnected) {

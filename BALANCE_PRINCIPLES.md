@@ -39,7 +39,7 @@ Stats aren't just balance levers — they communicate *what a unit is*. A player
 ### Cost ↔ Power Mapping
 - **Cheap units feel cheap**: Low HP, fast attack, expendable. Goblins and Oozlings should die fast but come fast.
 - **Expensive units feel elite**: High HP or damage, slower to replace. Demon Overlord, Deep Shell Guard, Horde Brute.
-- **Cost must match resource theme**: Stone races (Horde, Geists) pay stone for durability. Wood races (Tenders, Wild) pay wood for growth/nature.
+- **Cost must match resource theme**: Meat races (Horde, Geists) pay meat for durability. Wood races (Tenders, Wild) pay wood for growth/nature.
 
 ### Stat ↔ Animation Mapping
 Units should *look like they fight the way they fight*:
@@ -105,7 +105,7 @@ When an upgrade swaps the sprite to an entirely new creature:
 
 ### Free to Tune (within thematic bounds)
 - Unit HP, damage, attack speed, move speed (within ±25% of current values)
-- Building costs (gold, wood, stone amounts)
+- Building costs (gold, wood, meat amounts)
 - Building HP
 - Tower damage and attack speed
 - Status effect duration and magnitude (burn damage, slow %, shield amount)
@@ -197,14 +197,14 @@ If tuning ever compresses these ratios below healthy range, the change should be
 
 All balance cost comparisons use the **effective cost** model derived from harvester economics on the Duel map (2v2):
 
-### Exchange Rate: 2 gold = 1 wood = 1 stone
+### Exchange Rate: 2 gold = 1 wood = 1 meat
 
 **Why this ratio:**
 - Gold mine is 7.5 tiles from HQ → 7.0s cycle → 4 gold/trip → **0.571 gold/s** (0.286 eff/s)
-- Wood/Stone nodes are ~54 tiles from HQ → 38.2s cycle → 10/trip → **0.262 resource/s** (0.262 eff/s)
-- Gold income per worker in effective terms (0.286) ≈ wood/stone income (0.262), confirming the 2:1 ratio
+- Wood/Meat nodes are ~54 tiles from HQ → 38.2s cycle → 10/trip → **0.262 resource/s** (0.262 eff/s)
+- Gold income per worker in effective terms (0.286) ≈ wood/meat income (0.262), confirming the 2:1 ratio
 
-**Effective cost formula:** `eff = gold/2 + wood + stone`
+**Effective cost formula:** `eff = gold/2 + wood + meat`
 
 This means a building costing 80 gold (40 eff) requires roughly the same harvester-time investment as one costing 40 wood (40 eff).
 
@@ -212,10 +212,10 @@ This means a building costing 80 gold (40 eff) requires roughly the same harvest
 
 Research costs are normalized so all races pay equal effective cost per level:
 - **Gold races**: pay `80 × 1.5^level` in gold → 40 eff per base level
-- **Non-gold races** (Demon, Wild): pay `40 × 1.5^level` split across wood/stone → 40 eff per base level
+- **Non-gold races** (Demon, Wild): pay `40 × 1.5^level` split across wood/meat → 40 eff per base level
 - **Oozlings**: pay `30 × 1.4^level` in deathEssence (own economy)
 
-One-shot research follows the same principle: 150 gold = 75 wood/stone total for non-gold races.
+One-shot research follows the same principle: 150 gold = 75 wood/meat total for non-gold races.
 
 ### Cost Analysis Tool
 

@@ -123,7 +123,7 @@ export class ResearchPopup {
   draw(
     ctx: CanvasRenderingContext2D, camera: Camera, state: GameState,
     ui: UIAssets, canvasW: number, canvasH: number,
-    playerGold: number, playerWood: number, playerStone: number, playerMana = 0,
+    playerGold: number, playerWood: number, playerMeat: number, playerMana = 0,
   ): void {
     if (this.targetBuildingId === null) return;
     const building = state.buildings.find(b => b.id === this.targetBuildingId);
@@ -190,22 +190,13 @@ export class ResearchPopup {
     ctx.textAlign = 'center';
     ctx.fillText('RESEARCH', px + popupW / 2, py + HEADER_H - 6);
 
-    // Close X button
-    const closeX = px + popupW - CLOSE_SIZE + 2;
-    const closeY = py - 2;
-    ctx.fillStyle = 'rgba(180, 40, 40, 0.7)';
-    ctx.beginPath();
-    ctx.arc(closeX + CLOSE_SIZE / 2, closeY + CLOSE_SIZE / 2, CLOSE_SIZE / 2, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = '#ff6b6b';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    const cx0 = closeX + CLOSE_SIZE / 2, cy0 = closeY + CLOSE_SIZE / 2;
-    const xr = 5;
-    ctx.moveTo(cx0 - xr, cy0 - xr); ctx.lineTo(cx0 + xr, cy0 + xr);
-    ctx.moveTo(cx0 + xr, cy0 - xr); ctx.lineTo(cx0 - xr, cy0 + xr);
-    ctx.stroke();
-    this.closeBtnRect = { x: closeX, y: closeY, w: CLOSE_SIZE, h: CLOSE_SIZE };
+    // Close button (top right, inside popup) — red round button with icon_09
+    const closeSize = Math.max(32, CLOSE_SIZE);
+    const closeBtnX = px + popupW - closeSize - 2;
+    const closeBtnY = py + 2;
+    this.closeBtnRect = { x: closeBtnX, y: closeBtnY, w: closeSize, h: closeSize };
+    ui.drawSmallRedRoundButton(ctx, closeBtnX, closeBtnY, closeSize);
+    ui.drawIcon(ctx, 'close', closeBtnX + closeSize / 2 - 10, closeBtnY + closeSize / 2 - 10, 20);
 
     // --- Tab bar ---
     const tabY = py + HEADER_H;
@@ -280,7 +271,7 @@ export class ResearchPopup {
       const cost = getResearchUpgradeCost(def.id, level, race);
       const playerEssence = player.deathEssence ?? 0;
       const playerSouls = player.souls ?? 0;
-      const canAfford = playerGold >= cost.gold && playerWood >= cost.wood && playerStone >= cost.stone
+      const canAfford = playerGold >= cost.gold && playerWood >= cost.wood && playerMeat >= cost.meat
         && (cost.mana === undefined || playerMana >= cost.mana)
         && ((cost.deathEssence ?? 0) <= 0 || playerEssence >= (cost.deathEssence ?? 0))
         && ((cost.souls ?? 0) <= 0 || playerSouls >= (cost.souls ?? 0));
@@ -370,16 +361,16 @@ export class ResearchPopup {
           ctx.fillText(`${cost.wood}`, costX, costY);
           costX += ctx.measureText(`${cost.wood}`).width + 4;
         }
-        if (cost.stone > 0) {
+        if (cost.meat > 0) {
           if (!ui.drawIcon(ctx, 'meat', costX, costY - costIconSz + 1, costIconSz)) {
             ctx.fillStyle = '#ef9a9a';
             ctx.beginPath(); ctx.arc(costX + costIconSz / 2, costY - costIconSz / 2, costIconSz / 2, 0, Math.PI * 2); ctx.fill();
           }
           costX += costIconSz + 1;
-          ctx.fillStyle = canAfford || playerStone >= cost.stone ? '#ef9a9a' : '#ff6666';
+          ctx.fillStyle = canAfford || playerMeat >= cost.meat ? '#ef9a9a' : '#ff6666';
           ctx.textAlign = 'left';
-          ctx.fillText(`${cost.stone}`, costX, costY);
-          costX += ctx.measureText(`${cost.stone}`).width + 4;
+          ctx.fillText(`${cost.meat}`, costX, costY);
+          costX += ctx.measureText(`${cost.meat}`).width + 4;
         }
         if (cost.mana !== undefined && cost.mana > 0) {
           ui.drawIcon(ctx, 'mana', costX, costY - costIconSz + 1, costIconSz);

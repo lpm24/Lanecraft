@@ -254,7 +254,7 @@ export class DifficultySelectScene implements Scene {
     this.onConfirm(DIFFICULTIES[this.selectedIndex].level, mode.map, mode.teamSize, this.fogOfWar, this.isometric);
   }
 
-  // --- Mode buttons layout (horizontal row of 3) ---
+  // --- Mode buttons layout ---
 
   private getModeButtonLayout(): { x: number; y: number; w: number; h: number }[] {
     const w = this.canvas.clientWidth;
@@ -464,7 +464,7 @@ export class DifficultySelectScene implements Scene {
     ctx.fillStyle = '#fff';
     ctx.fillText('GAME SETTINGS', w / 2, ribbonY + ribbonH * 0.58);
 
-    // --- Mode buttons (1v1 / 2v2 / 3v3) ---
+    // --- Mode buttons ---
     const modeBtns = this.getModeButtonLayout();
     for (let i = 0; i < MODE_OPTIONS.length; i++) {
       const mode = MODE_OPTIONS[i];

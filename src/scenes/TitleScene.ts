@@ -41,10 +41,6 @@ function getModeName(teamSize: number): string {
 }
 
 
-
-// ─── Title Scene ───
-
-// Race label lookup for party UI
 export class TitleScene implements Scene {
   private manager: SceneManager;
   private canvas: HTMLCanvasElement;
@@ -120,7 +116,6 @@ export class TitleScene implements Scene {
   private joinInputActive = false;
   private joinHiddenInput: HTMLInputElement | null = null;
   private firebaseReady = false;
-  // partyDifficultyIndex removed — difficulty is per-slot via bots
   // Drag-and-drop state for party slot rearrangement
   private dragSlot = -1;  // which slot is being dragged (-1 = none)
   private dragX = 0;
@@ -891,14 +886,12 @@ export class TitleScene implements Scene {
         saveLocalSetup(ls);
         if (this.onLocalStart) this.onLocalStart(ls);
         this.localSetup = null;
-    
         return;
       }
       // Leave / back button — save state so it's restored next time
       if (this.hitRect(cx, cy, pl.leave)) {
         saveLocalSetup(ls);
         this.localSetup = null;
-    
         return;
       }
       return;
@@ -2761,36 +2754,37 @@ export class TitleScene implements Scene {
     }
     curX += imgSize + 4;
 
-    // 3) Text: top = Player Name + HOST, bottom = Race Name
+    // 3) Text: top = HOST label, middle = Player Name, bottom = Race Name
     const textX = curX;
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
 
-    // Top line: player name + host tag
+    // Host tag above name
+    if (isHost) {
+      ctx.font = `${Math.max(8, fontSize * 0.55)}px monospace`;
+      ctx.fillStyle = '#ffe082';
+      ctx.fillText('HOST', textX, midY - fontSize * 1.0);
+    }
+
+    // Player name
     ctx.font = `bold ${fontSize}px monospace`;
     ctx.fillStyle = '#fff';
     const nameText = player.name;
-    ctx.fillText(nameText, textX, midY - fontSize * 0.45);
-    if (isHost) {
-      const nameW = ctx.measureText(nameText).width;
-      ctx.font = `${Math.max(9, fontSize * 0.6)}px monospace`;
-      ctx.fillStyle = '#ffe082';
-      ctx.fillText(' HOST', textX + nameW, midY - fontSize * 0.45);
-    }
+    ctx.fillText(nameText, textX, midY - fontSize * 0.25);
 
     // Bottom line: race name
     ctx.font = `${Math.max(11, fontSize * 0.8)}px monospace`;
     if (isRandom) {
       ctx.fillStyle = 'rgba(255,220,100,0.9)';
-      ctx.fillText('RANDOM', textX, midY + fontSize * 0.55);
+      ctx.fillText('RANDOM', textX, midY + fontSize * 0.75);
     } else {
       const colors = RACE_COLORS[player.race];
       ctx.fillStyle = colors.primary;
-      ctx.fillText(RACE_LABELS[player.race], textX, midY + fontSize * 0.55);
+      ctx.fillText(RACE_LABELS[player.race], textX, midY + fontSize * 0.75);
     }
 
-    // 4) RACE button (only for own slot)
-    if (showRaceBtn) {
+    // 4) RACE button (only for own slot, hidden when too narrow to avoid collision)
+    if (showRaceBtn && raceRect.w > 250) {
       const btnW = 42;
       const btnH = Math.min(18, (raceRect.h - 6) / 2);
       const btnX = raceRect.x + raceRect.w - btnW - 4;

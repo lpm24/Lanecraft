@@ -102,7 +102,6 @@ export class CommandSync {
   /** Initialize Firebase listeners and exchange ready signals. */
   start(): void {
     this.status = `starting slot=${this.localSlotId} humans=[${this.allHumanSlots.join(',')}] remotes=[${this.remoteSlotIds.join(',')}]`;
-    console.log(`[CommandSync] ${this.status}, party=${this.partyCode}`);
 
     const db = getDb();
     const gameRef = `games/${this.partyCode}`;
@@ -125,7 +124,6 @@ export class CommandSync {
     this.status = `writing ready for slot ${this.localSlotId}`;
     set(ref(db, `${gameRef}/ready/${this.localSlotId}`), true).then(() => {
       this.status = `ready written, waiting=${this.allHumanSlots.filter(id => !this.readyPlayers.has(id)).join(',')}`;
-      console.log(`[CommandSync] ${this.status}`);
       // If no remote players (solo + bots), resolve immediately
       this.checkAllReady();
     }).catch((err) => {
@@ -136,14 +134,11 @@ export class CommandSync {
 
     // Listen for each remote player's ready signal
     for (const remoteId of this.remoteSlotIds) {
-      console.log(`[CommandSync] Listening for ready at ${gameRef}/ready/${remoteId}`);
       const readyUnsub = onValue(ref(db, `${gameRef}/ready/${remoteId}`), (snap) => {
-        console.log(`[CommandSync] ready/${remoteId} snap:`, snap.val());
         if (snap.val() === true && !this.readyPlayers.has(remoteId)) {
           this.readyPlayers.add(remoteId);
           const waiting = this.allHumanSlots.filter(id => !this.readyPlayers.has(id));
           this.status = waiting.length > 0 ? `got slot ${remoteId}, waiting=${waiting.join(',')}` : 'all ready';
-          console.log(`[CommandSync] ${this.status}`);
           this.checkAllReady();
         }
         if (snap.val() === null && this.connected) {
@@ -179,7 +174,6 @@ export class CommandSync {
         this.connectionTimeout = null;
       }
       this.status = 'connected';
-      console.log(`[CommandSync] All ${this.allHumanSlots.length} peers ready — game can start`);
       this._connectedResolve();
     }
   }
@@ -290,7 +284,6 @@ export class CommandSync {
           reauth().then(user => {
             this.reauthInProgress = false;
             if (user) {
-              console.log('[CommandSync] Re-auth succeeded, resetting failure counter');
               this.consecutiveWriteFailures = 0;
             } else {
               // Re-auth failed — treat as disconnect immediately

@@ -6,7 +6,7 @@ import {
   HarvesterAssignment, Team, Race, UnitState, NUKE_RADIUS,
   AbilityTargetMode, HQ_WIDTH, HQ_HEIGHT, StatusEffect, StatusType,
 } from '../simulation/types';
-import { getBuildGridOrigin, getTeamAlleyOrigin, getHutGridOrigin, getHQPosition } from '../simulation/GameState';
+import { getBuildGridOrigin, getTeamAlleyOrigin, getHutGridOrigin, getHQPosition, getBaseGoldPosition } from '../simulation/GameState';
 import { RACE_BUILDING_COSTS, UNIT_STATS, TOWER_STATS, RACE_COLORS, RACE_ABILITY_INFO, RACE_ABILITY_DEFS, TOWER_COST_SCALE, getUpgradeNodeDef } from '../simulation/data';
 import { TICK_RATE } from '../simulation/types';
 import { UIAssets } from '../rendering/UIAssets';
@@ -36,7 +36,7 @@ const BUILD_TRAY: BuildTrayItem[] = [
 const ASSIGNMENT_LABELS: Record<HarvesterAssignment, string> = {
   [HarvesterAssignment.BaseGold]: '* Gold',
   [HarvesterAssignment.Wood]: 'W Wood',
-  [HarvesterAssignment.Stone]: 'M Meat',
+  [HarvesterAssignment.Meat]: 'M Meat',
   [HarvesterAssignment.Center]: 'C Center',
   [HarvesterAssignment.Mana]: '~ Mana',
 };
@@ -107,6 +107,7 @@ export class InputHandler {
   private showTutorial = localStorage.getItem('lanecraft.hideTutorial') !== 'true';
   private hideTutorialOnStart = localStorage.getItem('lanecraft.hideTutorial') === 'true';
   private tutorialCheckboxRect: { x: number; y: number; w: number; h: number } | null = null;
+  private tutorialCloseRect: { x: number; y: number; w: number; h: number } | null = null;
   private devOverlayOpen = false;
   private abortController = new AbortController();
   private currentRenderer: Renderer | null = null;
@@ -118,8 +119,9 @@ export class InputHandler {
   private researchPopup = new ResearchPopup();
   private seedPopup = new SeedPopup();
   private trayTick = 0;
-  /** Active rally override — all spawners send to this lane while set. */
-  private rallyOverride: Lane | null = null;
+  private get isTouchDevice(): boolean { return 'ontouchstart' in window || navigator.maxTouchPoints > 0; }
+  /** Active rally override — all spawners send to this lane while set. 'random' = each spawner gets a random lane. */
+  private rallyOverride: Lane | 'random' | null = null;
   /** Saved per-building lane assignments before rally override was activated. */
   private rallyPrevLanes: Map<number, Lane> = new Map();
 
@@ -127,6 +129,17 @@ export class InputHandler {
   onQuitGame: (() => void) | null = null;
   /** Called when the player taps "Concede" in the settings panel. */
   onConcede: (() => void) | null = null;
+
+  /** "Now Playing" track name + timing for fade */
+  private nowPlayingName = '';
+  private nowPlayingStart = 0;
+  private static readonly NP_SHOW_MS = 10_000;
+  private static readonly NP_FADE_MS = 600;
+
+  setNowPlaying(name: string): void {
+    this.nowPlayingName = name;
+    this.nowPlayingStart = performance.now();
+  }
 
   constructor(game: Game, canvas: HTMLCanvasElement, camera: Camera, ui?: UIAssets, sprites?: SpriteLoader) {
     this.game = game;
@@ -1199,8 +1212,10 @@ export class InputHandler {
       y += compact ? 2 : 4;
     };
 
+    const touch = this.isTouchDevice;
+
     heading('LANECRAFT', '#fff');
-    line('2v2 RTS: destroy enemy HQ or bring Diamond home to win.', '#ccc');
+    line('Destroy enemy HQ or bring the Diamond home to win.', '#ccc');
     y += compact ? 0 : 2;
     rule();
 
@@ -1212,16 +1227,26 @@ export class InputHandler {
     rule();
 
     heading('BUILD');
-    line('[1] miner hut, [2-5] buildings, [6] ability.', '#eee');
-    line('Right-click own building to sell after cooldown.', '#eee');
-    line('[U]/[I] upgrades selected or hovered building.', '#eee');
+    if (touch) {
+      line('Tap build buttons at bottom to place buildings.', '#eee');
+      line('Long-press own building to sell after cooldown.', '#eee');
+      line('Tap a building to open upgrades.', '#eee');
+    } else {
+      line('[1] miner hut, [2-5] buildings, [6] ability.', '#eee');
+      line('Right-click own building to sell after cooldown.', '#eee');
+      line('[U]/[I] upgrades selected or hovered building.', '#eee');
+    }
     y += compact ? 0 : 2;
     rule();
 
     heading('COMBAT & LANES');
     line('Units auto-aggro nearby enemies and fight.');
-    line('Click spawner toggles lane (Fast or Safe tap mode).');
-    line('[L] flips all spawners; [N] arms nuke; [5] race ability.');
+    if (touch) {
+      line('Tap a spawner to toggle its lane.', '#eee');
+    } else {
+      line('Click spawner toggles lane (Fast or Safe tap mode).');
+      line('[L] flips all spawners; [N] arms nuke; [5] race ability.');
+    }
     y += compact ? 0 : 2;
     rule();
 
@@ -1231,10 +1256,16 @@ export class InputHandler {
     y += compact ? 0 : 2;
     rule();
 
-    heading('HOTKEYS', '#ff9800');
-    line('[P/MMB] ping  [Q] chat wheel  [Z/X/C/V] quick chat');
-    line('[WASD/drag] pan  [Scroll] zoom  [Esc] cancel');
-    line('Mobile: hold map for chat wheel.');
+    heading(touch ? 'CONTROLS' : 'HOTKEYS', '#ff9800');
+    if (touch) {
+      line('Drag to pan, pinch to zoom.');
+      line('Hold map to open chat wheel.');
+      line('Tap nuke/ability buttons in the HUD.');
+    } else {
+      line('[P/MMB] ping  [Q] chat wheel  [Z/X/C/V] quick chat');
+      line('[WASD/drag] pan  [Scroll] zoom  [Esc] cancel');
+      line('[L] flip all lanes  [N] arm nuke  [5] race ability');
+    }
     line('Reopen via Settings > Help / Controls.', '#9bb7ff');
 
     // "Don't show on game start" checkbox
@@ -1261,19 +1292,10 @@ export class InputHandler {
 
     const btnX = px + pw - closeSize - inset;
     const btnY = py + inset;
-    // Close button - X icon sprite
-    if (!this.ui.drawIcon(ctx, 'close', btnX, btnY, closeSize)) {
-      ctx.fillStyle = 'rgba(41,121,255,0.15)';
-      ctx.fillRect(btnX, btnY, closeSize, closeSize);
-      ctx.strokeStyle = '#2979ff';
-      ctx.lineWidth = 1.5;
-      ctx.strokeRect(btnX, btnY, closeSize, closeSize);
-      ctx.fillStyle = '#aaa';
-      ctx.font = `bold ${headingSize}px monospace`;
-      ctx.textAlign = 'center';
-      ctx.fillText('X', btnX + closeSize / 2, btnY + (compact ? 19 : 22));
-      ctx.textAlign = 'start';
-    }
+    // Close button — red round button with icon_09
+    this.ui.drawSmallRedRoundButton(ctx, btnX, btnY, closeSize);
+    this.ui.drawIcon(ctx, 'close', btnX + closeSize / 2 - 10, btnY + closeSize / 2 - 10, 20);
+    this.tutorialCloseRect = { x: btnX, y: btnY, w: closeSize, h: closeSize };
 
   }
 
@@ -1287,7 +1309,10 @@ export class InputHandler {
       localStorage.setItem('lanecraft.hideTutorial', this.hideTutorialOnStart ? 'true' : 'false');
       return;
     }
-    this.showTutorial = false;
+    const cl = this.tutorialCloseRect;
+    if (cl && cx >= cl.x && cx <= cl.x + cl.w && cy >= cl.y && cy <= cl.y + cl.h) {
+      this.showTutorial = false;
+    }
   }
 
   // Top-right layout (right to left): [⚙ settings] [ℹ info] [★ mvp] [ping]
@@ -1415,16 +1440,22 @@ export class InputHandler {
     // MVP button (to the left of info) — select top killer
     const mr = this.getMvpButtonRect();
     const hasKiller = this.game.state.units.some(u => u.team === this.myTeam && u.kills > 0);
-    ctx.fillStyle = 'rgba(18,18,18,0.92)';
-    ctx.fillRect(mr.x, mr.y, mr.w, mr.h);
-    ctx.strokeStyle = hasKiller ? '#ffd700' : '#555';
-    ctx.lineWidth = 1.5;
-    ctx.strokeRect(mr.x, mr.y, mr.w, mr.h);
-    ctx.fillStyle = hasKiller ? '#ffd700' : '#666';
-    ctx.font = 'bold 14px monospace';
-    ctx.textAlign = 'center';
-    ctx.fillText('★', mr.x + mr.w / 2, mr.y + 20);
-    ctx.textAlign = 'start';
+    if (!hasKiller) {
+      ctx.globalAlpha = 0.4;
+    }
+    if (!this.ui.drawIcon(ctx, 'star', mr.x, mr.y, mr.w)) {
+      ctx.fillStyle = 'rgba(18,18,18,0.92)';
+      ctx.fillRect(mr.x, mr.y, mr.w, mr.h);
+      ctx.strokeStyle = hasKiller ? '#ffd700' : '#555';
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(mr.x, mr.y, mr.w, mr.h);
+      ctx.fillStyle = hasKiller ? '#ffd700' : '#666';
+      ctx.font = 'bold 14px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('★', mr.x + mr.w / 2, mr.y + 20);
+      ctx.textAlign = 'start';
+    }
+    ctx.globalAlpha = 1.0;
 
     // Ping display (to the left of mvp button, right-aligned)
     if (this.networkLatencyMs !== undefined) {
@@ -1461,12 +1492,13 @@ export class InputHandler {
     const rallyBtnW = nukeW;
     const rallyBtnH = nukeH;
     const rallyGap = 8;
-    const rallyTotalW = rallyBtnW * 2 + rallyGap;
+    const rallyTotalW = rallyBtnW * 3 + rallyGap * 2;
     const rallyX0 = Math.round((W - rallyTotalW) / 2);
     const rallyY = nukeY;
     const rallyLeftRect = { x: rallyX0, y: rallyY, w: rallyBtnW, h: rallyBtnH };
-    const rallyRightRect = { x: rallyX0 + rallyBtnW + rallyGap, y: rallyY, w: rallyBtnW, h: rallyBtnH };
-    return { W, H, milH, milY, milW, safeBottom, nukeRect, researchRect, rallyLeftRect, rallyRightRect };
+    const rallyRandomRect = { x: rallyX0 + rallyBtnW + rallyGap, y: rallyY, w: rallyBtnW, h: rallyBtnH };
+    const rallyRightRect = { x: rallyX0 + (rallyBtnW + rallyGap) * 2, y: rallyY, w: rallyBtnW, h: rallyBtnH };
+    return { W, H, milH, milY, milW, safeBottom, nukeRect, researchRect, rallyLeftRect, rallyRandomRect, rallyRightRect };
   }
 
   private processQueuedQuickChat(): void {
@@ -1636,7 +1668,7 @@ export class InputHandler {
     if (cy >= milY + milH) return true;
 
     // Floating nuke button (above miner)
-    const { nukeRect, researchRect, rallyLeftRect, rallyRightRect } = this.getTrayLayout();
+    const { nukeRect, researchRect, rallyLeftRect, rallyRandomRect, rallyRightRect } = this.getTrayLayout();
     if (cx >= nukeRect.x && cx < nukeRect.x + nukeRect.w &&
         cy >= nukeRect.y && cy < nukeRect.y + nukeRect.h) {
       if (player.nukeAvailable && !this.isNukeLocked()) {
@@ -1664,13 +1696,14 @@ export class InputHandler {
 
     // Rally override buttons (above tray, centered)
     if (player.race !== Race.Oozlings) {
-      const hitLeft = cx >= rallyLeftRect.x && cx < rallyLeftRect.x + rallyLeftRect.w &&
-                      cy >= rallyLeftRect.y && cy < rallyLeftRect.y + rallyLeftRect.h;
-      const hitRight = cx >= rallyRightRect.x && cx < rallyRightRect.x + rallyRightRect.w &&
-                       cy >= rallyRightRect.y && cy < rallyRightRect.y + rallyRightRect.h;
-      if (hitLeft || hitRight) {
-        const targetLane = hitLeft ? Lane.Left : Lane.Right;
-        if (this.rallyOverride === targetLane) {
+      const hitRect = (r: { x: number; y: number; w: number; h: number }) =>
+        cx >= r.x && cx < r.x + r.w && cy >= r.y && cy < r.y + r.h;
+      const hitLeft = hitRect(rallyLeftRect);
+      const hitRandom = hitRect(rallyRandomRect);
+      const hitRight = hitRect(rallyRightRect);
+      if (hitLeft || hitRight || hitRandom) {
+        const target: Lane | 'random' = hitLeft ? Lane.Left : hitRight ? Lane.Right : 'random';
+        if (this.rallyOverride === target) {
           // Cancel — restore previous lanes
           for (const b of this.game.state.buildings) {
             if (b.playerId === this.pid && b.type !== BuildingType.Tower) {
@@ -1690,8 +1723,18 @@ export class InputHandler {
               this.rallyPrevLanes.set(b.id, b.lane);
             }
           }
-          this.rallyOverride = targetLane;
-          this.game.sendCommand({ type: 'toggle_all_lanes', playerId: this.pid, lane: targetLane });
+          this.rallyOverride = target;
+          if (target === 'random') {
+            // Randomly assign each spawner to left or right
+            for (const b of this.game.state.buildings) {
+              if (b.playerId === this.pid && b.type !== BuildingType.Tower) {
+                const lane = Math.random() < 0.5 ? Lane.Left : Lane.Right;
+                this.game.sendCommand({ type: 'toggle_lane', playerId: this.pid, buildingId: b.id, lane });
+              }
+            }
+          } else {
+            this.game.sendCommand({ type: 'toggle_all_lanes', playerId: this.pid, lane: target });
+          }
         }
         return true;
       }
@@ -1836,7 +1879,7 @@ export class InputHandler {
     const drawCost = (parts: { val: number; type: 'g' | 'w' | 's' }[], cx: number, cy: number, affordable: boolean) => {
       const goldColor = affordable ? '#ffd740' : '#665500';
       const woodColor = affordable ? '#81c784' : '#2e5530';
-      const stoneColor = affordable ? '#e57373' : '#6d2828';
+      const meatColor = affordable ? '#e57373' : '#6d2828';
       ctx.font = 'bold 11px monospace';
       const gap = 4;
       // Calculate total width: icon + number for each part
@@ -1854,7 +1897,7 @@ export class InputHandler {
         this.ui.drawIcon(ctx, iconName as any, drawX, cy - costIconSize + 2, costIconSize);
         ctx.globalAlpha = 1;
         drawX += costIconSize + 1;
-        ctx.fillStyle = parts[j].type === 'g' ? goldColor : parts[j].type === 'w' ? woodColor : stoneColor;
+        ctx.fillStyle = parts[j].type === 'g' ? goldColor : parts[j].type === 'w' ? woodColor : meatColor;
         ctx.textAlign = 'left';
         ctx.fillText(valStrs[j], drawX, cy);
         drawX += ctx.measureText(valStrs[j]).width + gap;
@@ -1934,9 +1977,11 @@ export class InputHandler {
         drawCost(costParts, cellCx, textY + 24, canAfford);
       }
 
-      // Key hint — bottom-right of cell
-      ctx.fillStyle = '#444'; ctx.font = '11px monospace'; ctx.textAlign = 'right';
-      ctx.fillText(`[${keyHint}]`, cellX + milW - 4, cellY + cellH - 4);
+      // Key hint — bottom-right of cell (hidden on touch devices)
+      if (!this.isTouchDevice) {
+        ctx.fillStyle = '#444'; ctx.font = '11px monospace'; ctx.textAlign = 'right';
+        ctx.fillText(`[${keyHint}]`, cellX + milW - 4, cellY + cellH - 4);
+      }
     };
 
     // === Miner button (col 0) ===
@@ -1947,12 +1992,12 @@ export class InputHandler {
     const hutMult = Math.pow(1.35, Math.max(0, myHuts.length - 1));
     const hutGold = Math.floor(hutBase.gold * hutMult);
     const hutWood = Math.floor(hutBase.wood * hutMult);
-    const hutStone = Math.floor(hutBase.stone * hutMult);
-    const canAffordHut = player.gold >= hutGold && player.wood >= hutWood && player.stone >= hutStone && myHuts.length < 10;
+    const hutMeat = Math.floor(hutBase.meat * hutMult);
+    const canAffordHut = player.gold >= hutGold && player.wood >= hutWood && player.meat >= hutMeat && myHuts.length < 10;
     const hutCostItems: { val: number; type: 'g' | 'w' | 's' }[] = [];
     if (hutGold > 0) hutCostItems.push({ val: hutGold, type: 'g' });
     if (hutWood > 0) hutCostItems.push({ val: hutWood, type: 'w' });
-    if (hutStone > 0) hutCostItems.push({ val: hutStone, type: 's' });
+    if (hutMeat > 0) hutCostItems.push({ val: hutMeat, type: 's' });
     const hutSelected = this.selectedBuilding === BuildingType.HarvesterHut;
     drawCell(0, hutSelected, canAffordHut, 'Miner', 'miner',
       myHuts.length < 10 ? hutCostItems : null,
@@ -1974,12 +2019,12 @@ export class InputHandler {
         cost = {
           gold: Math.floor(baseCost.gold * mult),
           wood: Math.floor(baseCost.wood * mult),
-          stone: Math.floor(baseCost.stone * mult),
+          meat: Math.floor(baseCost.meat * mult),
           hp: baseCost.hp,
         };
       }
 
-      const canAfford = isFirstTowerFree || (player.gold >= cost.gold && player.wood >= cost.wood && player.stone >= cost.stone);
+      const canAfford = isFirstTowerFree || (player.gold >= cost.gold && player.wood >= cost.wood && player.meat >= cost.meat);
 
       let unitName: string;
       let category: 'melee' | 'ranged' | 'caster' | 'tower';
@@ -1996,7 +2041,7 @@ export class InputHandler {
       if (!isFirstTowerFree) {
         if (cost.gold > 0) costItems.push({ val: cost.gold, type: 'g' });
         if (cost.wood > 0) costItems.push({ val: cost.wood, type: 'w' });
-        if (cost.stone > 0) costItems.push({ val: cost.stone, type: 's' });
+        if (cost.meat > 0) costItems.push({ val: cost.meat, type: 's' });
       }
 
       drawCell(bx, isSelected, canAfford, unitName, category,
@@ -2018,14 +2063,14 @@ export class InputHandler {
       const growMult = abDef.costGrowthFactor ? Math.pow(abDef.costGrowthFactor, player.abilityUseCount) : 1;
       const abCostGold = Math.floor((abDef.baseCost.gold ?? 0) * growMult);
       const abCostWood = Math.floor((abDef.baseCost.wood ?? 0) * growMult);
-      const abCostStone = Math.floor((abDef.baseCost.stone ?? 0) * growMult);
+      const abCostMeat = Math.floor((abDef.baseCost.meat ?? 0) * growMult);
       const abCostMana = Math.floor((abDef.baseCost.mana ?? 0) * growMult);
       const abCostSouls = player.race === Race.Geists
         ? (abDef.baseCost.souls ?? 0) + 5 * player.abilityUseCount
         : Math.floor((abDef.baseCost.souls ?? 0) * growMult);
       const abCostEssence = Math.floor((abDef.baseCost.deathEssence ?? 0) * growMult);
       const canAffordAbility = isTendersSeeds ? seedStacks > 0 : (!onCooldown &&
-        player.gold >= abCostGold && player.wood >= abCostWood && player.stone >= abCostStone &&
+        player.gold >= abCostGold && player.wood >= abCostWood && player.meat >= abCostMeat &&
         player.mana >= abCostMana && player.souls >= abCostSouls && player.deathEssence >= abCostEssence);
 
       const cellY = isActive ? milY - 6 : milY;
@@ -2078,10 +2123,12 @@ export class InputHandler {
           ctx.fillStyle = seedStacks >= 10 ? '#ffd740' : '#81c784';
           ctx.fillText(`${seedStacks}`, abX + 4, adjY + cellH - 4);
           ctx.textAlign = 'center';
-          // Key hint in bottom-right
-          ctx.fillStyle = '#666';
-          ctx.font = '11px monospace'; ctx.textAlign = 'right';
-          ctx.fillText(`[${abilityInfo.key}]`, abX + milW - 4, adjY + cellH - 4);
+          // Key hint in bottom-right (hidden on touch devices)
+          if (!this.isTouchDevice) {
+            ctx.fillStyle = '#666';
+            ctx.font = '11px monospace'; ctx.textAlign = 'right';
+            ctx.fillText(`[${abilityInfo.key}]`, abX + milW - 4, adjY + cellH - 4);
+          }
         } else {
           // No stacks — show countdown timer (like cooldown)
           const secsLeft = Math.ceil(player.abilityCooldown / TICK_RATE);
@@ -2104,7 +2151,7 @@ export class InputHandler {
             drawIcon: (ix, iy, sz) => { this.ui.drawIcon(ctx, 'gold', ix, iy, sz) || (ctx.fillStyle = '#ffd700', ctx.beginPath(), ctx.arc(ix + sz / 2, iy + sz / 2, sz / 2, 0, Math.PI * 2), ctx.fill()); } });
           if (abCostWood > 0) abCostEntries.push({ val: abCostWood, canAf: player.wood >= abCostWood,
             drawIcon: (ix, iy, sz) => { this.ui.drawIcon(ctx, 'wood', ix, iy, sz) || (ctx.fillStyle = '#8bc34a', ctx.beginPath(), ctx.arc(ix + sz / 2, iy + sz / 2, sz / 2, 0, Math.PI * 2), ctx.fill()); } });
-          if (abCostStone > 0) abCostEntries.push({ val: abCostStone, canAf: player.stone >= abCostStone,
+          if (abCostMeat > 0) abCostEntries.push({ val: abCostMeat, canAf: player.meat >= abCostMeat,
             drawIcon: (ix, iy, sz) => { this.ui.drawIcon(ctx, 'meat', ix, iy, sz) || (ctx.fillStyle = '#ef9a9a', ctx.beginPath(), ctx.arc(ix + sz / 2, iy + sz / 2, sz / 2, 0, Math.PI * 2), ctx.fill()); } });
           if (abCostMana > 0) {
             const manaDisplay = race === Race.Demon && player.mana >= abCostMana ? player.mana : abCostMana;
@@ -2148,7 +2195,7 @@ export class InputHandler {
           ctx.fillStyle = '#ff9800';
           ctx.font = 'bold 11px monospace';
           ctx.fillText(`${secsLeft}s`, abCx, adjY + cellH - 4);
-        } else {
+        } else if (!this.isTouchDevice) {
           ctx.fillStyle = '#666';
           ctx.font = '11px monospace'; ctx.textAlign = 'right';
           ctx.fillText(`[${abilityInfo.key}]`, abX + milW - 4, adjY + cellH - 4);
@@ -2175,19 +2222,45 @@ export class InputHandler {
         this.ui.drawBigRedButton(ctx, nr.x + nukePad, nr.y + nukePad, nr.w - nukePad * 2, nr.h - nukePad * 2);
         ctx.globalAlpha = 1;
       }
+      // Nuke icon centered in button
       ctx.textAlign = 'center';
-      ctx.fillStyle = nukeReady ? '#fff' : '#888';
-      ctx.font = 'bold 11px monospace';
-      ctx.fillText('NUKE', nr.x + nr.w / 2, nr.y + nr.h / 2 + 2);
+      {
+        const iconS = Math.min(nr.w, nr.h) * 0.55;
+        ctx.globalAlpha = nukeReady ? 1 : 0.5;
+        if (!this.ui.drawIcon(ctx, 'nuke', nr.x + (nr.w - iconS) / 2, nr.y + (nr.h - iconS) / 2 - 2, iconS)) {
+          ctx.fillStyle = nukeReady ? '#fff' : '#888';
+          ctx.font = 'bold 11px monospace';
+          ctx.fillText('NUKE', nr.x + nr.w / 2, nr.y + nr.h / 2 + 2);
+        }
+        ctx.globalAlpha = 1;
+      }
       if (nukeLocked && nukeAvail) {
         const secsLeft = Math.ceil(NUKE_LOCKOUT_SECONDS - this.game.state.tick / TICK_RATE);
         ctx.fillStyle = '#ff5722';
         ctx.font = 'bold 11px monospace';
         ctx.fillText(`${secsLeft}s`, nr.x + nr.w / 2, nr.y + nr.h - 2);
-      } else if (nukeAvail) {
+      } else if (nukeAvail && !this.isTouchDevice) {
         ctx.fillStyle = '#888';
         ctx.font = '11px monospace';
         ctx.fillText('[N]', nr.x + nr.w / 2, nr.y + nr.h - 2);
+      }
+    }
+
+    // === "Now Playing" track name above nuke button ===
+    if (this.nowPlayingName) {
+      const elapsed = performance.now() - this.nowPlayingStart;
+      const total = InputHandler.NP_SHOW_MS + InputHandler.NP_FADE_MS;
+      if (elapsed < total) {
+        const alpha = elapsed < InputHandler.NP_SHOW_MS
+          ? 1
+          : 1 - (elapsed - InputHandler.NP_SHOW_MS) / InputHandler.NP_FADE_MS;
+        ctx.save();
+        ctx.globalAlpha = alpha * 0.85;
+        ctx.font = '11px monospace';
+        ctx.textAlign = 'left';
+        ctx.fillStyle = '#fff';
+        ctx.fillText(`♪ ${this.nowPlayingName}`, nukeRect.x + 2, nukeRect.y - 6);
+        ctx.restore();
       }
     }
 
@@ -2207,31 +2280,52 @@ export class InputHandler {
       }
       ctx.globalAlpha = 1;
       ctx.textAlign = 'center';
-      ctx.fillStyle = hasResearch ? '#fff' : '#888';
-      ctx.font = 'bold 11px monospace';
-      ctx.fillText('RESEARCH', rr.x + rr.w / 2, rr.y + rr.h / 2 + 2);
-      ctx.fillStyle = '#888';
-      ctx.font = '11px monospace';
-      ctx.fillText('[R]', rr.x + rr.w / 2, rr.y + rr.h - 2);
+      // Research icon centered in button
+      {
+        const iconS = Math.min(rr.w, rr.h) * 0.55;
+        ctx.globalAlpha = hasResearch ? 1 : 0.5;
+        if (!this.ui.drawIcon(ctx, 'research', rr.x + (rr.w - iconS) / 2, rr.y + (rr.h - iconS) / 2 - 2, iconS)) {
+          ctx.fillStyle = hasResearch ? '#fff' : '#888';
+          ctx.font = 'bold 11px monospace';
+          ctx.fillText('RESEARCH', rr.x + rr.w / 2, rr.y + rr.h / 2 + 2);
+        }
+        ctx.globalAlpha = 1;
+      }
+      if (!this.isTouchDevice) {
+        ctx.fillStyle = '#888';
+        ctx.font = '11px monospace';
+        ctx.fillText('[R]', rr.x + rr.w / 2, rr.y + rr.h - 2);
+      }
     }
 
     // === Rally override buttons (centered above tray) ===
     if (player.race !== Race.Oozlings) {
-      const { rallyLeftRect: rl, rallyRightRect: rr2 } = this.getTrayLayout();
+      const { rallyLeftRect: rl, rallyRandomRect: rm, rallyRightRect: rr2 } = this.getTrayLayout();
       const isLandscape = this.game.state.mapDef.shapeAxis === 'x';
       const leftLabel = isLandscape ? 'ALL TOP' : 'ALL LEFT';
-      const rightLabel = isLandscape ? 'ALL DOWN' : 'ALL RIGHT';
+      const rightLabel = isLandscape ? 'ALL BOT' : 'ALL RIGHT';
       const isLeftActive = this.rallyOverride === Lane.Left;
+      const isRandomActive = this.rallyOverride === 'random';
       const isRightActive = this.rallyOverride === Lane.Right;
+      const anyActive = this.rallyOverride !== null;
 
       // Sync: if rally is active, ensure any new buildings are also overridden
-      if (this.rallyOverride !== null) {
+      if (this.rallyOverride !== null && this.rallyOverride !== 'random') {
         for (const b of this.game.state.buildings) {
           if (b.playerId === this.pid && b.type !== BuildingType.Tower && b.lane !== this.rallyOverride) {
             if (!this.rallyPrevLanes.has(b.id)) {
               this.rallyPrevLanes.set(b.id, b.lane);
             }
             this.game.sendCommand({ type: 'toggle_lane', playerId: this.pid, buildingId: b.id, lane: this.rallyOverride });
+          }
+        }
+      } else if (this.rallyOverride === 'random') {
+        // Random: assign new buildings a random lane
+        for (const b of this.game.state.buildings) {
+          if (b.playerId === this.pid && b.type !== BuildingType.Tower && !this.rallyPrevLanes.has(b.id)) {
+            this.rallyPrevLanes.set(b.id, b.lane);
+            const lane = Math.random() < 0.5 ? Lane.Left : Lane.Right;
+            this.game.sendCommand({ type: 'toggle_lane', playerId: this.pid, buildingId: b.id, lane });
           }
         }
       }
@@ -2249,13 +2343,27 @@ export class InputHandler {
         ctx.textAlign = 'center';
         ctx.fillStyle = disabled ? '#888' : '#fff';
         ctx.font = 'bold 11px monospace';
-        ctx.fillText(active ? 'CANCEL' : label, rect.x + rect.w / 2, rect.y + rect.h / 2 + 2);
-        ctx.fillStyle = '#888';
-        ctx.font = '11px monospace';
-        ctx.fillText(active ? '' : '[L]', rect.x + rect.w / 2, rect.y + rect.h - 2);
+        if (active) {
+          ctx.fillText('CANCEL', rect.x + rect.w / 2, rect.y + rect.h / 2 + 2);
+        } else {
+          // Line break label on mobile for better fit
+          const parts = label.split(' ');
+          if (this.isTouchDevice && parts.length === 2) {
+            ctx.fillText(parts[0], rect.x + rect.w / 2, rect.y + rect.h / 2 - 4);
+            ctx.fillText(parts[1], rect.x + rect.w / 2, rect.y + rect.h / 2 + 10);
+          } else {
+            ctx.fillText(label, rect.x + rect.w / 2, rect.y + rect.h / 2 + 2);
+          }
+        }
+        if (!active && !this.isTouchDevice) {
+          ctx.fillStyle = '#888';
+          ctx.font = '11px monospace';
+          ctx.fillText('[L]', rect.x + rect.w / 2, rect.y + rect.h - 2);
+        }
       };
-      drawRallyBtn(rl, leftLabel, isLeftActive, isRightActive);
-      drawRallyBtn(rr2, rightLabel, isRightActive, isLeftActive);
+      drawRallyBtn(rl, leftLabel, isLeftActive, anyActive && !isLeftActive);
+      drawRallyBtn(rm, 'RANDOM', isRandomActive, anyActive && !isRandomActive);
+      drawRallyBtn(rr2, rightLabel, isRightActive, anyActive && !isRightActive);
     }
 
     if (quickChatCdMs > 0) {
@@ -2264,34 +2372,27 @@ export class InputHandler {
       ctx.font = '11px monospace';
       ctx.fillText(`Chat CD ${(quickChatCdMs / 1000).toFixed(1)}s`, 10, milY - 8);
     }
-    ctx.textAlign = 'left';
-    ctx.fillStyle = '#9bb7ff';
-    ctx.font = '11px monospace';
-    if (player.race === Race.Oozlings) {
-      ctx.fillStyle = '#7c4dff';
-      ctx.fillText('Lanes: SPLIT (locked)', 120, milY - 8);
-    } else {
-      ctx.fillText(`Lane tap: ${this.laneModeLabel()}`, 120, milY - 8);
-    }
+    // Toast messages — positioned above rally buttons
+    const toastBaseY = milY - 76 - 4; // above rally/nuke row
     if (this.quickChatToast && Date.now() < this.quickChatToast.until) {
       ctx.fillStyle = 'rgba(20,20,20,0.9)';
-      ctx.fillRect(W / 2 - 120, milY - 30, 240, 22);
+      ctx.fillRect(W / 2 - 120, toastBaseY - 4, 240, 22);
       ctx.strokeStyle = '#ffcc80';
-      ctx.strokeRect(W / 2 - 120, milY - 30, 240, 22);
+      ctx.strokeRect(W / 2 - 120, toastBaseY - 4, 240, 22);
       ctx.fillStyle = '#ffcc80';
       ctx.font = '11px monospace';
       ctx.textAlign = 'center';
-      ctx.fillText(this.quickChatToast.text, W / 2, milY - 15);
+      ctx.fillText(this.quickChatToast.text, W / 2, toastBaseY + 11);
     }
     if (this.laneToast && Date.now() < this.laneToast.until) {
       ctx.fillStyle = 'rgba(20,20,20,0.9)';
-      ctx.fillRect(W / 2 - 160, milY - 54, 320, 20);
+      ctx.fillRect(W / 2 - 160, toastBaseY - 28, 320, 20);
       ctx.strokeStyle = '#9bb7ff';
-      ctx.strokeRect(W / 2 - 160, milY - 54, 320, 20);
+      ctx.strokeRect(W / 2 - 160, toastBaseY - 28, 320, 20);
       ctx.fillStyle = '#9bb7ff';
       ctx.font = '11px monospace';
       ctx.textAlign = 'center';
-      ctx.fillText(this.laneToast.text, W / 2, milY - 40);
+      ctx.fillText(this.laneToast.text, W / 2, toastBaseY - 14);
     }
 
     if (this.mobileHintVisible) {
@@ -2316,7 +2417,7 @@ export class InputHandler {
     // Building popup (in-world)
     if (this.buildingPopup.isOpen()) {
       this.buildingPopup.draw(ctx, this.camera, this.game.state, this.ui,
-        W, this.canvas.clientHeight, player.gold, player.wood, player.stone, this.sprites);
+        W, this.canvas.clientHeight, player.gold, player.wood, player.meat, this.sprites);
     }
 
     // Hut popup (in-world)
@@ -2328,7 +2429,7 @@ export class InputHandler {
     // Research popup
     if (this.researchPopup.isOpen()) {
       this.researchPopup.draw(ctx, this.camera, this.game.state, this.ui,
-        W, this.canvas.clientHeight, player.gold, player.wood, player.stone, player.mana);
+        W, this.canvas.clientHeight, player.gold, player.wood, player.meat, player.mana);
     }
 
     // Seed popup (in-world)
@@ -2776,7 +2877,7 @@ export class InputHandler {
         p.team === Team.Bottom ? 'Bot' : 'Top',
         `${p.gold}(+${s.totalGoldEarned})`,
         `${p.wood}(+${s.totalWoodEarned})`,
-        `${p.stone}(+${s.totalStoneEarned})`,
+        `${p.meat}(+${s.totalMeatEarned})`,
         `${s.totalDamageDealt}`,
         `${s.unitsSpawned}`,
         `${s.unitsLost}`,
@@ -2844,7 +2945,7 @@ export class InputHandler {
           a.games++;
           if (p.won) a.wins++;
           a.dmg += p.damageDealt;
-          a.res += p.goldEarned + p.woodEarned + p.stoneEarned;
+          a.res += p.goldEarned + p.woodEarned + p.meatEarned;
           a.spawned += p.unitsSpawned;
           a.lost += p.unitsLost;
         }
@@ -2909,9 +3010,9 @@ export class InputHandler {
       const elapsed = Math.max(1, state.tick / TICK_RATE);
       const gps = (s.totalGoldEarned / elapsed).toFixed(1);
       const wps = (s.totalWoodEarned / elapsed).toFixed(1);
-      const sps = (s.totalStoneEarned / elapsed).toFixed(1);
+      const sps = (s.totalMeatEarned / elapsed).toFixed(1);
       ctx.fillStyle = pi === 0 ? '#e8f5e9' : '#fafafa';
-      ctx.fillText(`P${pi} ${p.race}: ${gps}g/s  ${wps}w/s  ${sps}m/s  total: ${s.totalGoldEarned + s.totalWoodEarned + s.totalStoneEarned}`, col1, y);
+      ctx.fillText(`P${pi} ${p.race}: ${gps}g/s  ${wps}w/s  ${sps}m/s  total: ${s.totalGoldEarned + s.totalWoodEarned + s.totalMeatEarned}`, col1, y);
       y += lh;
     }
 
@@ -3039,8 +3140,16 @@ export class InputHandler {
     // Highlight tower alley slots (for towers)
     if (isTower) {
       const alley = getTeamAlleyOrigin(myTeam, this.game.state.mapDef);
+      // Gold mine exclusion zone for landscape maps
+      let exGX = -999, exGY = -999;
+      if (this.game.state.mapDef.shapeAxis === 'x') {
+        const goldPos = getBaseGoldPosition(myTeam, this.game.state.mapDef);
+        exGX = Math.round(goldPos.x - alley.x);
+        exGY = Math.round(goldPos.y - alley.y);
+      }
       for (let gy = 0; gy < this.game.state.mapDef.towerAlleyRows; gy++) {
         for (let gx = 0; gx < this.game.state.mapDef.towerAlleyCols; gx++) {
+          if (gx >= exGX - 3 && gx < exGX + 3 && gy >= exGY - 3 && gy < exGY + 3) continue;
           const occupied = this.game.state.buildings.some(
             b => {
               if (b.buildGrid !== 'alley' || b.gridX !== gx || b.gridY !== gy) return false;
@@ -3507,7 +3616,7 @@ export class InputHandler {
     ctx.fillText(`CAST ${def.name.toUpperCase()}`, cw / 2, 60);
     ctx.fillStyle = '#999';
     ctx.font = '11px monospace';
-    ctx.fillText('Click to cast  •  ESC / Right-click to cancel', cw / 2, 78);
+    ctx.fillText(this.isTouchDevice ? 'Tap to cast' : 'Click to cast  •  ESC / Right-click to cancel', cw / 2, 78);
     if (def.requiresVision) {
       ctx.fillStyle = '#ff8a65';
       ctx.font = 'italic 11px monospace';
@@ -3598,7 +3707,7 @@ export class InputHandler {
     ctx.fillStyle = '#ff5722';
     ctx.font = 'bold 16px monospace';
     ctx.textAlign = 'center';
-    ctx.fillText('CLICK TO FIRE NUKE (own half only)  [ESC to cancel]', cw / 2, 60);
+    ctx.fillText(this.isTouchDevice ? 'TAP TO FIRE NUKE (own half only)' : 'CLICK TO FIRE NUKE (own half only)  [ESC to cancel]', cw / 2, 60);
     ctx.fillStyle = '#ffab40';
     ctx.font = 'bold 13px monospace';
     ctx.fillText('YOU ONLY GET 1 NUKE PER MATCH', cw / 2, 80);
@@ -3650,7 +3759,9 @@ export class InputHandler {
 
     ctx.fillStyle = this.radialAccessibility ? '#ffffff' : '#ccc';
     ctx.font = this.radialAccessibility ? 'bold 12px monospace' : '11px monospace';
-    ctx.fillText('Hold Q, aim, release (tap Q = Defend)', cx, cy + 4);
+    if (!this.isTouchDevice) {
+      ctx.fillText('Hold Q, aim, release (tap Q = Defend)', cx, cy + 4);
+    }
     ctx.textAlign = 'start';
   }
 

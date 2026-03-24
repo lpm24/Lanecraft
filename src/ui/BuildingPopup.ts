@@ -9,7 +9,7 @@ import { getPopupSafeY } from './SafeArea';
 
 export interface UpgradeOption {
   choice: string;
-  cost: { gold: number; wood: number; stone: number; deathEssence?: number; souls?: number };
+  cost: { gold: number; wood: number; meat: number; deathEssence?: number; souls?: number };
   name?: string;
   desc?: string;
 }
@@ -144,7 +144,7 @@ export class BuildingPopup {
   draw(
     ctx: CanvasRenderingContext2D, camera: Camera, state: GameState,
     ui: UIAssets, canvasW: number, canvasH: number,
-    playerGold: number, playerWood: number, playerStone: number,
+    playerGold: number, playerWood: number, playerMeat: number,
     sprites?: SpriteLoader | null,
   ): void {
     if (this.targetBuildingId === null) return;
@@ -257,7 +257,7 @@ export class BuildingPopup {
         const soulsCost = opt.cost.souls ?? 0;
         const playerEssence = state.players[building.playerId]?.deathEssence ?? 0;
         const playerSouls = state.players[building.playerId]?.souls ?? 0;
-        const canAfford = playerGold >= opt.cost.gold && playerWood >= opt.cost.wood && playerStone >= opt.cost.stone
+        const canAfford = playerGold >= opt.cost.gold && playerWood >= opt.cost.wood && playerMeat >= opt.cost.meat
           && (essenceCost <= 0 || playerEssence >= essenceCost)
           && (soulsCost <= 0 || playerSouls >= soulsCost);
 
@@ -504,7 +504,7 @@ export class BuildingPopup {
 
     if (opt.cost.gold > 0) drawCostItem('gold', opt.cost.gold, '#ffd740', '#665500');
     if (opt.cost.wood > 0) drawCostItem('wood', opt.cost.wood, '#81c784', '#2e5530');
-    if (opt.cost.stone > 0) drawCostItem('meat', opt.cost.stone, '#e57373', '#6d2828');
+    if (opt.cost.meat > 0) drawCostItem('meat', opt.cost.meat, '#e57373', '#6d2828');
     if ((opt.cost.deathEssence ?? 0) > 0) drawCostItem('ooze', opt.cost.deathEssence!, '#69f0ae', '#1b5e20');
     if ((opt.cost.souls ?? 0) > 0) drawCostItem('souls', opt.cost.souls!, '#ce93d8', '#4a148c');
   }

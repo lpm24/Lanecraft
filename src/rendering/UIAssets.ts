@@ -1,6 +1,5 @@
 // UI sprite assets from Tiny Swords UI Elements pack
 // Provides 9-slice panels, ribbons, swords, icons, buttons, bars
-//
 // IMPORTANT: Spritesheets use 64px transparent gaps between tiles.
 // 448px images: tiles at [0,128] gap [192,64] gap [320,128]
 // 320px images: tiles at [0,64] gap [128,64] gap [256,64]
@@ -44,11 +43,17 @@ import iconDiamondPng from '../assets/images/Treasure Hunters/Treasure Hunters/P
 import iconManaPng from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/UI Elements/UI Elements/Icons/Mana.png?url';
 import iconSoulsPng from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/UI Elements/UI Elements/Icons/Souls.png?url';
 import iconOozePng from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/UI Elements/UI Elements/Icons/Ooze.png?url';
+import iconStarPng from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/UI Elements/UI Elements/Icons/Star.png?url';
+import iconResearchPng from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/UI Elements/UI Elements/Icons/Research.png?url';
+import iconNukePng from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/UI Elements/UI Elements/Icons/Nuke.png?url';
+import iconDicePng from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/UI Elements/UI Elements/Icons/Dice.png?url';
+import iconLeftArrowPng from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/UI Elements/UI Elements/Icons/Left Arrow.png?url';
+import iconRightArrowPng from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/UI Elements/UI Elements/Icons/Right Arrow.png?url';
 
 // Water background for scenes
 import waterBgPng from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Terrain/Tileset/Water Background color.png?url';
 
-export type IconName = 'gold' | 'wood' | 'meat' | 'sword' | 'shield' | 'play' | 'close' | 'settings' | 'info' | 'music' | 'diamond' | 'mana' | 'souls' | 'ooze';
+export type IconName = 'gold' | 'wood' | 'meat' | 'sword' | 'shield' | 'play' | 'close' | 'settings' | 'info' | 'music' | 'diamond' | 'mana' | 'souls' | 'ooze' | 'star' | 'research' | 'nuke' | 'dice' | 'leftArrow' | 'rightArrow';
 export type RibbonColor = 0 | 1 | 2 | 3 | 4; // blue, red, yellow, purple, dark
 export type SwordColor = 0 | 1 | 2 | 3 | 4;
 
@@ -67,6 +72,12 @@ const ICON_URLS: Record<IconName, string> = {
   mana: iconManaPng,
   souls: iconSoulsPng,
   ooze: iconOozePng,
+  star: iconStarPng,
+  research: iconResearchPng,
+  nuke: iconNukePng,
+  dice: iconDicePng,
+  leftArrow: iconLeftArrowPng,
+  rightArrow: iconRightArrowPng,
 };
 
 // Source tile positions for spritesheets with 64px gaps between tiles

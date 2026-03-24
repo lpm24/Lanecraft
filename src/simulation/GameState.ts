@@ -3,7 +3,7 @@ import {
   MAP_WIDTH, MAP_HEIGHT, HQ_HP, HQ_WIDTH, HQ_HEIGHT, NUKE_RADIUS,
   BUILD_GRID_COLS, BUILD_GRID_ROWS, ZONES, TICK_RATE,
   DIAMOND_CENTER_X, DIAMOND_CENTER_Y, DIAMOND_HALF_W, DIAMOND_HALF_H,
-  WOOD_NODE_X, STONE_NODE_X,
+  WOOD_NODE_X, MEAT_NODE_X,
   GOLD_PER_CELL, GoldCell, CROSS_BASE_MARGIN, CROSS_BASE_WIDTH,
   getMarginAtRow,
   LANE_PATHS, Vec2,
@@ -19,7 +19,7 @@ import {
   HARVESTER_RESPAWN_TICKS, HARVESTER_MIN_SEPARATION,
   UPGRADE_TREES, RACE_UPGRADE_COSTS, getBuildingCost,
   getRaceResourceRatio, getNodeUpgradeCost, getUpgradeNodeDef,
-  HUT_COST_SCALE, TOWER_COST_SCALE, GOLD_YIELD_PER_TRIP, WOOD_YIELD_PER_TRIP, STONE_YIELD_PER_TRIP, DIAMOND_CELLS_PER_TRIP,
+  HUT_COST_SCALE, TOWER_COST_SCALE, GOLD_YIELD_PER_TRIP, WOOD_YIELD_PER_TRIP, MEAT_YIELD_PER_TRIP, DIAMOND_CELLS_PER_TRIP,
   RACE_ABILITY_DEFS,
   getAllResearchUpgrades, getResearchUpgradeCost,
 } from './data';
@@ -46,28 +46,28 @@ const CHAMPION_RANGE = 1.5;
 const CHAMPION_SCALE_PER_DELIVERY = 0.15; // each subsequent delivery makes champion 15% stronger
 
 // Passive income per second per race: +1 of primary resource, +0.1 of secondary
-export const PASSIVE_INCOME: Record<Race, { gold: number; wood: number; stone: number }> = {
-  [Race.Crown]:    { gold: 2,   wood: 0.5, stone: 0 },    // gold primary, wood secondary
-  [Race.Horde]:    { gold: 1,   wood: 0.5, stone: 0.5 },  // all 3 resources, gold-leaning
-  [Race.Goblins]:  { gold: 2,   wood: 0.5, stone: 0 },    // gold primary, wood secondary
-  [Race.Oozlings]: { gold: 2,   wood: 0,   stone: 0.5 },  // gold primary, stone secondary
-  [Race.Demon]:    { gold: 0,   wood: 0.75, stone: 1.5 },  // stone primary, wood secondary
-  [Race.Deep]:     { gold: 1,   wood: 1,   stone: 0 },    // wood primary, gold secondary
-  [Race.Wild]:     { gold: 0,   wood: 1.5, stone: 0.75 }, // wood primary, stone secondary
-  [Race.Geists]:   { gold: 1.5, wood: 0,   stone: 1.5 },  // stone primary, gold secondary
-  [Race.Tenders]:  { gold: 1,   wood: 1,   stone: 0 },    // wood primary, gold secondary
+export const PASSIVE_INCOME: Record<Race, { gold: number; wood: number; meat: number }> = {
+  [Race.Crown]:    { gold: 2,   wood: 0.5, meat: 0 },    // gold primary, wood secondary
+  [Race.Horde]:    { gold: 1,   wood: 0.5, meat: 0.5 },  // all 3 resources, gold-leaning
+  [Race.Goblins]:  { gold: 2,   wood: 0.5, meat: 0 },    // gold primary, wood secondary
+  [Race.Oozlings]: { gold: 2,   wood: 0,   meat: 0.5 },  // gold primary, meat secondary
+  [Race.Demon]:    { gold: 0,   wood: 0.75, meat: 1.5 },  // meat primary, wood secondary
+  [Race.Deep]:     { gold: 1,   wood: 1,   meat: 0 },    // wood primary, gold secondary
+  [Race.Wild]:     { gold: 0,   wood: 1.5, meat: 0.75 }, // wood primary, meat secondary
+  [Race.Geists]:   { gold: 1.5, wood: 0,   meat: 1.5 },  // meat primary, gold secondary
+  [Race.Tenders]:  { gold: 1,   wood: 1,   meat: 0 },    // wood primary, gold secondary
 };
 
-const INITIAL_RESOURCES: Record<Race, { gold: number; wood: number; stone: number }> = {
-  [Race.Crown]:    { gold: 200, wood: 25,  stone: 0 },
-  [Race.Horde]:    { gold: 100, wood: 50,  stone: 50 },  // spread across all 3
-  [Race.Goblins]:  { gold: 200, wood: 25,  stone: 0 },
-  [Race.Oozlings]: { gold: 200, wood: 0,   stone: 25 },
-  [Race.Demon]:    { gold: 0,   wood: 50,  stone: 100 },
-  [Race.Deep]:     { gold: 50,  wood: 150, stone: 0 },
-  [Race.Wild]:     { gold: 0,   wood: 150, stone: 50 },
-  [Race.Geists]:   { gold: 50,  wood: 0,   stone: 150 },
-  [Race.Tenders]:  { gold: 50,  wood: 150, stone: 0 },
+const INITIAL_RESOURCES: Record<Race, { gold: number; wood: number; meat: number }> = {
+  [Race.Crown]:    { gold: 200, wood: 25,  meat: 0 },
+  [Race.Horde]:    { gold: 100, wood: 50,  meat: 50 },  // spread across all 3
+  [Race.Goblins]:  { gold: 200, wood: 25,  meat: 0 },
+  [Race.Oozlings]: { gold: 200, wood: 0,   meat: 25 },
+  [Race.Demon]:    { gold: 0,   wood: 50,  meat: 100 },
+  [Race.Deep]:     { gold: 50,  wood: 150, meat: 0 },
+  [Race.Wild]:     { gold: 0,   wood: 150, meat: 50 },
+  [Race.Geists]:   { gold: 50,  wood: 0,   meat: 150 },
+  [Race.Tenders]:  { gold: 50,  wood: 150, meat: 0 },
 };
 
 /** Projectile visual per race for ranged units. */
@@ -83,10 +83,10 @@ const RANGED_VISUAL: Record<Race, ProjectileVisual> = {
   [Race.Tenders]:  'arrow',  // Tinker
 };
 
-/** Check if a player can afford a cost (gold/wood/stone + optional special resources). */
-function canAffordCost(player: { gold: number; wood: number; stone: number; mana: number; deathEssence: number; souls: number },
-  cost: { gold: number; wood: number; stone: number; mana?: number; deathEssence?: number; souls?: number }): boolean {
-  if (player.gold < cost.gold || player.wood < cost.wood || player.stone < cost.stone) return false;
+/** Check if a player can afford a cost (gold/wood/meat + optional special resources). */
+function canAffordCost(player: { gold: number; wood: number; meat: number; mana: number; deathEssence: number; souls: number },
+  cost: { gold: number; wood: number; meat: number; mana?: number; deathEssence?: number; souls?: number }): boolean {
+  if (player.gold < cost.gold || player.wood < cost.wood || player.meat < cost.meat) return false;
   if (cost.mana !== undefined && player.mana < cost.mana) return false;
   if ((cost.deathEssence ?? 0) > 0 && player.deathEssence < (cost.deathEssence ?? 0)) return false;
   if ((cost.souls ?? 0) > 0 && player.souls < (cost.souls ?? 0)) return false;
@@ -94,11 +94,11 @@ function canAffordCost(player: { gold: number; wood: number; stone: number; mana
 }
 
 /** Deduct a cost from a player's resources. Caller must check canAffordCost first. */
-function deductCost(player: { gold: number; wood: number; stone: number; mana: number; deathEssence: number; souls: number },
-  cost: { gold: number; wood: number; stone: number; mana?: number; deathEssence?: number; souls?: number }): void {
+function deductCost(player: { gold: number; wood: number; meat: number; mana: number; deathEssence: number; souls: number },
+  cost: { gold: number; wood: number; meat: number; mana?: number; deathEssence?: number; souls?: number }): void {
   player.gold -= cost.gold;
   player.wood -= cost.wood;
-  player.stone -= cost.stone;
+  player.meat -= cost.meat;
   if (cost.mana !== undefined) player.mana -= cost.mana;
   if (cost.deathEssence !== undefined) player.deathEssence -= cost.deathEssence;
   if (cost.souls !== undefined) player.souls -= cost.souls;
@@ -113,7 +113,7 @@ function getSmartHarvesterAssignment(race: Race, state: GameState, playerId: num
   const candidates: Res[] = [];
   if (ratio.gold > 0) candidates.push({ assignment: HarvesterAssignment.BaseGold, ratio: ratio.gold });
   if (ratio.wood > 0) candidates.push({ assignment: HarvesterAssignment.Wood, ratio: ratio.wood });
-  if (ratio.stone > 0) candidates.push({ assignment: HarvesterAssignment.Stone, ratio: ratio.stone });
+  if (ratio.meat > 0) candidates.push({ assignment: HarvesterAssignment.Meat, ratio: ratio.meat });
   if (candidates.length <= 1) return candidates[0]?.assignment ?? HarvesterAssignment.BaseGold;
 
   // Count existing harvesters per resource (exclude mana, center, dead)
@@ -150,7 +150,7 @@ function isValidUpgradeChoice(path: string[], choice: string): choice is Upgrade
   return false;
 }
 
-function getUpgradeCost(path: string[], race: Race, buildingType?: BuildingType, choice?: string): { gold: number; wood: number; stone: number; deathEssence?: number; souls?: number } | null {
+function getUpgradeCost(path: string[], race: Race, buildingType?: BuildingType, choice?: string): { gold: number; wood: number; meat: number; deathEssence?: number; souls?: number } | null {
   if (path.length === 1 || path.length === 2) {
     if (buildingType != null) return getNodeUpgradeCost(race, buildingType, path.length, choice);
     const costs = RACE_UPGRADE_COSTS[race];
@@ -410,7 +410,7 @@ export function createInitialState(
     race: p.race,
     gold: p.isEmpty ? 0 : INITIAL_RESOURCES[p.race].gold,
     wood: p.isEmpty ? 0 : INITIAL_RESOURCES[p.race].wood,
-    stone: p.isEmpty ? 0 : INITIAL_RESOURCES[p.race].stone,
+    meat: p.isEmpty ? 0 : INITIAL_RESOURCES[p.race].meat,
     nukeAvailable: !p.isEmpty,
     connected: !p.isEmpty,
     isBot: p.isBot,
@@ -610,6 +610,21 @@ export function getTeamAlleyOrigin(team: Team, mapDef?: MapDef): { x: number; y:
   }
   // Legacy duel map fallback
   return { x: 30, y: team === Team.Bottom ? 82 : 26 };
+}
+
+/** Gold mine exclusion zone size (6×6 box centered on the mine tile). */
+const GOLD_MINE_EXCLUSION_HALF = 3;
+
+/** Check if a tower alley grid cell is blocked by the gold mine exclusion zone.
+ *  Only applies to landscape maps (shapeAxis 'x') where the gold mine sits inside the alley. */
+function isAlleyCellExcludedByGoldMine(gx: number, gy: number, team: Team, mapDef: MapDef): boolean {
+  if (mapDef.shapeAxis !== 'x') return false;
+  const origin = getTeamAlleyOrigin(team, mapDef);
+  const goldPos = getBaseGoldPosition(team, mapDef);
+  const mineGX = Math.round(goldPos.x - origin.x);
+  const mineGY = Math.round(goldPos.y - origin.y);
+  return gx >= mineGX - GOLD_MINE_EXCLUSION_HALF && gx < mineGX + GOLD_MINE_EXCLUSION_HALF &&
+         gy >= mineGY - GOLD_MINE_EXCLUSION_HALF && gy < mineGY + GOLD_MINE_EXCLUSION_HALF;
 }
 
 export function getHQPosition(team: Team, mapDef?: MapDef): { x: number; y: number } {
@@ -839,8 +854,6 @@ export function simulateTick(state: GameState, commands: GameCommand[]): void {
     return;
   }
 
-  // Passive income: +1/sec of primary resource, +0.1/sec of secondary resource
-  // Primary = most-used resource in building costs; secondary = other needed resource
   if (state.tick % TICK_RATE === 0) {
     for (const p of state.players) {
       if (p.isEmpty) continue;
@@ -850,8 +863,8 @@ export function simulateTick(state: GameState, commands: GameCommand[]): void {
       else if (inc.gold > 0) { p.goldFrac = (p.goldFrac ?? 0) + inc.gold; if (p.goldFrac >= 1) { p.goldFrac -= 1; p.gold += 1; if (ps) ps.totalGoldEarned += 1; } }
       if (inc.wood >= 1) { p.wood += Math.floor(inc.wood); if (ps) ps.totalWoodEarned += Math.floor(inc.wood); }
       else if (inc.wood > 0) { p.woodFrac = (p.woodFrac ?? 0) + inc.wood; if (p.woodFrac >= 1) { p.woodFrac -= 1; p.wood += 1; if (ps) ps.totalWoodEarned += 1; } }
-      if (inc.stone >= 1) { p.stone += Math.floor(inc.stone); if (ps) ps.totalStoneEarned += Math.floor(inc.stone); }
-      else if (inc.stone > 0) { p.stoneFrac = (p.stoneFrac ?? 0) + inc.stone; if (p.stoneFrac >= 1) { p.stoneFrac -= 1; p.stone += 1; if (ps) ps.totalStoneEarned += 1; } }
+      if (inc.meat >= 1) { p.meat += Math.floor(inc.meat); if (ps) ps.totalMeatEarned += Math.floor(inc.meat); }
+      else if (inc.meat > 0) { p.meatFrac = (p.meatFrac ?? 0) + inc.meat; if (p.meatFrac >= 1) { p.meatFrac -= 1; p.meat += 1; if (ps) ps.totalMeatEarned += 1; } }
       // Demon: passive mana generation (+1/sec)
       if (p.race === Race.Demon) {
         p.mana += 1;
@@ -1147,13 +1160,13 @@ function placeBuilding(state: GameState, cmd: Extract<GameCommand, { type: 'plac
     effectiveCost = {
       gold: Math.floor(cost.gold * mult),
       wood: Math.floor(cost.wood * mult),
-      stone: Math.floor(cost.stone * mult),
+      meat: Math.floor(cost.meat * mult),
       hp: cost.hp,
     };
   }
 
   if (!isFirstTower) {
-    if (player.gold < effectiveCost.gold || player.wood < effectiveCost.wood || player.stone < effectiveCost.stone) return;
+    if (player.gold < effectiveCost.gold || player.wood < effectiveCost.wood || player.meat < effectiveCost.meat) return;
   }
 
   const isAlley = cmd.gridType === 'alley';
@@ -1177,12 +1190,14 @@ function placeBuilding(state: GameState, cmd: Extract<GameCommand, { type: 'plac
     if (cmd.buildingType !== BuildingType.Tower) return;
     if (cmd.gridX < 0 || cmd.gridX >= state.mapDef.towerAlleyCols || cmd.gridY < 0 || cmd.gridY >= state.mapDef.towerAlleyRows) return;
     const playerTeam = state.players[cmd.playerId]?.team ?? (cmd.playerId < 2 ? Team.Bottom : Team.Top);
+    // Block building in gold mine exclusion zone
+    if (isAlleyCellExcludedByGoldMine(cmd.gridX, cmd.gridY, playerTeam, state.mapDef)) return;
     if (state.buildings.some(b => b.buildGrid === 'alley' &&
         (state.players[b.playerId]?.team ?? (b.playerId < 2 ? Team.Bottom : Team.Top)) === playerTeam &&
         b.gridX === cmd.gridX && b.gridY === cmd.gridY)) return;
     const origin = getTeamAlleyOrigin(playerTeam, state.mapDef);
     const world = { x: origin.x + cmd.gridX, y: origin.y + cmd.gridY };
-    if (!isFirstTower) { player.gold -= effectiveCost.gold; player.wood -= effectiveCost.wood; player.stone -= effectiveCost.stone; }
+    if (!isFirstTower) { player.gold -= effectiveCost.gold; player.wood -= effectiveCost.wood; player.meat -= effectiveCost.meat; }
     state.buildings.push({
       id: genId(state), type: cmd.buildingType, playerId: cmd.playerId, buildGrid: 'alley',
       gridX: cmd.gridX, gridY: cmd.gridY, worldX: world.x, worldY: world.y,
@@ -1196,7 +1211,7 @@ function placeBuilding(state: GameState, cmd: Extract<GameCommand, { type: 'plac
     if (cmd.buildingType === BuildingType.Tower) return;
     if (cmd.gridX < 0 || cmd.gridX >= state.mapDef.buildGridCols || cmd.gridY < 0 || cmd.gridY >= state.mapDef.buildGridRows) return;
     if (state.buildings.some(b => b.buildGrid === 'military' && b.playerId === cmd.playerId && b.gridX === cmd.gridX && b.gridY === cmd.gridY)) return;
-    player.gold -= cost.gold; player.wood -= cost.wood; player.stone -= cost.stone;
+    player.gold -= cost.gold; player.wood -= cost.wood; player.meat -= cost.meat;
     const world = gridSlotToWorld(cmd.playerId, cmd.gridX, cmd.gridY, state.mapDef, state.players);
     state.buildings.push({
       id: genId(state), type: cmd.buildingType, playerId: cmd.playerId, buildGrid: 'military',
@@ -1224,23 +1239,23 @@ function sellBuilding(state: GameState, cmd: Extract<GameCommand, { type: 'sell_
   const cost = getBuildingCost(player.race, building.type);
 
   // Calculate total invested: base cost + upgrade costs (respecting per-node overrides)
-  let totalGold = cost.gold, totalWood = cost.wood, totalStone = cost.stone, totalEssence = 0, totalSouls = 0;
+  let totalGold = cost.gold, totalWood = cost.wood, totalMeat = cost.meat, totalEssence = 0, totalSouls = 0;
   if (building.upgradePath.length >= 2) {
     const t1Cost = getUpgradeCost(['A'], player.race, building.type, building.upgradePath[1]);
-    if (t1Cost) { totalGold += t1Cost.gold; totalWood += t1Cost.wood; totalStone += t1Cost.stone; totalEssence += t1Cost.deathEssence ?? 0; totalSouls += t1Cost.souls ?? 0; }
+    if (t1Cost) { totalGold += t1Cost.gold; totalWood += t1Cost.wood; totalMeat += t1Cost.meat; totalEssence += t1Cost.deathEssence ?? 0; totalSouls += t1Cost.souls ?? 0; }
   }
   if (building.upgradePath.length >= 3) {
     const t2Cost = getUpgradeCost(['A', building.upgradePath[1]], player.race, building.type, building.upgradePath[2]);
-    if (t2Cost) { totalGold += t2Cost.gold; totalWood += t2Cost.wood; totalStone += t2Cost.stone; totalEssence += t2Cost.deathEssence ?? 0; totalSouls += t2Cost.souls ?? 0; }
+    if (t2Cost) { totalGold += t2Cost.gold; totalWood += t2Cost.wood; totalMeat += t2Cost.meat; totalEssence += t2Cost.deathEssence ?? 0; totalSouls += t2Cost.souls ?? 0; }
   }
 
   // Refund 50% of total invested resources
   const refundGold = Math.floor(totalGold * 0.5);
   const refundWood = Math.floor(totalWood * 0.5);
-  const refundStone = Math.floor(totalStone * 0.5);
+  const refundMeat = Math.floor(totalMeat * 0.5);
   player.gold += refundGold;
   player.wood += refundWood;
-  player.stone += refundStone;
+  player.meat += refundMeat;
   if (totalEssence > 0) player.deathEssence += Math.floor(totalEssence * 0.5);
   if (totalSouls > 0) player.souls += Math.floor(totalSouls * 0.5);
 
@@ -1254,7 +1269,7 @@ function sellBuilding(state: GameState, cmd: Extract<GameCommand, { type: 'sell_
   const bx = building.worldX, by = building.worldY;
   if (refundGold > 0) addFloatingText(state, bx, by, `+${refundGold}`, '#ffd700', 'gold');
   if (refundWood > 0) addFloatingText(state, bx, by - 0.5, `+${refundWood}`, '#8B4513', 'wood');
-  if (refundStone > 0) addFloatingText(state, bx, by - 1.0, `+${refundStone}`, '#aaaaaa', 'stone');
+  if (refundMeat > 0) addFloatingText(state, bx, by - 1.0, `+${refundMeat}`, '#aaaaaa', 'meat');
   addSound(state, 'building_destroyed', bx, by);
   state.buildings.splice(idx, 1);
 }
@@ -1282,11 +1297,11 @@ function buildHut(state: GameState, cmd: Extract<GameCommand, { type: 'build_hut
   const mult = Math.pow(HUT_COST_SCALE, Math.max(0, myHuts.length - 1));
   const goldCost = Math.floor(hutRes.gold * mult);
   const woodCost = Math.floor(hutRes.wood * mult);
-  const stoneCost = Math.floor(hutRes.stone * mult);
-  if (player.gold < goldCost || player.wood < woodCost || player.stone < stoneCost) return;
+  const meatCost = Math.floor(hutRes.meat * mult);
+  if (player.gold < goldCost || player.wood < woodCost || player.meat < meatCost) return;
   player.gold -= goldCost;
   player.wood -= woodCost;
-  player.stone -= stoneCost;
+  player.meat -= meatCost;
 
   const origin = getHutGridOrigin(cmd.playerId, state.mapDef, state.players);
   const hCols = state.mapDef.hutGridCols;
@@ -1372,7 +1387,7 @@ function useAbility(state: GameState, cmd: Extract<GameCommand, { type: 'use_abi
   const cost = {
     gold: Math.floor((def.baseCost.gold ?? 0) * growthMult * hordeCostMult),
     wood: Math.floor((def.baseCost.wood ?? 0) * growthMult * woodCostMult * hordeCostMult),
-    stone: Math.floor((def.baseCost.stone ?? 0) * growthMult * hordeCostMult),
+    meat: Math.floor((def.baseCost.meat ?? 0) * growthMult * hordeCostMult),
     mana: Math.floor((def.baseCost.mana ?? 0) * growthMult),
     souls: player.race === Race.Geists ? soulsCostAdditive : Math.floor((def.baseCost.souls ?? 0) * growthMult),
     deathEssence: Math.floor((def.baseCost.deathEssence ?? 0) * growthMult),
@@ -1386,7 +1401,7 @@ function useAbility(state: GameState, cmd: Extract<GameCommand, { type: 'use_abi
     // Validate resources
     if (player.gold < cost.gold) return;
     if (player.wood < cost.wood) return;
-    if (player.stone < cost.stone) return;
+    if (player.meat < cost.meat) return;
     if (player.mana < cost.mana) return;
     if (player.souls < cost.souls) return;
     if (player.deathEssence < cost.deathEssence) return;
@@ -1407,6 +1422,7 @@ function useAbility(state: GameState, cmd: Extract<GameCommand, { type: 'use_abi
     if (cmd.gridX != null && cmd.gridY != null) {
       // Specific slot requested — validate it's open and in bounds
       if (cmd.gridX < 0 || cmd.gridX >= state.mapDef.towerAlleyCols || cmd.gridY < 0 || cmd.gridY >= state.mapDef.towerAlleyRows) return;
+      if (isAlleyCellExcludedByGoldMine(cmd.gridX, cmd.gridY, player.team, state.mapDef)) return;
       const teamBuildings = state.buildings.filter(b =>
         b.buildGrid === 'alley' && (state.players[b.playerId]?.team ?? -1) === player.team
       );
@@ -1431,12 +1447,12 @@ function useAbility(state: GameState, cmd: Extract<GameCommand, { type: 'use_abi
   } else {
     player.gold -= cost.gold;
     player.wood -= cost.wood;
-    player.stone -= cost.stone;
+    player.meat -= cost.meat;
     player.mana -= cost.mana;
     player.souls -= cost.souls;
     player.deathEssence -= cost.deathEssence;
     let cd = def.baseCooldownTicks;
-    // Demon Rapid Fire: -40% fireball cooldown
+    // Demon Rapid Fire: -25% fireball cooldown
     if (player.race === Race.Demon && player.researchUpgrades.raceUpgrades['demon_ability_1']) cd = Math.round(cd * 0.75);
     player.abilityCooldown = cd;
   }
@@ -1500,6 +1516,7 @@ function findOpenAlleySlot(state: GameState, player: PlayerState): { gx: number;
   );
   for (let gy = 0; gy < state.mapDef.towerAlleyRows; gy++) {
     for (let gx = 0; gx < state.mapDef.towerAlleyCols; gx++) {
+      if (isAlleyCellExcludedByGoldMine(gx, gy, player.team, state.mapDef)) continue;
       if (!teamAlleyBuildings.some(b => b.gridX === gx && b.gridY === gy)) {
         return { gx, gy };
       }
@@ -1509,7 +1526,7 @@ function findOpenAlleySlot(state: GameState, player: PlayerState): { gx: number;
 }
 
 function crownAbility(state: GameState, player: PlayerState, cmd: Extract<GameCommand, { type: 'use_ability' }>): void {
-  // Place a Gold Foundry in the tower alley (+1 gold per miner tick per foundry)
+  // Place a Gold Foundry in the tower alley (+1 gold per second per foundry)
   const slot = (cmd.gridX != null && cmd.gridY != null) ? { gx: cmd.gridX, gy: cmd.gridY } : findOpenAlleySlot(state, player);
   if (!slot) return;
   const origin = getTeamAlleyOrigin(player.team, state.mapDef);
@@ -1589,7 +1606,7 @@ function explodeFireball(state: GameState, eff: { playerId: number; team: Team; 
   const totalDamage = eff.data?.damage ?? 20;
   const fbPlayer = state.players[eff.playerId];
   const fbUpgrades = fbPlayer?.researchUpgrades;
-  // Demon Siege Fire: +100% building damage
+  // Demon Siege Fire: +50% building damage
   const buildingDamageReduction = fbUpgrades?.raceUpgrades['demon_ability_3'] ? 0.45 : 0.3;
   const r2 = radius * radius;
 
@@ -1889,8 +1906,8 @@ function tickAbilityEffects(state: GameState): void {
               if (state.playerStats[b.playerId]) state.playerStats[b.playerId].totalWoodEarned += amt;
               addFloatingText(state, b.worldX, b.worldY - 0.3, `+${amt}`, '#4caf50', 'wood');
             } else {
-              owner.stone += amt;
-              if (state.playerStats[b.playerId]) state.playerStats[b.playerId].totalStoneEarned += amt;
+              owner.meat += amt;
+              if (state.playerStats[b.playerId]) state.playerStats[b.playerId].totalMeatEarned += amt;
               addFloatingText(state, b.worldX, b.worldY - 0.3, `+${amt}`, '#e57373', 'meat');
             }
           }
@@ -2536,14 +2553,14 @@ function getEffectiveSpeed(unit: UnitState, gameState?: GameState): number {
     if (eff.type === StatusType.Slow) { speed *= Math.max(0.5, 1 - 0.1 * eff.stacks); isSlowed = true; }
     if (eff.type === StatusType.Haste) speed *= 1.3;
   }
-  // Deep Freezing Depths: slowed units move 25% slower
+  // Deep Freezing Depths: slowed units move 15% slower
   if (isSlowed && gameState) {
     for (const p of gameState.players) {
       if (p.isEmpty || p.race !== Race.Deep || p.team === unit.team) continue;
       if (p.researchUpgrades.raceUpgrades['deep_ability_3']) { speed *= 0.85; break; }
     }
   }
-  // Wild Pack Speed: +15% global move speed for units
+  // Wild Pack Speed: +10% global move speed for units
   if (gameState) {
     const unitPlayer = gameState.players[unit.playerId];
     if (unitPlayer?.researchUpgrades.raceUpgrades['wild_ability_3']) speed *= 1.10;
@@ -2554,7 +2571,7 @@ function getEffectiveSpeed(unit: UnitState, gameState?: GameState): number {
   return speed;
 }
 
-/** Get damage with status effect multipliers (Frenzy = +30% damage) + aura bonuses */
+/** Get damage with status effect multipliers (Frenzy = +50% damage) + aura bonuses */
 function getEffectiveDamage(unit: UnitState, state?: GameState): number {
   let dmg = unit.damage;
   for (const eff of unit.statusEffects) {
@@ -3147,10 +3164,10 @@ function dealDamage(state: GameState, target: UnitState, amount: number, showFlo
           const killerRace = state.players[killer.playerId]?.race;
           if (killerRace === Race.Wild) {
             const wildPlayer = state.players[killer.playerId];
-            // Meat Harvest: 30% chance to gain +3 stone on kill
+            // Meat Harvest: 30% chance to gain +3 meat on kill
             if (wildPlayer?.researchUpgrades.raceUpgrades['wild_ability_1'] && state.rng() < 0.3) {
-              wildPlayer.stone += 3;
-              if (state.playerStats[killer.playerId]) state.playerStats[killer.playerId].totalStoneEarned += 3;
+              wildPlayer.meat += 3;
+              if (state.playerStats[killer.playerId]) state.playerStats[killer.playerId].totalMeatEarned += 3;
               addFloatingText(state, killer.x, killer.y - 0.3, '+3', '#e57373', 'meat');
             }
             // Heal killer on kill (bloodthirst)
@@ -3398,7 +3415,6 @@ function applyOnHitEffects(state: GameState, attacker: UnitState, target: UnitSt
 
   switch (race) {
     case Race.Crown:
-      // Swordsman: 10% damage reduction is passive (handled in damage calc), no on-hit
       break;
     case Race.Horde:
       // Brute: knockback every 3rd hit + 10% lifesteal
@@ -3421,7 +3437,6 @@ function applyOnHitEffects(state: GameState, attacker: UnitState, target: UnitSt
       }
       break;
     case Race.Goblins:
-      // Sticker: 15% dodge is passive (handled in damage calc)
       // Knifer burn is applied via projectile hit logic (tickProjectiles)
       applyWound(target); // all Goblin attacks apply Wound
       break;
@@ -3481,8 +3496,8 @@ function applyOnHitEffects(state: GameState, attacker: UnitState, target: UnitSt
     if (bu.raceUpgrades['wild_ranged_2'] && attacker.category === 'ranged') {
       applyStatus(target, StatusType.Slow, 1);
     }
-    // Horde Heavy Bolts: +1 Slow on ranged hit
-    if (!isMelee && bu.raceUpgrades['horde_ranged_1']) applyWound(target); // Heavy Bolts: Wound on ranged hit
+    // Horde Heavy Bolts: Wound on ranged hit
+    if (!isMelee && bu.raceUpgrades['horde_ranged_1']) applyWound(target);
     // Deep Frozen Harpoons: +1 Slow on ranged hit
     if (!isMelee && bu.raceUpgrades['deep_ranged_1']) applyStatus(target, StatusType.Slow, 1);
     // Wild Venomous Fangs: +1 Burn + Wound on ranged hit
@@ -4332,7 +4347,7 @@ function tickCombat(state: GameState): void {
               sourcePlayerId: unit.playerId, sourceUnitId: unit.id,
             });
           }
-          // Research: Goblins Scatter Shot — 15% chance extra projectile
+          // Research: Goblins Acid Bolts — 15% chance extra projectile
           if (rbu?.raceUpgrades['goblins_ranged_2'] && state.rng() < 0.15) {
             state.projectiles.push({
               id: genId(state), x: unit.x, y: unit.y,
@@ -5769,8 +5784,8 @@ function tickHarvesters(state: GameState): void {
             h.woodDropsCreated = 0;
             break;
           }
-          case HarvesterAssignment.Stone:
-            h.carryingResource = ResourceType.Stone; h.carryAmount = STONE_YIELD_PER_TRIP; break;
+          case HarvesterAssignment.Meat:
+            h.carryingResource = ResourceType.Meat; h.carryAmount = MEAT_YIELD_PER_TRIP; break;
         }
         h.state = h.carryAmount > 0 ? 'walking_home' : 'walking_to_node';
       }
@@ -6018,7 +6033,7 @@ function walkHome(state: GameState, h: HarvesterState, movePerTick: number): voi
       return;
     }
     const ps = state.playerStats[h.playerId];
-    // Apply map resource yield multiplier for wood/stone (not gold — gold has its own economy)
+    // Apply map resource yield multiplier for wood/meat (not gold — gold has its own economy)
     const yieldMul = (h.carryingResource !== ResourceType.Gold) ? (state.mapDef?.resourceYield ?? 1) : 1;
     const amt = h.carryAmount * yieldMul;
     if (h.carryingResource === ResourceType.Gold) {
@@ -6029,9 +6044,9 @@ function walkHome(state: GameState, h: HarvesterState, movePerTick: number): voi
       player.wood += amt;
       if (ps) ps.totalWoodEarned += amt;
       if (state.tick % 2 === 0) addFloatingText(state, h.x, h.y, `+${amt}`, '#8d6e63', 'wood');
-    } else if (h.carryingResource === ResourceType.Stone) {
-      player.stone += amt;
-      if (ps) ps.totalStoneEarned += amt;
+    } else if (h.carryingResource === ResourceType.Meat) {
+      player.meat += amt;
+      if (ps) ps.totalMeatEarned += amt;
       if (state.tick % 2 === 0) addFloatingText(state, h.x, h.y, `+${amt}`, '#ff5252', 'meat');
     }
     h.carryingResource = null;
@@ -6068,7 +6083,7 @@ function walkHome(state: GameState, h: HarvesterState, movePerTick: number): voi
   }
 }
 
-function getBaseGoldPosition(team: Team, mapDef?: MapDef): { x: number; y: number } {
+export function getBaseGoldPosition(team: Team, mapDef?: MapDef): { x: number; y: number } {
   const hq = getHQPosition(team, mapDef);
   if (mapDef?.shapeAxis === 'x') {
     return { x: team === Team.Bottom ? hq.x + HQ_WIDTH + 6 : hq.x - 6, y: hq.y + HQ_HEIGHT / 2 };
@@ -6085,9 +6100,9 @@ function getResourceNodePosition(h: HarvesterState, mapDef?: MapDef): { x: numbe
       const node = mapDef?.resourceNodes.find(n => n.type === ResourceType.Wood);
       return node ? { x: node.x, y: node.y } : { x: WOOD_NODE_X, y: DIAMOND_CENTER_Y };
     }
-    case HarvesterAssignment.Stone: {
-      const node = mapDef?.resourceNodes.find(n => n.type === ResourceType.Stone);
-      return node ? { x: node.x, y: node.y } : { x: STONE_NODE_X, y: DIAMOND_CENTER_Y };
+    case HarvesterAssignment.Meat: {
+      const node = mapDef?.resourceNodes.find(n => n.type === ResourceType.Meat);
+      return node ? { x: node.x, y: node.y } : { x: MEAT_NODE_X, y: DIAMOND_CENTER_Y };
     }
     case HarvesterAssignment.Center:
       return { x: dc.x, y: dc.y };
@@ -6173,7 +6188,7 @@ export function computeStateHash(state: GameState): number {
   for (const p of state.players) {
     mix(p.gold * 100 | 0);
     mix(p.wood * 100 | 0);
-    mix(p.stone * 100 | 0);
+    mix(p.meat * 100 | 0);
   }
 
   // Sample unit positions (first 10 units for speed)

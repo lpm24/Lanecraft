@@ -2,7 +2,7 @@
  * Cost-Benefit Analysis Tool
  *
  * Computes effective costs, unit power, cost-efficiency ratios, and hut payback
- * for all 9 races. Uses the exchange rate: 2 gold = 1 wood = 1 stone.
+ * for all 9 races. Uses the exchange rate: 2 gold = 1 wood = 1 meat.
  *
  * Run: npm run cost-analysis
  */
@@ -13,14 +13,11 @@ import {
   RACE_BUILDING_COSTS, RACE_UPGRADE_COSTS,
   UPGRADE_TREES,
   HUT_COST_SCALE,
-  GOLD_YIELD_PER_TRIP, WOOD_YIELD_PER_TRIP, STONE_YIELD_PER_TRIP,
+  GOLD_YIELD_PER_TRIP, WOOD_YIELD_PER_TRIP, MEAT_YIELD_PER_TRIP,
   SPAWN_INTERVAL_TICKS,
   HARVESTER_MOVE_SPEED, MINE_TIME_BASE_TICKS,
   getNodeUpgradeCost,
 } from '../simulation/data';
-// DUEL_MAP available if map-specific analysis is needed
-// import { DUEL_MAP } from '../simulation/maps';
-
 // ==================== CONFIG ====================
 
 const RACE_NAMES: Record<Race, string> = {
@@ -55,14 +52,14 @@ const CATEGORY_NAMES: Record<BuildingType, string> = {
 
 // ==================== EFFECTIVE COST ====================
 
-/** Convert raw resources to effective cost: gold/2 + wood + stone */
-function eff(gold: number, wood: number, stone: number): number {
-  return gold / 2 + wood + stone;
+/** Convert raw resources to effective cost: gold/2 + wood + meat */
+function eff(gold: number, wood: number, meat: number): number {
+  return gold / 2 + wood + meat;
 }
 
-function effCost(c: { gold: number; wood: number; stone: number; souls?: number }): number {
-  // Souls valued at ~2 effective (similar to wood/stone, since they're a limited resource)
-  return eff(c.gold, c.wood, c.stone) + ((c as any).souls ?? 0) * 2;
+function effCost(c: { gold: number; wood: number; meat: number; souls?: number }): number {
+  // Souls valued at ~2 effective (similar to wood/meat, since they're a limited resource)
+  return eff(c.gold, c.wood, c.meat) + ((c as any).souls ?? 0) * 2;
 }
 
 // ==================== HARVESTER ECONOMICS ====================
@@ -72,7 +69,7 @@ function computeHarvesterEconomics() {
   const hqCenter = { x: 40, y: 106.5 }; // Bottom team HQ center
   const goldMine = { x: 40, y: 99 };     // 6 tiles below HQ
   const woodNode = { x: 12, y: 60 };     // Far left, mid-map
-  const stoneNode = { x: 68, y: 60 };    // Far right, mid-map
+  const meatNode = { x: 68, y: 60 };    // Far right, mid-map
 
   const speed = HARVESTER_MOVE_SPEED; // tiles/sec
   const mineTime = MINE_TIME_BASE_TICKS / TICK_RATE; // seconds
@@ -85,18 +82,18 @@ function computeHarvesterEconomics() {
 
   const goldCycle = tripCycle(goldMine);
   const woodCycle = tripCycle(woodNode);
-  const stoneCycle = tripCycle(stoneNode);
+  const meatCycle = tripCycle(meatNode);
 
   return {
     goldCycle,
     woodCycle,
-    stoneCycle,
+    meatCycle,
     goldPerSec: GOLD_YIELD_PER_TRIP / goldCycle,
     woodPerSec: WOOD_YIELD_PER_TRIP / woodCycle,
-    stonePerSec: STONE_YIELD_PER_TRIP / stoneCycle,
+    meatPerSec: MEAT_YIELD_PER_TRIP / meatCycle,
     goldEffPerSec: (GOLD_YIELD_PER_TRIP / 2) / goldCycle,  // gold worth half
     woodEffPerSec: WOOD_YIELD_PER_TRIP / woodCycle,
-    stoneEffPerSec: STONE_YIELD_PER_TRIP / stoneCycle,
+    meatEffPerSec: MEAT_YIELD_PER_TRIP / meatCycle,
   };
 }
 
@@ -164,7 +161,7 @@ function researchCostPerLevel(race: Race, level: number): number {
   }
   const cost = Math.round(80 * Math.pow(1.5, level));
   // All races pay ~40 eff per base level:
-  // Gold races: 80g = 40 eff. Non-gold: half raw in wood/stone = 40 eff.
+  // Gold races: 80g = 40 eff. Non-gold: half raw in wood/meat = 40 eff.
   return cost / 2;
 }
 
@@ -209,8 +206,8 @@ function printTable(headers: string[], rows: string[][], colWidths?: number[]) {
 function runAnalysis() {
   console.log('='.repeat(80));
   console.log('  COST-BENEFIT ANALYSIS — All 9 Races');
-  console.log(`  Exchange rate: 2 gold = 1 wood = 1 stone`);
-  console.log(`  Gold yield: ${GOLD_YIELD_PER_TRIP}/trip, Wood: ${WOOD_YIELD_PER_TRIP}/trip, Stone: ${STONE_YIELD_PER_TRIP}/trip`);
+  console.log(`  Exchange rate: 2 gold = 1 wood = 1 meat`);
+  console.log(`  Gold yield: ${GOLD_YIELD_PER_TRIP}/trip, Wood: ${WOOD_YIELD_PER_TRIP}/trip, Meat: ${MEAT_YIELD_PER_TRIP}/trip`);
   console.log(`  Spawn interval: ${(SPAWN_INTERVAL_TICKS / TICK_RATE).toFixed(1)}s base`);
   console.log('='.repeat(80));
 
@@ -360,11 +357,11 @@ function runAnalysis() {
   const econ = computeHarvesterEconomics();
   console.log(`  Gold harvester:  ${fmt(econ.goldPerSec, 3)} gold/s  (${fmt(econ.goldEffPerSec, 3)} eff/s, cycle ${fmt(econ.goldCycle)}s)`);
   console.log(`  Wood harvester:  ${fmt(econ.woodPerSec, 3)} wood/s  (${fmt(econ.woodEffPerSec, 3)} eff/s, cycle ${fmt(econ.woodCycle)}s)`);
-  console.log(`  Stone harvester: ${fmt(econ.stonePerSec, 3)} stone/s (${fmt(econ.stoneEffPerSec, 3)} eff/s, cycle ${fmt(econ.stoneCycle)}s)`);
+  console.log(`  Meat harvester:  ${fmt(econ.meatPerSec, 3)} meat/s  (${fmt(econ.meatEffPerSec, 3)} eff/s, cycle ${fmt(econ.meatCycle)}s)`);
   console.log('');
 
   const goldRate = econ.goldEffPerSec;
-  const secRate = Math.min(econ.woodEffPerSec, econ.stoneEffPerSec); // conservative
+  const secRate = Math.min(econ.woodEffPerSec, econ.meatEffPerSec); // conservative
 
   {
     const rows: string[][] = [];
@@ -377,7 +374,7 @@ function runAnalysis() {
         const cost = eff(
           Math.floor(base.gold * mult),
           Math.floor(base.wood * mult),
-          Math.floor(base.stone * mult),
+          Math.floor(base.meat * mult),
         );
         costs.push(cost);
         // First hut goes to gold, rest to secondary resources
