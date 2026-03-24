@@ -1,6 +1,6 @@
 import { Camera } from './Camera';
 import { SpriteLoader, drawSpriteFrame, drawGridFrame, getSpriteFrame, type SpriteDef, type GridSpriteDef } from './SpriteLoader';
-import { UIAssets } from './UIAssets';
+import { UIAssets, IconName } from './UIAssets';
 import {
   GameState, Team, MAP_WIDTH, MAP_HEIGHT, TILE_SIZE, TICK_RATE,
   ZONES,
@@ -2149,13 +2149,8 @@ export class Renderer {
               const dOff = (dSz - iconSz) / 2;
               if (diamondSprite) ctx.drawImage(diamondSprite[0], iconX - dOff, iconY2 - dOff, dSz, dSz);
             } else if (harv.assignment === HarvesterAssignment.Mana || (harv.assignment === 'base_gold' && player.race === Race.Demon)) {
-              // Mana assignment or Demon base gold — draw mana crystal icon
-              const cx_ = iconX + iconSz / 2, cy_ = iconY2 + iconSz / 2, r = iconSz * 0.42;
-              ctx.fillStyle = '#7c4dff';
-              ctx.beginPath();
-              ctx.moveTo(cx_, cy_ - r); ctx.lineTo(cx_ + r * 0.65, cy_);
-              ctx.lineTo(cx_, cy_ + r); ctx.lineTo(cx_ - r * 0.65, cy_);
-              ctx.closePath(); ctx.fill();
+              // Mana assignment or Demon base gold
+              this.ui.drawIcon(ctx, 'mana', iconX, iconY2, iconSz);
             } else {
               const iconMap: Record<string, 'gold' | 'wood' | 'meat'> = { base_gold: 'gold', wood: 'wood', stone: 'meat' };
               this.ui.drawIcon(ctx, iconMap[harv.assignment] || 'gold', iconX, iconY2, iconSz);
@@ -2219,12 +2214,7 @@ export class Renderer {
                 const diamondSprite = this.sprites.getResourceSprite('goldResource');
                 if (diamondSprite) ctx.drawImage(diamondSprite[0], iconX, iconY2, iconSz, iconSz);
               } else if (harv.assignment === HarvesterAssignment.Mana) {
-                const cx_ = iconX + iconSz / 2, cy_ = iconY2 + iconSz / 2, r = iconSz * 0.42;
-                ctx.fillStyle = '#7c4dff';
-                ctx.beginPath();
-                ctx.moveTo(cx_, cy_ - r); ctx.lineTo(cx_ + r * 0.65, cy_);
-                ctx.lineTo(cx_, cy_ + r); ctx.lineTo(cx_ - r * 0.65, cy_);
-                ctx.closePath(); ctx.fill();
+                this.ui.drawIcon(ctx, 'mana', iconX, iconY2, iconSz);
               } else {
                 const iconMap: Record<string, 'gold' | 'wood' | 'meat'> = { base_gold: 'gold', wood: 'wood', stone: 'meat' };
                 this.ui.drawIcon(ctx, iconMap[harv.assignment] || 'gold', iconX, iconY2, iconSz);
@@ -3698,27 +3688,11 @@ export class Renderer {
         if (!this.ui.drawIcon(ctx, ft.icon as any, iconX, iconCy, iconSz)) {
           const icx = iconX + iconSz / 2, icy = iconCy + iconSz / 2;
           const ihr = iconSz * 0.4;
-          if (ft.icon === 'mana') {
-            ctx.fillStyle = '#7c4dff';
-            ctx.beginPath();
-            ctx.moveTo(icx, icy - ihr); ctx.lineTo(icx + ihr * 0.7, icy);
-            ctx.lineTo(icx, icy + ihr); ctx.lineTo(icx - ihr * 0.7, icy);
-            ctx.closePath(); ctx.fill();
-          } else if (ft.icon === 'soul') {
-            ctx.fillStyle = '#ce93d8';
-            ctx.beginPath(); ctx.arc(icx, icy - ihr * 0.2, ihr * 0.55, 0, Math.PI * 2); ctx.fill();
-            ctx.beginPath();
-            ctx.moveTo(icx - ihr * 0.3, icy + ihr * 0.2);
-            ctx.quadraticCurveTo(icx + ihr * 0.2, icy + ihr * 0.4, icx - ihr * 0.1, icy + ihr * 0.8);
-            ctx.strokeStyle = '#ce93d8'; ctx.lineWidth = 1.5; ctx.stroke();
-          } else if (ft.icon === 'ooze') {
-            ctx.fillStyle = '#69f0ae';
-            ctx.beginPath();
-            ctx.moveTo(icx, icy - ihr);
-            ctx.quadraticCurveTo(icx + ihr * 0.8, icy + ihr * 0.3, icx, icy + ihr);
-            ctx.quadraticCurveTo(icx - ihr * 0.8, icy + ihr * 0.3, icx, icy - ihr);
-            ctx.fill();
-          }
+          // Fallback: draw colored circle for unknown icons
+          ctx.fillStyle = color;
+          ctx.beginPath();
+          ctx.arc(icx, icy, ihr, 0, Math.PI * 2);
+          ctx.fill();
         }
       } else {
         ctx.strokeText(ft.text, px, py);
@@ -4296,58 +4270,17 @@ export class Renderer {
     if (used.wood) drawRes('wood', player.wood, '#4caf50', woodRate);
     if (used.stone) drawRes('meat', player.stone, '#e57373', stoneRate);
 
-    // Race-specific special resources with canvas-drawn icons
-    const drawSpecialRes = (val: number, color: string, drawIcon: () => void) => {
-      drawIcon();
+    // Race-specific special resources
+    const drawSpecialRes = (val: number, color: string, icon: IconName) => {
+      this.ui.drawIcon(ctx, icon, x, iconY, iconSz);
       x += iconSz + 1;
       ctx.fillStyle = color;
       ctx.fillText(`${val}`, x, y1 + fontSize * 0.35);
       x += ctx.measureText(`${val}`).width + (compact ? 4 : 8);
     };
-    if (player.race === Race.Demon) drawSpecialRes(player.mana, '#7c4dff', () => {
-      // Mana crystal icon
-      const cx_ = x + iconSz / 2, cy_ = iconY + iconSz / 2;
-      ctx.fillStyle = '#7c4dff';
-      ctx.beginPath();
-      ctx.moveTo(cx_, cy_ - iconSz * 0.45);
-      ctx.lineTo(cx_ + iconSz * 0.3, cy_);
-      ctx.lineTo(cx_, cy_ + iconSz * 0.45);
-      ctx.lineTo(cx_ - iconSz * 0.3, cy_);
-      ctx.closePath();
-      ctx.fill();
-      ctx.fillStyle = '#b388ff';
-      ctx.beginPath();
-      ctx.moveTo(cx_, cy_ - iconSz * 0.25);
-      ctx.lineTo(cx_ + iconSz * 0.12, cy_);
-      ctx.lineTo(cx_, cy_ + iconSz * 0.1);
-      ctx.closePath();
-      ctx.fill();
-    });
-    if (player.race === Race.Geists) drawSpecialRes(player.souls, '#ce93d8', () => {
-      // Soul wisp icon
-      const cx_ = x + iconSz / 2, cy_ = iconY + iconSz / 2;
-      ctx.fillStyle = '#ce93d8';
-      ctx.beginPath();
-      ctx.arc(cx_, cy_ - iconSz * 0.1, iconSz * 0.25, 0, Math.PI * 2);
-      ctx.fill();
-      // Wisp tail
-      ctx.beginPath();
-      ctx.moveTo(cx_ - iconSz * 0.15, cy_ + iconSz * 0.1);
-      ctx.quadraticCurveTo(cx_ + iconSz * 0.1, cy_ + iconSz * 0.2, cx_ - iconSz * 0.05, cy_ + iconSz * 0.4);
-      ctx.strokeStyle = '#ce93d8';
-      ctx.lineWidth = 2;
-      ctx.stroke();
-    });
-    if (player.race === Race.Oozlings) drawSpecialRes(player.deathEssence, '#69f0ae', () => {
-      // Ooze droplet icon
-      const cx_ = x + iconSz / 2, cy_ = iconY + iconSz / 2;
-      ctx.fillStyle = '#69f0ae';
-      ctx.beginPath();
-      ctx.moveTo(cx_, cy_ - iconSz * 0.4);
-      ctx.quadraticCurveTo(cx_ + iconSz * 0.35, cy_ + iconSz * 0.1, cx_, cy_ + iconSz * 0.4);
-      ctx.quadraticCurveTo(cx_ - iconSz * 0.35, cy_ + iconSz * 0.1, cx_, cy_ - iconSz * 0.4);
-      ctx.fill();
-    });
+    if (player.race === Race.Demon) drawSpecialRes(player.mana, '#7c4dff', 'mana');
+    if (player.race === Race.Geists) drawSpecialRes(player.souls, '#ce93d8', 'souls');
+    if (player.race === Race.Oozlings) drawSpecialRes(player.deathEssence, '#69f0ae', 'ooze');
 
     // Timer — right-aligned but leaving room for top-right buttons (ping + mvp + info + settings ~158px)
     const hudRightEdge = W - 158;

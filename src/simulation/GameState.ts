@@ -2153,7 +2153,7 @@ function trackDeathResources(state: GameState, deadUnit: UnitState): void {
     p.souls++;
     // Show floating text at death location (throttle: only every 3rd soul to reduce spam)
     if (p.souls % 3 === 0) {
-      addFloatingText(state, deadUnit.x, deadUnit.y - 0.5, '+3', '#ce93d8', 'soul', undefined, { ownerOnly: p.id });
+      addFloatingText(state, deadUnit.x, deadUnit.y - 0.5, '+3', '#ce93d8', 'souls', undefined, { ownerOnly: p.id });
     }
   }
 

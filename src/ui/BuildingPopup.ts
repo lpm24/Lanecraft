@@ -1,5 +1,5 @@
 import { Camera } from '../rendering/Camera';
-import { UIAssets } from '../rendering/UIAssets';
+import { UIAssets, IconName } from '../rendering/UIAssets';
 import { SpriteLoader, drawSpriteFrame, getSpriteFrame } from '../rendering/SpriteLoader';
 import { GameState, BuildingType, BuildingState, Race } from '../simulation/types';
 import { tileToPixel } from '../rendering/Projection';
@@ -491,7 +491,7 @@ export class BuildingPopup {
     let costX = textLeft;
     ctx.font = `bold ${isMobile ? 11 : 12}px monospace`;
 
-    const drawCostItem = (icon: 'gold' | 'wood' | 'meat', val: number, color: string, dimColor: string) => {
+    const drawCostItem = (icon: IconName, val: number, color: string, dimColor: string) => {
       ctx.globalAlpha = canAfford ? 1 : 0.4;
       ui.drawIcon(ctx, icon, costX, costY - iconSize + 1, iconSize);
       ctx.globalAlpha = 1;
@@ -505,40 +505,8 @@ export class BuildingPopup {
     if (opt.cost.gold > 0) drawCostItem('gold', opt.cost.gold, '#ffd740', '#665500');
     if (opt.cost.wood > 0) drawCostItem('wood', opt.cost.wood, '#81c784', '#2e5530');
     if (opt.cost.stone > 0) drawCostItem('meat', opt.cost.stone, '#e57373', '#6d2828');
-    if ((opt.cost.deathEssence ?? 0) > 0) {
-      // Ooze droplet icon (drawn inline, no sprite)
-      const oozeSz = iconSize;
-      const oozeCx = costX + oozeSz / 2, oozeCy = costY - oozeSz / 2 + 1;
-      ctx.globalAlpha = canAfford ? 1 : 0.4;
-      ctx.fillStyle = '#69f0ae';
-      ctx.beginPath();
-      ctx.moveTo(oozeCx, oozeCy - oozeSz * 0.4);
-      ctx.quadraticCurveTo(oozeCx + oozeSz * 0.35, oozeCy + oozeSz * 0.1, oozeCx, oozeCy + oozeSz * 0.4);
-      ctx.quadraticCurveTo(oozeCx - oozeSz * 0.35, oozeCy + oozeSz * 0.1, oozeCx, oozeCy - oozeSz * 0.4);
-      ctx.fill();
-      ctx.globalAlpha = 1;
-      ctx.textAlign = 'left';
-      shadowText(`${opt.cost.deathEssence}`, costX + oozeSz + 1, costY);
-      ctx.fillStyle = canAfford ? '#69f0ae' : '#1b5e20';
-      ctx.fillText(`${opt.cost.deathEssence}`, costX + oozeSz + 1, costY);
-      costX += oozeSz + ctx.measureText(`${opt.cost.deathEssence}`).width + 6;
-    }
-    if ((opt.cost.souls ?? 0) > 0) {
-      // Soul icon (small skull-like circle)
-      const soulSz = iconSize;
-      const soulCx = costX + soulSz / 2, soulCy = costY - soulSz / 2 + 1;
-      ctx.globalAlpha = canAfford ? 1 : 0.4;
-      ctx.fillStyle = '#ce93d8';
-      ctx.beginPath();
-      ctx.arc(soulCx, soulCy, soulSz * 0.4, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.globalAlpha = 1;
-      ctx.textAlign = 'left';
-      shadowText(`${opt.cost.souls}`, costX + soulSz + 1, costY);
-      ctx.fillStyle = canAfford ? '#ce93d8' : '#4a148c';
-      ctx.fillText(`${opt.cost.souls}`, costX + soulSz + 1, costY);
-      costX += soulSz + ctx.measureText(`${opt.cost.souls}`).width + 6;
-    }
+    if ((opt.cost.deathEssence ?? 0) > 0) drawCostItem('ooze', opt.cost.deathEssence!, '#69f0ae', '#1b5e20');
+    if ((opt.cost.souls ?? 0) > 0) drawCostItem('souls', opt.cost.souls!, '#ce93d8', '#4a148c');
   }
 
   private drawStatsPanel(

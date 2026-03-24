@@ -9,24 +9,24 @@ import { getAudioSettings, subscribeToAudioSettings, updateAudioSettings } from 
 import { drawSettingsButton, drawSettingsOverlay, getSettingsOverlayLayout, hitRect, sliderValueFromPoint, handleVisualToggleClick, SettingsSliderDrag } from '../ui/SettingsOverlay';
 import { getSafeTop } from '../ui/SafeArea';
 
-type ResIcon = 'uiGold' | 'uiWood' | 'uiMeat';
+type ResIcon = 'uiGold' | 'uiWood' | 'uiMeat' | 'uiMana' | 'uiSouls' | 'uiOoze';
 
 interface RaceOption {
   race: Race;
   label: string;
   desc: string;
-  econ: [ResIcon, ResIcon];
+  econ: ResIcon[];
 }
 
 const RACES: RaceOption[] = [
   { race: Race.Crown, label: 'CROWN', desc: 'Hold the line, wear them down', econ: ['uiGold', 'uiWood'] },
-  { race: Race.Horde, label: 'HORDE', desc: 'Hit hard, send them flying', econ: ['uiGold', 'uiMeat'] },
+  { race: Race.Horde, label: 'HORDE', desc: 'Hit hard, send them flying', econ: ['uiGold', 'uiWood', 'uiMeat'] },
   { race: Race.Goblins, label: 'GOBLINS', desc: 'Fast, cheap, and filthy', econ: ['uiGold', 'uiWood'] },
-  { race: Race.Oozlings, label: 'OOZLINGS', desc: 'Strength in numbers', econ: ['uiGold', 'uiMeat'] },
-  { race: Race.Demon, label: 'DEMON', desc: 'Everything burns', econ: ['uiMeat', 'uiWood'] },
+  { race: Race.Oozlings, label: 'OOZLINGS', desc: 'Strength in numbers', econ: ['uiGold', 'uiMeat', 'uiOoze'] },
+  { race: Race.Demon, label: 'DEMON', desc: 'Everything burns', econ: ['uiMeat', 'uiWood', 'uiMana'] },
   { race: Race.Deep, label: 'DEEP', desc: 'Crush them slowly', econ: ['uiWood', 'uiGold'] },
   { race: Race.Wild, label: 'WILD', desc: 'Feral and relentless', econ: ['uiWood', 'uiMeat'] },
-  { race: Race.Geists, label: 'GEISTS', desc: 'Death is only the beginning', econ: ['uiMeat', 'uiGold'] },
+  { race: Race.Geists, label: 'GEISTS', desc: 'Death is only the beginning', econ: ['uiMeat', 'uiGold', 'uiSouls'] },
   { race: Race.Tenders, label: 'TENDERS', desc: 'Outlast and overgrow', econ: ['uiWood', 'uiGold'] },
 ];
 
@@ -465,21 +465,23 @@ export class RaceSelectScene implements Scene {
       const nameColor = isSelected ? colors.primary : '#fff';
       woodText(ctx, race.label, cx, nameY, nameColor, 'rgba(0,0,0,0.7)');
 
-      ctx.font = `${Math.max(11, fontSize * 0.72)}px monospace`;
-      woodText(ctx, race.desc, cx, nameY + nameFontSize * 0.85, '#ddd', 'rgba(0,0,0,0.5)');
+      if (!isTouchDevice) {
+        ctx.font = `${Math.max(11, fontSize * 0.72)}px monospace`;
+        woodText(ctx, race.desc, cx, nameY + nameFontSize * 0.85, '#ddd', 'rgba(0,0,0,0.5)');
+      }
 
       const iconSize = fontSize * 1.8;
       const iconGap = iconSize * 0.5;
-      const iconY = box.y + box.h * 0.73;
-      const totalIconW = iconSize * 2 + iconGap;
+      const iconY = box.y + box.h * (isTouchDevice ? 0.67 : 0.73);
+      const iconCount = race.econ.length;
+      const totalIconW = iconSize * iconCount + iconGap * (iconCount - 1);
       const iconStartX = cx - totalIconW / 2;
-      for (let ri = 0; ri < 2; ri++) {
+      for (let ri = 0; ri < iconCount; ri++) {
         const resData = this.sprites.getResourceSprite(race.econ[ri]);
         if (resData) {
-          const [rImg] = resData;
           const ix = iconStartX + ri * (iconSize + iconGap);
           if (!isSelected) ctx.globalAlpha = 0.7;
-          ctx.drawImage(rImg, ix, iconY, iconSize, iconSize);
+          ctx.drawImage(resData[0], ix, iconY, iconSize, iconSize);
           ctx.globalAlpha = 1;
         }
       }

@@ -1,5 +1,5 @@
 import { Camera } from '../rendering/Camera';
-import { UIAssets } from '../rendering/UIAssets';
+import { UIAssets, IconName } from '../rendering/UIAssets';
 import { GameState, HarvesterAssignment, Race } from '../simulation/types';
 import { tileToPixel } from '../rendering/Projection';
 import { getRaceUsedResources } from '../simulation/data';
@@ -20,7 +20,7 @@ interface AssignmentDef {
   assignment: HarvesterAssignment;
   label: string;
   desc: string;
-  icon: 'gold' | 'wood' | 'meat' | 'diamond' | null;
+  icon: IconName | null;
   color: string;
 }
 
@@ -57,7 +57,7 @@ const ASSIGNMENT_DEFS: AssignmentDef[] = [
     assignment: HarvesterAssignment.Mana,
     label: 'Mana',
     desc: 'Channel demonic energy to generate Mana.',
-    icon: null,
+    icon: 'mana',
     color: '#7c4dff',
   },
 ];
@@ -83,19 +83,6 @@ function drawMagnifyingGlass(ctx: CanvasRenderingContext2D, cx: number, cy: numb
   ctx.restore();
 }
 
-function drawManaIcon(ctx: CanvasRenderingContext2D, cx: number, cy: number, size: number): void {
-  const r = size * 0.45;
-  ctx.fillStyle = '#7c4dff';
-  ctx.beginPath();
-  ctx.moveTo(cx, cy - r); ctx.lineTo(cx + r * 0.65, cy);
-  ctx.lineTo(cx, cy + r); ctx.lineTo(cx - r * 0.65, cy);
-  ctx.closePath(); ctx.fill();
-  ctx.fillStyle = '#b388ff';
-  ctx.beginPath();
-  ctx.moveTo(cx, cy - r * 0.5); ctx.lineTo(cx + r * 0.3, cy);
-  ctx.lineTo(cx, cy + r * 0.2); ctx.lineTo(cx - r * 0.3, cy);
-  ctx.closePath(); ctx.fill();
-}
 
 export class HutPopup {
   private targetBuildingId: number | null = null;
@@ -297,9 +284,6 @@ export class HutPopup {
         if (def.icon) {
           ui.drawIcon(ctx, def.icon, textX, by + (ASSIGN_BTN_H - iconSz) / 2, iconSz);
           textX += iconSz + 6;
-        } else if (def.assignment === HarvesterAssignment.Mana) {
-          drawManaIcon(ctx, textX + iconSz / 2, by + ASSIGN_BTN_H / 2, iconSz);
-          textX += iconSz + 6;
         }
 
         // Label
@@ -358,8 +342,6 @@ export class HutPopup {
 
         if (def.icon) {
           ui.drawIcon(ctx, def.icon, ix, iy, iconSz);
-        } else if (def.assignment === HarvesterAssignment.Mana) {
-          drawManaIcon(ctx, iconX + COMPACT_BTN_SIZE / 2, curY + COMPACT_BTN_SIZE / 2, iconSz);
         }
 
         iconX += COMPACT_BTN_SIZE + GAP;

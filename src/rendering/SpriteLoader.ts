@@ -334,6 +334,9 @@ import rock1 from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pa
 import uiIconGold from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/UI Elements/UI Elements/Icons/Icon_03.png?url';
 import uiIconWood from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/UI Elements/UI Elements/Icons/Icon_02.png?url';
 import uiIconMeat from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/UI Elements/UI Elements/Icons/Icon_04.png?url';
+import uiIconMana from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/UI Elements/UI Elements/Icons/Mana.png?url';
+import uiIconSouls from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/UI Elements/UI Elements/Icons/Souls.png?url';
+import uiIconOoze from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/UI Elements/UI Elements/Icons/Ooze.png?url';
 
 // ============================================================
 // PROJECTILE SPRITES
@@ -965,6 +968,9 @@ export const RESOURCE_SPRITES = {
   uiGold: singleFrame(uiIconGold, 64, 64),
   uiWood: singleFrame(uiIconWood, 64, 64),
   uiMeat: singleFrame(uiIconMeat, 64, 64),
+  uiMana: singleFrame(uiIconMana, 1024, 1024),
+  uiSouls: singleFrame(uiIconSouls, 1024, 1024),
+  uiOoze: singleFrame(uiIconOoze, 1024, 1024),
 };
 
 // Terrain tileset and decorations

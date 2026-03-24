@@ -817,6 +817,9 @@ export class InputHandler {
       if (this.showTutorial) { this.handleTutorialClick(e); return; }
       if (this.mobileHintVisible) this.dismissMobileHint();
 
+      // UI panels consume click first (before minimap, so popups overlapping minimap work)
+      if (this.handleUIClick(e)) return;
+
       // Minimap click → pan camera to that world position
       if (this.currentRenderer) {
         const rect = this.canvas.getBoundingClientRect();
@@ -826,9 +829,6 @@ export class InputHandler {
           return;
         }
       }
-
-      // UI panels consume click first
-      if (this.handleUIClick(e)) return;
 
       if (this.quickChatRadialActive) {
         const msg = this.getQuickChatChoiceFromPointer();
@@ -2109,12 +2109,12 @@ export class InputHandler {
           if (abCostMana > 0) {
             const manaDisplay = race === Race.Demon && player.mana >= abCostMana ? player.mana : abCostMana;
             abCostEntries.push({ val: manaDisplay, canAf: player.mana >= abCostMana,
-              drawIcon: (ix, iy, sz) => { const cx_ = ix + sz / 2, cy_ = iy + sz / 2, r = sz * 0.42; ctx.fillStyle = '#7c4dff'; ctx.beginPath(); ctx.moveTo(cx_, cy_ - r); ctx.lineTo(cx_ + r * 0.65, cy_); ctx.lineTo(cx_, cy_ + r); ctx.lineTo(cx_ - r * 0.65, cy_); ctx.closePath(); ctx.fill(); } });
+              drawIcon: (ix, iy, sz) => { this.ui.drawIcon(ctx, 'mana', ix, iy, sz); } });
           }
           if (abCostSouls > 0) abCostEntries.push({ val: abCostSouls, canAf: player.souls >= abCostSouls,
-            drawIcon: (ix, iy, sz) => { const cx_ = ix + sz / 2, cy_ = iy + sz / 2, r = sz * 0.38; ctx.fillStyle = '#ce93d8'; ctx.beginPath(); ctx.arc(cx_, cy_, r, 0, Math.PI * 2); ctx.fill(); } });
+            drawIcon: (ix, iy, sz) => { this.ui.drawIcon(ctx, 'souls', ix, iy, sz); } });
           if (abCostEssence > 0) abCostEntries.push({ val: abCostEssence, canAf: player.deathEssence >= abCostEssence,
-            drawIcon: (ix, iy, sz) => { const cx_ = ix + sz / 2, cy_ = iy + sz / 2, r = sz * 0.38; ctx.fillStyle = '#69f0ae'; ctx.beginPath(); ctx.arc(cx_, cy_, r, 0, Math.PI * 2); ctx.fill(); } });
+            drawIcon: (ix, iy, sz) => { this.ui.drawIcon(ctx, 'ooze', ix, iy, sz); } });
           if (abCostEntries.length > 0) {
             const iconSz = 10;
             const gap = 3;

@@ -41,11 +41,14 @@ import iconSettingsPng from '../assets/images/Tiny Swords (Free Pack)/Tiny Sword
 import iconInfoPng from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/UI Elements/UI Elements/Icons/Icon_11.png?url';
 import iconMusicPng from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/UI Elements/UI Elements/Icons/Icon_12.png?url';
 import iconDiamondPng from '../assets/images/Treasure Hunters/Treasure Hunters/Pirate Treasure/Sprites/Blue Diamond/01.png?url';
+import iconManaPng from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/UI Elements/UI Elements/Icons/Mana.png?url';
+import iconSoulsPng from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/UI Elements/UI Elements/Icons/Souls.png?url';
+import iconOozePng from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/UI Elements/UI Elements/Icons/Ooze.png?url';
 
 // Water background for scenes
 import waterBgPng from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Terrain/Tileset/Water Background color.png?url';
 
-export type IconName = 'gold' | 'wood' | 'meat' | 'sword' | 'shield' | 'play' | 'close' | 'settings' | 'info' | 'music' | 'diamond';
+export type IconName = 'gold' | 'wood' | 'meat' | 'sword' | 'shield' | 'play' | 'close' | 'settings' | 'info' | 'music' | 'diamond' | 'mana' | 'souls' | 'ooze';
 export type RibbonColor = 0 | 1 | 2 | 3 | 4; // blue, red, yellow, purple, dark
 export type SwordColor = 0 | 1 | 2 | 3 | 4;
 
@@ -61,6 +64,9 @@ const ICON_URLS: Record<IconName, string> = {
   info: iconInfoPng,
   music: iconMusicPng,
   diamond: iconDiamondPng,
+  mana: iconManaPng,
+  souls: iconSoulsPng,
+  ooze: iconOozePng,
 };
 
 // Source tile positions for spritesheets with 64px gaps between tiles

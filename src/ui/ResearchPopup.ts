@@ -382,10 +382,7 @@ export class ResearchPopup {
           costX += ctx.measureText(`${cost.stone}`).width + 4;
         }
         if (cost.mana !== undefined && cost.mana > 0) {
-          const icx = costX + costIconSz / 2, icy = costY - costIconSz / 2, mr = costIconSz * 0.42;
-          ctx.fillStyle = '#7c4dff';
-          ctx.beginPath(); ctx.moveTo(icx, icy - mr); ctx.lineTo(icx + mr * 0.65, icy);
-          ctx.lineTo(icx, icy + mr); ctx.lineTo(icx - mr * 0.65, icy); ctx.closePath(); ctx.fill();
+          ui.drawIcon(ctx, 'mana', costX, costY - costIconSz + 1, costIconSz);
           costX += costIconSz + 1;
           ctx.fillStyle = canAfford || playerMana >= cost.mana ? '#b39ddb' : '#ff6666';
           ctx.textAlign = 'left';
@@ -393,13 +390,7 @@ export class ResearchPopup {
           costX += ctx.measureText(`${cost.mana}`).width + 4;
         }
         if ((cost.deathEssence ?? 0) > 0) {
-          const ocx = costX + costIconSz / 2, ocy = costY - costIconSz / 2;
-          ctx.fillStyle = '#69f0ae';
-          ctx.beginPath();
-          ctx.moveTo(ocx, ocy - costIconSz * 0.4);
-          ctx.quadraticCurveTo(ocx + costIconSz * 0.35, ocy + costIconSz * 0.1, ocx, ocy + costIconSz * 0.4);
-          ctx.quadraticCurveTo(ocx - costIconSz * 0.35, ocy + costIconSz * 0.1, ocx, ocy - costIconSz * 0.4);
-          ctx.fill();
+          ui.drawIcon(ctx, 'ooze', costX, costY - costIconSz + 1, costIconSz);
           costX += costIconSz + 1;
           ctx.fillStyle = canAfford || playerEssence >= cost.deathEssence! ? '#69f0ae' : '#ff6666';
           ctx.textAlign = 'left';
@@ -407,11 +398,7 @@ export class ResearchPopup {
           costX += ctx.measureText(`${cost.deathEssence}`).width + 4;
         }
         if ((cost.souls ?? 0) > 0) {
-          const scx = costX + costIconSz / 2, scy = costY - costIconSz / 2;
-          ctx.fillStyle = '#ce93d8';
-          ctx.beginPath();
-          ctx.arc(scx, scy, costIconSz * 0.4, 0, Math.PI * 2);
-          ctx.fill();
+          ui.drawIcon(ctx, 'souls', costX, costY - costIconSz + 1, costIconSz);
           costX += costIconSz + 1;
           ctx.fillStyle = canAfford || playerSouls >= cost.souls! ? '#ce93d8' : '#ff6666';
           ctx.textAlign = 'left';
