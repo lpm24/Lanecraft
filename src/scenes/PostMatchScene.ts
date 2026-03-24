@@ -64,7 +64,7 @@ export class PostMatchScene implements Scene {
       // Short games stretch to 15s floor for smoothness; long games cap at 30s.
       // replayFrameDur is in ms (dt is ms from performance.now).
       const TARGET_REPLAY_MS = Math.min(30_000, Math.max(15_000, frames.length * 25));
-      this.replayFrameDur = Math.max(1000 / 30, TARGET_REPLAY_MS / frames.length);
+      this.replayFrameDur = TARGET_REPLAY_MS / frames.length;
 
       // Pre-render static minimap background (water + grass shape + HQ boxes + diamond center)
       // at a fixed internal resolution. Drawn once, composited every frame.
