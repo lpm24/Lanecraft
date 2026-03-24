@@ -2387,7 +2387,9 @@ export class InputHandler {
       const race = player?.race;
       raceColor = race ? (RACE_COLORS[race]?.primary ?? '#fff') : '#fff';
       const teamLabel = u.team === this.myTeam ? 'Ally' : 'Enemy';
-      lines.push(`${u.type}`);
+      const bldType = `${u.category}_spawner` as BuildingType;
+      const upgradeName = race ? getUpgradeNodeDef(race, bldType, u.upgradeNode)?.name : undefined;
+      lines.push(upgradeName ?? u.type);
       lines.push(`${teamLabel} ${u.category}  HP: ${u.hp}/${u.maxHp}${u.shieldHp > 0 ? ` +${u.shieldHp} shield` : ''}`);
       lines.push(`DMG: ${u.damage}  SPD: ${u.attackSpeed.toFixed(1)}s  RNG: ${u.range}  Move: ${u.moveSpeed.toFixed(1)}`);
       if (u.kills > 0) lines.push(`Kills: ${u.kills}`);
@@ -2484,7 +2486,14 @@ export class InputHandler {
         const drawW = drawH * aspect;
         const drawX = boxX + 20 - drawW / 2;
         const drawY = boxY + (textH - drawH) / 2;
+        if (def.flipX) {
+          ctx.save();
+          ctx.translate(boxX + 20, 0);
+          ctx.scale(-1, 1);
+          ctx.translate(-(boxX + 20), 0);
+        }
         drawSpriteFrame(ctx, img, def, 0, drawX, drawY, drawW, drawH);
+        if (def.flipX) ctx.restore();
       } else if (this.currentRenderer) {
         this.currentRenderer.drawUnitShape(ctx, boxX + 20, boxY + textH / 2, 10, unitShape.race, unitShape.category, unitShape.team, raceColor);
       }

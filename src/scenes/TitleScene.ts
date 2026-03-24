@@ -1689,8 +1689,8 @@ export class TitleScene implements Scene {
       const eloY = vsY + vsH * 0.85;
       const eloFontSize = Math.max(11, fontSize * 0.7);
       ctx.font = `${eloFontSize}px monospace`;
-      const blueAvgElo = Math.round(this.bannerBlue.reduce((s, u) => s + getElo(u.race, u.category), 0) / teamSize);
-      const redAvgElo = Math.round(this.bannerRed.reduce((s, u) => s + getElo(u.race, u.category), 0) / teamSize);
+      const blueAvgElo = Math.round(this.bannerBlue.reduce((s, u) => s + getElo(u.race, u.category, u.upgradeNode), 0) / teamSize);
+      const redAvgElo = Math.round(this.bannerRed.reduce((s, u) => s + getElo(u.race, u.category, u.upgradeNode), 0) / teamSize);
       const blueFavored = blueAvgElo > redAvgElo;
       const redFavored = redAvgElo > blueAvgElo;
       const eloLabel = teamSize > 1 ? 'avg ' : '';
@@ -1985,7 +1985,14 @@ export class TitleScene implements Scene {
           const feetY = avatarY + avatarSize - sprInset - 2;
           const drawY = feetY - drawH * gY;
           const drawX = avatarX + (avatarSize - drawW) / 2;
+          if (def.flipX) {
+            ctx.save();
+            ctx.translate(avatarX + avatarSize / 2, 0);
+            ctx.scale(-1, 1);
+            ctx.translate(-(avatarX + avatarSize / 2), 0);
+          }
           drawSpriteFrame(ctx, img, def, frame, drawX, drawY, drawW, drawH);
+          if (def.flipX) ctx.restore();
         }
       }
     }
@@ -2844,7 +2851,9 @@ export class TitleScene implements Scene {
     const gY = def.groundY ?? 0.71;
     const drawY = baseY - drawH * gY;
 
-    if (unit.facingLeft) {
+    // flipX sprites face left natively — invert facing so they match right-facing convention
+    const effectiveFaceLeft = def.flipX ? !unit.facingLeft : unit.facingLeft;
+    if (effectiveFaceLeft) {
       ctx.save();
       ctx.translate(sx, 0);
       ctx.scale(-1, 1);

@@ -235,17 +235,20 @@ export class HutPopup {
         ui.drawIcon(ctx, def.icon, textX, by + (ASSIGN_BTN_H - iconSz) / 2, iconSz);
         textX += iconSz + 6;
       } else if (def.assignment === HarvesterAssignment.Mana) {
-        // Draw mana swirl icon inline
+        // Draw mana crystal diamond icon inline
         const cx2 = textX + iconSz / 2;
         const cy2 = by + ASSIGN_BTN_H / 2;
+        const r = iconSz * 0.45;
         ctx.fillStyle = '#7c4dff';
         ctx.beginPath();
-        ctx.arc(cx2, cy2, iconSz * 0.4, 0, Math.PI * 2);
-        ctx.fill();
+        ctx.moveTo(cx2, cy2 - r); ctx.lineTo(cx2 + r * 0.65, cy2);
+        ctx.lineTo(cx2, cy2 + r); ctx.lineTo(cx2 - r * 0.65, cy2);
+        ctx.closePath(); ctx.fill();
         ctx.fillStyle = '#b388ff';
         ctx.beginPath();
-        ctx.arc(cx2 - 2, cy2 - 2, iconSz * 0.2, 0, Math.PI * 2);
-        ctx.fill();
+        ctx.moveTo(cx2, cy2 - r * 0.5); ctx.lineTo(cx2 + r * 0.3, cy2);
+        ctx.lineTo(cx2, cy2 + r * 0.2); ctx.lineTo(cx2 - r * 0.3, cy2);
+        ctx.closePath(); ctx.fill();
         textX += iconSz + 6;
       }
 

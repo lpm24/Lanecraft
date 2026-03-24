@@ -1831,7 +1831,7 @@ export class Renderer {
       const drawW = baseH * aspect;
       const drawH = baseH * (def.heightScale ?? 1.0);
       const groundY = def.groundY ?? 0.71;
-      const drawFaceLeft = dead.faceLeft;
+      const drawFaceLeft = def.flipX ? !dead.faceLeft : dead.faceLeft;
 
       ctx.translate(cx, feetY + popY);
       ctx.rotate(rotation);
@@ -2140,8 +2140,8 @@ export class Renderer {
               const dSz = iconSz * 1.8;
               const dOff = (dSz - iconSz) / 2;
               if (diamondSprite) ctx.drawImage(diamondSprite[0], iconX - dOff, iconY2 - dOff, dSz, dSz);
-            } else if (harv.assignment === 'base_gold' && player.race === Race.Demon) {
-              // Demon miners gather mana — draw mana crystal icon
+            } else if (harv.assignment === HarvesterAssignment.Mana || (harv.assignment === 'base_gold' && player.race === Race.Demon)) {
+              // Mana assignment or Demon base gold — draw mana crystal icon
               const cx_ = iconX + iconSz / 2, cy_ = iconY2 + iconSz / 2, r = iconSz * 0.42;
               ctx.fillStyle = '#7c4dff';
               ctx.beginPath();
@@ -2210,6 +2210,13 @@ export class Renderer {
               if (harv.assignment === 'center') {
                 const diamondSprite = this.sprites.getResourceSprite('goldResource');
                 if (diamondSprite) ctx.drawImage(diamondSprite[0], iconX, iconY2, iconSz, iconSz);
+              } else if (harv.assignment === HarvesterAssignment.Mana) {
+                const cx_ = iconX + iconSz / 2, cy_ = iconY2 + iconSz / 2, r = iconSz * 0.42;
+                ctx.fillStyle = '#7c4dff';
+                ctx.beginPath();
+                ctx.moveTo(cx_, cy_ - r); ctx.lineTo(cx_ + r * 0.65, cy_);
+                ctx.lineTo(cx_, cy_ + r); ctx.lineTo(cx_ - r * 0.65, cy_);
+                ctx.closePath(); ctx.fill();
               } else {
                 const iconMap: Record<string, 'gold' | 'wood' | 'meat'> = { base_gold: 'gold', wood: 'wood', stone: 'meat' };
                 this.ui.drawIcon(ctx, iconMap[harv.assignment] || 'gold', iconX, iconY2, iconSz);
@@ -2372,7 +2379,7 @@ export class Renderer {
       const meteorImg = meteorColor ? this.sprites.getMeteoriteSprite(meteorColor) : null;
       if (meteorImg) {
         // 10x6 grid: 10 cols (animation), 6 rows (lifecycle variants)
-        // All rows face right-to-left; use row 0 (most dramatic) and canvas-rotate
+        // All rows face left-to-right; use row 0 (most dramatic) and canvas-rotate
         const cols = 10, rows = 6;
         const frameW = meteorImg.width / cols;
         const frameH = meteorImg.height / rows;
@@ -2385,7 +2392,7 @@ export class Renderer {
         const aspect = frameW / frameH;
         ctx.save();
         ctx.translate(px, py);
-        ctx.rotate(angle + Math.PI); // sprite faces left natively, flip to match direction
+        ctx.rotate(angle); // sprite faces right natively
         ctx.drawImage(meteorImg, col * frameW, 0, frameW, frameH,
           -drawSize * aspect / 2, -drawSize / 2, drawSize * aspect, drawSize);
         ctx.restore();
@@ -4064,7 +4071,7 @@ export class Renderer {
         const meteorImg = this.sprites.getMeteoriteSprite('orange');
         if (meteorImg) {
           // 10x6 grid: 10 cols (animation), 6 rows (lifecycle variants)
-          // All rows face right-to-left; use row 0 and canvas-rotate
+          // All rows face left-to-right; use row 0 and canvas-rotate
           const cols = 10;
           const frameW = meteorImg.width / cols;
           const frameH = meteorImg.height / 6;
@@ -4073,7 +4080,7 @@ export class Renderer {
           const aspect = frameW / frameH;
           ctx.save();
           ctx.translate(cx, cy);
-          ctx.rotate(angle + Math.PI); // sprite faces left natively
+          ctx.rotate(angle); // sprite faces right natively
           ctx.drawImage(meteorImg, col * frameW, 0, frameW, frameH,
             -drawSize * aspect / 2, -drawSize / 2, drawSize * aspect, drawSize);
           ctx.restore();

@@ -439,7 +439,14 @@ export class ProfileScene implements Scene {
         const feetY = avY + avatarSize - sprInset - 2;
         const drawY = feetY - drawH * gY;
         const drawX = avX + (avatarSize - drawW) / 2;
+        if (def.flipX) {
+          ctx.save();
+          ctx.translate(avX + avatarSize / 2, 0);
+          ctx.scale(-1, 1);
+          ctx.translate(-(avX + avatarSize / 2), 0);
+        }
         drawSpriteFrame(ctx, img, def, frame, drawX, drawY, drawW, drawH);
+        if (def.flipX) ctx.restore();
       }
     }
 
@@ -747,7 +754,14 @@ export class ProfileScene implements Scene {
       const gY = def.groundY ?? 0.71;
       const feetY = y + size * 0.85;
       const drawY = feetY - drawH * gY;
+      if (def.flipX) {
+        ctx.save();
+        ctx.translate(x + size / 2, 0);
+        ctx.scale(-1, 1);
+        ctx.translate(-(x + size / 2), 0);
+      }
       drawSpriteFrame(ctx, img, def, frame, drawX, drawY, drawW, drawH);
+      if (def.flipX) ctx.restore();
     } else {
       const rc = RACE_COLORS[raceStr as Race];
       if (rc) {
