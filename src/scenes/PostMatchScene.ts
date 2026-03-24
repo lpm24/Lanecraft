@@ -781,13 +781,18 @@ export class PostMatchScene implements Scene {
     const suppCat = supp.category === 'melee' ? 'Melee' : supp.category === 'ranged' ? 'Ranged' : 'Caster';
     ctx.fillText(`${this.slotLabel(supp.playerId)}'s ${suppCat}`, suppCenterX, sl3Y);
 
-    // Stats: healing + buffs
+    // Stats: healing + buffs, with kills/damage as fallbacks when healing is absent
     ctx.font = `bold ${Math.max(10, fontSize * 0.65)}px monospace`;
     ctx.textAlign = 'center';
     ctx.fillStyle = '#ffffff';
     const healStr = supp.healingDone > 0 ? `${supp.healingDone} healed` : '';
     const buffStr = supp.buffsApplied > 0 ? `${supp.buffsApplied} buffs` : '';
-    const statsLine = [healStr, buffStr].filter(Boolean).join(' · ');
+    const suppDmgStr = supp.damageDone >= 1000
+      ? `${(supp.damageDone / 1000).toFixed(1)}k dmg`
+      : `${supp.damageDone} dmg`;
+    const killFallback = supp.healingDone === 0 && supp.kills > 0 ? `${supp.kills} kills` : '';
+    const dmgFallback  = supp.healingDone === 0 && supp.damageDone > 0 ? suppDmgStr : '';
+    const statsLine = [healStr, buffStr, killFallback, dmgFallback].filter(Boolean).join(' · ');
     ctx.fillText(statsLine, suppCenterX, sl4Y);
 
     // Survival / death
