@@ -119,13 +119,14 @@ export class UnitGalleryScene implements Scene {
     this.animTime = 0;
     this.activeTab = 0;
     this.detail = null;
+    this.touchMoved = true; // ignore orphaned touchend from scene that opened us
 
     // Track gallery visit achievement
     const profile = loadProfile();
     const achId = checkNonMatchAchievement(profile, 'gallery_visitor');
     if (achId) { const def = ACHIEVEMENTS.find(a => a.id === achId); if (def) this.manager.showToast(`Achievement: ${def.name}`, def.desc); }
 
-    let lastTouchTime = 0;
+    let lastTouchTime = Date.now(); // debounce stale clicks from prior scene's tap
     this.clickHandler = (e: MouseEvent) => {
       if (Date.now() - lastTouchTime < 300) return;
       const rect = this.canvas.getBoundingClientRect();

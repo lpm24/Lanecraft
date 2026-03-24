@@ -19,6 +19,9 @@ import { MusicPlayer } from './audio/MusicPlayer';
 const canvas = document.getElementById('game') as HTMLCanvasElement;
 if (!canvas) throw new Error('Canvas element not found');
 
+// Suppress native long-press context menu on mobile (Copy/Translate/etc.)
+canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
 // Shared asset loaders
 const sharedSprites = new SpriteLoader();
 const sharedUI = new UIAssets();

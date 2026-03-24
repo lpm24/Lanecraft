@@ -1962,12 +1962,20 @@ export class InputHandler {
         }
       }
 
-      // Name
+      // Name (truncate with ellipsis if too wide for cell)
       const textY = adjBaseY + 3;
       ctx.textAlign = 'center';
       ctx.fillStyle = canAfford ? '#eee' : '#666';
       ctx.font = 'bold 11px monospace';
-      ctx.fillText(name, cellCx, textY + 10);
+      let displayName = name;
+      const maxNameW = milW - 4;
+      if (ctx.measureText(displayName).width > maxNameW) {
+        while (displayName.length > 1 && ctx.measureText(displayName + '…').width > maxNameW) {
+          displayName = displayName.slice(0, -1);
+        }
+        displayName += '…';
+      }
+      ctx.fillText(displayName, cellCx, textY + 10);
 
       // Cost or free text
       if (freeText) {
@@ -2108,10 +2116,18 @@ export class InputHandler {
       if (!drewSprite) {
         this.drawAbilityIcon(ctx, race, abCx, adjY + 4, 20);
       }
-      // Ability name
+      // Ability name (truncate with ellipsis if too wide for cell)
       ctx.fillStyle = (onCooldown || !canAffordAbility) ? '#888' : '#e1bee7';
       ctx.font = 'bold 11px monospace';
-      ctx.fillText(abilityInfo.name, abCx, abTextY + 10);
+      let abDisplayName = abilityInfo.name;
+      const maxAbNameW = milW - 4;
+      if (ctx.measureText(abDisplayName).width > maxAbNameW) {
+        while (abDisplayName.length > 1 && ctx.measureText(abDisplayName + '…').width > maxAbNameW) {
+          abDisplayName = abDisplayName.slice(0, -1);
+        }
+        abDisplayName += '…';
+      }
+      ctx.fillText(abDisplayName, abCx, abTextY + 10);
       ctx.globalAlpha = 1;
 
       // Tenders: show stack count in bottom-left, cooldown timer when 0 stacks
