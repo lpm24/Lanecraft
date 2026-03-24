@@ -29,12 +29,19 @@ export class PostMatchScene implements Scene {
 
   // Minimap replay state
   private replayFrameIdx = 0;
-  private replayFrameTime = 0; // wall-clock seconds accumulated within current frame
-  /** Wall-clock seconds to display each frame — computed in setStats to target 30s total. */
-  private replayFrameDur = 0.1;
-  /** Two density grids [team0, team1] each 20×30, pre-computed on setStats. */
-  private replayHeatmap: [number[][], number[][]] | null = null;
-  private replayHeatmapMax = 1;
+  private replayFrameTime = 0; // ms accumulated within current frame
+  /** ms to display each frame — computed in setStats to target 30s total. */
+  private replayFrameDur = 100;
+  /** Pre-rendered static minimap background (water + shape + HQ + diamond center). */
+  private replayBgCanvas: HTMLCanvasElement | null = null;
+
+  // Scroll state
+  private scrollY = 0;
+  private maxScrollY = 0;
+  private lastTouchY = 0;
+  private wheelHandler: ((e: WheelEvent) => void) | null = null;
+  private touchMoveHandler: ((e: TouchEvent) => void) | null = null;
+
   private keyHandler: ((e: KeyboardEvent) => void) | null = null;
   private touchHandler: ((e: TouchEvent) => void) | null = null;
 
@@ -49,37 +56,115 @@ export class PostMatchScene implements Scene {
     this.stats = stats;
     this.replayFrameIdx = 0;
     this.replayFrameTime = 0;
-    this.replayHeatmap = null;
-    this.replayHeatmapMax = 1;
+    this.replayBgCanvas = null;
 
     const frames = stats.replayFrames;
     if (frames && frames.length > 0) {
-      // Pre-compute two 20×30 density grids (4-tile buckets of 80×120 map)
-      const COLS = 20, ROWS = 30;
-      const grid0: number[][] = Array.from({ length: ROWS }, () => new Array(COLS).fill(0));
-      const grid1: number[][] = Array.from({ length: ROWS }, () => new Array(COLS).fill(0));
-      let max = 0;
-      for (const f of frames) {
-        for (const u of f.units) {
-          const bx = Math.min(COLS - 1, Math.floor(u.x / 4));
-          const by = Math.min(ROWS - 1, Math.floor(u.y / 4));
-          const g = u.team === 0 ? grid0 : grid1;
-          g[by][bx]++;
-          if (g[by][bx] > max) max = g[by][bx];
-        }
-      }
-      this.replayHeatmap = [grid0, grid1];
-      this.replayHeatmapMax = Math.max(1, max);
-
-      // Target 30s wall-clock replay regardless of match length, capped at 30fps advancement.
+      // Scale 15–30s based on match length (4fps capture → frames/4 = match seconds at 10× speed).
+      // Short games stretch to 15s floor for smoothness; long games cap at 30s.
       // replayFrameDur is in ms (dt is ms from performance.now).
-      const TARGET_REPLAY_MS = 30_000;
+      const TARGET_REPLAY_MS = Math.min(30_000, Math.max(15_000, frames.length * 25));
       this.replayFrameDur = Math.max(1000 / 30, TARGET_REPLAY_MS / frames.length);
+
+      // Pre-render static minimap background (water + grass shape + HQ boxes + diamond center)
+      // at a fixed internal resolution. Drawn once, composited every frame.
+      this.replayBgCanvas = this.buildMinimapBg(stats.state);
     }
+  }
+
+  /**
+   * Builds an offscreen canvas with the static minimap background matching the in-game minimap:
+   * water fill → grass shape outline → HQ blocks → static diamond center marker.
+   */
+  private buildMinimapBg(state: GameState): HTMLCanvasElement {
+    const mapDef = state.mapDef;
+    const mapW = mapDef.width;
+    const mapH = mapDef.height;
+    // Fixed internal resolution — will be scaled when drawn to the main canvas
+    const BG_W = 160;
+    const BG_H = Math.round(BG_W * (mapH / mapW)); // preserves map aspect ratio
+
+    const bg = document.createElement('canvas');
+    bg.width = BG_W;
+    bg.height = BG_H;
+    const c = bg.getContext('2d')!;
+
+    // Helper: tile coord → bg pixel coord
+    const tx = (wx: number) => (wx / mapW) * BG_W;
+    const ty2 = (wy: number) => (wy / mapH) * BG_H;
+
+    // Water background (matches Renderer.ts: rgba(60,110,100,0.9) with 2px padding)
+    c.fillStyle = 'rgb(60, 110, 100)';
+    c.fillRect(0, 0, BG_W, BG_H);
+
+    // Grass shape — exact same approach as Renderer.ts drawMinimap
+    c.beginPath();
+    if (mapDef.shapeAxis === 'y') {
+      // Left edge: top → bottom
+      for (let y = 0; y <= mapH; y += 4) {
+        const range = mapDef.getPlayableRange(y);
+        if (y === 0) c.moveTo(tx(range.min), ty2(y));
+        else c.lineTo(tx(range.min), ty2(y));
+      }
+      // Right edge: bottom → top
+      for (let y = mapH; y >= 0; y -= 4) {
+        const range = mapDef.getPlayableRange(y);
+        c.lineTo(tx(range.max), ty2(y));
+      }
+    } else {
+      // Landscape: top edge left→right, bottom edge right→left
+      for (let x = 0; x <= mapW; x += 4) {
+        const range = mapDef.getPlayableRange(x);
+        if (x === 0) c.moveTo(tx(x), ty2(range.min));
+        else c.lineTo(tx(x), ty2(range.min));
+      }
+      for (let x = mapW; x >= 0; x -= 4) {
+        const range = mapDef.getPlayableRange(x);
+        c.lineTo(tx(x), ty2(range.max));
+      }
+    }
+    c.closePath();
+    c.fillStyle = '#3a6b3a';
+    c.fill();
+    c.strokeStyle = '#2a5a2a';
+    c.lineWidth = 1;
+    c.stroke();
+
+    // Static diamond center marker (gold diamond shape, matches Renderer.ts)
+    const dc = mapDef.diamondCenter;
+    const dHW = mapDef.diamondHalfW;
+    const dHH = mapDef.diamondHalfH;
+    c.beginPath();
+    c.moveTo(tx(dc.x), ty2(dc.y - dHH));
+    c.lineTo(tx(dc.x + dHW), ty2(dc.y));
+    c.lineTo(tx(dc.x), ty2(dc.y + dHH));
+    c.lineTo(tx(dc.x - dHW), ty2(dc.y));
+    c.closePath();
+    c.fillStyle = 'rgba(200, 170, 20, 0.6)';
+    c.fill();
+    c.strokeStyle = 'rgba(255, 220, 120, 0.85)';
+    c.lineWidth = 1;
+    c.stroke();
+
+    // HQ blocks (team 0 = blue/bottom, team 1 = red/top)
+    const hqColors = ['#2979ff', '#ff1744'];
+    for (let t = 0; t < 2; t++) {
+      const hqPos = mapDef.teams[t].hqPosition;
+      c.fillStyle = hqColors[t];
+      c.fillRect(
+        tx(hqPos.x), ty2(hqPos.y),
+        Math.max(3, (HQ_WIDTH / mapW) * BG_W),
+        Math.max(2, (HQ_HEIGHT / mapH) * BG_H),
+      );
+    }
+
+    return bg;
   }
 
   enter(): void {
     this.animTime = 0;
+    this.scrollY = 0;
+    this.maxScrollY = 0;
 
     const continueTarget = this.stats?.wasPartyGame ? 'title' : 'raceSelect';
 
@@ -103,24 +188,45 @@ export class PostMatchScene implements Scene {
       lastTouchTime = Date.now();
       const touch = e.touches[0];
       if (!touch) return;
+      this.lastTouchY = touch.clientY;
       const rect = this.canvas.getBoundingClientRect();
       const cx = touch.clientX - rect.left;
       const cy = touch.clientY - rect.top;
       if (this.isButtonAt(cx, cy)) this.manager.switchTo(continueTarget);
     };
 
+    this.wheelHandler = (e) => {
+      e.preventDefault();
+      this.scrollY = Math.max(0, Math.min(this.maxScrollY, this.scrollY + e.deltaY * 0.6));
+    };
+
+    this.touchMoveHandler = (e) => {
+      e.preventDefault();
+      const touch = e.touches[0];
+      if (!touch) return;
+      const delta = this.lastTouchY - touch.clientY;
+      this.scrollY = Math.max(0, Math.min(this.maxScrollY, this.scrollY + delta));
+      this.lastTouchY = touch.clientY;
+    };
+
     this.canvas.addEventListener('click', this.clickHandler);
     window.addEventListener('keydown', this.keyHandler);
     this.canvas.addEventListener('touchstart', this.touchHandler, { passive: false });
+    this.canvas.addEventListener('wheel', this.wheelHandler, { passive: false });
+    this.canvas.addEventListener('touchmove', this.touchMoveHandler, { passive: false });
   }
 
   exit(): void {
     if (this.clickHandler) this.canvas.removeEventListener('click', this.clickHandler);
     if (this.keyHandler) window.removeEventListener('keydown', this.keyHandler);
     if (this.touchHandler) this.canvas.removeEventListener('touchstart', this.touchHandler);
+    if (this.wheelHandler) this.canvas.removeEventListener('wheel', this.wheelHandler);
+    if (this.touchMoveHandler) this.canvas.removeEventListener('touchmove', this.touchMoveHandler);
     this.clickHandler = null;
     this.keyHandler = null;
     this.touchHandler = null;
+    this.wheelHandler = null;
+    this.touchMoveHandler = null;
   }
 
   private getButtonRect(): { x: number; y: number; w: number; h: number } {
@@ -175,6 +281,10 @@ export class PostMatchScene implements Scene {
     const localTeam = state.players[localPlayerId]?.team ?? Team.Bottom;
     const won = state.winner === localTeam;
     const fontSize = Math.max(14, Math.min(w / 28, 24));
+
+    // Scrollable content — everything except the fixed Continue button
+    ctx.save();
+    ctx.translate(0, -Math.round(this.scrollY));
 
     // VICTORY / DEFEAT banner
     const headerBannerW = Math.min(w * 0.75, 540);
@@ -391,9 +501,14 @@ export class PostMatchScene implements Scene {
 
     // Awards + War Hero combined section
     const sectionY = hqY + rowH * 1.2 + replayH;
-    this.drawAwardsAndHero(ctx, state, pStats, w, innerW, sectionY, fontSize);
+    const contentBottom = this.drawAwardsAndHero(ctx, state, pStats, w, innerW, sectionY, fontSize);
 
-    // Continue button - Sword
+    ctx.restore();
+
+    // contentBottom is in content-space Y. Content visible up to h*0.85 (leave room for button).
+    this.maxScrollY = Math.max(0, contentBottom - h * 0.85);
+
+    // Continue button — fixed at bottom, not affected by scroll
     const btn = this.getButtonRect();
     const rv = UIAssets.swordReveal(this.animTime, 0);
     const ox = this.ui.drawSword(ctx, btn.x, btn.y, btn.w, btn.h, 0, rv);
@@ -409,12 +524,20 @@ export class PostMatchScene implements Scene {
       ctx.fillText(btnLabel, btnTextX, btn.y + btn.h * 0.58);
       ctx.globalAlpha = 1;
     }
+
+    // Scroll hint
+    if (this.maxScrollY > 0 && this.scrollY < this.maxScrollY - 10) {
+      ctx.font = `${Math.max(11, fontSize * 0.6)}px monospace`;
+      ctx.textAlign = 'center';
+      ctx.fillStyle = 'rgba(255,255,255,0.4)';
+      ctx.fillText('▼ scroll', w / 2, h * 0.87);
+    }
   }
 
   private drawAwardsAndHero(
     ctx: CanvasRenderingContext2D, state: GameState, pStats: PlayerStats[],
     w: number, innerW: number, y: number, fontSize: number,
-  ): void {
+  ): number {
     const awards = this.computeAwards(pStats);
     const awardIcons: Record<string, IconName> = {
       'MVP Damage': 'sword', 'Best Economy': 'gold', 'Best Defender': 'shield',
@@ -481,7 +604,7 @@ export class PostMatchScene implements Scene {
 
     // --- War Hero card ---
     const heroes = state.warHeroes;
-    if (heroes.length === 0) return;
+    if (heroes.length === 0) return y;
     const hero = heroes[0];
 
     const playerColor = PLAYER_COLORS[hero.playerId % PLAYER_COLORS.length];
@@ -586,6 +709,8 @@ export class PostMatchScene implements Scene {
       const deathText = this.truncateText(ctx, `Slain at ${deathTime} (${aliveTime})`, textAvailW);
       ctx.fillText(deathText, textCenterX, line5Y);
     }
+
+    return heroCardY + heroCardH + gap * 2;
   }
 
   /** Get display name for a slot: player name, bot difficulty, or fallback P{n}. */
@@ -617,89 +742,48 @@ export class PostMatchScene implements Scene {
     fontSize: number,
   ): number {
     const mapDef = state.mapDef;
-    const mapW = mapDef.width;   // typically 80
-    const mapH = mapDef.height;  // typically 120
+    const mapW = mapDef.width;
+    const mapH = mapDef.height;
 
-    // Panel sizing — portrait minimap (2:3), capped to available width
+    // Panel sizing — preserves map aspect ratio, capped to available width
     const mmW = Math.min(Math.max(canvasW * 0.28, 80), 150);
     const mmH = Math.round(mmW * (mapH / mapW));
     const mmX = Math.round((canvasW - mmW) / 2);
     const mmY = topY;
-    const totalH = mmH + Math.round(fontSize * 1.4); // minimap + label/scrub below
+    const totalH = mmH + Math.round(fontSize * 1.4);
 
     const frame = frames[this.replayFrameIdx];
 
-    // --- Background ---
-    ctx.fillStyle = 'rgba(40, 80, 70, 0.9)';
-    ctx.fillRect(mmX, mmY, mmW, mmH);
+    // --- Static background (pre-rendered offscreen: water + shape + HQ + diamond center) ---
+    if (this.replayBgCanvas) {
+      // 2px water-colour padding around the map shape, matching in-game minimap
+      ctx.fillStyle = 'rgb(60, 110, 100)';
+      ctx.fillRect(mmX - 2, mmY - 2, mmW + 4, mmH + 4);
+      ctx.drawImage(this.replayBgCanvas, mmX, mmY, mmW, mmH);
+    }
 
-    // --- Map shape outline ---
-    ctx.strokeStyle = '#2a5a2a';
-    ctx.lineWidth = 1;
-    ctx.fillStyle = '#3a6b3a';
-    const step = 4;
-    if (mapDef.shapeAxis === 'y') {
-      // Portrait map — shape varies by row
+    // --- Active nuke zones (player-colored filled circles) ---
+    for (const nuke of frame.nukes ?? []) {
+      const nx = mmX + (nuke.x / mapW) * mmW;
+      const ny = mmY + (nuke.y / mapH) * mmH;
+      const nr = (nuke.radius / mapW) * mmW;
+      const pc = PLAYER_COLORS[nuke.playerId % PLAYER_COLORS.length];
       ctx.beginPath();
-      let first = true;
-      for (let ty = 0; ty <= mapH; ty += step) {
-        const range = mapDef.getPlayableRange(ty);
-        const x0 = mmX + (range.min / mapW) * mmW;
-        const x1 = mmX + (range.max / mapW) * mmW;
-        const py = mmY + (ty / mapH) * mmH;
-        if (first) { ctx.moveTo(x0, py); first = false; }
-        else ctx.lineTo(x0, py);
-        ctx.lineTo(x1, py);
-      }
-      ctx.closePath();
+      ctx.arc(nx, ny, Math.max(2, nr), 0, Math.PI * 2);
+      ctx.fillStyle = pc + '55'; // 33% opacity fill
       ctx.fill();
+      ctx.strokeStyle = pc + 'aa'; // 67% opacity ring
+      ctx.lineWidth = 1;
       ctx.stroke();
-    } else {
-      // Landscape map — fill entire rect as fallback
-      ctx.fillRect(mmX, mmY, mmW, mmH);
     }
 
-    // --- Heatmap layer ---
-    if (this.replayHeatmap) {
-      const COLS = 20, ROWS = 30;
-      const cellW = mmW / COLS;
-      const cellH = mmH / ROWS;
-      const [g0, g1] = this.replayHeatmap;
-      for (let ry = 0; ry < ROWS; ry++) {
-        for (let rx = 0; rx < COLS; rx++) {
-          const d0 = g0[ry][rx] / this.replayHeatmapMax;
-          const d1 = g1[ry][rx] / this.replayHeatmapMax;
-          if (d0 > 0.02) {
-            ctx.fillStyle = `rgba(41,121,255,${(d0 * 0.45).toFixed(3)})`;
-            ctx.fillRect(mmX + rx * cellW, mmY + ry * cellH, cellW, cellH);
-          }
-          if (d1 > 0.02) {
-            ctx.fillStyle = `rgba(255,23,68,${(d1 * 0.45).toFixed(3)})`;
-            ctx.fillRect(mmX + rx * cellW, mmY + ry * cellH, cellW, cellH);
-          }
-        }
-      }
-    }
-
-    // --- HQ boxes ---
-    const hqColors = ['#2979ff', '#ff1744']; // team 0 = blue (Bottom), team 1 = red (Top)
-    for (let t = 0; t < 2; t++) {
-      const hqPos = mapDef.teams[t].hqPosition;
-      const hqX = mmX + (hqPos.x / mapW) * mmW;
-      const hqY2 = mmY + (hqPos.y / mapH) * mmH;
-      const hqW = (HQ_WIDTH / mapW) * mmW;
-      const hqH2 = (HQ_HEIGHT / mapH) * mmH;
-      ctx.fillStyle = hqColors[t];
-      ctx.fillRect(hqX, hqY2, Math.max(3, hqW), Math.max(2, hqH2));
-    }
-
-    // --- Diamond dot ---
-    if (frame.diamond) {
+    // --- Carried diamond — bright dot over carrier position ---
+    if (frame.diamond?.carried) {
       const dx = mmX + (frame.diamond.x / mapW) * mmW;
       const dy = mmY + (frame.diamond.y / mapH) * mmH;
-      ctx.fillStyle = frame.diamond.carried ? 'rgba(255,220,50,1)' : 'rgba(200,170,20,0.85)';
+      ctx.fillStyle = 'rgba(255, 220, 50, 1)';
       ctx.beginPath();
-      ctx.arc(dx, dy, Math.max(2, mmW * 0.025), 0, Math.PI * 2);
+      ctx.arc(dx, dy, Math.max(2, mmW * 0.03), 0, Math.PI * 2);
       ctx.fill();
     }
 
@@ -711,12 +795,28 @@ export class PostMatchScene implements Scene {
       ctx.fillRect(ux - 1, uy - 1, 2, 2);
     }
 
+    // --- War hero star icons (★ tinted by player color, scaled to minimap) ---
+    const starSize = Math.max(6, Math.round(mmW * 0.07));
+    ctx.font = `bold ${starSize}px monospace`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    for (const hero of frame.warHeroPositions ?? []) {
+      const hx = mmX + (hero.x / mapW) * mmW;
+      const hy = mmY + (hero.y / mapH) * mmH;
+      // Dark outline for legibility over any background
+      ctx.fillStyle = 'rgba(0,0,0,0.6)';
+      ctx.fillText('★', hx + 1, hy + 1);
+      ctx.fillStyle = PLAYER_COLORS[hero.playerId % PLAYER_COLORS.length];
+      ctx.fillText('★', hx, hy);
+    }
+    ctx.textBaseline = 'alphabetic';
+
     // --- Border ---
     ctx.strokeStyle = 'rgba(255,255,255,0.18)';
     ctx.lineWidth = 1;
     ctx.strokeRect(mmX, mmY, mmW, mmH);
 
-    // --- Scrub bar ---
+    // --- Scrub bar (resets to 0 on loop) ---
     const barY = mmY + mmH + 3;
     const progress = frames.length > 1 ? this.replayFrameIdx / (frames.length - 1) : 0;
     ctx.fillStyle = 'rgba(255,255,255,0.12)';
@@ -724,7 +824,7 @@ export class PostMatchScene implements Scene {
     ctx.fillStyle = 'rgba(255,255,255,0.55)';
     ctx.fillRect(mmX, barY, mmW * progress, 3);
 
-    // --- Label ---
+    // --- Timestamp label ---
     const labelY = barY + Math.round(fontSize * 0.85);
     ctx.font = `bold ${Math.round(fontSize * 0.6)}px monospace`;
     ctx.textAlign = 'center';
@@ -732,7 +832,7 @@ export class PostMatchScene implements Scene {
     const elapsed = Math.floor((frame.tick ?? 0) / 20);
     const mm = Math.floor(elapsed / 60);
     const ss = String(elapsed % 60).padStart(2, '0');
-    ctx.fillText(`REPLAY  ${mm}:${ss}`, canvasW / 2, labelY);
+    ctx.fillText(`↻ REPLAY  ${mm}:${ss}`, canvasW / 2, labelY);
 
     return totalH;
   }

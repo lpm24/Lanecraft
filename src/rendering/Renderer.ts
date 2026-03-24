@@ -3346,16 +3346,19 @@ export class Renderer {
       const pulse = 0.5 + 0.5 * Math.sin(Date.now() / 100);
       const progress = 1 - tel.timer / Math.round(1.25 * 20); // 0 -> 1 as it nears detonation
 
+      // Player-color tinted warning (each player's nuke is visually distinct)
+      const pc = hexToRgba(PLAYER_COLORS[tel.playerId % PLAYER_COLORS.length]);
+
       // Warning circle - gets more intense as it approaches detonation
       ctx.beginPath();
       ctx.arc(px, py, r, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(255, 50, 0, ${0.05 + 0.15 * progress})`;
+      ctx.fillStyle = `${pc}${(0.05 + 0.15 * progress).toFixed(2)})`;
       ctx.fill();
 
       // Pulsing ring
       ctx.beginPath();
       ctx.arc(px, py, r, 0, Math.PI * 2);
-      ctx.strokeStyle = `rgba(255, 50, 0, ${0.3 + 0.4 * pulse * progress})`;
+      ctx.strokeStyle = `${pc}${(0.3 + 0.4 * pulse * progress).toFixed(2)})`;
       ctx.lineWidth = 2 + progress * 3;
       ctx.setLineDash([8, 4]);
       ctx.stroke();
@@ -3364,12 +3367,12 @@ export class Renderer {
       // Inner concentric ring
       ctx.beginPath();
       ctx.arc(px, py, r * 0.5, 0, Math.PI * 2);
-      ctx.strokeStyle = `rgba(255, 100, 0, ${0.2 + 0.3 * pulse * progress})`;
+      ctx.strokeStyle = `${pc}${(0.2 + 0.3 * pulse * progress).toFixed(2)})`;
       ctx.lineWidth = 1;
       ctx.stroke();
 
-      // Warning text
-      ctx.fillStyle = `rgba(255, 50, 0, ${0.7 + 0.3 * pulse})`;
+      // Warning text (keep white for readability across all player colors)
+      ctx.fillStyle = `rgba(255, 255, 255, ${0.7 + 0.3 * pulse})`;
       ctx.font = 'bold 14px monospace';
       ctx.textAlign = 'center';
       ctx.fillText('NUKE INCOMING', px, py - r - 8);

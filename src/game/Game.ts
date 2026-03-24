@@ -41,7 +41,7 @@ export class Game {
 
   /** Compact per-second snapshots for the post-match minimap replay. */
   replayFrames: MinimapFrame[] = [];
-  private readonly REPLAY_INTERVAL = 20; // 1 snapshot per second at 20 tps
+  private readonly REPLAY_INTERVAL = 5; // 4 snapshots per second at 20 tps
   private pagehideHandler: (() => void) | null = null;
 
   /** Per-slot display names for the results screen. */
@@ -485,11 +485,25 @@ export class Game {
   private captureReplayFrame(): void {
     const s = this.state;
     const d = s.diamond;
+
+    // Top-kill unit per player — war hero candidate while alive
+    const topKillers = new Map<number, { x: number; y: number; playerId: number; kills: number }>();
+    for (const u of s.units) {
+      if (u.kills > 0) {
+        const cur = topKillers.get(u.playerId);
+        if (!cur || u.kills > cur.kills) {
+          topKillers.set(u.playerId, { x: u.x, y: u.y, playerId: u.playerId, kills: u.kills });
+        }
+      }
+    }
+
     this.replayFrames.push({
       tick: s.tick,
       units: s.units.map(u => ({ x: u.x, y: u.y, playerId: u.playerId, team: u.team })),
       hqHp: [s.hqHp[0], s.hqHp[1]],
       diamond: d ? { x: d.x, y: d.y, carried: d.carrierId !== null } : null,
+      nukes: s.nukeTelegraphs.map(t => ({ x: t.x, y: t.y, radius: t.radius, playerId: t.playerId })),
+      warHeroPositions: [...topKillers.values()].map(({ x, y, playerId }) => ({ x, y, playerId })),
     });
   }
 

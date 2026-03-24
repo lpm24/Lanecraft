@@ -441,6 +441,10 @@ export interface MinimapFrame {
   units: Array<{ x: number; y: number; playerId: number; team: number }>;
   hqHp: [number, number];
   diamond: { x: number; y: number; carried: boolean } | null;
+  /** Active nuke telegraphs — player-colored warning circles. */
+  nukes: Array<{ x: number; y: number; radius: number; playerId: number }>;
+  /** Top-kill unit position per player (war hero candidate while alive). */
+  warHeroPositions: Array<{ x: number; y: number; playerId: number }>;
 }
 
 // A single gold cell in the diamond obstacle
