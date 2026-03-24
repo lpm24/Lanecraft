@@ -1,6 +1,7 @@
 import { Camera } from '../rendering/Camera';
 import { UIAssets } from '../rendering/UIAssets';
-import { GameState, TILE_SIZE, TICK_RATE, Race } from '../simulation/types';
+import { GameState, TICK_RATE, Race } from '../simulation/types';
+import { tileToPixel } from '../rendering/Projection';
 import { SEED_GROW_TIMES } from '../simulation/GameState';
 import { getPopupSafeY } from './SafeArea';
 
@@ -96,8 +97,7 @@ export class SeedPopup {
     const popupW = POPUP_W;
 
     // Position above building
-    const worldPx = building.worldX * TILE_SIZE + TILE_SIZE / 2;
-    const worldPy = building.worldY * TILE_SIZE;
+    const { px: worldPx, py: worldPy } = tileToPixel(building.worldX + 0.5, building.worldY, camera.isometric);
     const screen = camera.worldToScreen(worldPx, worldPy);
     let px = Math.round(screen.x - popupW / 2);
     let py = Math.round(screen.y - popupH - 20);

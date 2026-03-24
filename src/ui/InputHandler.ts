@@ -104,7 +104,9 @@ export class InputHandler {
   private cameraFollowing = false;
   private followBtnRect: { x: number; y: number; w: number; h: number } | null = null;
   private hoveredUnitId: number | null = null;
-  private showTutorial = true;
+  private showTutorial = localStorage.getItem('lanecraft.hideTutorial') !== 'true';
+  private hideTutorialOnStart = localStorage.getItem('lanecraft.hideTutorial') === 'true';
+  private tutorialCheckboxRect: { x: number; y: number; w: number; h: number } | null = null;
   private devOverlayOpen = false;
   private abortController = new AbortController();
   private currentRenderer: Renderer | null = null;
@@ -812,7 +814,7 @@ export class InputHandler {
       if (this.devOverlayOpen) { this.devOverlayOpen = false; return; }
       if (this.handleHelpButtonClick(e)) return;
       if (this.handleFollowBtnClick(e)) return;
-      if (this.showTutorial) { this.showTutorial = false; return; }
+      if (this.showTutorial) { this.handleTutorialClick(e); return; }
       if (this.mobileHintVisible) this.dismissMobileHint();
 
       // Minimap click → pan camera to that world position
@@ -1029,8 +1031,9 @@ export class InputHandler {
       this.selectedHarvesterId = null;
       if (unit) {
         this.cameraFollowing = true;
-        this.camera.followTargetX = unit.x * TILE_SIZE;
-        this.camera.followTargetY = unit.y * TILE_SIZE;
+        const { px: upx, py: upy } = this.tp(unit.x, unit.y);
+        this.camera.followTargetX = upx;
+        this.camera.followTargetY = upy;
       } else {
         this.cameraFollowing = false;
         this.camera.followTargetX = null;
@@ -1135,7 +1138,7 @@ export class InputHandler {
     const pw = Math.min(W - 12, 800);
     const ph = Math.min(H - 12, compact ? 700 : 800);
     const px = (W - pw) / 2;
-    const py = (H - ph) / 2;
+    const py = (H - ph) / 2 - 20;
 
     // Panel background - SpecialPaper 9-slice
     if (!this.ui.drawSpecialPaper(ctx, px, py, pw, ph)) {
@@ -1234,6 +1237,28 @@ export class InputHandler {
     line('Mobile: hold map for chat wheel.');
     line('Reopen via Settings > Help / Controls.', '#9bb7ff');
 
+    // "Don't show on game start" checkbox
+    y += compact ? 4 : 8;
+    const cbSize = compact ? 14 : 16;
+    const cbX = lp;
+    const cbY = y - cbSize + 2;
+    ctx.strokeStyle = '#9bb7ff';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(cbX, cbY, cbSize, cbSize);
+    if (this.hideTutorialOnStart) {
+      ctx.fillStyle = '#2979ff';
+      ctx.fillRect(cbX + 2, cbY + 2, cbSize - 4, cbSize - 4);
+      ctx.fillStyle = '#fff';
+      ctx.font = `bold ${cbSize - 2}px monospace`;
+      ctx.textAlign = 'center';
+      ctx.fillText('✓', cbX + cbSize / 2, cbY + cbSize - 2);
+      ctx.textAlign = 'start';
+    }
+    ctx.fillStyle = '#aaa';
+    ctx.font = `${bodySize}px monospace`;
+    ctx.fillText("Don't show on game start", cbX + cbSize + 8, y);
+    this.tutorialCheckboxRect = { x: cbX, y: cbY, w: ctx.measureText("Don't show on game start").width + cbSize + 8, h: cbSize };
+
     const btnX = px + pw - closeSize - inset;
     const btnY = py + inset;
     // Close button - X icon sprite
@@ -1250,6 +1275,19 @@ export class InputHandler {
       ctx.textAlign = 'start';
     }
 
+  }
+
+  private handleTutorialClick(e: MouseEvent): void {
+    const rect = this.canvas.getBoundingClientRect();
+    const cx = e.clientX - rect.left;
+    const cy = e.clientY - rect.top;
+    const cb = this.tutorialCheckboxRect;
+    if (cb && cx >= cb.x && cx <= cb.x + cb.w && cy >= cb.y && cy <= cb.y + cb.h) {
+      this.hideTutorialOnStart = !this.hideTutorialOnStart;
+      localStorage.setItem('lanecraft.hideTutorial', this.hideTutorialOnStart ? 'true' : 'false');
+      return;
+    }
+    this.showTutorial = false;
   }
 
   // Top-right layout (right to left): [⚙ settings] [ℹ info] [★ mvp] [ping]
@@ -1290,9 +1328,10 @@ export class InputHandler {
           if (h) { wx = h.x; wy = h.y; }
         }
         if (wx !== null && wy !== null) {
-          this.camera.followTargetX = wx * TILE_SIZE;
-          this.camera.followTargetY = wy * TILE_SIZE;
-          this.camera.panTo(wx * TILE_SIZE, wy * TILE_SIZE);
+          const { px: fpx, py: fpy } = this.tp(wx, wy);
+          this.camera.followTargetX = fpx;
+          this.camera.followTargetY = fpy;
+          this.camera.panTo(fpx, fpy);
         }
       } else {
         this.camera.followTargetX = null;
@@ -1537,9 +1576,10 @@ export class InputHandler {
               this.selectedUnitId = null;
               this.selectedHarvesterId = h.id;
               this.cameraFollowing = true;
-              this.camera.panTo(h.x * TILE_SIZE, h.y * TILE_SIZE);
-              this.camera.followTargetX = h.x * TILE_SIZE;
-              this.camera.followTargetY = h.y * TILE_SIZE;
+              const { px: hpx, py: hpy } = this.tp(h.x, h.y);
+              this.camera.panTo(hpx, hpy);
+              this.camera.followTargetX = hpx;
+              this.camera.followTargetY = hpy;
             }
             this.hutPopup.close();
           } else if (result.action === 'close') {
@@ -2332,9 +2372,10 @@ export class InputHandler {
     this.selectedUnitId = mvp.id;
     this.selectedHarvesterId = null;
     this.cameraFollowing = true;
-    this.camera.followTargetX = mvp.x * TILE_SIZE;
-    this.camera.followTargetY = mvp.y * TILE_SIZE;
-    this.camera.panTo(mvp.x * TILE_SIZE, mvp.y * TILE_SIZE);
+    const { px: mpx, py: mpy } = this.tp(mvp.x, mvp.y);
+    this.camera.followTargetX = mpx;
+    this.camera.followTargetY = mpy;
+    this.camera.panTo(mpx, mpy);
     this.settingsOpen = false;
     this.showTutorial = false;
   }
@@ -2349,8 +2390,9 @@ export class InputHandler {
     if (this.selectedUnitId !== null) {
       const u = this.game.state.units.find(u => u.id === this.selectedUnitId);
       if (u) {
-        this.camera.followTargetX = u.x * TILE_SIZE;
-        this.camera.followTargetY = u.y * TILE_SIZE;
+        const { px: ux, py: uy } = this.tp(u.x, u.y);
+        this.camera.followTargetX = ux;
+        this.camera.followTargetY = uy;
       } else {
         this.cameraFollowing = false;
         this.camera.followTargetX = null;
@@ -2359,8 +2401,9 @@ export class InputHandler {
     } else if (this.selectedHarvesterId !== null) {
       const h = this.game.state.harvesters.find(h => h.id === this.selectedHarvesterId);
       if (h && h.state !== 'dead') {
-        this.camera.followTargetX = h.x * TILE_SIZE;
-        this.camera.followTargetY = h.y * TILE_SIZE;
+        const { px: hx, py: hy } = this.tp(h.x, h.y);
+        this.camera.followTargetX = hx;
+        this.camera.followTargetY = hy;
       } else {
         this.cameraFollowing = false;
         this.camera.followTargetX = null;

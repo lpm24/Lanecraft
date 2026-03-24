@@ -180,6 +180,14 @@ export class Renderer {
     return tileToPixel(tileX, tileY, this.isometric);
   }
 
+  /** Compute the visual angle (radians) from tile (ax,ay) to tile (bx,by), respecting projection. */
+  private projAngle(ax: number, ay: number, bx: number, by: number): number {
+    const from = this.tp(ax, ay);
+    const fpx = from.px, fpy = from.py;
+    const to = this.tp(bx, by);
+    return Math.atan2(to.py - fpy, to.px - fpx);
+  }
+
   /** Draw a filled isometric diamond tile centered at (cx, cy). */
   private drawIsoDiamond(ctx: CanvasRenderingContext2D, cx: number, cy: number): void {
     ctx.beginPath();
@@ -2341,7 +2349,7 @@ export class Renderer {
         const [img] = arrowData;
         const target = state.units.find(u => u.id === p.targetId);
         const angle = target
-          ? Math.atan2((target.y - p.y), (target.x - p.x))
+          ? this.projAngle(p.x, p.y, target.x, target.y)
           : isBottom ? -Math.PI / 2 : Math.PI / 2;
         const size = T * 1.2;
         ctx.save();
@@ -2358,7 +2366,7 @@ export class Renderer {
         const [img] = boneData;
         const target = state.units.find(u => u.id === p.targetId);
         const angle = target
-          ? Math.atan2((target.y - p.y), (target.x - p.x))
+          ? this.projAngle(p.x, p.y, target.x, target.y)
           : isBottom ? -Math.PI / 2 : Math.PI / 2;
         // Spin the bone as it flies (add rotation over time)
         const spin = (state.tick * 0.4) % (Math.PI * 2);
@@ -2385,7 +2393,7 @@ export class Renderer {
         const frameH = meteorImg.height / rows;
         const target = state.units.find(u => u.id === p.targetId);
         const angle = target
-          ? Math.atan2(target.y - p.y, target.x - p.x)
+          ? this.projAngle(p.x, p.y, target.x, target.y)
           : p.team === Team.Bottom ? -Math.PI / 2 : Math.PI / 2;
         const col = Math.floor(state.tick * 0.4) % cols;
         const drawSize = T * 1.8;
@@ -2413,9 +2421,9 @@ export class Renderer {
       const cbTarget = state.units.find(u => u.id === p.targetId);
       // Position-targeted siege cannonballs use targetX/targetY for angle
       const cbAngle = p.targetX !== undefined && p.targetY !== undefined
-        ? Math.atan2(p.targetY - p.y, p.targetX - p.x)
+        ? this.projAngle(p.x, p.y, p.targetX, p.targetY)
         : cbTarget
-          ? Math.atan2(cbTarget.y - p.y, cbTarget.x - p.x)
+          ? this.projAngle(p.x, p.y, cbTarget.x, cbTarget.y)
           : isBottom ? -Math.PI / 2 : Math.PI / 2;
       const tdx = Math.cos(cbAngle);
       const tdy = Math.sin(cbAngle);

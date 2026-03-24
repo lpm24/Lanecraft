@@ -705,7 +705,7 @@ export interface GameState {
   hqHp: number[];               // indexed by team (0, 1); length matches mapDef.teams.length
   hqAttackTimer: number[];      // per-team HQ attack cooldown (ticks remaining)
   winner: Team | null;
-  winCondition: 'military' | 'diamond' | 'timeout' | null;
+  winCondition: 'military' | 'diamond' | 'timeout' | 'concede' | null;
   matchPhase: 'prematch' | 'playing' | 'ended';
   prematchTimer: number;
   floatingTexts: FloatingText[];

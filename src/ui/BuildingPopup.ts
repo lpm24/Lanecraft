@@ -1,7 +1,8 @@
 import { Camera } from '../rendering/Camera';
 import { UIAssets } from '../rendering/UIAssets';
 import { SpriteLoader, drawSpriteFrame, getSpriteFrame } from '../rendering/SpriteLoader';
-import { GameState, BuildingType, BuildingState, TILE_SIZE, Race } from '../simulation/types';
+import { GameState, BuildingType, BuildingState, Race } from '../simulation/types';
+import { tileToPixel } from '../rendering/Projection';
 import { UPGRADE_TREES, UNIT_STATS, TOWER_STATS, getBuildingCost, getNodeUpgradeCost, type UpgradeNodeDef } from '../simulation/data';
 import { getUnitUpgradeMultipliers } from '../simulation/GameState';
 import { getPopupSafeY } from './SafeArea';
@@ -179,8 +180,7 @@ export class BuildingPopup {
     const popupW = POPUP_W;
 
     // Position in screen space, anchored above building
-    const worldPx = building.worldX * TILE_SIZE + TILE_SIZE / 2;
-    const worldPy = building.worldY * TILE_SIZE;
+    const { px: worldPx, py: worldPy } = tileToPixel(building.worldX + 0.5, building.worldY, camera.isometric);
     const screen = camera.worldToScreen(worldPx, worldPy);
     let px = Math.round(screen.x - popupW / 2);
     let py = Math.round(screen.y - popupH - 20);

@@ -841,12 +841,12 @@ export const RACE_ABILITY_DEFS: Record<Race, RaceAbilityDef> = {
 
 // === Research Upgrade System ===
 
-export type ResearchCategory = 'melee' | 'ranged' | 'caster';
+export type ResearchCategory = 'melee' | 'ranged' | 'caster' | 'ability';
 
 export interface ResearchUpgradeDef {
   id: string;
   category: ResearchCategory;
-  type: 'attack' | 'defense' | 'race_special';
+  type: 'attack' | 'defense' | 'race_special' | 'race_ability';
   name: string;
   desc: string;
   /** One-shot upgrades are purchased once; attack/defense are infinite */
@@ -939,9 +939,58 @@ export const RACE_RESEARCH_UPGRADES: Record<Race, ResearchUpgradeDef[]> = {
   ],
 };
 
-/** Get all research upgrades for a race (6 universal + 6 race-specific) */
+// Per-race ability upgrades (3 per race, all one-shot, shown in "RACE" tab)
+export const RACE_ABILITY_UPGRADES: Record<Race, ResearchUpgradeDef[]> = {
+  [Race.Crown]: [
+    { id: 'crown_ability_1', category: 'ability', type: 'race_ability', name: 'Swift Workers', desc: '+40% worker move speed', oneShot: true },
+    { id: 'crown_ability_2', category: 'ability', type: 'race_ability', name: 'Royal Forge', desc: 'Foundry costs no wood', oneShot: true },
+    { id: 'crown_ability_3', category: 'ability', type: 'race_ability', name: 'Aegis Wrath', desc: 'Shielded allies deal +25% damage', oneShot: true },
+  ],
+  [Race.Horde]: [
+    { id: 'horde_ability_1', category: 'ability', type: 'race_ability', name: 'Trample', desc: 'War Troll deals AoE trample damage', oneShot: true },
+    { id: 'horde_ability_2', category: 'ability', type: 'race_ability', name: 'Troll Discount', desc: 'War Troll costs 30% less', oneShot: true },
+    { id: 'horde_ability_3', category: 'ability', type: 'race_ability', name: 'Wide Aura', desc: 'Caster aura range doubled', oneShot: true },
+  ],
+  [Race.Goblins]: [
+    { id: 'goblins_ability_1', category: 'ability', type: 'race_ability', name: 'Quick Brew', desc: 'Potions spawn 33% faster and attract to allies within 4 tiles', oneShot: true },
+    { id: 'goblins_ability_2', category: 'ability', type: 'race_ability', name: 'Cower Reflexes', desc: 'Cowering goblins gain 25% dodge chance', oneShot: true },
+    { id: 'goblins_ability_3', category: 'ability', type: 'race_ability', name: 'Potent Potions', desc: 'Potion buffs last 50% longer', oneShot: true },
+  ],
+  [Race.Oozlings]: [
+    { id: 'oozlings_ability_1', category: 'ability', type: 'race_ability', name: 'Spitter Mound', desc: 'Globule has 25% chance to spawn ranged ooze', oneShot: true },
+    { id: 'oozlings_ability_2', category: 'ability', type: 'race_ability', name: 'Caster Mound', desc: 'Globule has 25% chance to spawn caster ooze', oneShot: true },
+    { id: 'oozlings_ability_3', category: 'ability', type: 'race_ability', name: 'Death Burst', desc: 'Globule spawns 3 random ooze on death', oneShot: true },
+  ],
+  [Race.Demon]: [
+    { id: 'demon_ability_1', category: 'ability', type: 'race_ability', name: 'Rapid Fire', desc: 'Fireball cooldown reduced by 25%', oneShot: true },
+    { id: 'demon_ability_2', category: 'ability', type: 'race_ability', name: 'Scorched Earth', desc: 'Fireball leaves burn ground for 6s, damage scales with mana', oneShot: true },
+    { id: 'demon_ability_3', category: 'ability', type: 'race_ability', name: 'Siege Fire', desc: 'Fireball deals +50% damage to buildings', oneShot: true },
+  ],
+  [Race.Deep]: [
+    { id: 'deep_ability_1', category: 'ability', type: 'race_ability', name: 'Crushing Rain', desc: 'Deluge deals 3 damage/sec to enemies', oneShot: true },
+    { id: 'deep_ability_2', category: 'ability', type: 'race_ability', name: 'Healing Rain', desc: 'Deluge heals Deep allies 5 HP/sec', oneShot: true },
+    { id: 'deep_ability_3', category: 'ability', type: 'race_ability', name: 'Freezing Depths', desc: 'Slowed units move 15% slower', oneShot: true },
+  ],
+  [Race.Wild]: [
+    { id: 'wild_ability_1', category: 'ability', type: 'race_ability', name: 'Meat Harvest', desc: '30% chance to gain +3 stone on kill', oneShot: true },
+    { id: 'wild_ability_2', category: 'ability', type: 'race_ability', name: 'Blood Frenzy', desc: 'Kill frenzy radius doubled', oneShot: true },
+    { id: 'wild_ability_3', category: 'ability', type: 'race_ability', name: 'Pack Speed', desc: '+10% global move speed (units and workers)', oneShot: true },
+  ],
+  [Race.Geists]: [
+    { id: 'geists_ability_1', category: 'ability', type: 'race_ability', name: 'Bone Archers', desc: 'Summon also spawns 3 skeleton archers', oneShot: true },
+    { id: 'geists_ability_2', category: 'ability', type: 'race_ability', name: 'Empowered Minions', desc: 'Mini skeletons gain +5 damage, +25% move speed', oneShot: true },
+    { id: 'geists_ability_3', category: 'ability', type: 'race_ability', name: 'Death Defiance', desc: '5% chance to avoid death for all units', oneShot: true },
+  ],
+  [Race.Tenders]: [
+    { id: 'tenders_ability_1', category: 'ability', type: 'race_ability', name: 'Fast Growth', desc: 'Seeds grow 40% faster', oneShot: true },
+    { id: 'tenders_ability_2', category: 'ability', type: 'race_ability', name: 'Quick Seeds', desc: 'Seed cooldown reduced by 30%', oneShot: true },
+    { id: 'tenders_ability_3', category: 'ability', type: 'race_ability', name: 'Reseed', desc: '30% chance to replant a T1 seed when one pops', oneShot: true },
+  ],
+};
+
+/** Get all research upgrades for a race (6 universal + 6 race-specific + 3 ability) */
 export function getAllResearchUpgrades(race: Race): ResearchUpgradeDef[] {
-  return [...RESEARCH_UPGRADES, ...RACE_RESEARCH_UPGRADES[race]];
+  return [...RESEARCH_UPGRADES, ...RACE_RESEARCH_UPGRADES[race], ...RACE_ABILITY_UPGRADES[race]];
 }
 
 /** Get cost for a research upgrade. Attack/defense: 80g base x 1.5^level. One-shots: 150g flat. */
@@ -954,19 +1003,21 @@ export function getResearchUpgradeCost(id: string, level: number, race: Race): {
     const cost = Math.round(20 * Math.pow(1.5, level));
     return { gold: 0, wood: 0, stone: 0, souls: cost };
   }
-  // Geists: one-shot racial upgrades cost souls
+  // Geists: one-shot racial upgrades cost souls (ability tab: 1 resource + souls)
   if (race === Race.Geists && def.oneShot && id.startsWith('geists_')) {
+    if (def.type === 'race_ability') return { gold: 50, wood: 0, stone: 0, souls: 25 };
     return { gold: 0, wood: 0, stone: 0, souls: 35 };
   }
   // Oozlings: all research costs ooze (deathEssence) instead of resources
   if (race === Race.Oozlings) {
+    if (def.type === 'race_ability') return { gold: 0, wood: 0, stone: 0, deathEssence: 60 };
     if (def.oneShot) return { gold: 0, wood: 0, stone: 0, deathEssence: 50 };
     const cost = Math.round(30 * Math.pow(1.4, level));
     return { gold: 0, wood: 0, stone: 0, deathEssence: cost };
   }
   if (def.oneShot) {
-    // Demon racial one-shots cost mana instead of resources
-    if (race === Race.Demon && id.startsWith('demon_')) {
+    // Demon racial one-shots: melee/ranged/caster cost mana; ability tab costs resources
+    if (race === Race.Demon && id.startsWith('demon_') && def.type !== 'race_ability') {
       const demonManaCosts: Record<string, number> = {
         demon_melee_1: 60,   // Infernal Rage
         demon_melee_2: 150,  // Soul Siphon
@@ -976,6 +1027,14 @@ export function getResearchUpgradeCost(id: string, level: number, race: Race): {
         demon_caster_2: 140, // Immolation
       };
       return { gold: 0, wood: 0, stone: 0, mana: demonManaCosts[id] ?? 120 };
+    }
+    // Race ability upgrades cost more than regular one-shots
+    if (def.type === 'race_ability') {
+      const used = getRaceUsedResources(race);
+      if (!used.gold && used.stone && used.wood) return { gold: 0, wood: 55, stone: 50 };
+      if (!used.gold && used.stone) return { gold: 0, wood: 0, stone: 100 };
+      if (!used.gold && used.wood) return { gold: 0, wood: 100, stone: 0 };
+      return { gold: 200, wood: 0, stone: 0 };
     }
     // One-shot: flat cost scaled to race economy
     // Non-gold races pay half raw amounts since wood/stone are worth 2× gold

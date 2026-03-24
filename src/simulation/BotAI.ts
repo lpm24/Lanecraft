@@ -1615,6 +1615,34 @@ function getOneShotSynergyScore(id: string, threats: ThreatProfile): number {
     case 'tenders_ranged_2': return 1.5;
     case 'tenders_caster_1': return 2.5;
     case 'tenders_caster_2': return 2.0;
+    // Race ability upgrades
+    case 'crown_ability_1': return 1.5;
+    case 'crown_ability_2': return 2.0;
+    case 'crown_ability_3': return 2.5;
+    case 'horde_ability_1': return 2.5;
+    case 'horde_ability_2': return 2.0;
+    case 'horde_ability_3': return 2.0;
+    case 'goblins_ability_1': return 2.5;
+    case 'goblins_ability_2': return 2.0;
+    case 'goblins_ability_3': return 1.5;
+    case 'oozlings_ability_1': return 2.0;
+    case 'oozlings_ability_2': return 2.0;
+    case 'oozlings_ability_3': return 2.5;
+    case 'demon_ability_1': return 2.5;
+    case 'demon_ability_2': return 2.0;
+    case 'demon_ability_3': return 2.0;
+    case 'deep_ability_1': return 2.0;
+    case 'deep_ability_2': return 2.0;
+    case 'deep_ability_3': return threats.hasControl ? 2.5 : 1.5;
+    case 'wild_ability_1': return 2.0;
+    case 'wild_ability_2': return 2.5;
+    case 'wild_ability_3': return 2.0;
+    case 'geists_ability_1': return 2.5;
+    case 'geists_ability_2': return 2.0;
+    case 'geists_ability_3': return 1.5;
+    case 'tenders_ability_1': return 2.0;
+    case 'tenders_ability_2': return 2.5;
+    case 'tenders_ability_3': return 2.0;
     default: return 1.0;
   }
 }
@@ -1646,6 +1674,13 @@ function estimateResearchValue(
   const cost = getResearchUpgradeCost(upgradeId, level, race);
   const totalCost = cost.gold + cost.wood + cost.stone + (cost.deathEssence ?? 0) + (cost.souls ?? 0);
   if (totalCost <= 0) return 0;
+
+  // Race ability upgrades: flat moderate value (bots will buy them mid-late game)
+  if (def.category === 'ability') {
+    if (!def.oneShot) return 0;
+    const synergyScore = getOneShotSynergyScore(upgradeId, intel.threats);
+    return synergyScore * 0.3 / totalCost;
+  }
 
   // Get category counts
   const cat = def.category;

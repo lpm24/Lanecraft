@@ -311,7 +311,10 @@ export class UnitGalleryScene implements Scene {
         // Stats line
         ctx.fillStyle = '#999';
         ctx.font = '11px monospace';
-        ctx.fillText(`${hp}hp ${dmg}dmg ${atkSpd.toFixed(1)}as ${spd.toFixed(1)}ms`, unitCX, unitCY + 50);
+        const statsStr = IS_NATIVE
+          ? `${hp}hp ${dmg}dmg ${atkSpd.toFixed(1)}as`
+          : `${hp}hp ${dmg}dmg ${atkSpd.toFixed(1)}as ${spd.toFixed(1)}ms`;
+        ctx.fillText(statsStr, unitCX, unitCY + 50);
 
         // ELO rating — shown for base units always, and for upgraded units on native
         const showElo = nodeKey === 'A' || IS_NATIVE;
