@@ -145,17 +145,19 @@ export class UIAssets {
     const dx1 = x + dw0, dx2 = x + w - dw2;
     const dy1 = y + dh0, dy2 = y + h - dh2;
 
+    // Overlap by 1px to prevent sub-pixel seams from showing background
+    const o = 1;
     // Top row
-    ctx.drawImage(img, sx0, sy0, sw0, sh0, x, y, dw0, dh0);
-    ctx.drawImage(img, sx1, sy0, sw1, sh0, dx1, y, dw1, dh0);
-    ctx.drawImage(img, sx2, sy0, sw2, sh0, dx2, y, dw2, dh0);
+    ctx.drawImage(img, sx0, sy0, sw0, sh0, x, y, dw0 + o, dh0 + o);
+    ctx.drawImage(img, sx1, sy0, sw1, sh0, dx1, y, dw1 + o, dh0 + o);
+    ctx.drawImage(img, sx2, sy0, sw2, sh0, dx2, y, dw2, dh0 + o);
     // Middle row
-    ctx.drawImage(img, sx0, sy1, sw0, sh1, x, dy1, dw0, dh1);
-    ctx.drawImage(img, sx1, sy1, sw1, sh1, dx1, dy1, dw1, dh1);
-    ctx.drawImage(img, sx2, sy1, sw2, sh1, dx2, dy1, dw2, dh1);
+    ctx.drawImage(img, sx0, sy1, sw0, sh1, x, dy1, dw0 + o, dh1 + o);
+    ctx.drawImage(img, sx1, sy1, sw1, sh1, dx1, dy1, dw1 + o, dh1 + o);
+    ctx.drawImage(img, sx2, sy1, sw2, sh1, dx2, dy1, dw2, dh1 + o);
     // Bottom row
-    ctx.drawImage(img, sx0, sy2, sw0, sh2, x, dy2, dw0, dh2);
-    ctx.drawImage(img, sx1, sy2, sw1, sh2, dx1, dy2, dw1, dh2);
+    ctx.drawImage(img, sx0, sy2, sw0, sh2, x, dy2, dw0 + o, dh2);
+    ctx.drawImage(img, sx1, sy2, sw1, sh2, dx1, dy2, dw1 + o, dh2);
     ctx.drawImage(img, sx2, sy2, sw2, sh2, dx2, dy2, dw2, dh2);
   }
 
@@ -202,8 +204,9 @@ export class UIAssets {
     const drawnRightW = Math.round(Math.min(sw2 * scale, w * 0.35));
     const drawnCenterW = w - drawnLeftW - drawnRightW;
 
-    ctx.drawImage(img, sx0, srcY, sw0, srcH, x, y, drawnLeftW, h);
-    ctx.drawImage(img, sx1, srcY, sw1, srcH, x + drawnLeftW, y, drawnCenterW, h);
+    // Overlap by 1px to prevent sub-pixel seams from showing background
+    ctx.drawImage(img, sx0, srcY, sw0, srcH, x, y, drawnLeftW + 1, h);
+    ctx.drawImage(img, sx1, srcY, sw1, srcH, x + drawnLeftW, y, drawnCenterW + 1, h);
     ctx.drawImage(img, sx2, srcY, sw2, srcH, x + w - drawnRightW, y, drawnRightW, h);
   }
 
