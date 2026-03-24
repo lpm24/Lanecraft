@@ -443,7 +443,7 @@ export const UPGRADE_TREES: Record<Race, Partial<Record<BuildingType, Record<Upg
       D: { name: 'Longbow', desc: '+40% dmg, +25% range', damageMult: 1.40, rangeMult: 1.25, spawnSpeedMult: 0.82 },
       E: { name: 'War Bow', desc: '+35% dmg, splash 2t', damageMult: 1.35, special: { splashRadius: 2, splashDamagePct: 0.50 }, spawnSpeedMult: 0.82 },
       F: { name: 'Dwarfette Blitzer', desc: 'Much faster, +25% range', attackSpeedMult: 0.70, rangeMult: 1.25, spawnSpeedMult: 0.82 },
-      G: { name: 'Trebuchet', desc: 'SIEGE: 13 range, slow, fragile, devastating vs buildings', hpMult: 0.50, damageMult: 2.16, attackSpeedMult: 3.40, moveSpeedMult: 0.38, rangeMult: 1.85, spawnSpeedMult: 0.82, special: { isSiegeUnit: true, buildingDamageMult: 4.0, splashRadius: 3, splashDamagePct: 0.65 } },
+      G: { name: 'Cannon', desc: 'SIEGE: 13 range, slow, fragile, devastating vs buildings', hpMult: 0.50, damageMult: 2.16, attackSpeedMult: 3.40, moveSpeedMult: 0.38, rangeMult: 1.85, spawnSpeedMult: 0.82, special: { isSiegeUnit: true, buildingDamageMult: 4.0, splashRadius: 3, splashDamagePct: 0.65 } },
     },
     [BuildingType.CasterSpawner]: {
       B: { name: 'High Priest', desc: '+30% HP, shield +2 targets', hpMult: 1.30, special: { shieldTargetBonus: 2 }, spawnSpeedMult: 0.88 },

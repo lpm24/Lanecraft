@@ -2037,9 +2037,14 @@ function tickAbilityEffects(state: GameState): void {
 // === Death resource tracking (called from combat cleanup) ===
 
 function trackDeathResources(state: GameState, deadUnit: UnitState): void {
-  // Geists: souls from ANY death
+  // Geists: souls from ANY death, with probability scaling for higher player counts.
+  // In 1v1 (2 players): 100% chance per death. In 4v4 (8 players): ~38% chance per death.
+  // Net effect: soul income scales ~1.5x from 1v1 to 4v4 instead of 4x.
+  const activePlayers = state.players.reduce((c, pl) => c + (pl.isEmpty ? 0 : 1), 0);
+  const soulChance = activePlayers <= 2 ? 1 : 2 * (1 + (activePlayers - 2) / 12) / activePlayers;
   for (const p of state.players) {
     if (p.isEmpty || p.race !== Race.Geists) continue;
+    if (soulChance < 1 && state.rng() >= soulChance) continue;
     p.souls++;
     // Show floating text at death location (throttle: only every 3rd soul to reduce spam)
     if (p.souls % 3 === 0) {
@@ -2930,7 +2935,9 @@ function dealDamage(state: GameState, target: UnitState, amount: number, showFlo
     if (sourceUnitId !== undefined) {
       const killer = state.units.find(u => u.id === sourceUnitId);
       if (killer) {
-        target.lastDamagedByName = killer.type;
+        const killerRace = state.players[killer.playerId]?.race;
+        const killerBldg = `${killer.category}_spawner` as BuildingType;
+        target.lastDamagedByName = (killerRace != null ? getUpgradeNodeDef(killerRace, killerBldg, killer.upgradeNode)?.name : undefined) ?? killer.type;
         if (target.hp <= 0) {
           killer.kills++;
           if (state.playerStats[killer.playerId]) state.playerStats[killer.playerId].enemyUnitsKilled++;
@@ -4449,8 +4456,11 @@ function tickCombat(state: GameState): void {
     }
     // Record fallen heroes (units with kills)
     if (u.kills > 0) {
+      const fallRace = state.players[u.playerId].race;
+      const fallBldg = `${u.category}_spawner` as BuildingType;
       state.fallenHeroes.push({
-        name: u.type, playerId: u.playerId, race: state.players[u.playerId].race,
+        name: getUpgradeNodeDef(fallRace, fallBldg, u.upgradeNode)?.name ?? u.type,
+        playerId: u.playerId, race: fallRace,
         category: u.category, upgradeNode: u.upgradeNode,
         kills: u.kills, survived: false, killedByName: u.lastDamagedByName || 'unknown',
         spawnTick: u.spawnTick, deathTick: state.tick,
@@ -5841,8 +5851,11 @@ function computeWarHeroes(state: GameState): void {
   // Add surviving units
   for (const u of state.units) {
     if (u.kills > 0) {
+      const heroRace = state.players[u.playerId].race;
+      const heroBldg = `${u.category}_spawner` as BuildingType;
       candidates.push({
-        name: u.type, playerId: u.playerId, race: state.players[u.playerId].race,
+        name: getUpgradeNodeDef(heroRace, heroBldg, u.upgradeNode)?.name ?? u.type,
+        playerId: u.playerId, race: heroRace,
         category: u.category, upgradeNode: u.upgradeNode,
         kills: u.kills, survived: true, killedByName: null,
         spawnTick: u.spawnTick, deathTick: null,

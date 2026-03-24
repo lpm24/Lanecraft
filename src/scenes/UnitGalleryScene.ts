@@ -6,7 +6,10 @@ import { loadProfile, checkNonMatchAchievement, ACHIEVEMENTS } from '../profile/
 import { UNIT_STATS, RACE_COLORS, RACE_LABELS, UPGRADE_TREES, UpgradeNodeDef } from '../simulation/data';
 import { getUnitUpgradeMultipliers } from '../simulation/GameState';
 import { getElo, ELO_DEFAULT } from './TitleElo';
+import { Capacitor } from '@capacitor/core';
 import { getSafeTop } from '../ui/SafeArea';
+
+const IS_NATIVE = Capacitor.isNativePlatform();
 
 const T = TILE_SIZE;
 
@@ -263,6 +266,14 @@ export class UnitGalleryScene implements Scene {
           ctx.ellipse(unitCX, feetY + 2, drawW * 0.35, 4, 0, 0, Math.PI * 2);
           ctx.fill();
 
+          // Apply flipX if sprite faces wrong direction natively
+          if (def.flipX) {
+            ctx.save();
+            ctx.translate(unitCX, 0);
+            ctx.scale(-1, 1);
+            ctx.translate(-unitCX, 0);
+          }
+
           // Tier glow
           if (upgradeTier >= 1) {
             ctx.globalAlpha = 0.12 + upgradeTier * 0.06;
@@ -273,6 +284,10 @@ export class UnitGalleryScene implements Scene {
           }
 
           drawSpriteFrame(ctx, img, def, frame, drawX, drawY, drawW, drawH);
+
+          if (def.flipX) {
+            ctx.restore();
+          }
 
           // Ground line
           ctx.strokeStyle = 'rgba(255,255,255,0.08)';
@@ -298,24 +313,26 @@ export class UnitGalleryScene implements Scene {
         ctx.font = '11px monospace';
         ctx.fillText(`${hp}hp ${dmg}dmg ${atkSpd.toFixed(1)}as ${spd.toFixed(1)}ms`, unitCX, unitCY + 50);
 
-        // ELO rating (only for base unit, node A)
-        if (nodeKey === 'A') {
-          const elo = getElo(race, cat);
+        // ELO rating — shown for base units always, and for upgraded units on native
+        const showElo = nodeKey === 'A' || IS_NATIVE;
+        if (showElo) {
+          const eloNode = nodeKey === 'A' ? undefined : nodeKey;
+          const elo = getElo(race, cat, eloNode);
           const eloColor = elo > ELO_DEFAULT ? '#ffe082' : elo < ELO_DEFAULT ? '#ef9a9a' : '#888';
           ctx.fillStyle = eloColor;
           ctx.font = '11px monospace';
           ctx.fillText(`ELO ${elo}`, unitCX, unitCY + 61);
         }
 
-        // Upgrade description
-        if (nodeDef?.desc) {
+        // Upgrade description (desktop only — too wide for mobile)
+        if (nodeDef?.desc && !IS_NATIVE) {
           ctx.fillStyle = '#6a6';
           ctx.font = '11px monospace';
           ctx.fillText(nodeDef.desc, unitCX, unitCY + 61);
         }
 
-        // Scale info (actual sprite scale, not display scale)
-        if (spriteData) {
+        // Scale info (dev only — not useful on native builds)
+        if (spriteData && !IS_NATIVE && import.meta.env.DEV) {
           const def = spriteData[1];
           const sc = def.scale ?? 1;
           const hsc = def.heightScale ?? 1;
