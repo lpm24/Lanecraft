@@ -2795,11 +2795,16 @@ function applyKnockback(unit: UnitState, amount: number, mapDef?: MapDef): void 
   unit.y -= (fwdY / fwdLen) * knockDist;
 }
 
-/** Track healing for a unit's owner. */
-function trackHealing(state: GameState, unit: UnitState, amount: number): void {
-  const ps = state.playerStats[unit.playerId];
+/** Track healing for a unit's owner.
+ * @param healer  The unit performing the heal (caster, attacker with lifesteal, etc.)
+ * @param target  The unit being healed. When omitted (or same as healer), healing is
+ *                counted for player stats only — self-heals don't credit Support Hero.
+ */
+function trackHealing(state: GameState, healer: UnitState, amount: number, target?: UnitState): void {
+  const ps = state.playerStats[healer.playerId];
   if (ps) ps.totalHealing += amount;
-  unit.healingDone += amount;
+  // Only credit healingDone for ally heals — not self-heals (lifesteal)
+  if (target && target.id !== healer.id) healer.healingDone += amount;
 }
 
 const WOUND_DURATION_TICKS = 6 * TICK_RATE;
@@ -3046,7 +3051,7 @@ function applyCasterSupport(state: GameState, caster: UnitState, race: Race, sp:
           if (healed >= 2) break;
           if (a.hp < a.maxHp) {
             const ah = healUnit(a, 1);
-            if (ah > 0) trackHealing(state, caster, ah);
+            if (ah > 0) trackHealing(state, caster, ah, a);
             healed++;
           }
         }
@@ -3177,7 +3182,7 @@ function applyCasterSupport(state: GameState, caster: UnitState, race: Race, sp:
           if (healedCount >= 3) break;
           if (a.hp < a.maxHp) {
             const ah = healUnit(a, 2);
-            if (ah > 0) trackHealing(state, caster, ah);
+            if (ah > 0) trackHealing(state, caster, ah, a);
             healedCount++;
           }
         }
@@ -3199,7 +3204,7 @@ function applyCasterSupport(state: GameState, caster: UnitState, race: Race, sp:
         let thisHeal = tenderHealAmt;
         if (tendersP?.researchUpgrades.raceUpgrades['tenders_caster_2'] && target.hp < target.maxHp * 0.30) thisHeal *= 2;
         const ah = healUnit(target, thisHeal);
-        if (ah > 0) trackHealing(state, caster, ah);
+        if (ah > 0) trackHealing(state, caster, ah, target);
         addDeathParticles(state, target.x, target.y, '#33691e', 1);
         addCombatEvent(state, { type: 'heal', x: target.x, y: target.y, color: '#66bb6a' });
         addFloatingText(state, caster.x, caster.y - 0.5, `+${thisHeal}`, '#33691e', undefined, undefined,
