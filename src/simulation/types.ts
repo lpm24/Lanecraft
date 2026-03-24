@@ -408,6 +408,9 @@ export interface UnitState {
   upgradeNode: string;                 // terminal upgrade node key ('A','B','C','D','E','F','G')
   upgradeSpecial: Record<string, any>; // upgrade-granted special effects
   kills: number;          // individual kill count for war hero tracking
+  damageDone: number;     // total damage dealt (for war hero display)
+  healingDone: number;    // total HP healed to allies (for support hero)
+  buffsApplied: number;   // ally buff instances applied (Haste/Frenzy/Shield, for support hero)
   lastDamagedByName: string; // name of last unit/source that dealt damage
   spawnTick: number;      // tick when unit was created
   nukeImmune?: boolean;   // diamond champion — immune to nuke damage
@@ -428,6 +431,9 @@ export interface WarHero {
   category: 'melee' | 'ranged' | 'caster';
   upgradeNode: string;  // terminal upgrade node key ('A','B',...)
   kills: number;
+  damageDone: number;
+  healingDone: number;
+  buffsApplied: number;
   survived: boolean;
   killedByName: string | null; // name of the unit/source that killed it, null if survived
   spawnTick: number;    // tick when unit was spawned
@@ -714,8 +720,9 @@ export interface GameState {
   combatEvents: CombatEvent[];
   nextEntityId: number;
   playerStats: PlayerStats[];
-  warHeroes: WarHero[];          // populated at match end — top unit per player
-  fallenHeroes: WarHero[];       // units with kills > 0 that died during the match
+  warHeroes: WarHero[];          // populated at match end — top killer per player
+  supportHeroes: WarHero[];      // populated at match end — top support unit per player
+  fallenHeroes: WarHero[];       // notable units that died during the match
   fogOfWar: boolean;             // whether fog of war is enabled
   /** Per-team tile visibility: teamIndex → flat boolean array [y * mapWidth + x] */
   visibility: boolean[][];

@@ -684,9 +684,12 @@ export class PostMatchScene implements Scene {
     const catLabel = hero.category === 'melee' ? 'Melee' : hero.category === 'ranged' ? 'Ranged' : 'Caster';
     ctx.fillText(`${this.slotLabel(hero.playerId)}'s ${catLabel}`, textCenterX, line3Y);
 
-    // Line 4: Kills with sword icon
+    // Line 4: Kills + damage done
     const killIconSz = fontSize * 0.65;
-    const killText = `${hero.kills} kills`;
+    const dmgStr = hero.damageDone >= 1000
+      ? `${(hero.damageDone / 1000).toFixed(1)}k dmg`
+      : `${hero.damageDone} dmg`;
+    const killText = `${hero.kills} kills · ${dmgStr}`;
     ctx.font = `bold ${Math.max(11, fontSize * 0.65)}px monospace`;
     const killTextW = ctx.measureText(killText).width;
     const killTotalW = killIconSz + gap * 0.4 + killTextW;
@@ -710,7 +713,96 @@ export class PostMatchScene implements Scene {
       ctx.fillText(deathText, textCenterX, line5Y);
     }
 
-    return heroCardY + heroCardH + gap * 2;
+    // --- Support Hero card ---
+    const warCardBottom = heroCardY + heroCardH + gap * 2;
+    const suppHeroes = state.supportHeroes;
+    if (suppHeroes.length === 0) return warCardBottom;
+    const supp = suppHeroes[0];
+
+    const suppColor = PLAYER_COLORS[supp.playerId];
+    const suppRaceColor = RACE_COLORS[supp.race]?.primary ?? '#fff';
+    const suppCardW = heroCardW;
+    const suppCardH = lineH * 6;
+    const suppCardX = heroCardX;
+    const suppCardY = warCardBottom;
+
+    this.ui.drawSpecialPaper(ctx, suppCardX - cardPadX, suppCardY - cardPadY,
+      suppCardW + cardPadX * 2, suppCardH + cardPadY * 2);
+
+    // Animated sprite
+    let suppSpriteW = 0;
+    const suppSprite = this.sprites.getUnitSprite(supp.race, supp.category, supp.playerId, false, supp.upgradeNode);
+    if (suppSprite) {
+      const [img, def] = suppSprite;
+      const tick = Math.floor(this.animTime * 1.5);
+      const frame = getSpriteFrame(tick, def);
+      const sx = frame * def.frameW;
+      const scale = def.scale ?? 1.0;
+      const dw = Math.min(fontSize * 4, suppCardH - gap * 2) * scale;
+      const dh = dw * (def.heightScale ?? 1.0);
+      const spriteX = suppCardX + gap;
+      const spriteY = suppCardY + (suppCardH - dh) / 2;
+      ctx.drawImage(img, sx, 0, def.frameW, def.frameH, spriteX, spriteY, dw, dh);
+      suppSpriteW = dw + gap;
+    }
+
+    const suppTextL = suppCardX + suppSpriteW + gap;
+    const suppAvailW = suppCardW - suppSpriteW - gap * 2;
+    const suppCenterX = suppTextL + suppAvailW / 2;
+
+    const suppContentH = lineH * 4.6;
+    const suppTopPad = (suppCardH - suppContentH) / 2;
+    const sl1Y = suppCardY + suppTopPad + lineH * 0.9;
+    const sl2Y = sl1Y + lineH;
+    const sl3Y = sl2Y + lineH * 0.85;
+    const sl4Y = sl3Y + lineH;
+    const sl5Y = sl4Y + lineH * 0.85;
+
+    // Header: "SUPPORT HERO"
+    const suppIconSz = fontSize * 0.85;
+    ctx.font = `bold ${Math.max(10, fontSize * 0.75)}px monospace`;
+    const suppHeaderW = ctx.measureText('SUPPORT HERO').width;
+    const suppHeaderTotalW = suppIconSz + gap * 0.5 + suppHeaderW;
+    const suppHeaderStartX = suppCenterX - suppHeaderTotalW / 2;
+    this.ui.drawIcon(ctx, 'meat', suppHeaderStartX, sl1Y - suppIconSz * 0.7, suppIconSz);
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#80cbc4'; // teal — distinct from War Hero amber
+    ctx.fillText('SUPPORT HERO', suppHeaderStartX + suppIconSz + gap * 0.5, sl1Y);
+
+    // Unit name
+    ctx.font = `bold ${Math.max(11, fontSize * 0.9)}px monospace`;
+    ctx.textAlign = 'center';
+    ctx.fillStyle = this.lightenColor(suppRaceColor, 0.45);
+    ctx.fillText(this.truncateText(ctx, supp.name, suppAvailW), suppCenterX, sl2Y);
+
+    // Owner + category
+    ctx.font = `bold ${Math.max(10, fontSize * 0.65)}px monospace`;
+    ctx.fillStyle = this.lightenColor(suppColor, 0.4);
+    const suppCat = supp.category === 'melee' ? 'Melee' : supp.category === 'ranged' ? 'Ranged' : 'Caster';
+    ctx.fillText(`${this.slotLabel(supp.playerId)}'s ${suppCat}`, suppCenterX, sl3Y);
+
+    // Stats: healing + buffs
+    ctx.font = `bold ${Math.max(10, fontSize * 0.65)}px monospace`;
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#ffffff';
+    const healStr = supp.healingDone > 0 ? `${supp.healingDone} healed` : '';
+    const buffStr = supp.buffsApplied > 0 ? `${supp.buffsApplied} buffs` : '';
+    const statsLine = [healStr, buffStr].filter(Boolean).join(' · ');
+    ctx.fillText(statsLine, suppCenterX, sl4Y);
+
+    // Survival / death
+    ctx.font = `${Math.max(10, fontSize * 0.55)}px monospace`;
+    const suppAliveTime = this.formatTickTime((supp.deathTick ?? state.tick) - supp.spawnTick);
+    if (supp.survived) {
+      ctx.fillStyle = '#69f0ae';
+      ctx.fillText(`Survived (${suppAliveTime})`, suppCenterX, sl5Y);
+    } else {
+      const suppDeathTime = this.formatTickTime(supp.deathTick ?? state.tick);
+      ctx.fillStyle = '#ff6e6e';
+      ctx.fillText(this.truncateText(ctx, `Slain at ${suppDeathTime} (${suppAliveTime})`, suppAvailW), suppCenterX, sl5Y);
+    }
+
+    return suppCardY + suppCardH + gap * 2;
   }
 
   /** Get display name for a slot: player name, bot difficulty, or fallback P{n}. */
