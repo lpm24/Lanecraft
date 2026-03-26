@@ -1782,14 +1782,13 @@ export class Renderer {
       n++;
     }
 
-    // Sort only the active portion by Y ascending
-    const active = buf.length > n ? buf.slice(0, n) : buf;
+    // Sort only the active portion by Y ascending (in-place, no allocation)
     if (buf.length > n) buf.length = n; // trim excess from prior frames
-    active.sort((a, b) => a.y - b.y);
+    buf.sort((a, b) => a.y - b.y);
 
     // Dispatch draws without closures
     for (let i = 0; i < n; i++) {
-      const item = active[i];
+      const item = buf[i];
       switch (item.kind) {
         case 0: this.drawOneHQ(ctx, state, item.idx as Team); break;
         case 1: this.drawOneBuilding(ctx, state, state.buildings[item.idx]); break;
@@ -1976,18 +1975,24 @@ export class Renderer {
       const upgradeTier = b.upgradePath.length - 1; // 0=base, 1=tier1, 2=tier2
       const sprite = b.isGlobule
         ? this.sprites.getGlobuleSprite()
-        : b.isPotionShop
-          ? this.sprites.getBuildingSprite(BuildingType.CasterSpawner, b.playerId, this.isometric)
-          : this.sprites.getBuildingSprite(b.type, b.playerId, this.isometric);
+        : b.isFoundry
+          ? (this.sprites.getRaceBuildingSprite(player.race, 'foundry') ?? this.sprites.getBuildingSprite(b.type, b.playerId, this.isometric, player.race, b.upgradePath))
+          : b.isPotionShop
+            ? (this.sprites.getRaceBuildingSprite(player.race, 'potionshop') ?? this.sprites.getBuildingSprite(BuildingType.CasterSpawner, b.playerId, this.isometric, player.race, b.upgradePath))
+            : this.sprites.getBuildingSprite(b.type, b.playerId, this.isometric, player.race, b.upgradePath);
 
       if (sprite) {
         // Draw sprite scaled to fit one tile, anchored at bottom-center
         // Scale up slightly per upgrade tier to show leveling
         // Research: 2x size
         const researchScale = b.type === BuildingType.Research ? 2.0 : 1.0;
-        const globuleScale = b.isGlobule ? 2.0 : 1.0; // big blob sprite
+        const globuleScale = 1.0;
         const tierScale = 1.0 + upgradeTier * 0.08;
-        const baseDrawW = (T + 4) * tierScale * researchScale * globuleScale;
+
+        // Race building pack sprites are high-res (~900px) vs Tiny Swords (~192px)
+        const isNewPack = !b.isGlobule && this.sprites.isRacePackSprite(b.type, player.race, b.upgradePath);
+        const tileScale = (isNewPack && researchScale < 2.0) ? 0.8 : 1.0; // shrink new isometric sprites, but keep research big
+        const baseDrawW = (T + 4) * tierScale * researchScale * globuleScale * tileScale;
         const baseDrawH = (baseDrawW / sprite.width) * sprite.height;
 
         // Construction animation: scale-up bounce
@@ -2000,7 +2005,8 @@ export class Renderer {
         // Building shadow (day/night responsive) — anchored at building visual base
         // Tiny Swords sprites have ~29% transparent padding below the building (groundY=0.71)
         // Slime sprites are tightly cropped (groundY=0.93)
-        const bGroundY = drawY + drawH * (b.isGlobule ? 0.93 : 0.71);
+        // New isometric sprites are tightly cropped — use 0.95
+        const bGroundY = drawY + drawH * (b.isGlobule ? 0.93 : isNewPack ? 0.95 : 0.71);
         const bShadowLen = this.dayNight.shadowLength;
         const bShadowX = Math.cos(this.dayNight.shadowAngle) * bShadowLen * 3;
         ctx.fillStyle = `rgba(0,0,0,${this.dayNight.brightness * 0.15})`;
@@ -2055,6 +2061,36 @@ export class Renderer {
             ctx.fillStyle = tierColors[tier];
             ctx.fillRect(barX, barY, barW * pct, barH);
           }
+        } else if (b.isGlobule) {
+          // Animated globule: idle wobble, ATK animation on spawn
+          const WIGGLE_DURATION = 22; // ~1 second of ATK animation (11 frames * 2 ticks/frame)
+          const timer = b.actionTimer ?? 0;
+          const justSpawned = timer < WIGGLE_DURATION;
+          const atkData = justSpawned ? this.sprites.getGlobuleAtkSprite() : null;
+          const idleData = this.sprites.getGlobuleIdleSprite();
+          if (atkData) {
+            // Play ATK (spawn wiggle) animation
+            const [aImg, aDef] = atkData;
+            const frame = Math.floor(timer / 2) % aDef.cols;
+            const aspect = aDef.frameW / aDef.frameH;
+            const gH = drawH;
+            const gW = gH * aspect;
+            const gFeetY = py + half + 2;
+            const gDrawY = gFeetY - gH * (aDef.groundY ?? 0.93);
+            drawSpriteFrame(ctx, aImg, aDef, frame, px - gW / 2, gDrawY, gW, gH);
+          } else if (idleData) {
+            // Idle wobble animation (slow cycle through Move frames)
+            const [iImg, iDef] = idleData;
+            const frame = Math.floor(state.tick / 5) % iDef.cols;
+            const aspect = iDef.frameW / iDef.frameH;
+            const gH = drawH;
+            const gW = gH * aspect;
+            const gFeetY = py + half + 2;
+            const gDrawY = gFeetY - gH * (iDef.groundY ?? 0.93);
+            drawSpriteFrame(ctx, iImg, iDef, frame, px - gW / 2, gDrawY, gW, gH);
+          } else {
+            ctx.drawImage(sprite!, drawX, drawY, drawW, drawH);
+          }
         } else if (b.type !== BuildingType.Research) {
           ctx.drawImage(sprite, drawX, drawY, drawW, drawH);
         } else {
@@ -2083,11 +2119,14 @@ export class Renderer {
             ctx.drawImage(helmImg, px - helmW / 2, helmDrawY, helmW, helmH);
           }
         } else if (b.isGlobule) {
-          // Globule uses its own slime sprite — add a subtle pulsing glow
-          const pulse = 0.15 + 0.1 * Math.sin(state.tick * 0.08);
+          // Subtle pulsing glow under the animated globule
+          const pulse = 0.1 + 0.06 * Math.sin(state.tick * 0.08);
           ctx.globalAlpha = pulse;
           ctx.fillStyle = '#69f0ae';
-          ctx.fillRect(drawX, drawY, drawW, drawH);
+          const glowR = drawW * 0.4;
+          ctx.beginPath();
+          ctx.ellipse(px, drawY + drawH * 0.85, glowR, glowR * 0.35, 0, 0, Math.PI * 2);
+          ctx.fill();
           ctx.globalAlpha = 1;
         } else if (b.isPotionShop) {
           // Potion shop — draw goblin caster unit on top of building

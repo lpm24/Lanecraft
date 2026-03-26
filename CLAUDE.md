@@ -96,7 +96,52 @@ Mode implicitly determines map — no separate map selector.
 - **`SpriteDef.groundY`** = where feet touch ground (0=top, 1=bottom of frame). Tiny Swords sprites use 0.71, CHARACTER MEGAPACK uses 0.95. Attack sprites must match their move counterpart's groundY.
 - **9-slice UI panels have dead space around edges** — always draw ~15% oversized to compensate.
 - **UI spritesheets have 64px transparent gaps** between tiles — account for this when calculating source rects.
-- SpriteLoader uses Vite `?url` static imports. Building color variants: Blue(P0), Purple(P1), Red(P2), Yellow(P3), Black(P4).
+- SpriteLoader uses Vite `?url` static imports for Tiny Swords. Race building packs use `import.meta.glob` with `?url` query.
+- Tiny Swords building color variants: Blue(P0), Purple(P1), Red(P2), Yellow(P3), Black(P4). Only used as fallback when no race-specific sprite exists.
+
+## Race Building Sprites
+
+Each race has unique building art from 4 purchased asset packs, loaded via `import.meta.glob` in `SpriteLoader.ts`.
+
+- **Packs:** Human (57), Orc (58), Elf (45), NightElf (55) — 205 total PNGs
+- **Pack → Race mapping:**
+  - Human → Crown (upgrades only, T0 = Tiny Swords), Goblins
+  - Orc → Horde, Demon
+  - Elf → Tenders, Wild
+  - NightElf → Deep, Geists, Oozlings
+- **Sprite table:** `RACE_BUILDING_SPRITES` in SpriteLoader.ts, keyed by `"race:buildingKey:upgradeNode"` (e.g. `"crown:melee:B"`)
+- **Fallback chain:** walks up the upgrade path: D→B→A, E→B→A, F→C→A, G→C→A. Missing entries inherit parent art. Final fallback = Tiny Swords.
+- **Ability buildings:** Crown Foundry = `crown:foundry:A`, Goblin Potion Shop = `goblins:potionshop:A`. Loaded via `getRaceBuildingSprite()`.
+- **Asset rules:**
+  1. No cross-race duplicates (same PNG must not appear in two different races)
+  2. No cross-building-type duplicates within a race (same PNG for melee and tower = bad), except tower bases where no unique asset is available
+  3. Same-building reuse only along the same upgrade path (A→B→D OK, D and F sharing = bad)
+- **Building names:** `getRaceBuildingName()` in `BuildingPopup.ts` returns race-flavored names (e.g. "Brute Camp", "Tidecaller Shrine"). Upgrade-aware: reflects current upgrade node name.
+- **Building suffixes by race:**
+
+| Race | Melee | Ranged | Caster |
+|------|-------|--------|--------|
+| Crown | Barracks | Range | Chapel |
+| Horde | Camp | Post | Drum Pit |
+| Goblins | Hut | Shack | Den |
+| Oozlings | Pool | Pool | Pool |
+| Demon | Pit | Spire | Shrine |
+| Deep | Grotto | Reef | Shrine |
+| Wild | Den | Nest | Hollow |
+| Geists | Crypt | Tomb | Sanctum |
+| Tenders | Grove | Bower | Garden |
+
+## Research Skill Icons
+
+Research upgrades in the popup use painted icons from the **Nhance Spell Icons Bundle**.
+
+- **Source folder:** `src/assets/images/NhanceSpellIconsBundle/Textures_PNG/` — full 1,300-icon library. **Gitignored**, kept locally for browsing.
+- **Used folder:** `src/assets/images/NhanceSpellIconsBundle/Used/` — only the ~92 icons referenced in the code. Committed to git, included in the build.
+- **Loading:** `UIAssets.ts` uses `import.meta.glob` on the `Used/` folder. Icons are keyed by filename without extension (e.g. `T_Icon_Fire_08`).
+- **Mapping:** `SKILL_ICON_MAP` in `ResearchPopup.ts` maps each upgrade ID to an icon key. Icons are drawn in a rounded-rect bordered frame (40px desktop, 30px mobile).
+- **To swap an icon:** copy the new `.png` from `Textures_PNG/` into `Used/`, update the key in `SKILL_ICON_MAP`.
+- **Categories:** BloodCombat (melee/weapons), Gold (royal/economy), Fire, Frost, Nature (healing/poison), Shadow (dark/undead), Unholy (spectral/death), Arcane (magic), Energy (buffs/power), Elements (earth/golem), Tech (fortification).
+- **Duplicate rule:** no two icons on the same tab for the same race may share an icon. Cross-race sharing is OK (player only sees one race at a time).
 
 ## Multiplayer
 

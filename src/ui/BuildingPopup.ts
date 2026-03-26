@@ -3,7 +3,7 @@ import { UIAssets, IconName } from '../rendering/UIAssets';
 import { SpriteLoader, drawSpriteFrame, getSpriteFrame } from '../rendering/SpriteLoader';
 import { GameState, BuildingType, BuildingState, Race } from '../simulation/types';
 import { tileToPixel } from '../rendering/Projection';
-import { UPGRADE_TREES, UNIT_STATS, TOWER_STATS, getBuildingCost, getNodeUpgradeCost, type UpgradeNodeDef } from '../simulation/data';
+import { UPGRADE_TREES, UNIT_STATS, TOWER_STATS, getBuildingCost, getNodeUpgradeCost, getUpgradeNodeDef, type UpgradeNodeDef } from '../simulation/data';
 import { getUnitUpgradeMultipliers } from '../simulation/GameState';
 import { getPopupSafeY } from './SafeArea';
 
@@ -30,13 +30,57 @@ const BUILDING_CATEGORY: Partial<Record<BuildingType, 'melee' | 'ranged' | 'cast
   [BuildingType.CasterSpawner]: 'caster',
 };
 
-const TYPE_LABELS: Record<string, string> = {
-  [BuildingType.MeleeSpawner]: 'Melee Spawner',
-  [BuildingType.RangedSpawner]: 'Ranged Spawner',
-  [BuildingType.CasterSpawner]: 'Caster Spawner',
-  [BuildingType.Tower]: 'Tower',
-  [BuildingType.HarvesterHut]: 'Harvester Hut',
+// Per-race building suffixes: [melee, ranged, caster]
+const RACE_BUILDING_SUFFIX: Record<Race, [string, string, string]> = {
+  [Race.Crown]:    ['Barracks', 'Range', 'Chapel'],
+  [Race.Horde]:    ['Camp', 'Post', 'Drum Pit'],
+  [Race.Goblins]:  ['Hut', 'Shack', 'Den'],
+  [Race.Oozlings]: ['Vat', 'Vat', 'Vat'],
+  [Race.Demon]:    ['Pit', 'Spire', 'Shrine'],
+  [Race.Deep]:     ['Grotto', 'Reef', 'Shrine'],
+  [Race.Wild]:     ['Den', 'Nest', 'Hollow'],
+  [Race.Geists]:   ['Crypt', 'Tomb', 'Sanctum'],
+  [Race.Tenders]:  ['Grove', 'Bower', 'Garden'],
 };
+
+/** Get race-flavored building name, optionally reflecting the current upgrade tier.
+ *  e.g. base Crown melee = "Swordsman Barracks", after T1 B upgrade = "Buccaneer Barracks" */
+export function getRaceBuildingName(race: Race | undefined, type: BuildingType, upgradePath?: string[]): string {
+  if (race != null) {
+    const suffixes = RACE_BUILDING_SUFFIX[race];
+    const spawnerTypes = [BuildingType.MeleeSpawner, BuildingType.RangedSpawner, BuildingType.CasterSpawner] as const;
+    const spawnerIdx = spawnerTypes.indexOf(type as typeof spawnerTypes[number]);
+    if (spawnerIdx >= 0 && suffixes) {
+      const suffix = suffixes[spawnerIdx];
+      // Use upgrade node name if upgraded, otherwise base unit name
+      let unitName: string | undefined;
+      if (upgradePath && upgradePath.length >= 2) {
+        const lastNode = upgradePath[upgradePath.length - 1];
+        const nodeDef = getUpgradeNodeDef(race, type, lastNode);
+        if (nodeDef?.name) unitName = nodeDef.name;
+      }
+      if (!unitName) {
+        unitName = UNIT_STATS[race]?.[type as typeof spawnerTypes[number]]?.name;
+      }
+      return unitName ? `${unitName} ${suffix}` : `${suffix}`;
+    }
+    // Tower upgrades have their own names
+    if (type === BuildingType.Tower && upgradePath && upgradePath.length >= 2) {
+      const lastNode = upgradePath[upgradePath.length - 1];
+      const nodeDef = getUpgradeNodeDef(race, BuildingType.Tower, lastNode);
+      if (nodeDef?.name) return nodeDef.name;
+    }
+  }
+  switch (type) {
+    case BuildingType.MeleeSpawner: return 'Melee Hut';
+    case BuildingType.RangedSpawner: return 'Ranged Hut';
+    case BuildingType.CasterSpawner: return 'Caster Hut';
+    case BuildingType.Tower: return 'Tower';
+    case BuildingType.HarvesterHut: return 'Harvester Hut';
+    case BuildingType.Research: return 'Research';
+    default: return type;
+  }
+}
 
 // Per-race caster support ability descriptions
 const CASTER_SUPPORT_DESC: Record<Race, string> = {
@@ -157,7 +201,7 @@ export class BuildingPopup {
 
     this.animTick++;
 
-    const options = this.getUpgradeOptions(building, race);
+    const options = this.getUpgradeOptions(building, race, state);
     const isSpawner = building.type !== BuildingType.Tower && building.type !== BuildingType.HarvesterHut;
     const category = BUILDING_CATEGORY[building.type];
 
@@ -216,9 +260,7 @@ export class BuildingPopup {
     let curY = py + PAD;
 
     // === Header: SmallRibbon with building name + tier ===
-    const tier = building.upgradePath.length - 1;
-    const tierStr = tier > 0 ? ` T${tier}` : '';
-    const label = (TYPE_LABELS[building.type] ?? building.type) + tierStr;
+    const label = getRaceBuildingName(race, building.type, building.upgradePath);
     const ribbonH = 28;
     const ribbonW = popupW - PAD * 2;
     ui.drawSmallRibbon(ctx, px + PAD, curY, ribbonW, ribbonH, 0);
@@ -314,26 +356,52 @@ export class BuildingPopup {
       footerX += footerBtnW + GAP;
     }
 
-    // Sell button (red) — text fully inside button
-    const cost = getBuildingCost(race, building.type);
-    const refund = cost ? Math.floor(cost.gold * 0.5) : 0;
+    // Sell button (red) — show 50% refund of total invested resources
+    const baseCost = getBuildingCost(race, building.type);
+    let totalGold = baseCost.gold, totalWood = baseCost.wood, totalMeat = baseCost.meat;
+    if (building.upgradePath.length >= 2) {
+      const t1 = getNodeUpgradeCost(race, building.type, 1, building.upgradePath[1]);
+      if (t1) { totalGold += t1.gold; totalWood += t1.wood; totalMeat += t1.meat; }
+    }
+    if (building.upgradePath.length >= 3) {
+      const t2 = getNodeUpgradeCost(race, building.type, 2, building.upgradePath[2]);
+      if (t2) { totalGold += t2.gold; totalWood += t2.wood; totalMeat += t2.meat; }
+    }
+    const refundGold = Math.floor(totalGold * 0.5);
+    const refundWood = Math.floor(totalWood * 0.5);
+    const refundMeat = Math.floor(totalMeat * 0.5);
+
     this.sellBtnRect = { x: footerX, y: footerY, w: footerBtnW, h: FOOTER_BTN_H };
     ui.drawBigRedButton(ctx, footerX, footerY, footerBtnW, FOOTER_BTN_H);
     ctx.textAlign = 'center';
     ctx.font = 'bold 12px monospace';
     ctx.fillStyle = '#fff';
-    const sellTextY = footerY + FOOTER_BTN_H * 0.38;
+    const sellTextY = footerY + FOOTER_BTN_H * 0.35;
     ctx.fillText('SELL', footerX + footerBtnW / 2, sellTextY);
-    if (refund > 0) {
-      ctx.font = 'bold 11px monospace';
-      const refundStr = `+${refund}`;
-      const refundTotalW = ICON_SIZE + 2 + ctx.measureText(refundStr).width;
-      const rx = footerX + footerBtnW / 2 - refundTotalW / 2;
-      const refundY = sellTextY + 14;
-      ui.drawIcon(ctx, 'gold', rx, refundY - ICON_SIZE + 3, ICON_SIZE - 2);
-      ctx.fillStyle = '#ffd740';
-      ctx.textAlign = 'left';
-      ctx.fillText(refundStr, rx + ICON_SIZE, refundY);
+
+    // Show refund amounts for each resource
+    const refundItems: { icon: IconName; val: number; color: string }[] = [];
+    if (refundGold > 0) refundItems.push({ icon: 'gold', val: refundGold, color: '#ffd740' });
+    if (refundWood > 0) refundItems.push({ icon: 'wood', val: refundWood, color: '#81c784' });
+    if (refundMeat > 0) refundItems.push({ icon: 'meat', val: refundMeat, color: '#e57373' });
+
+    if (refundItems.length > 0) {
+      ctx.font = 'bold 10px monospace';
+      const iconSz = ICON_SIZE - 2;
+      let refundTotalW = 0;
+      for (const item of refundItems) {
+        refundTotalW += iconSz + 1 + ctx.measureText(`+${item.val}`).width + 4;
+      }
+      refundTotalW -= 4;
+      let rx = footerX + footerBtnW / 2 - refundTotalW / 2;
+      const refundY = sellTextY + 13;
+      for (const item of refundItems) {
+        ui.drawIcon(ctx, item.icon, rx, refundY - iconSz + 2, iconSz);
+        ctx.fillStyle = item.color;
+        ctx.textAlign = 'left';
+        ctx.fillText(`+${item.val}`, rx + iconSz + 1, refundY);
+        rx += iconSz + 1 + ctx.measureText(`+${item.val}`).width + 4;
+      }
     }
 
     // === Pointer triangle from popup to building ===
@@ -379,7 +447,7 @@ export class BuildingPopup {
     building: BuildingState, race: Race,
     category: 'melee' | 'ranged' | 'caster' | undefined,
     sprites: SpriteLoader | null,
-    spriteSize: number, iconSize: number, isMobile: boolean,
+    _spriteSize: number, iconSize: number, isMobile: boolean,
   ): void {
     // 9-slice button background — draw oversized so text sits well inside the visual border
     const btnPad = 8;
@@ -392,22 +460,31 @@ export class BuildingPopup {
     }
 
     // Content inset — keep all text/sprites inside the button's visible region
-    const insetX = isMobile ? 6 : 14;
-    const insetY = isMobile ? 6 : 14;
+    const insetX = isMobile ? 8 : 16;
+    const insetY = isMobile ? 8 : 14;
     const cx = x + insetX;
     const cy = y + insetY;
     const cw = w - insetX * 2;
     const ch = h - insetY * 2;
 
-    // Layout: [sprite] [name + desc + cost] inside content area
+    // 4x4 grid layout:
+    //   Col 0 (sprite col): ~25% width, rows 0-2
+    //   Cols 1-3: name (row 0), description (rows 1-2), cost (row 3 full width centered)
+    const rowH = Math.floor(ch / 4);
+    const sprColW = isMobile ? Math.floor(cw * 0.20) : Math.floor(cw * 0.25);
+    const textLeft = cx + sprColW + 4;
+    const textW = cw - sprColW - 4;
+
+    // Sprite area: left column, top 3 rows
+    const sprAreaH = rowH * 3;
     const sprX = cx;
-    const sprY = cy + (ch - spriteSize) / 2;
+    const sprY = cy;
+    const actualSprSize = Math.min(sprColW - 2, sprAreaH - 4);
 
     // Preview shows what the unit will look like AFTER this upgrade
     const nextTier = building.upgradePath.length; // base=1→tier1, tier1=2→tier2
     const tierScale = 1.0 + nextTier * 0.15;
 
-    let drewSprite = false;
     if (category && sprites) {
       const sprData = sprites.getUnitSprite(race, category, building.playerId, false, opt.choice);
       if (sprData) {
@@ -415,14 +492,12 @@ export class BuildingPopup {
         const frame = getSpriteFrame(Math.floor(this.animTick / 3), def);
         const spriteScale = def.scale ?? 1.0;
         const aspect = def.frameW / def.frameH;
-        const dh = spriteSize * spriteScale * tierScale * (def.heightScale ?? 1.0);
-        const dw = spriteSize * spriteScale * tierScale * aspect;
-        // Anchor horizontally using anchorX (0=left, 0.5=center, 1=right)
+        const dh = actualSprSize * spriteScale * tierScale * (def.heightScale ?? 1.0);
+        const dw = actualSprSize * spriteScale * tierScale * aspect;
         const ax = def.anchorX ?? 0.5;
-        const spriteCenterX = sprX + spriteSize / 2;
+        const spriteCenterX = sprX + sprColW / 2;
         const drawX = spriteCenterX - dw * ax;
-        // Ground using groundY — feet sit at bottom of sprite area
-        const feetY = sprY + spriteSize;
+        const feetY = sprY + sprAreaH - 2;
         const drawY = feetY - dh * (def.groundY ?? 0.71);
         drawSpriteFrame(ctx, img, def, frame, drawX, drawY, dw, dh);
         if (nextTier >= 1) {
@@ -432,24 +507,19 @@ export class BuildingPopup {
           ctx.globalCompositeOperation = 'source-over';
           ctx.globalAlpha = 1;
         }
-        drewSprite = true;
       }
     } else if (building.type === BuildingType.Tower && sprites) {
-      const towerImg = sprites.getBuildingSprite(BuildingType.Tower, building.playerId);
+      const nextPath = [...building.upgradePath, opt.choice];
+      const towerImg = sprites.getBuildingSprite(BuildingType.Tower, building.playerId, false, race, nextPath);
       if (towerImg) {
         const aspect = towerImg.width / towerImg.height;
-        const dh = spriteSize * tierScale;
+        const dh = actualSprSize * tierScale;
         const dw = dh * aspect;
-        const drawX = sprX + (spriteSize - dw) / 2;
-        const drawY = sprY + (spriteSize - dh);
+        const drawX = sprX + (sprColW - dw) / 2;
+        const drawY = sprY + (sprAreaH - dh);
         ctx.drawImage(towerImg, drawX, drawY, dw, dh);
-        drewSprite = true;
       }
     }
-
-    // Text area — to the right of sprite, or full width if no sprite
-    const textLeft = drewSprite ? cx + spriteSize + 6 : cx;
-    const textW = drewSprite ? cw - spriteSize - 6 : cw;
 
     // Helper: draw text with dark shadow for contrast on blue button
     const shadowText = (text: string, tx: number, ty: number) => {
@@ -457,56 +527,66 @@ export class BuildingPopup {
       ctx.fillText(text, tx + 1, ty + 1);
     };
 
-    // Upgrade name (prominent, word-wrap to 2 lines) — pushed down into blue area
+    // Row 0: Name (top-right 3 cells)
     ctx.textAlign = 'left';
     const nameFontSize = isMobile ? 12 : 14;
     ctx.font = `bold ${nameFontSize}px monospace`;
     const name = opt.name ?? opt.choice;
-    const nameLines = this.wordWrap(ctx, name, textW, isMobile ? 1 : 2);
-    let textY = cy + (isMobile ? 12 : 16);
+    const nameLines = this.wordWrap(ctx, name, textW, 1);
+    const nameY = cy + Math.round(rowH / 2) + Math.round(nameFontSize / 3);
     for (const line of nameLines) {
-      shadowText(line, textLeft, textY);
+      shadowText(line, textLeft, nameY);
       ctx.fillStyle = canAfford ? '#fff' : '#aaa';
-      ctx.fillText(line, textLeft, textY);
-      textY += nameFontSize + 2;
+      ctx.fillText(line, textLeft, nameY);
     }
 
-    // Description — wrap to fit, normalize Y so both buttons align
+    // Rows 1-2: Description (right 3 cells, rows 1 and 2)
     const descFontSize = isMobile ? 10 : 12;
     ctx.font = `${descFontSize}px monospace`;
     const desc = opt.desc ?? '';
-    const descLines = this.wordWrap(ctx, desc, textW, 2);
-    // Fixed Y for description — account for wrapped names
-    const descY = cy + (isMobile ? 12 : 16) + (nameFontSize + 2) * (isMobile ? 1 : 2) + 2;
-    let descLineY = descY;
-    for (const line of descLines) {
-      shadowText(line, textLeft, descLineY);
+    const descLineH = descFontSize + 2;
+    const descStartY = cy + rowH + Math.round(descFontSize * 0.9);
+    const descAvailH = rowH * 2 - Math.round(descFontSize * 0.9) - 2; // space before cost row
+    const maxDescLines = Math.min(3, Math.max(1, Math.floor(descAvailH / descLineH)));
+    const descLines = this.wordWrap(ctx, desc, textW, maxDescLines);
+    for (let i = 0; i < descLines.length; i++) {
+      const lineY = descStartY + i * descLineH;
+      shadowText(descLines[i], textLeft, lineY);
       ctx.fillStyle = canAfford ? '#e0e0e0' : '#888';
-      ctx.fillText(line, textLeft, descLineY);
-      descLineY += descFontSize + 2;
+      ctx.fillText(descLines[i], textLeft, lineY);
     }
 
-    // Cost with resource icons — pulled up into blue area (above bottom edge)
-    const costY = cy + ch - (isMobile ? 8 : 14);
-    let costX = textLeft;
-    ctx.font = `bold ${isMobile ? 11 : 12}px monospace`;
+    // Row 3: Cost centered across full width
+    const costFontSize = isMobile ? 11 : 12;
+    ctx.font = `bold ${costFontSize}px monospace`;
 
-    const drawCostItem = (icon: IconName, val: number, color: string, dimColor: string) => {
+    // Measure total cost width first for centering
+    const costItems: { icon: IconName; val: number; color: string; dimColor: string }[] = [];
+    if (opt.cost.gold > 0) costItems.push({ icon: 'gold', val: opt.cost.gold, color: '#ffd740', dimColor: '#665500' });
+    if (opt.cost.wood > 0) costItems.push({ icon: 'wood', val: opt.cost.wood, color: '#81c784', dimColor: '#2e5530' });
+    if (opt.cost.meat > 0) costItems.push({ icon: 'meat', val: opt.cost.meat, color: '#e57373', dimColor: '#6d2828' });
+    if ((opt.cost.deathEssence ?? 0) > 0) costItems.push({ icon: 'ooze', val: opt.cost.deathEssence!, color: '#69f0ae', dimColor: '#1b5e20' });
+    if ((opt.cost.souls ?? 0) > 0) costItems.push({ icon: 'souls', val: opt.cost.souls!, color: '#ce93d8', dimColor: '#4a148c' });
+
+    let totalCostW = 0;
+    for (const item of costItems) {
+      totalCostW += iconSize + 1 + ctx.measureText(`${item.val}`).width + 6;
+    }
+    if (totalCostW > 0) totalCostW -= 6; // remove trailing gap
+
+    const costRowY = cy + rowH * 3 + Math.round(rowH / 2) + Math.round(costFontSize / 3);
+    let costX = cx + Math.round((cw - totalCostW) / 2);
+
+    for (const item of costItems) {
       ctx.globalAlpha = canAfford ? 1 : 0.4;
-      ui.drawIcon(ctx, icon, costX, costY - iconSize + 1, iconSize);
+      ui.drawIcon(ctx, item.icon, costX, costRowY - iconSize + 1, iconSize);
       ctx.globalAlpha = 1;
       ctx.textAlign = 'left';
-      shadowText(`${val}`, costX + iconSize + 1, costY);
-      ctx.fillStyle = canAfford ? color : dimColor;
-      ctx.fillText(`${val}`, costX + iconSize + 1, costY);
-      costX += iconSize + ctx.measureText(`${val}`).width + 6;
-    };
-
-    if (opt.cost.gold > 0) drawCostItem('gold', opt.cost.gold, '#ffd740', '#665500');
-    if (opt.cost.wood > 0) drawCostItem('wood', opt.cost.wood, '#81c784', '#2e5530');
-    if (opt.cost.meat > 0) drawCostItem('meat', opt.cost.meat, '#e57373', '#6d2828');
-    if ((opt.cost.deathEssence ?? 0) > 0) drawCostItem('ooze', opt.cost.deathEssence!, '#69f0ae', '#1b5e20');
-    if ((opt.cost.souls ?? 0) > 0) drawCostItem('souls', opt.cost.souls!, '#ce93d8', '#4a148c');
+      shadowText(`${item.val}`, costX + iconSize + 1, costRowY);
+      ctx.fillStyle = canAfford ? item.color : item.dimColor;
+      ctx.fillText(`${item.val}`, costX + iconSize + 1, costRowY);
+      costX += iconSize + ctx.measureText(`${item.val}`).width + 6;
+    }
   }
 
   private drawStatsPanel(
@@ -669,11 +749,17 @@ export class BuildingPopup {
     return lines.length > 0 ? lines : [text.slice(0, 10)];
   }
 
-  private getUpgradeOptions(building: BuildingState, race: Race): UpgradeOption[] {
+  private getUpgradeOptions(building: BuildingState, race: Race, state?: GameState): UpgradeOption[] {
     if (building.type === BuildingType.HarvesterHut) return [];
     const tree = UPGRADE_TREES[race]?.[building.type];
+    // Tenders Ironwood: tower upgrade costs shown at 50% discount
+    const tendersTowerDiscount = building.type === BuildingType.Tower && race === Race.Tenders
+      && state?.players[building.playerId]?.researchUpgrades.raceUpgrades['tenders_ability_4'];
     const lookup = (choice: string): UpgradeOption => {
-      const cost = getNodeUpgradeCost(race, building.type, building.upgradePath.length, choice);
+      let cost = getNodeUpgradeCost(race, building.type, building.upgradePath.length, choice);
+      if (tendersTowerDiscount) {
+        cost = { gold: Math.floor(cost.gold * 0.5), wood: Math.floor(cost.wood * 0.5), meat: Math.floor(cost.meat * 0.5) };
+      }
       const def = tree?.[choice as keyof typeof tree];
       return { choice, cost, name: def?.name, desc: def?.desc };
     };

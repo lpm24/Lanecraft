@@ -151,6 +151,13 @@ export class Game {
       }
     }
 
+    // Apply stat bonuses from bot difficulty to player state
+    for (const p of this.state.players) {
+      if (!p.isBot || p.isEmpty) continue;
+      const diff = this.botCtx.difficulty[p.id] ?? this.botCtx.defaultDifficulty;
+      if (diff.statBonus && diff.statBonus !== 1) p.statBonus = diff.statBonus;
+    }
+
     // Set local player ID for party mode (even local games)
     if (partyOpts) {
       this.localPlayerId = partyOpts.localPlayerId;

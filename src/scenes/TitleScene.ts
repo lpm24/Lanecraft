@@ -98,6 +98,12 @@ export class TitleScene implements Scene {
   private audioSettings = getAudioSettings();
   private audioSettingsUnsub: (() => void) | null = null;
   private settingsOpen = false;
+
+  /** "Now Playing" track name + timing for fade */
+  private nowPlayingName = '';
+  private nowPlayingStart = 0;
+  private static readonly NP_SHOW_MS = 10_000;
+  private static readonly NP_FADE_MS = 600;
   private sliderDrag = new SettingsSliderDrag();
   private userInteracted = false;
   private fightStartPlayed = false;
@@ -130,6 +136,11 @@ export class TitleScene implements Scene {
   onPartyStart: ((party: PartyState, localSlot: number) => void) | null = null;
   onLocalStart: ((setup: LocalSetup) => void) | null = null;
   private localSetup: LocalSetup | null = null;
+
+  setNowPlaying(name: string): void {
+    this.nowPlayingName = name;
+    this.nowPlayingStart = performance.now();
+  }
 
   constructor(manager: SceneManager, canvas: HTMLCanvasElement, ui: UIAssets, sprites: SpriteLoader, musicPlayer: MusicPlayer) {
     this.manager = manager;
@@ -1904,6 +1915,25 @@ export class TitleScene implements Scene {
 
     // Player name + dice button
     this.renderNameTag(ctx, w, h);
+
+    // === "Now Playing" track name (bottom-left) ===
+    if (this.nowPlayingName) {
+      const elapsed = performance.now() - this.nowPlayingStart;
+      const total = TitleScene.NP_SHOW_MS + TitleScene.NP_FADE_MS;
+      if (elapsed < total) {
+        const alpha = elapsed < TitleScene.NP_SHOW_MS
+          ? 1
+          : 1 - (elapsed - TitleScene.NP_SHOW_MS) / TitleScene.NP_FADE_MS;
+        ctx.save();
+        ctx.globalAlpha = alpha * 0.85;
+        ctx.font = '11px monospace';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'alphabetic';
+        ctx.fillStyle = '#fff';
+        ctx.fillText(`♪ ${this.nowPlayingName}`, 10, h - 12);
+        ctx.restore();
+      }
+    }
 
     // Version
     ctx.textAlign = 'center';

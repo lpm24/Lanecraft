@@ -762,7 +762,7 @@ export const RACE_ABILITY_INFO: Record<Race, { name: string; key: string; desc: 
   [Race.Crown]:    { name: 'Foundry',   key: '5', desc: 'Build a Gold Foundry. +1 gold per miner trip.' },
   [Race.Horde]:    { name: 'War Troll', key: '5', desc: 'Summon a mighty troll from your citadel.' },
   [Race.Goblins]:  { name: 'Potions',   key: '5', desc: 'Build a Potion Shop. Buffs nearby allies.' },
-  [Race.Oozlings]: { name: 'Globule',   key: '5', desc: 'Build a Globule. Spawns extra oozlings.' },
+  [Race.Oozlings]: { name: 'Ooze Mound', key: '5', desc: 'Build an Ooze Mound. Spawns extra oozlings.' },
   [Race.Demon]:    { name: 'Fireball',  key: '5', desc: 'Hurl a fireball. Consumes ALL mana.' },
   [Race.Deep]:     { name: 'Deluge',    key: '5', desc: 'Unleash a storm. Empowers Deep units, slows all others.' },
   [Race.Wild]:     { name: 'Frenzy',    key: '5', desc: 'Enrage allies in an area. +Speed +Damage.' },
@@ -794,7 +794,7 @@ export const RACE_ABILITY_DEFS: Record<Race, RaceAbilityDef> = {
     costGrowthFactor: 1.3,
   },
   [Race.Oozlings]: {
-    race: Race.Oozlings, name: 'Globule',
+    race: Race.Oozlings, name: 'Ooze Mound',
     targetMode: AbilityTargetMode.BuildSlot,
     baseCooldownTicks: 0,
     baseCost: { deathEssence: 50 },
@@ -938,52 +938,67 @@ export const RACE_RESEARCH_UPGRADES: Record<Race, ResearchUpgradeDef[]> = {
   ],
 };
 
+// Ability cost modifiers from research upgrades — centralised so simulation + UI stay in sync
+export const ABILITY_COST_MODIFIERS: Record<string, { upgradeId: string; field: 'wood' | 'gold' | 'meat' | 'all'; mult: number }> = {
+  [Race.Crown]:  { upgradeId: 'crown_ability_2', field: 'wood', mult: 0 },   // Royal Forge: foundry costs no wood
+  [Race.Horde]:  { upgradeId: 'horde_ability_2', field: 'all',  mult: 0.7 }, // Troll Discount: 30% cheaper
+};
+
 // Per-race ability upgrades (3 per race, all one-shot, shown in "RACE" tab)
 export const RACE_ABILITY_UPGRADES: Record<Race, ResearchUpgradeDef[]> = {
   [Race.Crown]: [
     { id: 'crown_ability_1', category: 'ability', type: 'race_ability', name: 'Swift Workers', desc: '+40% worker move speed', oneShot: true },
     { id: 'crown_ability_2', category: 'ability', type: 'race_ability', name: 'Royal Forge', desc: 'Foundry costs no wood', oneShot: true },
     { id: 'crown_ability_3', category: 'ability', type: 'race_ability', name: 'Aegis Wrath', desc: 'Shielded allies deal +25% damage', oneShot: true },
+    { id: 'crown_ability_4', category: 'ability', type: 'race_ability', name: 'Timber Surplus', desc: '+40% wood returned by workers', oneShot: true },
   ],
   [Race.Horde]: [
     { id: 'horde_ability_1', category: 'ability', type: 'race_ability', name: 'Trample', desc: 'War Troll deals AoE trample damage', oneShot: true },
     { id: 'horde_ability_2', category: 'ability', type: 'race_ability', name: 'Troll Discount', desc: 'War Troll costs 30% less', oneShot: true },
     { id: 'horde_ability_3', category: 'ability', type: 'race_ability', name: 'Wide Aura', desc: 'Caster aura range doubled', oneShot: true },
+    { id: 'horde_ability_4', category: 'ability', type: 'race_ability', name: 'Trophy Hunter', desc: 'War Troll +2% HP/dmg per kill. Carries over between trolls.', oneShot: true },
   ],
   [Race.Goblins]: [
     { id: 'goblins_ability_1', category: 'ability', type: 'race_ability', name: 'Quick Brew', desc: 'Potions spawn 33% faster and attract to allies within 4 tiles', oneShot: true },
     { id: 'goblins_ability_2', category: 'ability', type: 'race_ability', name: 'Cower Reflexes', desc: 'Cowering goblins gain 25% dodge chance', oneShot: true },
-    { id: 'goblins_ability_3', category: 'ability', type: 'race_ability', name: 'Potent Potions', desc: 'Potion buffs last 50% longer', oneShot: true },
+    { id: 'goblins_ability_3', category: 'ability', type: 'race_ability', name: 'Potent Potions', desc: 'Potion effects are 100% stronger', oneShot: true },
+    { id: 'goblins_ability_4', category: 'ability', type: 'race_ability', name: 'Elixir Mastery', desc: 'Potion buffs are permanent', oneShot: true },
   ],
   [Race.Oozlings]: [
-    { id: 'oozlings_ability_1', category: 'ability', type: 'race_ability', name: 'Spitter Mound', desc: 'Globule has 25% chance to spawn ranged ooze', oneShot: true },
-    { id: 'oozlings_ability_2', category: 'ability', type: 'race_ability', name: 'Caster Mound', desc: 'Globule has 25% chance to spawn caster ooze', oneShot: true },
-    { id: 'oozlings_ability_3', category: 'ability', type: 'race_ability', name: 'Death Burst', desc: 'Globule spawns 3 random ooze on death', oneShot: true },
+    { id: 'oozlings_ability_1', category: 'ability', type: 'race_ability', name: 'Spitter Mound', desc: 'Ooze Mound has 25% chance to spawn ranged ooze', oneShot: true },
+    { id: 'oozlings_ability_2', category: 'ability', type: 'race_ability', name: 'Caster Mound', desc: 'Ooze Mound has 25% chance to spawn caster ooze', oneShot: true },
+    { id: 'oozlings_ability_3', category: 'ability', type: 'race_ability', name: 'Death Burst', desc: 'Ooze Mound spawns 3 random ooze on death', oneShot: true },
+    { id: 'oozlings_ability_4', category: 'ability', type: 'race_ability', name: 'Ooze Vitality', desc: 'All Oozling units regenerate 2 HP/s', oneShot: true },
   ],
   [Race.Demon]: [
     { id: 'demon_ability_1', category: 'ability', type: 'race_ability', name: 'Rapid Fire', desc: 'Fireball cooldown reduced by 25%', oneShot: true },
     { id: 'demon_ability_2', category: 'ability', type: 'race_ability', name: 'Scorched Earth', desc: 'Fireball leaves burn ground for 6s, damage scales with mana', oneShot: true },
     { id: 'demon_ability_3', category: 'ability', type: 'race_ability', name: 'Siege Fire', desc: 'Fireball deals +50% damage to buildings', oneShot: true },
+    { id: 'demon_ability_4', category: 'ability', type: 'race_ability', name: 'Mana Siphon', desc: '+50% mana from channeling workers', oneShot: true },
   ],
   [Race.Deep]: [
     { id: 'deep_ability_1', category: 'ability', type: 'race_ability', name: 'Crushing Rain', desc: 'Deluge deals 3 damage/sec to enemies', oneShot: true },
     { id: 'deep_ability_2', category: 'ability', type: 'race_ability', name: 'Healing Rain', desc: 'Deluge heals Deep allies 5 HP/sec', oneShot: true },
     { id: 'deep_ability_3', category: 'ability', type: 'race_ability', name: 'Freezing Depths', desc: 'Slowed units move 15% slower', oneShot: true },
+    { id: 'deep_ability_4', category: 'ability', type: 'race_ability', name: 'Purifying Deluge', desc: 'Deluge cleanses all debuffs from Deep allies every 2s', oneShot: true },
   ],
   [Race.Wild]: [
     { id: 'wild_ability_1', category: 'ability', type: 'race_ability', name: 'Meat Harvest', desc: '30% chance to gain +3 meat on kill', oneShot: true },
     { id: 'wild_ability_2', category: 'ability', type: 'race_ability', name: 'Blood Frenzy', desc: 'Kill frenzy radius doubled', oneShot: true },
     { id: 'wild_ability_3', category: 'ability', type: 'race_ability', name: 'Pack Speed', desc: '+10% global move speed (units and workers)', oneShot: true },
+    { id: 'wild_ability_4', category: 'ability', type: 'race_ability', name: 'Savage Instinct', desc: 'Frenzied Wild units gain 15% lifesteal', oneShot: true },
   ],
   [Race.Geists]: [
     { id: 'geists_ability_1', category: 'ability', type: 'race_ability', name: 'Bone Archers', desc: 'Summon also spawns 3 skeleton archers', oneShot: true },
     { id: 'geists_ability_2', category: 'ability', type: 'race_ability', name: 'Empowered Minions', desc: 'Mini skeletons gain +5 damage, +25% move speed', oneShot: true },
     { id: 'geists_ability_3', category: 'ability', type: 'race_ability', name: 'Death Defiance', desc: '5% chance to avoid death for all units', oneShot: true },
+    { id: 'geists_ability_4', category: 'ability', type: 'race_ability', name: 'Hungering Dark', desc: 'Lifesteal also increases damage by the same %', oneShot: true },
   ],
   [Race.Tenders]: [
     { id: 'tenders_ability_1', category: 'ability', type: 'race_ability', name: 'Fast Growth', desc: 'Seeds grow 40% faster', oneShot: true },
     { id: 'tenders_ability_2', category: 'ability', type: 'race_ability', name: 'Quick Seeds', desc: 'Seed cooldown reduced by 30%', oneShot: true },
     { id: 'tenders_ability_3', category: 'ability', type: 'race_ability', name: 'Reseed', desc: '30% chance to replant a T1 seed when one pops', oneShot: true },
+    { id: 'tenders_ability_4', category: 'ability', type: 'race_ability', name: 'Ironwood', desc: 'Tower upgrade costs reduced by 50%', oneShot: true },
   ],
 };
 

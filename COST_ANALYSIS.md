@@ -150,7 +150,7 @@ Horde     |  1100 |  9.3 |  10267 |  85.0 |  120.8 |      6
 
   Gold harvester:  0.571 gold/s  (0.286 eff/s, cycle 7.0s)
   Wood harvester:  0.262 wood/s  (0.262 eff/s, cycle 38.2s)
-  Meat harvester: 0.262 meat/s (0.262 eff/s, cycle 38.2s)
+  Meat harvester:  0.262 meat/s  (0.262 eff/s, cycle 38.2s)
 
 Race      |  Hut1 $ |  Pay1 |  Hut2 $ |  Pay2 |  Hut3 $ |  Pay3 |  Hut4 $ |  Pay4
 ----------+---------+-------+---------+-------+---------+-------+---------+------

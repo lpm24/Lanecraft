@@ -5,13 +5,14 @@ import {
   BuildingType, TILE_SIZE, Lane,
   HarvesterAssignment, Team, Race, UnitState, NUKE_RADIUS,
   AbilityTargetMode, HQ_WIDTH, HQ_HEIGHT, StatusEffect, StatusType,
+  ResearchUpgradeState,
 } from '../simulation/types';
 import { getBuildGridOrigin, getTeamAlleyOrigin, getHutGridOrigin, getHQPosition, getBaseGoldPosition } from '../simulation/GameState';
-import { RACE_BUILDING_COSTS, UNIT_STATS, TOWER_STATS, RACE_COLORS, RACE_ABILITY_INFO, RACE_ABILITY_DEFS, TOWER_COST_SCALE, getUpgradeNodeDef } from '../simulation/data';
+import { RACE_BUILDING_COSTS, UNIT_STATS, TOWER_STATS, RACE_COLORS, RACE_ABILITY_INFO, RACE_ABILITY_DEFS, TOWER_COST_SCALE, getUpgradeNodeDef, ABILITY_COST_MODIFIERS } from '../simulation/data';
 import { TICK_RATE } from '../simulation/types';
 import { UIAssets } from '../rendering/UIAssets';
-import { SpriteLoader, drawSpriteFrame, getSpriteFrame } from '../rendering/SpriteLoader';
-import { BuildingPopup } from './BuildingPopup';
+import { SpriteLoader, drawSpriteFrame, drawGridFrame, getSpriteFrame } from '../rendering/SpriteLoader';
+import { BuildingPopup, getRaceBuildingName } from './BuildingPopup';
 import { HutPopup } from './HutPopup';
 import { ResearchPopup } from './ResearchPopup';
 import { SeedPopup } from './SeedPopup';
@@ -70,7 +71,7 @@ export class InputHandler {
   private selectedBuilding: BuildingType | null = null;
   /** Expose selected building for Renderer grid visibility. */
   get placingBuilding(): BuildingType | null { return this.selectedBuilding; }
-  private hoveredGridSlot: { gx: number; gy: number; isAlley: boolean } | null = null;
+  private hoveredGridSlot: { gx: number; gy: number; isAlley: boolean; isHut?: boolean; hutSlot?: number } | null = null;
   private hoveredBuildingId: number | null = null;
   private selectedBuildingId: number | null = null;
   private pointerX = 0;
@@ -119,6 +120,7 @@ export class InputHandler {
   private researchPopup = new ResearchPopup();
   private seedPopup = new SeedPopup();
   private trayTick = 0;
+  private trayBldgSpriteCache = new Map<string, HTMLImageElement | null>();
   private get isTouchDevice(): boolean { return 'ontouchstart' in window || navigator.maxTouchPoints > 0; }
   /** Active rally override — all spawners send to this lane while set. 'random' = each spawner gets a random lane. */
   private rallyOverride: Lane | 'random' | null = null;
@@ -885,15 +887,6 @@ export class InputHandler {
         return;
       }
 
-      // Miner hut: click anywhere on map to confirm auto-placement
-      if (this.selectedBuilding === BuildingType.HarvesterHut) {
-        this.game.sendCommand({ type: 'build_hut', playerId: this.pid });
-        if (!e.shiftKey && !this.stickyBuildMode) {
-          this.selectedBuilding = null;
-        }
-        return;
-      }
-
       const world = this.eventToWorld(e);
       const slot = this.worldToGridSlot(this.pid, world.x, world.y);
       if (slot) {
@@ -905,6 +898,11 @@ export class InputHandler {
           });
           this.abilityPlacing = false;
           this.selectedBuilding = null;
+        } else if (!this.abilityPlacing && slot.isHut && slot.hutSlot != null) {
+          this.game.sendCommand({ type: 'build_hut', playerId: this.pid, hutSlot: slot.hutSlot });
+          if (!e.shiftKey && !this.stickyBuildMode) {
+            this.selectedBuilding = null;
+          }
         } else if (!this.abilityPlacing) {
           this.game.sendCommand({
             type: 'place_building', playerId: this.pid,
@@ -986,7 +984,7 @@ export class InputHandler {
     this.camera.panTo(cx, cy, 1.8);
   }
 
-  private worldToGridSlot(playerId: number, worldPixelX: number, worldPixelY: number): { gx: number; gy: number; isAlley: boolean } | null {
+  private worldToGridSlot(playerId: number, worldPixelX: number, worldPixelY: number): { gx: number; gy: number; isAlley: boolean; isHut?: boolean; hutSlot?: number } | null {
     const { tileX: txF, tileY: tyF } = this.worldToTile(worldPixelX, worldPixelY);
     const tx = Math.floor(txF);
     const ty = Math.floor(tyF);
@@ -999,6 +997,19 @@ export class InputHandler {
       if (agx >= 0 && agx < this.game.state.mapDef.towerAlleyCols && agy >= 0 && agy < this.game.state.mapDef.towerAlleyRows) {
         return { gx: agx, gy: agy, isAlley: true };
       }
+    }
+
+    // Hut grid
+    if (this.selectedBuilding === BuildingType.HarvesterHut) {
+      const origin = getHutGridOrigin(playerId, this.game.state.mapDef, this.game.state.players);
+      const hgx = tx - origin.x, hgy = ty - origin.y;
+      const hutCols = this.game.state.mapDef.hutGridCols;
+      const hutRows = this.game.state.mapDef.hutGridRows;
+      if (hgx >= 0 && hgx < hutCols && hgy >= 0 && hgy < hutRows) {
+        const hutSlot = hgy * hutCols + hgx;
+        return { gx: hgx, gy: hgy, isAlley: false, isHut: true, hutSlot };
+      }
+      return null;
     }
 
     // Military grid
@@ -1932,8 +1943,10 @@ export class InputHandler {
       const adjBaseY = isSelected ? spriteBaseY - selectedRaise : spriteBaseY;
 
       if (spriteCategory === 'tower') {
-        // Use building sprite for tower
-        const towerImg = this.sprites?.getBuildingSprite(BuildingType.Tower, 0);
+        // Use race-specific building sprite for tower (cached to avoid per-frame table walk)
+        const cacheKey = `tower:${race}`;
+        let towerImg = this.trayBldgSpriteCache.get(cacheKey);
+        if (towerImg === undefined) { towerImg = this.sprites?.getBuildingSprite(BuildingType.Tower, 0, false, race) ?? null; this.trayBldgSpriteCache.set(cacheKey, towerImg); }
         if (towerImg) {
           const aspect = towerImg.width / towerImg.height;
           const dh = spriteSize;
@@ -1941,8 +1954,10 @@ export class InputHandler {
           ctx.drawImage(towerImg, Math.round(cellCx - dw / 2), Math.round(adjBaseY - dh), dw, dh);
         }
       } else if (spriteCategory === 'miner') {
-        // Use building sprite for harvester hut
-        const hutImg = this.sprites?.getBuildingSprite(BuildingType.HarvesterHut, 0);
+        // Use race-specific building sprite for harvester hut (cached)
+        const cacheKey = `hut:${race}`;
+        let hutImg = this.trayBldgSpriteCache.get(cacheKey);
+        if (hutImg === undefined) { hutImg = this.sprites?.getBuildingSprite(BuildingType.HarvesterHut, 0, false, race) ?? null; this.trayBldgSpriteCache.set(cacheKey, hutImg); }
         if (hutImg) {
           const aspect = hutImg.width / hutImg.height;
           const dh = spriteSize;
@@ -2015,7 +2030,7 @@ export class InputHandler {
     for (let i = 0; i < BUILD_TRAY.length; i++) {
       const item = BUILD_TRAY[i];
       const bx = (i + 1) * milW;
-      const isSelected = this.selectedBuilding === item.type;
+      const isSelected = this.selectedBuilding === item.type && !this.abilityPlacing;
       const baseCost = RACE_BUILDING_COSTS[race][item.type];
       const isFirstTowerFree = item.type === BuildingType.Tower && !player.hasBuiltTower;
 
@@ -2069,9 +2084,15 @@ export class InputHandler {
 
       // Calculate current cost for display (non-Tenders)
       const growMult = abDef.costGrowthFactor ? Math.pow(abDef.costGrowthFactor, player.abilityUseCount) : 1;
-      const abCostGold = Math.floor((abDef.baseCost.gold ?? 0) * growMult);
-      const abCostWood = Math.floor((abDef.baseCost.wood ?? 0) * growMult);
-      const abCostMeat = Math.floor((abDef.baseCost.meat ?? 0) * growMult);
+      // Apply ability cost modifiers from research upgrades (centralised in data.ts)
+      const abMod = ABILITY_COST_MODIFIERS[race];
+      const abHasMod = abMod && player.researchUpgrades.raceUpgrades[abMod.upgradeId];
+      const abGoldMult = abHasMod && (abMod.field === 'gold' || abMod.field === 'all') ? abMod.mult : 1;
+      const abWoodMult = abHasMod && (abMod.field === 'wood' || abMod.field === 'all') ? abMod.mult : 1;
+      const abMeatMult = abHasMod && (abMod.field === 'meat' || abMod.field === 'all') ? abMod.mult : 1;
+      const abCostGold = Math.floor((abDef.baseCost.gold ?? 0) * growMult * abGoldMult);
+      const abCostWood = Math.floor((abDef.baseCost.wood ?? 0) * growMult * abWoodMult);
+      const abCostMeat = Math.floor((abDef.baseCost.meat ?? 0) * growMult * abMeatMult);
       const abCostMana = Math.floor((abDef.baseCost.mana ?? 0) * growMult);
       const abCostSouls = player.race === Race.Geists
         ? (abDef.baseCost.souls ?? 0) + 5 * player.abilityUseCount
@@ -2100,17 +2121,86 @@ export class InputHandler {
       ctx.globalAlpha = (onCooldown || !canAffordAbility) ? 0.4 : 1;
       ctx.textAlign = 'center';
       let drewSprite = false;
-      if (race === Race.Horde && this.sprites) {
-        // Draw troll sprite (Goblin melee E = Troll Warlord)
-        const trollData = this.sprites.getUnitSprite(Race.Goblins, 'melee', 0, isActive, 'E');
-        if (trollData) {
-          const [img, def] = trollData;
-          const frame = isActive ? getSpriteFrame(Math.floor(this.trayTick / 3), def) : 0;
-          const iconH = spriteSize;
-          const aspect = def.frameW / def.frameH;
-          const iconW = iconH * aspect;
-          drawSpriteFrame(ctx, img, def, frame, Math.round(abCx - iconW / 2), Math.round(abBaseY - iconH * (def.groundY ?? 0.71)), iconW, iconH);
-          drewSprite = true;
+      if (this.sprites) {
+        if (race === Race.Crown) {
+          // Draw foundry building sprite
+          const foundryImg = this.sprites.getRaceBuildingSprite(Race.Crown, 'foundry') ?? this.sprites.getFoundrySprite();
+          if (foundryImg) {
+            const aspect = foundryImg.width / foundryImg.height;
+            const dh = spriteSize;
+            const dw = dh * aspect;
+            ctx.drawImage(foundryImg, Math.round(abCx - dw / 2), Math.round(abBaseY - dh), dw, dh);
+            drewSprite = true;
+          }
+        } else if (race === Race.Horde) {
+          // Draw troll sprite (Goblin melee E = Troll Warlord)
+          const trollData = this.sprites.getUnitSprite(Race.Goblins, 'melee', 0, isActive, 'E');
+          if (trollData) {
+            const [img, def] = trollData;
+            const frame = isActive ? getSpriteFrame(Math.floor(this.trayTick / 3), def) : 0;
+            const iconH = spriteSize;
+            const aspect = def.frameW / def.frameH;
+            const iconW = iconH * aspect;
+            drawSpriteFrame(ctx, img, def, frame, Math.round(abCx - iconW / 2), Math.round(abBaseY - iconH * (def.groundY ?? 0.71)), iconW, iconH);
+            drewSprite = true;
+          }
+        } else if (race === Race.Goblins) {
+          // Draw potion shop building sprite
+          const potionShopImg = this.sprites.getRaceBuildingSprite(Race.Goblins, 'potionshop');
+          if (potionShopImg) {
+            const aspect = potionShopImg.width / potionShopImg.height;
+            const dh = spriteSize;
+            const dw = dh * aspect;
+            ctx.drawImage(potionShopImg, Math.round(abCx - dw / 2), Math.round(abBaseY - dh), dw, dh);
+            drewSprite = true;
+          } else {
+            // Fallback: green potion sprite
+            const potionData = this.sprites.getPotionSprite('green');
+            if (potionData) {
+              const [img, def] = potionData;
+              const frame = isActive ? getSpriteFrame(Math.floor(this.trayTick / 3), def) : 0;
+              const dh = spriteSize;
+              const aspect = def.frameW / def.frameH;
+              const dw = dh * aspect;
+              drawSpriteFrame(ctx, img, def, frame, Math.round(abCx - dw / 2), Math.round(abBaseY - dh * (def.groundY ?? 0.9)), dw, dh);
+              drewSprite = true;
+            }
+          }
+        } else if (race === Race.Oozlings) {
+          // Draw ooze mound sprite (Lvl05 Move animation)
+          const globData = this.sprites.getGlobuleIdleSprite();
+          if (globData) {
+            const [img, def] = globData;
+            const frame = isActive ? getSpriteFrame(Math.floor(this.trayTick / 4), def) : 0;
+            const dh = spriteSize;
+            const aspect = def.frameW / def.frameH;
+            const dw = dh * aspect;
+            drawSpriteFrame(ctx, img, def, frame, Math.round(abCx - dw / 2), Math.round(abBaseY - dh * (def.groundY ?? 0.93)), dw, dh);
+            drewSprite = true;
+          }
+        } else if (race === Race.Demon) {
+          // Draw fireball orb sprite (yellow/orange)
+          const orbData = this.sprites.getOrbSprite(Race.Demon);
+          if (orbData) {
+            const [img, def] = orbData;
+            const frame = isActive ? Math.floor(this.trayTick / 2) % def.totalFrames : 0;
+            const dh = spriteSize;
+            const dw = dh;
+            drawGridFrame(ctx, img, def, frame, Math.round(abCx - dw / 2), Math.round(abBaseY - dh), dw, dh);
+            drewSprite = true;
+          }
+        } else if (race === Race.Tenders) {
+          // Draw seed plant sprite
+          const seedData = this.sprites.getSeedSprite();
+          if (seedData) {
+            const [img, def] = seedData;
+            const frame = isActive ? getSpriteFrame(Math.floor(this.trayTick / 3), def) : 0;
+            const dh = spriteSize;
+            const aspect = def.frameW / def.frameH;
+            const dw = dh * aspect;
+            drawSpriteFrame(ctx, img, def, frame, Math.round(abCx - dw / 2), Math.round(abBaseY - dh * (def.groundY ?? 0.9)), dw, dh);
+            drewSprite = true;
+          }
         }
       }
       if (!drewSprite) {
@@ -2552,6 +2642,17 @@ export class InputHandler {
       lines.push(upgradeName ?? u.type);
       lines.push(`${teamLabel} ${u.category}  HP: ${u.hp}/${u.maxHp}${u.shieldHp > 0 ? ` +${u.shieldHp} shield` : ''}`);
       lines.push(`DMG: ${u.damage}  SPD: ${u.attackSpeed.toFixed(1)}s  RNG: ${u.range}  Move: ${u.moveSpeed.toFixed(1)}`);
+      // Research upgrade levels for this unit's category
+      const research = player?.researchUpgrades;
+      if (research) {
+        const atkKey = `${u.category}AtkLevel` as keyof ResearchUpgradeState;
+        const defKey = `${u.category}DefLevel` as keyof ResearchUpgradeState;
+        const atkLvl = research[atkKey] as number;
+        const defLvl = research[defKey] as number;
+        if (atkLvl > 0 || defLvl > 0) {
+          lines.push(`__research__:${atkLvl}:${defLvl}`);
+        }
+      }
       if (u.kills > 0) lines.push(`Kills: ${u.kills}`);
       statusEffects = u.statusEffects;
       if (race) unitShape = { race, category: u.category, team: u.team, playerId: u.playerId, upgradeNode: u.upgradeNode };
@@ -2662,6 +2763,31 @@ export class InputHandler {
     ctx.textAlign = 'left';
     const textStartX = boxX + 38;
     for (let i = 0; i < lines.length; i++) {
+      const lineY = boxY + padY + (i + 1) * lineH - 3;
+      // Special research upgrade line: draw sword/shield icons with levels
+      if (lines[i].startsWith('__research__:')) {
+        const parts = lines[i].split(':');
+        const atkLvl = parseInt(parts[1]);
+        const defLvl = parseInt(parts[2]);
+        const iconSz = 14;
+        let cx = textStartX;
+        if (atkLvl > 0) {
+          this.ui.drawIcon(ctx, 'sword', cx, lineY - iconSz + 3, iconSz);
+          cx += iconSz + 2;
+          ctx.fillStyle = '#ff9944';
+          ctx.font = 'bold 12px monospace';
+          ctx.fillText(`${atkLvl}`, cx, lineY);
+          cx += ctx.measureText(`${atkLvl}`).width + 8;
+        }
+        if (defLvl > 0) {
+          this.ui.drawIcon(ctx, 'shield', cx, lineY - iconSz + 3, iconSz);
+          cx += iconSz + 2;
+          ctx.fillStyle = '#44aaff';
+          ctx.font = 'bold 12px monospace';
+          ctx.fillText(`${defLvl}`, cx, lineY);
+        }
+        continue;
+      }
       if (i === 0) {
         ctx.fillStyle = raceColor;
         ctx.font = 'bold 13px monospace';
@@ -2669,7 +2795,7 @@ export class InputHandler {
         ctx.fillStyle = '#ccc';
         ctx.font = '12px monospace';
       }
-      ctx.fillText(lines[i], textStartX, boxY + padY + (i + 1) * lineH - 3);
+      ctx.fillText(lines[i], textStartX, lineY);
     }
 
     // === Buff/debuff icon bar (WoW-style) ===
@@ -2774,25 +2900,21 @@ export class InputHandler {
     return best;
   }
 
-  private getBuildingLabel(type: BuildingType): string {
-    switch (type) {
-      case BuildingType.HarvesterHut: return 'Miner Hut';
-      case BuildingType.MeleeSpawner: return 'Melee Barracks';
-      case BuildingType.RangedSpawner: return 'Ranged Barracks';
-      case BuildingType.CasterSpawner: return 'Caster Barracks';
-      case BuildingType.Tower: return 'Tower';
-      case BuildingType.Research: return 'Research';
-      default: { const s = type as string; return s.charAt(0).toUpperCase() + s.slice(1).replace(/_/g, ' '); }
-    }
+  private getBuildingLabel(type: BuildingType, race?: Race, upgradePath?: string[]): string {
+    return getRaceBuildingName(race, type, upgradePath);
   }
 
   private getBuildingTooltip(building: { type: BuildingType; hp: number; maxHp: number; lane: Lane; upgradePath: string[]; id: number; playerId: number }): string {
-    let tip = `${this.getBuildingLabel(building.type)}  HP: ${building.hp}/${building.maxHp}`;
+    const race = this.game.state.players[building.playerId]?.race;
+    let tip = this.getBuildingLabel(building.type, race, building.upgradePath);
+    // Only show HP for towers (spawners, huts, and research are invincible)
+    if (building.type === BuildingType.Tower) {
+      tip += `  HP: ${building.hp}/${building.maxHp}`;
+    }
     if (building.type === BuildingType.HarvesterHut) {
       const h = this.game.state.harvesters.find(h => h.hutId === building.id);
       if (h) tip += `  [${ASSIGNMENT_LABELS[h.assignment]}]`;
-    } else if (building.type !== BuildingType.Tower) {
-      const race = this.game.state.players[building.playerId]?.race;
+    } else if (building.type !== BuildingType.Tower && building.type !== BuildingType.Research) {
       const isOozlings = race === Race.Oozlings;
       if (isOozlings) {
         tip += `  Lane: RANDOM`;
@@ -2803,9 +2925,6 @@ export class InputHandler {
           : (isPortrait ? 'RIGHT' : 'BOT');
         tip += `  Lane: ${laneLabel}`;
       }
-    }
-    if (building.upgradePath.length > 1) {
-      tip += `  Tier ${building.upgradePath.length - 1}`;
     }
     return tip;
   }
@@ -3113,21 +3232,14 @@ export class InputHandler {
       const hutCols = this.game.state.mapDef.hutGridCols;
       const hutRows = this.game.state.mapDef.hutGridRows;
       const totalSlots = hutCols * hutRows;
-      // Build center-out order
-      const CENTER_OUT: number[] = [];
-      for (let d = 0; d <= Math.floor(totalSlots / 2); d++) {
-        const mid = Math.floor(totalSlots / 2);
-        if (mid + d < totalSlots) CENTER_OUT.push(mid + d);
-        if (d > 0 && mid - d >= 0) CENTER_OUT.push(mid - d);
-      }
-      const nextSlot = CENTER_OUT.find(s => !occupiedSlots.has(s));
+      const hoveredHutSlot = this.hoveredGridSlot?.isHut ? this.hoveredGridSlot.hutSlot : null;
       for (let slot = 0; slot < totalSlots; slot++) {
         const sgx = slot % hutCols;
         const sgy = Math.floor(slot / hutCols);
         const occupied = occupiedSlots.has(slot);
-        const isNext = slot === nextSlot;
+        const isHovered = hoveredHutSlot === slot && !occupied;
         const cellTx = origin.x + sgx, cellTy = origin.y + sgy;
-        if (isNext) {
+        if (isHovered) {
           const pulse = 0.5 + 0.3 * Math.sin(Date.now() / 200);
           this.drawCellHighlight(ctx, cellTx, cellTy, `rgba(60, 255, 60, ${pulse * 0.3})`, `rgba(60, 255, 60, ${pulse})`, 2);
         } else {
@@ -3260,7 +3372,7 @@ export class InputHandler {
     // Tooltip box above the build tray
     const lines = [name];
     if (hp > 0) lines.push(`HP:${hp}  DMG:${damage}  SPD:${atkSpd.toFixed(1)}s  RNG:${range}`);
-    const special = type !== BuildingType.HarvesterHut ? this.getSpecialDesc(race, type) : 'Click to place (auto-fills center-out)';
+    const special = type !== BuildingType.HarvesterHut ? this.getSpecialDesc(race, type) : 'Click a slot to place';
     if (special) lines.push(special);
 
     const lineH = 16;
@@ -3307,6 +3419,9 @@ export class InputHandler {
   private drawPlacementPreview(ctx: CanvasRenderingContext2D, renderer: Renderer): void {
     if (!this.hoveredGridSlot) return;
     const slot = this.hoveredGridSlot;
+
+    // Hut preview is handled inside drawPlacementHighlight
+    if (slot.isHut) return;
 
     const origin = slot.isAlley ? getTeamAlleyOrigin(this.myTeam, this.game.state.mapDef) : getBuildGridOrigin(this.pid, this.game.state.mapDef, this.game.state.players);
 

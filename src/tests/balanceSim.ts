@@ -1,6 +1,6 @@
 import { createInitialState, simulateTick } from '../simulation/GameState';
 import { GameCommand, Race, Team, TICK_RATE, MapDef } from '../simulation/types';
-import { runAllBotAI, createBotContext, BotDifficultyLevel } from '../simulation/BotAI';
+import { runAllBotAI, createBotContext, BotDifficultyLevel, BOT_DIFFICULTY_PRESETS } from '../simulation/BotAI';
 import { DUEL_MAP, SKIRMISH_MAP, WARZONE_MAP } from '../simulation/maps';
 
 // ==================== CONFIG ====================
@@ -85,6 +85,13 @@ function runHeadlessMatch(
   const state = createInitialState(players, undefined, mapDef);
 
   const botCtx = createBotContext(difficulty);
+  // Apply stat bonuses from difficulty to player state
+  const defaultDiff = BOT_DIFFICULTY_PRESETS[difficulty];
+  for (const p of state.players) {
+    if (!p.isBot || p.isEmpty) continue;
+    const diff = botCtx.difficulty[p.id] ?? defaultDiff;
+    if (diff.statBonus && diff.statBonus !== 1) p.statBonus = diff.statBonus;
+  }
   const commands: GameCommand[] = [];
   const emit = (cmd: GameCommand) => commands.push(cmd);
 

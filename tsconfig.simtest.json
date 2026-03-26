@@ -18,6 +18,10 @@
     "src/tests/wideVsTall.ts",
     "src/tests/difficultyTest.ts",
     "src/tests/costAnalysis.ts",
-    "src/tests/profileSim.ts"
+    "src/tests/profileSim.ts",
+    "src/tests/hierarchyTest.ts",
+    "src/tests/debugMirror.ts",
+    "src/tests/nightmareDebug.ts",
+    "src/tests/valueDump.ts"
   ]
 }

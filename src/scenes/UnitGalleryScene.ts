@@ -6,7 +6,7 @@ import { loadProfile, checkNonMatchAchievement, ACHIEVEMENTS } from '../profile/
 import {
   UNIT_STATS, RACE_COLORS, RACE_LABELS, UPGRADE_TREES, UpgradeNodeDef, UpgradeSpecial,
   RACE_BUILDING_COSTS, RACE_RESEARCH_UPGRADES, SPAWN_INTERVAL_TICKS,
-  getNodeUpgradeCost,
+  getNodeUpgradeCost, TOWER_STATS,
 } from '../simulation/data';
 import { getUnitUpgradeMultipliers } from '../simulation/GameState';
 import { getElo, ELO_DEFAULT } from './TitleElo';
@@ -19,11 +19,14 @@ const ALL_RACES: Race[] = [
   Race.Deep, Race.Wild, Race.Geists, Race.Tenders,
 ];
 
-const CATEGORIES: { bt: BuildingType; cat: 'melee' | 'ranged' | 'caster' }[] = [
+const CATEGORIES: { bt: BuildingType; cat: 'melee' | 'ranged' | 'caster' | 'tower' }[] = [
   { bt: BuildingType.MeleeSpawner, cat: 'melee' },
   { bt: BuildingType.RangedSpawner, cat: 'ranged' },
   { bt: BuildingType.CasterSpawner, cat: 'caster' },
+  { bt: BuildingType.Tower, cat: 'tower' },
 ];
+/** Show tower column only if screen is wide enough (>400px) */
+function getNumColumns(canvasW: number): number { return canvasW < 400 ? 3 : 4; }
 
 // Upgrade path for each tab
 // A=base, B=tier1 choice1, C=tier1 choice2, D=B→choice1, E=B→choice2, F=C→choice1, G=C→choice2
@@ -38,7 +41,7 @@ const TAB_PATHS: { label: string; path: string[]; desc: string }[] = [
 ];
 
 // Display scale multiplier (visual only, not shown in %)
-const DISPLAY_SCALE = 1.0;
+const DISPLAY_SCALE = 1.8;
 
 // Race innate traits for melee/ranged/caster (verified against GameState.ts combat logic)
 const RACE_INNATE_TRAITS: Record<Race, Record<string, string[]>> = {
@@ -289,22 +292,27 @@ export class UnitGalleryScene implements Scene {
 
     // Unit click detection
     const W = this.canvas.clientWidth;
+    const numCols = getNumColumns(W);
     const rowH = 110;
     const headerH = 98 + getSafeTop();
     const colMargin = 20;
-    const unitSpacing = Math.min(160, Math.max(100, Math.floor((W - colMargin * 2) / 3)));
-    const colStartX = Math.max(colMargin, Math.floor((W - unitSpacing * 3) / 2));
+    const unitSpacing = Math.min(140, Math.max(80, Math.floor((W - colMargin * 2) / numCols)));
+    const colStartX = Math.max(colMargin, Math.floor((W - unitSpacing * numCols) / 2));
 
     const contentY = cy + this.scrollY - headerH;
     const raceIdx = Math.floor(contentY / rowH);
     if (raceIdx < 0 || raceIdx >= ALL_RACES.length) return;
 
-    for (let c = 0; c < CATEGORIES.length; c++) {
+    for (let c = 0; c < numCols; c++) {
       const unitCX = colStartX + c * unitSpacing + unitSpacing / 2;
       if (Math.abs(cx - unitCX) < unitSpacing / 2 - 5) {
         const race = ALL_RACES[raceIdx];
-        const { bt } = CATEGORIES[c];
-        if (!UNIT_STATS[race]?.[bt]) return;
+        const { bt, cat } = CATEGORIES[c];
+        if (cat === 'tower') {
+          if (!TOWER_STATS[race]) return;
+        } else {
+          if (!UNIT_STATS[race]?.[bt]) return;
+        }
         this.detail = { race, catIndex: c };
         this.detailScrollY = 0;
         return;
@@ -358,12 +366,13 @@ export class UnitGalleryScene implements Scene {
     const upgradeTier = tab.path.length - 1; // 0, 1, or 2
 
     // Layout constants — responsive to screen width
+    const numCols = getNumColumns(W);
     const rowH = 110;
     const headerH = 98 + getSafeTop();
     const labelPad = 14; // left margin for race label (overlaps first unit column)
     const colMargin = 20; // margin on each side of the 3 columns
-    const unitSpacing = Math.min(160, Math.max(100, Math.floor((W - colMargin * 2) / 3)));
-    const colStartX = Math.max(colMargin, Math.floor((W - unitSpacing * 3) / 2));
+    const unitSpacing = Math.min(140, Math.max(80, Math.floor((W - colMargin * 2) / numCols)));
+    const colStartX = Math.max(colMargin, Math.floor((W - unitSpacing * numCols) / 2));
     const totalContentH = headerH + ALL_RACES.length * rowH + 40;
 
     // Clamp scroll
@@ -392,25 +401,55 @@ export class UnitGalleryScene implements Scene {
       ctx.textAlign = 'left';
       ctx.fillText(RACE_LABELS[race], labelPad, rowY + 16);
 
-      // Draw each unit category
-      for (let c = 0; c < CATEGORIES.length; c++) {
+      // Draw each column (melee, ranged, caster, tower)
+      for (let c = 0; c < numCols; c++) {
         const { bt, cat } = CATEGORIES[c];
-        const baseStats = UNIT_STATS[race]?.[bt];
-        if (!baseStats) continue;
-
         const unitCX = colStartX + c * unitSpacing + unitSpacing / 2;
         const unitCY = rowY + rowH * 0.38;
+        const isTower = cat === 'tower';
 
         // Get upgrade info for this tab
         const tree = UPGRADE_TREES[race]?.[bt];
         const nodeKey = tab.path[tab.path.length - 1];
         const nodeDef: UpgradeNodeDef | undefined = nodeKey !== 'A' ? (tree as any)?.[nodeKey] : undefined;
 
-        // Unit name: show upgrade name if available, else base name
+        if (isTower) {
+          // Tower column: building sprite only (no unit)
+          if (!TOWER_STATS[race]) continue;
+          const towerName = nodeDef?.name ?? 'Tower';
+          const bldgImg = this.sprites.getBuildingSprite(bt, 0, false, race, tab.path);
+          if (bldgImg) {
+            const bldgMaxH = rowH * 0.6;
+            const bAsp = bldgImg.width / bldgImg.height;
+            const bldgH = bldgMaxH;
+            const bldgW = bldgH * bAsp;
+            ctx.drawImage(bldgImg, unitCX - bldgW / 2, unitCY - bldgH * 0.35 - 10, bldgW, bldgH);
+          }
+          ctx.fillStyle = nodeDef ? '#e0c860' : '#ccc';
+          ctx.font = 'bold 11px monospace';
+          ctx.textAlign = 'center';
+          this.drawTruncatedText(ctx, towerName, unitCX, unitCY + 38, unitSpacing - 8);
+          continue;
+        }
+
+        // Unit columns (melee/ranged/caster)
+        const baseStats = UNIT_STATS[race]?.[bt];
+        if (!baseStats) continue;
         const displayName = nodeDef?.name ?? baseStats.name;
 
-        // Get sprite and render at 2x display size (use upgrade node for art-changing paths)
-        const spriteData = this.sprites.getUnitSprite(race, cat, 0, false, nodeKey !== 'A' ? nodeKey : undefined);
+        // Draw building sprite behind unit (offset up-left)
+        const bldgImg = this.sprites.getBuildingSprite(bt, 0, false, race, tab.path);
+        if (bldgImg) {
+          const bldgMaxH = rowH * 0.45;
+          const bAsp = bldgImg.width / bldgImg.height;
+          const bldgW = bldgMaxH * bAsp;
+          ctx.globalAlpha = 0.45;
+          ctx.drawImage(bldgImg, unitCX - bldgW * 0.65 - 7, unitCY - bldgMaxH * 0.3 - 13, bldgW, bldgMaxH);
+          ctx.globalAlpha = 1;
+        }
+
+        // Get sprite and render (use upgrade node for art-changing paths)
+        const spriteData = this.sprites.getUnitSprite(race, cat as 'melee' | 'ranged' | 'caster', 0, false, nodeKey !== 'A' ? nodeKey : undefined);
         if (spriteData) {
           const [img, def] = spriteData;
           const spriteScale = def.scale ?? 1.0;
@@ -471,11 +510,11 @@ export class UnitGalleryScene implements Scene {
           ctx.fill();
         }
 
-        // Unit name
+        // Unit name (truncated)
         ctx.fillStyle = nodeDef ? '#e0c860' : '#ccc';
         ctx.font = 'bold 11px monospace';
         ctx.textAlign = 'center';
-        ctx.fillText(displayName, unitCX, unitCY + 38);
+        this.drawTruncatedText(ctx, displayName, unitCX, unitCY + 38, unitSpacing - 8);
       }
     }
 
@@ -545,7 +584,7 @@ export class UnitGalleryScene implements Scene {
     // Column headers — same layout as unit columns
     ctx.font = 'bold 12px monospace';
     ctx.fillStyle = '#777';
-    for (let c = 0; c < CATEGORIES.length; c++) {
+    for (let c = 0; c < numCols; c++) {
       const cx = colStartX + c * unitSpacing + unitSpacing / 2;
       ctx.fillText(CATEGORIES[c].cat.toUpperCase(), cx, headerH - 4);
     }
@@ -566,9 +605,24 @@ export class UnitGalleryScene implements Scene {
     }
   }
 
+  private drawTruncatedText(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, maxW: number): void {
+    let display = text;
+    while (ctx.measureText(display).width > maxW && display.length > 3) {
+      display = display.slice(0, -2) + '…';
+    }
+    ctx.fillText(display, x, y);
+  }
+
   private renderDetailPanel(ctx: CanvasRenderingContext2D, W: number, H: number, tick: number): void {
     const { race, catIndex } = this.detail!;
     const { bt, cat } = CATEGORIES[catIndex];
+
+    // Tower detail panel (separate path — no unit stats)
+    if (cat === 'tower') {
+      this.renderTowerDetailPanel(ctx, W, H, tick);
+      return;
+    }
+
     const baseStats = UNIT_STATS[race]?.[bt];
     if (!baseStats) return;
 
@@ -1098,6 +1152,199 @@ export class UnitGalleryScene implements Scene {
     return x;
   }
 
+  private renderTowerDetailPanel(ctx: CanvasRenderingContext2D, W: number, H: number, _tick: number): void {
+    const { race } = this.detail!;
+    const bt = BuildingType.Tower;
+    const towerBase = TOWER_STATS[race];
+    if (!towerBase) return;
+
+    const tab = TAB_PATHS[this.activeTab];
+    const nodeKey = tab.path[tab.path.length - 1];
+    const upgrade = getUnitUpgradeMultipliers(tab.path, race, bt);
+    const tree = UPGRADE_TREES[race]?.[bt];
+    const nodeDef: UpgradeNodeDef | undefined = nodeKey !== 'A' ? (tree as any)?.[nodeKey] : undefined;
+    const rc = RACE_COLORS[race];
+
+    const hp = Math.max(1, Math.round(towerBase.hp * upgrade.hp));
+    const dmg = Math.max(1, Math.round(towerBase.damage * upgrade.damage));
+    const atkSpd = Math.max(0.2, towerBase.attackSpeed * upgrade.attackSpeed);
+    const range = Math.max(1, Math.round(towerBase.range * upgrade.range)) + (upgrade.special?.towerRangeBonus ?? 0);
+    const dps = dmg / atkSpd;
+    const displayName = nodeDef?.name ?? 'Tower';
+    const upgradeTier = tab.path.length - 1;
+
+    // Dim background
+    ctx.fillStyle = 'rgba(0,0,0,0.7)';
+    ctx.fillRect(0, 0, W, H);
+
+    // Panel
+    const panelW = Math.min(520, W - 32);
+    const panelX = (W - panelW) / 2;
+    const panelY = 20 + getSafeTop();
+    const panelH = H - panelY - 20;
+    const innerPad = 18;
+    const contentW = panelW - innerPad * 2;
+    const barX = panelX + innerPad;
+
+    if (!this.ui.drawWoodTable(ctx, panelX - panelW * 0.075, panelY - panelH * 0.075, panelW * 1.15, panelH * 1.15)) {
+      ctx.fillStyle = '#1e1e38';
+      ctx.fillRect(panelX, panelY, panelW, panelH);
+      ctx.strokeStyle = '#555';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(panelX, panelY, panelW, panelH);
+    }
+
+    // === Fixed header: Upgrade tree + arrows (same as unit detail) ===
+    let headerY = panelY + innerPad;
+    const arrowBtnSize = 44;
+    const treeAreaX = barX + arrowBtnSize + 4;
+    const treeAreaW = contentW - (arrowBtnSize + 4) * 2;
+
+    this.upgradeNodePositions = [];
+    const treeEndY = this.renderUpgradeTree(ctx, treeAreaX, headerY, treeAreaW, race, bt, tree);
+
+    const treeMidY = (headerY + treeEndY) / 2;
+    const arrowY = treeMidY - arrowBtnSize / 2;
+    this.leftArrowRect = { x: barX - 4, y: arrowY, w: arrowBtnSize, h: arrowBtnSize };
+    this.ui.drawIcon(ctx, 'leftArrow', barX + 2, arrowY + 6, arrowBtnSize - 12);
+    const rightArrowX = barX + contentW - arrowBtnSize + 4;
+    this.rightArrowRect = { x: rightArrowX, y: arrowY, w: arrowBtnSize, h: arrowBtnSize };
+    this.ui.drawIcon(ctx, 'rightArrow', rightArrowX + 6, arrowY + 6, arrowBtnSize - 12);
+
+    headerY = treeEndY + 4;
+    ctx.font = 'bold 13px monospace';
+    const raceCatText = `${RACE_LABELS[race]}  TOWER`;
+    const raceCatW = ctx.measureText(raceCatText).width + 20;
+    const raceCatX = panelX + panelW / 2 - raceCatW / 2;
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.beginPath(); ctx.roundRect(raceCatX, headerY, raceCatW, 18, 4); ctx.fill();
+    ctx.fillStyle = rc.primary;
+    ctx.textAlign = 'center';
+    ctx.fillText(raceCatText, panelX + panelW / 2, headerY + 13);
+    headerY += 22;
+
+    const fixedHeaderH = headerY - panelY;
+    const scrollableH = panelH - fixedHeaderH;
+    const maxDetailScroll = Math.max(0, 600 - scrollableH);
+    this.detailScrollY = Math.min(this.detailScrollY, maxDetailScroll);
+
+    // Scrollable content
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(panelX, headerY, panelW, panelH - fixedHeaderH);
+    ctx.clip();
+    ctx.translate(0, -this.detailScrollY);
+
+    let y = headerY + 8;
+
+    // Tower name
+    const tierColors = ['#e0e0e0', '#4fc3f7', '#b388ff'];
+    ctx.fillStyle = tierColors[upgradeTier] ?? '#e0e0e0';
+    ctx.font = 'bold 22px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(displayName, panelX + panelW / 2, y + 18);
+    y += 32;
+
+    if (nodeDef?.desc) {
+      ctx.fillStyle = '#8c8';
+      ctx.font = '13px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(nodeDef.desc, panelX + panelW / 2, y + 10);
+      y += 22;
+    }
+
+    // Building sprite (centered, no unit behind it)
+    const spriteAreaH = 130;
+    const spriteCX = panelX + panelW / 2;
+    const bldgImg = this.sprites.getBuildingSprite(bt, 0, false, race, tab.path);
+    if (bldgImg) {
+      const bH = spriteAreaH * 0.85;
+      const bAsp = bldgImg.width / bldgImg.height;
+      const bW = bH * bAsp;
+      ctx.drawImage(bldgImg, spriteCX - bW / 2, y + (spriteAreaH - bH) / 2, bW, bH);
+    }
+    y += spriteAreaH + 8;
+
+    // Stats: HP, DAMAGE, DPS, ATK SPEED, RANGE (no MOVE SPEED)
+    const barW = contentW;
+    const barH = 14;
+    const barGap = 26;
+    const labelW = 90;
+
+    const roundRect = (cx: CanvasRenderingContext2D, rx: number, ry: number, rw: number, rh: number, r: number) => {
+      cx.beginPath(); cx.roundRect(rx, ry, rw, rh, r);
+    };
+
+    const stats = [
+      { label: 'HEALTH', value: hp, max: MAX_STATS.hp * 4, display: `${hp}`, color: '#4caf50' },
+      { label: 'DAMAGE', value: dmg, max: MAX_STATS.damage, display: `${dmg}`, color: '#f44336' },
+      { label: 'DPS', value: dps, max: MAX_STATS.dps, display: `${dps.toFixed(1)}`, color: '#ff9800' },
+      { label: 'ATK SPEED', value: 1 / atkSpd, max: MAX_STATS.atkRate, display: `${atkSpd.toFixed(2)}s`, color: '#e91e63' },
+      { label: 'RANGE', value: range, max: MAX_STATS.range * 2, display: `${range}`, color: '#9c27b0' },
+    ];
+
+    for (const stat of stats) {
+      ctx.fillStyle = '#aaa';
+      ctx.font = '11px monospace';
+      ctx.textAlign = 'left';
+      ctx.fillText(stat.label, barX, y + 10);
+      ctx.fillStyle = '#e0e0e0';
+      ctx.font = 'bold 11px monospace';
+      ctx.textAlign = 'right';
+      ctx.fillText(stat.display, barX + barW, y + 10);
+
+      const bx = barX + labelW;
+      const bw = barW - labelW - 50;
+      const by = y + 2;
+      ctx.fillStyle = 'rgba(255,255,255,0.08)';
+      roundRect(ctx, bx, by, bw, barH, 3); ctx.fill();
+      const pct = Math.min(1, Math.max(0, stat.value / stat.max));
+      if (pct > 0) {
+        ctx.fillStyle = stat.color;
+        ctx.globalAlpha = 0.8;
+        roundRect(ctx, bx, by, bw * pct, barH, 3); ctx.fill();
+        ctx.globalAlpha = 1;
+      }
+      y += barGap;
+    }
+
+    y += 8;
+
+    // Cost breakdown
+    y = this.renderCostBreakdown(ctx, barX, y, race, bt, tab.path, contentW);
+    y += 8;
+
+    // Special traits from upgrade
+    if (nodeDef) {
+      const specials = describeSpecials(nodeDef.special ?? {});
+      if (specials.length > 0) {
+        ctx.fillStyle = '#aaa';
+        ctx.font = 'bold 12px monospace';
+        ctx.textAlign = 'left';
+        ctx.fillText('UPGRADE BONUSES', barX, y + 10);
+        y += 20;
+        for (const s of specials) {
+          ctx.fillStyle = '#78c878';
+          ctx.font = '11px monospace';
+          ctx.fillText(`• ${s}`, barX + 8, y + 10);
+          y += 17;
+        }
+      }
+    }
+
+    ctx.restore();
+
+    // Close button (matches unit detail panel)
+    const closeBtnSize = 44;
+    const closeX = panelX + panelW - closeBtnSize - 4;
+    const closeY2 = panelY + 4;
+    const closeSize = 32;
+    const closeVisX = closeX + (closeBtnSize - closeSize) / 2;
+    const closeVisY = closeY2 + (closeBtnSize - closeSize) / 2;
+    this.ui.drawSmallRedRoundButton(ctx, closeVisX, closeVisY, closeSize);
+    this.ui.drawIcon(ctx, 'close', closeVisX + closeSize / 2 - 10, closeVisY + closeSize / 2 - 10, 20);
+  }
+
   private renderUpgradeTree(
     ctx: CanvasRenderingContext2D, x: number, startY: number, w: number,
     race: Race, bt: BuildingType,
@@ -1114,7 +1361,8 @@ export class UnitGalleryScene implements Scene {
 
     // Base (A)
     const baseStats = UNIT_STATS[race]?.[bt];
-    this.drawUpgradeNode(ctx, centerX - nodeW / 2, y, nodeW, nodeH, baseStats?.name ?? 'Base', 'A', currentNodeKey === 'A', 0);
+    const baseName = bt === BuildingType.Tower ? 'Tower' : (baseStats?.name ?? 'Base');
+    this.drawUpgradeNode(ctx, centerX - nodeW / 2, y, nodeW, nodeH, baseName, 'A', currentNodeKey === 'A', 0);
     this.upgradeNodePositions.push({ x: centerX - nodeW / 2, y, w: nodeW, h: nodeH, tabIndex: 0 });
     y += rowGap;
 

@@ -20,7 +20,7 @@ import {
   UPGRADE_TREES, RACE_UPGRADE_COSTS, getBuildingCost,
   getRaceResourceRatio, getNodeUpgradeCost, getUpgradeNodeDef,
   HUT_COST_SCALE, TOWER_COST_SCALE, GOLD_YIELD_PER_TRIP, WOOD_YIELD_PER_TRIP, MEAT_YIELD_PER_TRIP, DIAMOND_CELLS_PER_TRIP,
-  RACE_ABILITY_DEFS,
+  RACE_ABILITY_DEFS, ABILITY_COST_MODIFIERS,
   getAllResearchUpgrades, getResearchUpgradeCost,
 } from './data';
 
@@ -338,6 +338,7 @@ const _attackerCount = new Map<number, number>();
 const _combatOrder: UnitState[] = [];
 const _spawnOrder: GameState['buildings'] = [];
 const _moveOrder: UnitState[] = [];
+const _projectileRemoveSet = new Set<number>();
 
 // Diamond cell map — rebuilt once per tick in simulateTick, integer keys for hot-path collision lookups
 let _diamondCellMapInt = new Map<number, GoldCell>();
@@ -423,6 +424,8 @@ export function createInitialState(
     souls: 0,
     deathEssence: 0,
     researchUpgrades: createResearchUpgradeState(),
+    trollKills: 0,
+    statBonus: 1.0,
   }));
 
   const diamond: DiamondState = {
@@ -879,6 +882,9 @@ export function simulateTick(state: GameState, commands: GameCommand[]): void {
     }
   }
 
+  // Build spatial grid early — reused by tickAbilityEffects, tickUnitMovement, tickCombat, tickTowers, etc.
+  _combatGrid.build(state.units);
+
   // Tick race ability cooldowns and active effects
   tickAbilityEffects(state);
 
@@ -895,9 +901,6 @@ export function simulateTick(state: GameState, commands: GameCommand[]): void {
     }
   }
 
-  // Build spatial grid early — reused by tickUnitMovement and tickCombat
-  _combatGrid.build(state.units);
-
   tickSpawners(state);
   debugCheckUnitPositions(state, 'tickSpawners');
   tickUnitMovement(state);
@@ -908,6 +911,9 @@ export function simulateTick(state: GameState, commands: GameCommand[]): void {
   debugCheckUnitPositions(state, 'tickUnitCollision');
   tickCombat(state);
   debugCheckUnitPositions(state, 'tickCombat');
+  // Rebuild spatial grid after tickCombat's dead-unit filter so tickTowers/tickHQDefense/tickProjectiles
+  // don't find stale dead-unit references (the old linear scans implicitly skipped them)
+  _combatGrid.build(state.units);
   tickTowers(state);
   tickHQDefense(state);
   tickProjectiles(state);
@@ -947,8 +953,9 @@ export function simulateTick(state: GameState, commands: GameCommand[]): void {
     state.winCondition = 'timeout';
   }
 
-  // Update fog of war visibility every tick for immediate response
-  if (state.fogOfWar) {
+  // Update fog of war visibility every 3 ticks (150ms) — unit vision doesn't need per-tick precision
+  // and revealCircle per unit is expensive with 200+ units on large maps
+  if (state.fogOfWar && state.tick % 3 === 0) {
     updateVisibility(state);
   }
 
@@ -1056,8 +1063,13 @@ function purchaseUpgrade(state: GameState, cmd: Extract<GameCommand, { type: 'pu
   if (!isValidUpgradeChoice(building.upgradePath, cmd.choice)) return;
 
   const player = state.players[cmd.playerId];
-  const cost = getUpgradeCost(building.upgradePath, player.race, building.type, cmd.choice);
+  let cost = getUpgradeCost(building.upgradePath, player.race, building.type, cmd.choice);
   if (!cost) return;
+  // Tenders Ironwood: tower upgrade costs reduced by 50%
+  if (building.type === BuildingType.Tower && player.race === Race.Tenders
+    && player.researchUpgrades.raceUpgrades['tenders_ability_4']) {
+    cost = { gold: Math.floor(cost.gold * 0.5), wood: Math.floor(cost.wood * 0.5), meat: Math.floor(cost.meat * 0.5) };
+  }
   if (!canAffordCost(player, cost)) return;
 
   deductCost(player, cost);
@@ -1115,13 +1127,50 @@ function processResearchUpgrade(state: GameState, cmd: Extract<GameCommand, { ty
   // Apply upgrade
   if (def.oneShot) {
     bu.raceUpgrades[cmd.upgradeId] = true;
+
+    // Retroactively apply one-shot upgrades that buff existing units
+    const id = cmd.upgradeId;
+    // HP bonuses for existing melee units
+    const hpMults: Record<string, number> = {
+      'crown_melee_2': 1.15, 'horde_melee_2': 1.20, 'deep_melee_1': 1.15,
+    };
+    if (hpMults[id]) {
+      const mult = hpMults[id];
+      for (const u of state.units) {
+        if (u.playerId === cmd.playerId && u.category === 'melee') {
+          const newMax = Math.max(1, Math.round(u.maxHp * mult));
+          u.hp = Math.max(1, Math.round(u.hp * mult));
+          u.maxHp = newMax;
+          if (u.hp > u.maxHp) u.hp = u.maxHp;
+        }
+      }
+    }
+    // Move speed bonus for existing melee units
+    if (id === 'goblins_melee_2') {
+      for (const u of state.units) {
+        if (u.playerId === cmd.playerId && u.category === 'melee') {
+          u.moveSpeed *= 1.35;
+        }
+      }
+    }
   } else {
-    if (cmd.upgradeId === 'melee_atk') bu.meleeAtkLevel++;
+    // Determine affected category for retroactive atk buff
+    let atkCategory: 'melee' | 'ranged' | 'caster' | null = null;
+    if (cmd.upgradeId === 'melee_atk') { bu.meleeAtkLevel++; atkCategory = 'melee'; }
     else if (cmd.upgradeId === 'melee_def') bu.meleeDefLevel++;
-    else if (cmd.upgradeId === 'ranged_atk') bu.rangedAtkLevel++;
+    else if (cmd.upgradeId === 'ranged_atk') { bu.rangedAtkLevel++; atkCategory = 'ranged'; }
     else if (cmd.upgradeId === 'ranged_def') bu.rangedDefLevel++;
-    else if (cmd.upgradeId === 'caster_atk') bu.casterAtkLevel++;
+    else if (cmd.upgradeId === 'caster_atk') { bu.casterAtkLevel++; atkCategory = 'caster'; }
     else if (cmd.upgradeId === 'caster_def') bu.casterDefLevel++;
+
+    // Retroactively boost existing units' damage (each atk level = 1.25x)
+    if (atkCategory) {
+      for (const u of state.units) {
+        if (u.playerId === cmd.playerId && u.category === atkCategory) {
+          u.damage = Math.max(1, Math.round(u.damage * 1.25));
+        }
+      }
+    }
   }
 
   addFloatingText(state, research.worldX + 0.5, research.worldY, def.name, '#90caf9');
@@ -1307,15 +1356,24 @@ function buildHut(state: GameState, cmd: Extract<GameCommand, { type: 'build_hut
   const hCols = state.mapDef.hutGridCols;
   const totalSlots = hCols * state.mapDef.hutGridRows;
   const occupiedHuts = new Set(myHuts.map(b => b.gridX));
-  // Fill from center outward (slot is linear index across cols then rows)
-  const CENTER_OUT: number[] = [];
-  for (let d = 0; d <= Math.floor(totalSlots / 2); d++) {
-    const mid = Math.floor(totalSlots / 2);
-    if (mid + d < totalSlots) CENTER_OUT.push(mid + d);
-    if (d > 0 && mid - d >= 0) CENTER_OUT.push(mid - d);
+
+  // If a specific slot was requested, try that; otherwise fill center-out (bots)
+  let targetSlot: number | undefined;
+  if (cmd.hutSlot != null && cmd.hutSlot >= 0 && cmd.hutSlot < totalSlots && !occupiedHuts.has(cmd.hutSlot)) {
+    targetSlot = cmd.hutSlot;
+  } else if (cmd.hutSlot == null) {
+    // Fill from center outward (slot is linear index across cols then rows)
+    const CENTER_OUT: number[] = [];
+    for (let d = 0; d <= Math.floor(totalSlots / 2); d++) {
+      const mid = Math.floor(totalSlots / 2);
+      if (mid + d < totalSlots) CENTER_OUT.push(mid + d);
+      if (d > 0 && mid - d >= 0) CENTER_OUT.push(mid - d);
+    }
+    targetSlot = CENTER_OUT.find(s => !occupiedHuts.has(s));
   }
-  for (const slot of CENTER_OUT) {
-    if (!occupiedHuts.has(slot)) {
+  if (targetSlot != null) {
+    const slot = targetSlot;
+    {
       const gx = slot % hCols;
       const gy = Math.floor(slot / hCols);
       const world = { x: origin.x + gx, y: origin.y + gy };
@@ -1379,15 +1437,16 @@ function useAbility(state: GameState, cmd: Extract<GameCommand, { type: 'use_abi
   const growthMult = def.costGrowthFactor ? Math.pow(def.costGrowthFactor, player.abilityUseCount) : 1;
   // Geists: additive soul cost scaling (+5 per cast)
   const soulsCostAdditive = player.race === Race.Geists ? (def.baseCost.souls ?? 0) + 5 * player.abilityUseCount : 0;
-  let woodCostMult = 1;
-  // Crown: Royal Forge — foundry costs no wood
-  if (player.race === Race.Crown && player.researchUpgrades.raceUpgrades['crown_ability_2']) woodCostMult = 0;
-  // Horde: Troll Discount — War Troll costs 30% less
-  const hordeCostMult = (player.race === Race.Horde && player.researchUpgrades.raceUpgrades['horde_ability_2']) ? 0.7 : 1;
+  // Apply ability cost modifiers from research upgrades (centralised in data.ts)
+  const mod = ABILITY_COST_MODIFIERS[player.race];
+  const hasModUpgrade = mod && player.researchUpgrades.raceUpgrades[mod.upgradeId];
+  const goldMult  = hasModUpgrade && (mod.field === 'gold' || mod.field === 'all') ? mod.mult : 1;
+  const woodMult  = hasModUpgrade && (mod.field === 'wood' || mod.field === 'all') ? mod.mult : 1;
+  const meatMult  = hasModUpgrade && (mod.field === 'meat' || mod.field === 'all') ? mod.mult : 1;
   const cost = {
-    gold: Math.floor((def.baseCost.gold ?? 0) * growthMult * hordeCostMult),
-    wood: Math.floor((def.baseCost.wood ?? 0) * growthMult * woodCostMult * hordeCostMult),
-    meat: Math.floor((def.baseCost.meat ?? 0) * growthMult * hordeCostMult),
+    gold: Math.floor((def.baseCost.gold ?? 0) * growthMult * goldMult),
+    wood: Math.floor((def.baseCost.wood ?? 0) * growthMult * woodMult),
+    meat: Math.floor((def.baseCost.meat ?? 0) * growthMult * meatMult),
     mana: Math.floor((def.baseCost.mana ?? 0) * growthMult),
     souls: player.race === Race.Geists ? soulsCostAdditive : Math.floor((def.baseCost.souls ?? 0) * growthMult),
     deathEssence: Math.floor((def.baseCost.deathEssence ?? 0) * growthMult),
@@ -1489,23 +1548,30 @@ function hordeAbility(state: GameState, player: PlayerState): void {
   const hq = getHQPosition(player.team, state.mapDef);
   const lane = state.rng() < 0.5 ? Lane.Left : Lane.Right;
   const scaleFactor = 1 + 0.15 * (player.abilityUseCount - 1); // gets slightly stronger each cast
+  // Trophy Hunter: apply accumulated kill bonus from previous trolls
+  const trophyKills = (player.researchUpgrades.raceUpgrades['horde_ability_4'] && player.trollKills > 0) ? player.trollKills : 0;
+  const trophyMult = 1 + 0.02 * trophyKills;
   const trollX = hq.x + 2, trollY = hq.y + 1;
   const trollPath = getLanePath(player.team, lane, state.mapDef);
   const trollProgress = findNearestPathProgress(trollPath, trollX, trollY);
+  const trollHp = Math.round(4500 * scaleFactor * trophyMult);
+  const trollDmg = Math.round(82 * scaleFactor * trophyMult);
   state.units.push({
     id: genId(state), type: 'War Troll', playerId: player.id, team: player.team,
     x: trollX, y: trollY,
-    hp: Math.round(4500 * scaleFactor), maxHp: Math.round(4500 * scaleFactor),
-    damage: Math.round(82 * scaleFactor),
+    hp: trollHp, maxHp: trollHp,
+    damage: trollDmg,
     attackSpeed: 1.8, attackTimer: 0,
     moveSpeed: 2.7, range: 1.5,
     targetId: null, lane, pathProgress: trollProgress, carryingDiamond: false,
     statusEffects: [], hitCount: 0, shieldHp: 0,
     category: 'melee', upgradeTier: 0, upgradeNode: 'E', // Goblin troll warlord art
     spriteRace: Race.Goblins, visualScale: 2.0,
-    upgradeSpecial: { knockbackChance: 0.3 }, kills: 0, damageDone: 0, healingDone: 0, buffsApplied: 0, lastDamagedByName: '', spawnTick: state.tick,
+    upgradeSpecial: { knockbackChance: 0.3, _trollBaseDmg: trollDmg, _trollBaseHp: trollHp },
+    kills: 0, damageDone: 0, healingDone: 0, buffsApplied: 0, lastDamagedByName: '', spawnTick: state.tick,
   });
-  addFloatingText(state, trollX, trollY, 'WAR TROLL!', '#ff6600');
+  const trollLabel = trophyKills > 0 ? `WAR TROLL! (+${trophyKills} trophies)` : 'WAR TROLL!';
+  addFloatingText(state, trollX, trollY, trollLabel, '#ff6600');
   addSound(state, 'ability_troll', trollX, trollY);
 }
 
@@ -1566,9 +1632,9 @@ function demonAbility(state: GameState, player: PlayerState, cmd: Extract<GameCo
   const def = RACE_ABILITY_DEFS[player.race];
   const totalMana = (def.baseCost.mana ?? 50) + extraMana;
   const radius = def.aoeRadius ?? 6;
-  const baseDamage = 25;
+  const baseDamage = 35;
   const bonusMana = Math.max(0, totalMana - (def.baseCost.mana ?? 50));
-  const totalDamage = Math.round(baseDamage + bonusMana * 0.5);
+  const totalDamage = Math.round(baseDamage + bonusMana * 0.7);
 
   // Find Research building as the launch point
   const research = state.buildings.find(b => b.type === BuildingType.Research && b.playerId === player.id);
@@ -1610,10 +1676,12 @@ function explodeFireball(state: GameState, eff: { playerId: number; team: Team; 
   const buildingDamageReduction = fbUpgrades?.raceUpgrades['demon_ability_3'] ? 0.45 : 0.3;
   const r2 = radius * radius;
 
+  let hitCount = 0;
   for (const u of state.units) {
     if (u.team === eff.team) continue;
     if ((u.x - targetX) ** 2 + (u.y - targetY) ** 2 > r2) continue;
     dealDamage(state, u, totalDamage, true, eff.playerId);
+    hitCount++;
     const existing = u.statusEffects.find(s => s.type === StatusType.Burn);
     if (existing) { existing.stacks = Math.min(5, existing.stacks + 2); existing.duration = 3 * TICK_RATE; }
     else u.statusEffects.push({ type: StatusType.Burn, stacks: 2, duration: 3 * TICK_RATE });
@@ -1626,7 +1694,8 @@ function explodeFireball(state: GameState, eff: { playerId: number; team: Team; 
     b.hp -= Math.round(totalDamage * buildingDamageReduction);
   }
 
-  addFloatingText(state, targetX, targetY, `FIREBALL! (${totalDamage} dmg)`, '#ff4400');
+  const hitSuffix = hitCount > 0 ? ` x${hitCount}` : '';
+  addFloatingText(state, targetX, targetY, `FIREBALL! (${totalDamage} dmg${hitSuffix})`, '#ff4400');
   addSound(state, 'ability_fireball', targetX, targetY);
   addDeathParticles(state, targetX, targetY, '#ff4400', 12);
   addCombatEvent(state, { type: 'splash', x: targetX, y: targetY, radius, color: '#ff6600' });
@@ -1765,7 +1834,7 @@ function oozlingsAbility(state: GameState, player: PlayerState, cmd: Extract<Gam
     hp: 150, maxHp: 150, actionTimer: 0, placedTick: state.tick, upgradePath: [],
     isGlobule: true,
   });
-  addFloatingText(state, world.x, world.y, 'GLOBULE', '#69f0ae');
+  addFloatingText(state, world.x, world.y, 'OOZE MOUND', '#69f0ae');
   addSound(state, 'building_placed', world.x, world.y);
 }
 
@@ -1860,7 +1929,8 @@ function tickAbilityEffects(state: GameState): void {
       const auraOwner = state.players[u.playerId];
       const auraRange = (auraOwner?.researchUpgrades.raceUpgrades['horde_ability_3']) ? 10 : 5;
       const ar2 = auraRange * auraRange;
-      for (const ally of state.units) {
+      const auraNearby = _combatGrid.getNearby(u.x, u.y, auraRange);
+      for (const ally of auraNearby) {
         if (ally.id === u.id || ally.team !== u.team || ally.hp <= 0) continue;
         if ((ally.x - u.x) ** 2 + (ally.y - u.y) ** 2 > ar2) continue;
         ally.upgradeSpecial._auraDmg = Math.max(ally.upgradeSpecial._auraDmg ?? 0, sp.auraDamageBonus ?? 0);
@@ -2074,6 +2144,18 @@ function tickAbilityEffects(state: GameState): void {
             const healed = healUnit(u, 5);
             if (healed > 0) trackHealing(state, u, healed);
           }
+          // Purifying Deluge: cleanse all debuffs from Deep allies every 2s
+          if (deepBu?.raceUpgrades['deep_ability_4'] && state.tick % (2 * TICK_RATE) === 0) {
+            const hadDebuff = u.statusEffects.some(s =>
+              s.type !== StatusType.Haste && s.type !== StatusType.Shield && s.type !== StatusType.Frenzy);
+            u.statusEffects = u.statusEffects.filter(s =>
+              s.type === StatusType.Haste || s.type === StatusType.Shield || s.type === StatusType.Frenzy);
+            if (hadDebuff) {
+              addFloatingText(state, u.x, u.y - 0.3, 'CLEANSE', '#4fc3f7', undefined, undefined,
+                { ftType: 'status' });
+              addDeathParticles(state, u.x, u.y, '#4fc3f7', 2);
+            }
+          }
         } else if (unitRace !== Race.Deep) {
           // Non-Deep units: Slow (move slower)
           const slow = u.statusEffects.find(s => s.type === StatusType.Slow);
@@ -2121,7 +2203,8 @@ function tickAbilityEffects(state: GameState): void {
       // Apply haste + frenzy (damage buff) to allies in radius
       if (eff.x != null && eff.y != null && eff.radius != null) {
         const r2 = eff.radius * eff.radius;
-        for (const u of state.units) {
+        const frenzyNearby = _combatGrid.getNearby(eff.x, eff.y, eff.radius);
+        for (const u of frenzyNearby) {
           if (u.team !== eff.team) continue;
           if ((u.x - eff.x) ** 2 + (u.y - eff.y) ** 2 > r2) continue;
           // Haste
@@ -2139,7 +2222,8 @@ function tickAbilityEffects(state: GameState): void {
       if (eff.x != null && eff.y != null && eff.radius != null && state.tick % TICK_RATE === 0) {
         const seR2 = (eff.radius ?? 3) * (eff.radius ?? 3);
         const seDmg = eff.data?.damage ?? 3;
-        for (const u of state.units) {
+        const scorchNearby = _combatGrid.getNearby(eff.x, eff.y, eff.radius);
+        for (const u of scorchNearby) {
           if (u.team === eff.team || u.hp <= 0) continue;
           if ((u.x - eff.x) ** 2 + (u.y - eff.y) ** 2 > seR2) continue;
           dealDamage(state, u, seDmg, false, eff.playerId);
@@ -2183,7 +2267,8 @@ function trackDeathResources(state: GameState, deadUnit: UnitState): void {
 
   // Geists caster: chance to summon mini-skeleton from nearby deaths
   const summonRange = 8;
-  for (const caster of state.units) {
+  const deathNearby = _combatGrid.getNearby(deadUnit.x, deadUnit.y, summonRange);
+  for (const caster of deathNearby) {
     if (caster.hp <= 0 || caster.category !== 'caster') continue;
     if (state.players[caster.playerId]?.race !== Race.Geists) continue;
     let chance = caster.upgradeSpecial?.skeletonSummonChance ?? 0;
@@ -2217,7 +2302,8 @@ function trackDeathResources(state: GameState, deadUnit: UnitState): void {
   }
 
   // Geist Soul Gorger: gain soul stacks from any nearby death (friend or foe)
-  for (const gorger of state.units) {
+  const gorgerNearby = _combatGrid.getNearby(deadUnit.x, deadUnit.y, 8);
+  for (const gorger of gorgerNearby) {
     if (gorger.hp <= 0 || gorger.id === deadUnit.id) continue;
     if (!gorger.upgradeSpecial?.soulHarvest) continue;
     const maxStacks = gorger.upgradeSpecial.soulMaxStacks ?? 20;
@@ -2250,7 +2336,8 @@ function trackDeathResources(state: GameState, deadUnit: UnitState): void {
     const radius = deadUnit.upgradeSpecial.explodeRadius ?? 3;
     const r2 = radius * radius;
     const burnStacks = deadUnit.upgradeSpecial.extraBurnStacks ?? 0;
-    for (const u of state.units) {
+    const explodeNearby = _combatGrid.getNearby(deadUnit.x, deadUnit.y, radius);
+    for (const u of explodeNearby) {
       if (u.team === deadUnit.team || u.hp <= 0) continue;
       if ((u.x - deadUnit.x) ** 2 + (u.y - deadUnit.y) ** 2 > r2) continue;
       dealDamage(state, u, dmg, true, deadUnit.playerId);
@@ -2527,9 +2614,9 @@ function tickSpawners(state: GameState): void {
         state.units.push({
           id: genId(state), type: stats.name, playerId: building.playerId, team: player.team,
           x: building.worldX + (si * 0.3), y: building.worldY,
-          hp: Math.max(1, Math.round(stats.hp * upgrade.hp * raceHpMult)),
-          maxHp: Math.max(1, Math.round(stats.hp * upgrade.hp * raceHpMult)),
-          damage: Math.max(1, Math.round(stats.damage * upgrade.damage * researchMult.damageMult)),
+          hp: Math.max(1, Math.round(stats.hp * upgrade.hp * raceHpMult * (player.statBonus ?? 1))),
+          maxHp: Math.max(1, Math.round(stats.hp * upgrade.hp * raceHpMult * (player.statBonus ?? 1))),
+          damage: Math.max(1, Math.round(stats.damage * upgrade.damage * researchMult.damageMult * (player.statBonus ?? 1))),
           attackSpeed: Math.max(0.2, stats.attackSpeed * upgrade.attackSpeed), attackTimer: 0,
           moveSpeed: Math.max(0.5, stats.moveSpeed * upgrade.moveSpeed * raceMoveSpeedMult),
           range: Math.max(1, stats.range * upgrade.range),
@@ -2551,7 +2638,7 @@ function getEffectiveSpeed(unit: UnitState, gameState?: GameState): number {
   let isSlowed = false;
   for (const eff of unit.statusEffects) {
     if (eff.type === StatusType.Slow) { speed *= Math.max(0.5, 1 - 0.1 * eff.stacks); isSlowed = true; }
-    if (eff.type === StatusType.Haste) speed *= 1.3;
+    if (eff.type === StatusType.Haste) speed *= (eff.stacks >= 2 ? 1.6 : 1.3);
   }
   // Deep Freezing Depths: slowed units move 15% slower
   if (isSlowed && gameState) {
@@ -2575,7 +2662,7 @@ function getEffectiveSpeed(unit: UnitState, gameState?: GameState): number {
 function getEffectiveDamage(unit: UnitState, state?: GameState): number {
   let dmg = unit.damage;
   for (const eff of unit.statusEffects) {
-    if (eff.type === StatusType.Frenzy) dmg = Math.round(dmg * 1.5);
+    if (eff.type === StatusType.Frenzy) dmg = Math.round(dmg * (eff.stacks >= 2 ? 2.0 : 1.5));
   }
   // Horde aura damage bonus
   const auraDmg = unit.upgradeSpecial?._auraDmg ?? 0;
@@ -2584,6 +2671,19 @@ function getEffectiveDamage(unit: UnitState, state?: GameState): number {
   if (state && unit.shieldHp > 0) {
     const p = state.players[unit.playerId];
     if (p?.researchUpgrades.raceUpgrades['crown_ability_3']) dmg = Math.round(dmg * 1.25);
+  }
+  // Geists Hungering Dark: lifesteal % also increases damage by the same amount
+  if (state) {
+    const gp = state.players[unit.playerId];
+    if (gp?.race === Race.Geists && gp.researchUpgrades.raceUpgrades['geists_ability_4']) {
+      // Base lifesteal: melee 20%, ranged 20%, caster 20% (projectile)
+      let lsPct = 0.20;
+      // Death Grip: melee lifesteal +10%
+      if (unit.category === 'melee' && gp.researchUpgrades.raceUpgrades['geists_melee_1']) lsPct += 0.10;
+      // Soul Arrows: ranged lifesteal +10%
+      if (unit.category === 'ranged' && gp.researchUpgrades.raceUpgrades['geists_ranged_1']) lsPct += 0.10;
+      if (lsPct > 0) dmg = Math.round(dmg * (1 + lsPct));
+    }
   }
   return dmg;
 }
@@ -2720,7 +2820,8 @@ function tickUnitMovement(state: GameState): void {
 
     let sep = 0;
     let sepCount = 0;
-    for (const other of state.units) {
+    const sepNearby = _combatGrid.getNearby(pos.x, pos.y, 2.2);
+    for (const other of sepNearby) {
       if (other.id === unit.id || other.lane !== unit.lane) continue;
       const ox = other.x - pos.x;
       const oy = other.y - pos.y;
@@ -2801,28 +2902,34 @@ function tickUnitMovement(state: GameState): void {
 const POTION_PICKUP_RADIUS = 1.5;
 
 function applyPotionBuff(state: GameState, unit: GameState['units'][0], type: PotionType): void {
-  // Goblins Potent Potions: +50% duration
   const unitPlayer = state.players[unit.playerId];
-  const potentMult = (unitPlayer?.race === Race.Goblins && unitPlayer.researchUpgrades.raceUpgrades['goblins_ability_3']) ? 1.5 : 1;
-  const dur = Math.round(6 * TICK_RATE * potentMult);
+  const isPermanent = unitPlayer?.race === Race.Goblins && unitPlayer.researchUpgrades.raceUpgrades['goblins_ability_4'];
+  // Goblins Potent Potions: 100% stronger effects (stacks=2 for haste/frenzy, double shield HP)
+  const isPotent = unitPlayer?.race === Race.Goblins && unitPlayer.researchUpgrades.raceUpgrades['goblins_ability_3'];
+  const dur = isPermanent ? 999 * TICK_RATE : 6 * TICK_RATE;
+  const potentStacks = isPotent ? 2 : 1;
   if (type === 'speed') {
     const haste = unit.statusEffects.find(s => s.type === StatusType.Haste);
-    if (haste) { haste.duration = dur; }
-    else unit.statusEffects.push({ type: StatusType.Haste, stacks: 1, duration: dur });
-    addFloatingText(state, unit.x, unit.y, 'SPEED', '#69f0ae', undefined, undefined,
+    if (haste) { haste.duration = dur; haste.stacks = potentStacks; }
+    else unit.statusEffects.push({ type: StatusType.Haste, stacks: potentStacks, duration: dur });
+    const speedLabel = isPermanent ? 'SPEED!' : 'SPEED';
+    addFloatingText(state, unit.x, unit.y, speedLabel, '#69f0ae', undefined, undefined,
       { ftType: 'status', miniIcon: 'potion_blue' });
   } else if (type === 'rage') {
     const frenzy = unit.statusEffects.find(s => s.type === StatusType.Frenzy);
-    if (frenzy) { frenzy.duration = dur; }
-    else unit.statusEffects.push({ type: StatusType.Frenzy, stacks: 1, duration: dur });
-    addFloatingText(state, unit.x, unit.y, 'RAGE', '#ff5722', undefined, undefined,
+    if (frenzy) { frenzy.duration = dur; frenzy.stacks = potentStacks; }
+    else unit.statusEffects.push({ type: StatusType.Frenzy, stacks: potentStacks, duration: dur });
+    const rageLabel = isPermanent ? 'RAGE!' : 'RAGE';
+    addFloatingText(state, unit.x, unit.y, rageLabel, '#ff5722', undefined, undefined,
       { ftType: 'status', miniIcon: 'potion_red' });
   } else {
+    const shieldHp = isPotent ? 40 : 20;
     const shield = unit.statusEffects.find(s => s.type === StatusType.Shield);
-    if (shield) { shield.duration = dur; shield.stacks = 20; }
-    else unit.statusEffects.push({ type: StatusType.Shield, stacks: 20, duration: dur });
-    unit.shieldHp = Math.max(unit.shieldHp, 20);
-    addFloatingText(state, unit.x, unit.y, 'SHIELD', '#42a5f5', undefined, undefined,
+    if (shield) { shield.duration = dur; shield.stacks = shieldHp; }
+    else unit.statusEffects.push({ type: StatusType.Shield, stacks: shieldHp, duration: dur });
+    unit.shieldHp = Math.max(unit.shieldHp, shieldHp);
+    const shieldLabel = isPermanent ? 'SHIELD!' : 'SHIELD';
+    addFloatingText(state, unit.x, unit.y, shieldLabel, '#42a5f5', undefined, undefined,
       { ftType: 'status', miniIcon: 'potion_green' });
   }
   addSound(state, 'ability_potion', unit.x, unit.y);
@@ -3160,6 +3267,24 @@ function dealDamage(state: GameState, target: UnitState, amount: number, showFlo
                 { ftType: 'status' });
             }
           }
+          // Horde Trophy Hunter: War Troll gains +2% HP/dmg per kill, carries over between trolls
+          if (killer.type === 'War Troll' && killPlayer?.researchUpgrades.raceUpgrades['horde_ability_4']) {
+            killPlayer.trollKills = Math.min((killPlayer.trollKills ?? 0) + 1, 100);
+            if (!killer.upgradeSpecial._trollBaseDmg) {
+              killer.upgradeSpecial = { ...killer.upgradeSpecial, _trollBaseDmg: killer.damage, _trollBaseHp: killer.maxHp };
+            }
+            const tBaseDmg = killer.upgradeSpecial._trollBaseDmg;
+            const tBaseHp = killer.upgradeSpecial._trollBaseHp;
+            const newDmg = Math.round(tBaseDmg * (1 + 0.02 * killPlayer.trollKills));
+            const newMax = Math.round(tBaseHp * (1 + 0.02 * killPlayer.trollKills));
+            const dmgGain = newDmg - killer.damage;
+            const hpGain = newMax - killer.maxHp;
+            killer.damage = newDmg;
+            killer.hp += hpGain;
+            killer.maxHp = newMax;
+            addFloatingText(state, killer.x, killer.y - 0.5, `+${dmgGain} DMG +${hpGain} HP`, '#ff9800', undefined, undefined,
+              { ftType: 'status' });
+          }
           // Wild Kill Frenzy: on kill, heal 15% maxHP, nearby Wild allies gain Frenzy (+50% dmg) and Haste
           const killerRace = state.players[killer.playerId]?.race;
           if (killerRace === Race.Wild) {
@@ -3462,6 +3587,15 @@ function applyOnHitEffects(state: GameState, attacker: UnitState, target: UnitSt
     case Race.Wild:
       // Lurker: burn (poison) on melee hit
       if (isMelee) applyStatus(target, StatusType.Burn, 1 + (sp?.extraBurnStacks ?? 0));
+      // Savage Instinct: frenzied Wild units gain 15% lifesteal
+      if (isMelee && state.players[attacker.playerId]?.researchUpgrades.raceUpgrades['wild_ability_4'] && attacker.statusEffects.some(e => e.type === StatusType.Frenzy)) {
+        const wildSteal = Math.round(attacker.damage * 0.15);
+        if (wildSteal > 0) {
+          const wah = healUnit(attacker, wildSteal);
+          if (wah > 0) trackHealing(state, attacker, wah);
+          addCombatEvent(state, { type: 'lifesteal', x: target.x, y: target.y, x2: attacker.x, y2: attacker.y, color: '#66bb6a' });
+        }
+      }
       break;
     case Race.Geists:
       // Bone Knight: burn (soul drain) on melee hit + lifesteal 20% + Wound
@@ -4630,7 +4764,8 @@ function tickCombat(state: GameState): void {
       const dbu = deathPlayer.researchUpgrades;
       // Oozlings Volatile Membrane: melee death AoE — 15 dmg within 2 tiles
       if (dbu.raceUpgrades['oozlings_melee_1'] && u.category === 'melee') {
-        for (const enemy of state.units) {
+        const deathNearby = _combatGrid.getNearby(u.x, u.y, 2);
+        for (const enemy of deathNearby) {
           if (enemy.team === u.team || enemy.hp <= 0) continue;
           const dd = Math.sqrt((enemy.x - u.x) ** 2 + (enemy.y - u.y) ** 2);
           if (dd <= 2) dealDamage(state, enemy, 15, true, u.playerId);
@@ -4659,7 +4794,8 @@ function tickCombat(state: GameState): void {
       }
       // Oozlings Acid Pool: ranged death AoE — 5 dmg to enemies within 1.5 tiles
       if (dbu.raceUpgrades['oozlings_ranged_2'] && u.category === 'ranged') {
-        for (const enemy of state.units) {
+        const acidNearby = _combatGrid.getNearby(u.x, u.y, 1.5);
+        for (const enemy of acidNearby) {
           if (enemy.team === u.team || enemy.hp <= 0) continue;
           const dd = Math.sqrt((enemy.x - u.x) ** 2 + (enemy.y - u.y) ** 2);
           if (dd <= 1.5) dealDamage(state, enemy, 5, true, u.playerId);
@@ -4735,10 +4871,11 @@ function tickHQDefense(state: GameState): void {
     const hx = hq.x + HQ_WIDTH / 2;
     const hy = hq.y + HQ_HEIGHT / 2;
 
-    // Find closest enemy unit in range
+    // Find closest enemy unit in range (spatial grid lookup)
     let closest: UnitState | null = null;
     let closestDist = Infinity;
-    for (const u of state.units) {
+    const hqNearby = _combatGrid.getNearby(hx, hy, HQ_RANGE);
+    for (const u of hqNearby) {
       if (u.team !== enemyTeam) continue;
       const d = Math.sqrt((u.x - hx) ** 2 + (u.y - hy) ** 2);
       if (d <= HQ_RANGE && d < closestDist) {
@@ -4818,8 +4955,12 @@ function tickTowers(state: GameState): void {
       Race.Geists, Race.Demon, Race.Horde, // single-target special
     ];
     if (specialTowerRaces.includes(player.race)) {
-      const hasEnemiesInRange = state.units.some(u => u.team === enemyTeam &&
-        Math.sqrt((u.x - tx) ** 2 + (u.y - ty) ** 2) <= stats.range);
+      const towerNearby = _combatGrid.getNearby(tx, ty, stats.range);
+      let hasEnemiesInRange = false;
+      for (const u of towerNearby) {
+        if (u.team !== enemyTeam) continue;
+        if ((u.x - tx) ** 2 + (u.y - ty) ** 2 <= stats.range * stats.range) { hasEnemiesInRange = true; break; }
+      }
       if (hasEnemiesInRange) {
         applyTowerSpecial(state, building, player.race, stats, upgrade.special);
         if (towerFireSounds < 2) { addSound(state, 'tower_fire', tx, ty); towerFireSounds++; }
@@ -4831,7 +4972,8 @@ function tickTowers(state: GameState): void {
     let closest: UnitState | null = null;
     let closestDist = Infinity;
 
-    for (const u of state.units) {
+    const defaultNearby = _combatGrid.getNearby(tx, ty, stats.range);
+    for (const u of defaultNearby) {
       if (u.team !== enemyTeam) continue;
       const dx = u.x - tx, dy = u.y - ty;
       const dist = Math.sqrt(dx * dx + dy * dy);
@@ -4890,8 +5032,12 @@ function tickTowers(state: GameState): void {
 // === Projectiles ===
 
 function tickProjectiles(state: GameState): void {
-  const toRemove = new Set<number>();
-  const unitById = new Map(state.units.map(u => [u.id, u]));
+  _projectileRemoveSet.clear();
+  const toRemove = _projectileRemoveSet;
+  // Reuse module-level map to avoid per-tick allocation
+  _unitById.clear();
+  for (const u of state.units) _unitById.set(u.id, u);
+  const unitById = _unitById;
   let rangedHitSounds = 0;
 
   for (const p of state.projectiles) {
@@ -4905,7 +5051,8 @@ function tickProjectiles(state: GameState): void {
         const impX = p.targetX, impY = p.targetY;
         if (p.aoeRadius > 0) {
           addCombatEvent(state, { type: 'splash', x: impX, y: impY, radius: p.aoeRadius, color: '#ff6600' });
-          for (const u of state.units) {
+          const splashNearby = _combatGrid.getNearby(impX, impY, p.aoeRadius);
+          for (const u of splashNearby) {
             if (u.team === p.team || u.hp <= 0) continue;
             const ud = Math.sqrt((u.x - impX) ** 2 + (u.y - impY) ** 2);
             if (ud <= p.aoeRadius) {
@@ -5002,7 +5149,7 @@ function tickProjectiles(state: GameState): void {
           applyWound(target);
         // Geists Wraith Bow: ranged lifesteal
         if (p.lifestealPct && p.lifestealPct > 0) {
-          const source = state.units.find(u => u.id === p.sourceUnitId);
+          const source = p.sourceUnitId != null ? unitById.get(p.sourceUnitId) : undefined;
           if (source && source.hp > 0) {
             const steal = Math.round(p.damage * p.lifestealPct);
             if (steal > 0) {
@@ -5025,12 +5172,24 @@ function tickProjectiles(state: GameState): void {
         // Crown Piercing Arrows: ignore 20% def (applied as bonus damage)
         // Geists Soul Arrows: +10% lifesteal on ranged
         if (pbu.raceUpgrades['geists_ranged_1']) {
-          const lsSource = state.units.find(u => u.id === p.sourceUnitId);
+          const lsSource = p.sourceUnitId != null ? unitById.get(p.sourceUnitId) : undefined;
           if (lsSource && lsSource.hp > 0) {
             const extraSteal = Math.round(p.damage * 0.10);
             if (extraSteal > 0) {
               const ah = healUnit(lsSource, extraSteal);
               if (ah > 0) trackHealing(state, lsSource, ah);
+            }
+          }
+        }
+        // Wild Savage Instinct: frenzied Wild units gain 15% lifesteal on ranged
+        if (pbu.raceUpgrades['wild_ability_4']) {
+          const wildSrc = p.sourceUnitId != null ? unitById.get(p.sourceUnitId) : undefined;
+          if (wildSrc && wildSrc.hp > 0 && wildSrc.statusEffects.some(e => e.type === StatusType.Frenzy)) {
+            const wildSteal = Math.round(p.damage * 0.15);
+            if (wildSteal > 0) {
+              const wah = healUnit(wildSrc, wildSteal);
+              if (wah > 0) trackHealing(state, wildSrc, wah);
+              addCombatEvent(state, { type: 'lifesteal', x: target.x, y: target.y, x2: wildSrc.x, y2: wildSrc.y, color: '#66bb6a' });
             }
           }
         }
@@ -5041,7 +5200,8 @@ function tickProjectiles(state: GameState): void {
             // Find lowest HP ally nearby
             let lowestAlly: UnitState | null = null;
             let lowestHpPct = 1;
-            for (const u of state.units) {
+            const healNearby = _combatGrid.getNearby(target.x, target.y, 8);
+            for (const u of healNearby) {
               if (u.team !== sourcePlayer.team || u.hp <= 0 || u.hp >= u.maxHp) continue;
               const d2 = (u.x - target.x) ** 2 + (u.y - target.y) ** 2;
               if (d2 > 64) continue; // 8 tile radius
@@ -5059,7 +5219,8 @@ function tickProjectiles(state: GameState): void {
       // AOE damage
       if (p.aoeRadius > 0) {
         addCombatEvent(state, { type: 'splash', x: target.x, y: target.y, radius: p.aoeRadius, color: '#ffaa00' });
-        for (const u of state.units) {
+        const aoeNearby = _combatGrid.getNearby(target.x, target.y, p.aoeRadius);
+        for (const u of aoeNearby) {
           if (u.id === target.id || u.team === p.team) continue;
           const ad = Math.sqrt((u.x - target.x) ** 2 + (u.y - target.y) ** 2);
           if (ad <= p.aoeRadius) {
@@ -5086,7 +5247,7 @@ function tickProjectiles(state: GameState): void {
                 applyWound(u);
               // AoE lifesteal
               if (p.lifestealPct && p.lifestealPct > 0) {
-                const source = state.units.find(s => s.id === p.sourceUnitId);
+                const source = p.sourceUnitId != null ? unitById.get(p.sourceUnitId) : undefined;
                 if (source && source.hp > 0) {
                   const steal = Math.round(aoeDmg * p.lifestealPct);
                   if (steal > 0) {
@@ -5171,6 +5332,10 @@ function tickStatusEffects(state: GameState): void {
       if (regenPlayer && unit.category === 'melee' && regenPlayer.researchUpgrades.raceUpgrades['tenders_melee_1']) {
         regen = Math.max(regen, 2);
       }
+      // Oozlings Ooze Vitality: all Oozling units regen 2 HP/s
+      if (regenPlayer && regenPlayer.race === Race.Oozlings && regenPlayer.researchUpgrades.raceUpgrades['oozlings_ability_4']) {
+        regen = Math.max(regen, 2);
+      }
       if (regen > 0 && unit.hp < unit.maxHp) {
         // Any burn or slow (poison) effect suppresses regen
         const hasBurn = unit.statusEffects.some(e => e.type === StatusType.Burn);
@@ -5252,7 +5417,8 @@ function tickStatusEffects(state: GameState): void {
     for (const unit of state.units) {
       const immoPlayer = state.players[unit.playerId];
       if (immoPlayer?.researchUpgrades.raceUpgrades['demon_caster_2'] && unit.category === 'caster' && unit.hp > 0) {
-        for (const enemy of state.units) {
+        const immoNearby = _combatGrid.getNearby(unit.x, unit.y, 2);
+        for (const enemy of immoNearby) {
           if (enemy.team === unit.team || enemy.hp <= 0) continue;
           const d = Math.sqrt((enemy.x - unit.x) ** 2 + (enemy.y - unit.y) ** 2);
           if (d <= 2) applyStatus(enemy, StatusType.Burn, 1);
@@ -5308,16 +5474,23 @@ function applyTowerSpecial(state: GameState, building: BuildingState, race: Race
   const player = state.players[building.playerId];
   const enemyTeam = player.team === Team.Bottom ? Team.Top : Team.Bottom;
 
+  // Helper: find nearest enemy in spatial grid within range
+  const findNearest = (range: number): UnitState | null => {
+    let nearest: UnitState | null = null;
+    let nearestDist = range;
+    const nearby = _combatGrid.getNearby(tx, ty, range);
+    for (const u of nearby) {
+      if (u.team !== enemyTeam) continue;
+      const d = Math.sqrt((u.x - tx) ** 2 + (u.y - ty) ** 2);
+      if (d <= nearestDist) { nearest = u; nearestDist = d; }
+    }
+    return nearest;
+  };
+
   switch (race) {
     case Race.Crown: {
       // Balanced single-target: hit nearest, no special effect
-      let nearest: UnitState | null = null;
-      let nearestDist = stats.range;
-      for (const u of state.units) {
-        if (u.team !== enemyTeam) continue;
-        const d = Math.sqrt((u.x - tx) ** 2 + (u.y - ty) ** 2);
-        if (d <= nearestDist) { nearest = u; nearestDist = d; }
-      }
+      const nearest = findNearest(stats.range);
       if (nearest) {
         towerVisualProjectile(state, building, nearest);
         dealDamage(state, nearest, stats.damage, false, building.playerId, undefined, true);
@@ -5328,13 +5501,7 @@ function applyTowerSpecial(state: GameState, building: BuildingState, race: Race
     }
     case Race.Horde: {
       // Heavy single-target with knockback chance
-      let nearest: UnitState | null = null;
-      let nearestDist = stats.range;
-      for (const u of state.units) {
-        if (u.team !== enemyTeam) continue;
-        const d = Math.sqrt((u.x - tx) ** 2 + (u.y - ty) ** 2);
-        if (d <= nearestDist) { nearest = u; nearestDist = d; }
-      }
+      const nearest = findNearest(stats.range);
       if (nearest) {
         towerVisualProjectile(state, building, nearest);
         dealDamage(state, nearest, stats.damage, false, building.playerId, undefined, true);
@@ -5357,7 +5524,9 @@ function applyTowerSpecial(state: GameState, building: BuildingState, race: Race
       for (let chain = 0; chain < chainMax; chain++) {
         let best: UnitState | null = null;
         let bestDist = chain === 0 ? stats.range : 4;
-        for (const u of state.units) {
+        // Copy nearby results since we call getNearby multiple times in loop
+        const chainNearby = _combatGrid.getNearby(lastX, lastY, bestDist).slice();
+        for (const u of chainNearby) {
           if (u.team !== enemyTeam || targets.some(t => t.id === u.id)) continue;
           const d = Math.sqrt((u.x - lastX) ** 2 + (u.y - lastY) ** 2);
           if (d <= bestDist) { best = u; bestDist = d; }
@@ -5387,13 +5556,7 @@ function applyTowerSpecial(state: GameState, building: BuildingState, race: Race
     case Race.Demon: {
       // Single-target + burn
       const burnStacks = 1 + (sp.extraBurnStacks ?? 0);
-      let nearest: UnitState | null = null;
-      let nearestDist = stats.range;
-      for (const u of state.units) {
-        if (u.team !== enemyTeam) continue;
-        const d = Math.sqrt((u.x - tx) ** 2 + (u.y - ty) ** 2);
-        if (d <= nearestDist) { nearest = u; nearestDist = d; }
-      }
+      const nearest = findNearest(stats.range);
       if (nearest) {
         towerVisualProjectile(state, building, nearest);
         dealDamage(state, nearest, stats.damage, false, building.playerId, undefined, true);
@@ -5407,7 +5570,8 @@ function applyTowerSpecial(state: GameState, building: BuildingState, race: Race
       // AoE slow: hit ALL enemies in range — ice pulse
       const slowStacks = 1 + (sp.extraSlowStacks ?? 0);
       let hit = false;
-      for (const u of state.units) {
+      const deepNearby = _combatGrid.getNearby(tx, ty, stats.range);
+      for (const u of deepNearby) {
         if (u.team !== enemyTeam) continue;
         const d = Math.sqrt((u.x - tx) ** 2 + (u.y - ty) ** 2);
         if (d <= stats.range) {
@@ -5428,7 +5592,8 @@ function applyTowerSpecial(state: GameState, building: BuildingState, race: Race
       const burnStacks = 1 + (sp.extraBurnStacks ?? 0);
       const slowStacks = sp.extraSlowStacks ?? 0;
       let hit = false;
-      for (const u of state.units) {
+      const wildNearby = _combatGrid.getNearby(tx, ty, stats.range);
+      for (const u of wildNearby) {
         if (u.team !== enemyTeam) continue;
         const d = Math.sqrt((u.x - tx) ** 2 + (u.y - ty) ** 2);
         if (d <= stats.range) {
@@ -5448,13 +5613,7 @@ function applyTowerSpecial(state: GameState, building: BuildingState, race: Race
     case Race.Geists: {
       // Wither: hit nearest enemy + apply burn
       const burnStacks = 1 + (sp.extraBurnStacks ?? 0);
-      let nearest: UnitState | null = null;
-      let nearestDist = stats.range;
-      for (const u of state.units) {
-        if (u.team !== enemyTeam) continue;
-        const d = Math.sqrt((u.x - tx) ** 2 + (u.y - ty) ** 2);
-        if (d <= nearestDist) { nearest = u; nearestDist = d; }
-      }
+      const nearest = findNearest(stats.range);
       if (nearest) {
         towerVisualProjectile(state, building, nearest);
         dealDamage(state, nearest, stats.damage, false, building.playerId, undefined, true);
@@ -5469,7 +5628,8 @@ function applyTowerSpecial(state: GameState, building: BuildingState, race: Race
       const slowStacks = 1 + (sp.extraSlowStacks ?? 0);
       const burnStacks = sp.extraBurnStacks ?? 0;
       let hit = false;
-      for (const u of state.units) {
+      const tendNearby = _combatGrid.getNearby(tx, ty, stats.range);
+      for (const u of tendNearby) {
         if (u.team !== enemyTeam) continue;
         const d = Math.sqrt((u.x - tx) ** 2 + (u.y - ty) ** 2);
         if (d <= stats.range) {
@@ -5519,12 +5679,14 @@ function executeNukeDetonation(state: GameState, playerId: number, x: number, y:
   addSound(state, 'nuke_detonated', x, y);
 
   let nukeKills = 0;
+  let nukeTotalHp = 0;
   state.units = state.units.filter(u => {
     if (u.team !== enemyTeam) return true;
     if (u.nukeImmune) return true; // Diamond champions survive nukes
     if ((u.x - x) ** 2 + (u.y - y) ** 2 <= radius * radius) {
       addDeathParticles(state, u.x, u.y, '#ff4400', 8);
       if (u.carryingDiamond) dropDiamond(state, u.x, u.y);
+      nukeTotalHp += u.hp;
       trackDeathResources(state, u);
       nukeKills++;
       return false;
@@ -5536,12 +5698,20 @@ function executeNukeDetonation(state: GameState, playerId: number, x: number, y:
     state.playerStats[playerId].enemyUnitsKilled += nukeKills;
   }
 
+  let harvesterKills = 0;
   for (const h of state.harvesters) {
     if (h.team !== enemyTeam || h.state === 'dead') continue;
     if ((h.x - x) ** 2 + (h.y - y) ** 2 <= radius * radius) {
       addDeathParticles(state, h.x, h.y, '#ff4400', 6);
+      nukeTotalHp += h.hp;
       killHarvester(state, h);
+      harvesterKills++;
     }
+  }
+
+  const totalHits = nukeKills + harvesterKills;
+  if (totalHits > 0) {
+    addFloatingText(state, x, y, `NUKE! (${nukeTotalHp} dmg ${totalHits} kills)`, '#ff4400');
   }
 
   // GDD: Nuke does NOT damage buildings or HQ — only units and harvesters
@@ -5640,7 +5810,8 @@ function tickHarvesters(state: GameState): void {
 
     // Frightened: 50% slower when enemies within 5 tiles
     let frightened = false;
-    for (const u of state.units) {
+    const harvNearby = _combatGrid.getNearby(h.x, h.y, 5);
+    for (const u of harvNearby) {
       if (u.team === h.team || u.hp <= 0) continue;
       const dx = u.x - h.x, dy = u.y - h.y;
       if (dx * dx + dy * dy <= 25) { frightened = true; break; }
@@ -5688,8 +5859,10 @@ function tickHarvesters(state: GameState): void {
         if (h.miningTimer <= 0) {
           const manaOwner = state.players[h.playerId];
           if (manaOwner) {
-            manaOwner.mana += 2;
-            addFloatingText(state, h.x, h.y - 0.3, '+2', '#7c4dff', 'mana', undefined, { ownerOnly: h.playerId });
+            // Demon Mana Siphon: +50% mana from channeling
+            const manaAmt = manaOwner.researchUpgrades.raceUpgrades['demon_ability_4'] ? 3 : 2;
+            manaOwner.mana += manaAmt;
+            addFloatingText(state, h.x, h.y - 0.3, `+${manaAmt}`, '#7c4dff', 'mana', undefined, { ownerOnly: h.playerId });
           }
           h.miningTimer = MANA_CHANNEL_TICKS;
         }
@@ -6041,9 +6214,12 @@ function walkHome(state: GameState, h: HarvesterState, movePerTick: number): voi
       if (ps) ps.totalGoldEarned += amt;
       if (state.tick % 2 === 0) addFloatingText(state, h.x, h.y, `+${amt}`, '#ffd700', 'gold');
     } else if (h.carryingResource === ResourceType.Wood) {
-      player.wood += amt;
-      if (ps) ps.totalWoodEarned += amt;
-      if (state.tick % 2 === 0) addFloatingText(state, h.x, h.y, `+${amt}`, '#8d6e63', 'wood');
+      // Crown Timber Surplus: +40% wood returned
+      const woodAmt = (player.race === Race.Crown && player.researchUpgrades.raceUpgrades['crown_ability_4'])
+        ? Math.round(amt * 1.4) : amt;
+      player.wood += woodAmt;
+      if (ps) ps.totalWoodEarned += woodAmt;
+      if (state.tick % 2 === 0) addFloatingText(state, h.x, h.y, `+${woodAmt}`, '#8d6e63', 'wood');
     } else if (h.carryingResource === ResourceType.Meat) {
       player.meat += amt;
       if (ps) ps.totalMeatEarned += amt;

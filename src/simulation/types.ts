@@ -324,6 +324,10 @@ export interface PlayerState {
   souls: number;                 // Geists (gained from ANY death)
   deathEssence: number;          // Oozlings (gained from oozling deaths)
   researchUpgrades: ResearchUpgradeState;
+  /** Accumulated War Troll kills across all summons (Horde Trophy Hunter) */
+  trollKills: number;
+  /** Multiplier for unit HP and damage at spawn (default 1.0, used by nightmare bots) */
+  statBonus: number;
 }
 
 // Race ability targeting mode
@@ -736,7 +740,7 @@ export type GameCommand =
   | { type: 'toggle_lane'; playerId: number; buildingId: number; lane: Lane }
   | { type: 'toggle_all_lanes'; playerId: number; lane: Lane }
   | { type: 'purchase_upgrade'; playerId: number; buildingId: number; choice: string }
-  | { type: 'build_hut'; playerId: number }
+  | { type: 'build_hut'; playerId: number; hutSlot?: number }
   | { type: 'set_hut_assignment'; playerId: number; hutId: number; assignment: HarvesterAssignment }
   | { type: 'fire_nuke'; playerId: number; x: number; y: number }
   | { type: 'ping'; playerId: number; x: number; y: number }

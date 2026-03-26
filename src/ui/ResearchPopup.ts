@@ -9,63 +9,59 @@ export type ResearchPopupAction =
   | { action: 'upgrade'; upgradeId: string }
   | { action: 'close' };
 
-// Icons for each upgrade (keyed by upgrade id)
-const UPGRADE_ICONS: Record<string, string> = {
-  // Universal
-  melee_atk: '\u2694', ranged_atk: '\u2694', caster_atk: '\u2694',
-  melee_def: '\u{1F6E1}', ranged_def: '\u{1F6E1}', caster_def: '\u{1F6E1}',
-  // Crown
-  crown_melee_1: '\u{1F6E1}', crown_melee_2: '\u{1F451}',
-  crown_ranged_1: '\u{1F3AF}', crown_ranged_2: '\u{1F3F9}',
-  crown_caster_1: '\u{1F48E}', crown_caster_2: '\u2764',
-  // Horde
-  horde_melee_1: '\u{1F4A2}', horde_melee_2: '\u{1F9B4}',
-  horde_ranged_1: '\u2744', horde_ranged_2: '\u{1F4A3}',
-  horde_caster_1: '\u{1F941}', horde_caster_2: '\u{1F3BA}',
-  // Goblins
-  goblins_melee_1: '\u{1F5E1}', goblins_melee_2: '\u{1F3C3}',
-  goblins_ranged_1: '\u{1F525}', goblins_ranged_2: '\u{1F4A5}',
-  goblins_caster_1: '\u{1F52E}', goblins_caster_2: '\u2601',
-  // Oozlings
-  oozlings_melee_1: '\u{1F4A5}', oozlings_melee_2: '\u{1F9EC}',
-  oozlings_ranged_1: '\u2620', oozlings_ranged_2: '\u{1F7E2}',
-  oozlings_caster_1: '\u{1F517}', oozlings_caster_2: '\u2747',
-  // Demon
-  demon_melee_1: '\u{1F525}', demon_melee_2: '\u{1F47F}',
-  demon_ranged_1: '\u2604', demon_ranged_2: '\u{1F441}',
-  demon_caster_1: '\u{1F32B}', demon_caster_2: '\u2668',
-  // Deep
-  deep_melee_1: '\u{1F30A}', deep_melee_2: '\u{1F4A7}',
-  deep_ranged_1: '\u2744', deep_ranged_2: '\u2693',
-  deep_caster_1: '\u2728', deep_caster_2: '\u{1F6E1}',
-  // Wild
-  wild_melee_1: '\u26A1', wild_melee_2: '\u{1F43A}',
-  wild_ranged_1: '\u2620', wild_ranged_2: '\u{1F3AF}',
-  wild_caster_1: '\u{1F32A}', wild_caster_2: '\u{1F43A}',
-  // Geists
-  geists_melee_1: '\u270B', geists_melee_2: '\u{1F47B}',
-  geists_ranged_1: '\u{1F480}', geists_ranged_2: '\u{1F47B}',
-  geists_caster_1: '\u{1F4A0}', geists_caster_2: '\u{1F480}',
-  // Tenders
-  tenders_melee_1: '\u{1F333}', tenders_melee_2: '\u{1F335}',
-  tenders_ranged_1: '\u{1F4A7}', tenders_ranged_2: '\u{1F331}',
-  tenders_caster_1: '\u{1F33C}', tenders_caster_2: '\u{1F495}',
+// Skill icon key for each upgrade — rendered from NhanceSpellIconsBundle with bordered frame
+const SKILL_ICON_MAP: Record<string, string> = {
+  // Universal attack/defense
+  melee_atk: 'T_Icon_BloodCombat_13', melee_def: 'T_Icon_Gold_16',
+  ranged_atk: 'T_Icon_BloodCombat_20', ranged_def: 'T_Icon_BloodCombat_01',
+  caster_atk: 'T_Icon_Arcane_01', caster_def: 'T_Icon_Arcane_10',
+  // Crown — golden/regal
+  crown_melee_1: 'T_Icon_Fire_08', crown_melee_2: 'T_Icon_Fire_19',
+  crown_ranged_1: 'T_Icon_Frost_03', crown_ranged_2: 'T_Icon_BloodCombat_04',
+  crown_caster_1: 'T_Icon_Frost_20', crown_caster_2: 'T_Icon_Nature_15',
+  // Horde — red/brutal
+  horde_melee_1: 'T_Icon_BloodCombat_17', horde_melee_2: 'T_Icon_Gold_01',
+  horde_ranged_1: 'T_Icon_BloodCombat_14', horde_ranged_2: 'T_Icon_Fire_15',
+  horde_caster_1: 'T_Icon_Unholy_08', horde_caster_2: 'T_Icon_BloodCombat_12',
+  // Goblins — green/fire
+  goblins_melee_1: 'T_Icon_Fire_18', goblins_melee_2: 'T_Icon_Fire_16',
+  goblins_ranged_1: 'T_Icon_Fire_03', goblins_ranged_2: 'T_Icon_Unholy_02',
+  goblins_caster_1: 'T_Icon_Fire_02', goblins_caster_2: 'T_Icon_Nature_06',
+  // Oozlings — slime/unholy
+  oozlings_melee_1: 'T_Icon_Shadow_14', oozlings_melee_2: 'T_Icon_Unholy_03',
+  oozlings_ranged_1: 'T_Icon_Unholy_01', oozlings_ranged_2: 'T_Icon_Nature_04',
+  oozlings_caster_1: 'T_Icon_Unholy_10', oozlings_caster_2: 'T_Icon_Unholy_11',
+  // Demon — fire/dark
+  demon_melee_1: 'T_Icon_Fire_13', demon_melee_2: 'T_Icon_Shadow_05',
+  demon_ranged_1: 'T_Icon_Fire_01', demon_ranged_2: 'T_Icon_Fire_11',
+  demon_caster_1: 'T_Icon_Fire_07', demon_caster_2: 'T_Icon_Fire_14',
+  // Deep — frost/ice
+  deep_melee_1: 'T_Icon_Frost_13', deep_melee_2: 'T_Icon_Frost_18',
+  deep_ranged_1: 'T_Icon_Frost_03', deep_ranged_2: 'T_Icon_Frost_17',
+  deep_caster_1: 'T_Icon_Frost_10', deep_caster_2: 'T_Icon_Frost_20',
+  // Wild — nature/beast
+  wild_melee_1: 'T_Icon_Tech_14', wild_melee_2: 'T_Icon_Shadow_18',
+  wild_ranged_1: 'T_Icon_Nature_13', wild_ranged_2: 'T_Icon_BloodCombat_09',
+  wild_caster_1: 'T_Icon_Nature_11', wild_caster_2: 'T_Icon_Energy_06',
+  // Geists — shadow/unholy undead
+  geists_melee_1: 'T_Icon_Shadow_17', geists_melee_2: 'T_Icon_Shadow_11',
+  geists_ranged_1: 'T_Icon_Shadow_15', geists_ranged_2: 'T_Icon_Shadow_03',
+  geists_caster_1: 'T_Icon_Unholy_04', geists_caster_2: 'T_Icon_Unholy_14',
+  // Tenders — nature/healing
+  tenders_melee_1: 'T_Icon_Nature_02', tenders_melee_2: 'T_Icon_Nature_13',
+  tenders_ranged_1: 'T_Icon_Nature_19', tenders_ranged_2: 'T_Icon_Nature_17',
+  tenders_caster_1: 'T_Icon_Nature_11', tenders_caster_2: 'T_Icon_Nature_07',
+  // Race ability upgrades
+  crown_ability_1: 'T_Icon_Energy_14', crown_ability_2: 'T_Icon_Gold_18', crown_ability_3: 'T_Icon_Gold_06', crown_ability_4: 'T_Icon_Nature_09',
+  horde_ability_1: 'T_Icon_Gold_04', horde_ability_2: 'T_Icon_Gold_19', horde_ability_3: 'T_Icon_Gold_02', horde_ability_4: 'T_Icon_Gold_05',
+  goblins_ability_1: 'T_Icon_Nature_08', goblins_ability_2: 'T_Icon_Energy_01', goblins_ability_3: 'T_Icon_Frost_07', goblins_ability_4: 'T_Icon_Arcane_18',
+  oozlings_ability_1: 'T_Icon_Elements_09', oozlings_ability_2: 'T_Icon_Arcane_06', oozlings_ability_3: 'T_Icon_Shadow_06', oozlings_ability_4: 'T_Icon_Nature_10',
+  demon_ability_1: 'T_Icon_Fire_10', demon_ability_2: 'T_Icon_Fire_04', demon_ability_3: 'T_Icon_Tech_13', demon_ability_4: 'T_Icon_Arcane_19',
+  deep_ability_1: 'T_Icon_Elements_16', deep_ability_2: 'T_Icon_Frost_15', deep_ability_3: 'T_Icon_Frost_19', deep_ability_4: 'T_Icon_Frost_08',
+  wild_ability_1: 'T_Icon_Nature_20', wild_ability_2: 'T_Icon_BloodCombat_16', wild_ability_3: 'T_Icon_Nature_01', wild_ability_4: 'T_Icon_BloodCombat_19',
+  geists_ability_1: 'T_Icon_Shadow_20', geists_ability_2: 'T_Icon_Unholy_19', geists_ability_3: 'T_Icon_Unholy_16', geists_ability_4: 'T_Icon_Shadow_13',
+  tenders_ability_1: 'T_Icon_Nature_14', tenders_ability_2: 'T_Icon_Nature_05', tenders_ability_3: 'T_Icon_Elements_12', tenders_ability_4: 'T_Icon_Tech_01',
 };
-
-// Icons for race ability tab upgrades
-const ABILITY_UPGRADE_ICONS: Record<string, string> = {
-  crown_ability_1: '\u{1F3C3}', crown_ability_2: '\u{1F3ED}', crown_ability_3: '\u{1F6E1}',
-  horde_ability_1: '\u{1F9B6}', horde_ability_2: '\u{1F4B0}', horde_ability_3: '\u{1F4E1}',
-  goblins_ability_1: '\u{1F9EA}', goblins_ability_2: '\u{1F4A8}', goblins_ability_3: '\u2728',
-  oozlings_ability_1: '\u{1F3AF}', oozlings_ability_2: '\u{1F52E}', oozlings_ability_3: '\u{1F4A5}',
-  demon_ability_1: '\u{1F525}', demon_ability_2: '\u{1F30B}', demon_ability_3: '\u{1F3F0}',
-  deep_ability_1: '\u{1F327}', deep_ability_2: '\u{1F49A}', deep_ability_3: '\u2744',
-  wild_ability_1: '\u{1F356}', wild_ability_2: '\u{1F300}', wild_ability_3: '\u26A1',
-  geists_ability_1: '\u{1F3F9}', geists_ability_2: '\u{1F480}', geists_ability_3: '\u{1F47B}',
-  tenders_ability_1: '\u{1F331}', tenders_ability_2: '\u23F0', tenders_ability_3: '\u{1F33F}',
-};
-
-Object.assign(UPGRADE_ICONS, ABILITY_UPGRADE_ICONS);
 
 type TabCategory = 'melee' | 'ranged' | 'caster' | 'ability';
 
@@ -139,11 +135,10 @@ export class ResearchPopup {
     const isMobile = canvasW < 600;
     const PAD = isMobile ? 8 : 10;
     const CARD_W = Math.min(canvasW - 24, isMobile ? 300 : 320);
-    const CARD_H = isMobile ? 68 : 76;
+    const CARD_H = isMobile ? 72 : 80;
     const HEADER_H = isMobile ? 28 : 32;
     const TAB_H = isMobile ? 28 : 32;
-    const isAbilityTab = TABS[this.activeTab].category === 'ability';
-    const ROWS = isAbilityTab ? 3 : 4;
+    const ROWS = 4;
     const CLOSE_SIZE = 22;
 
     const popupW = PAD * 2 + CARD_W;
@@ -233,7 +228,7 @@ export class ResearchPopup {
     const catDefs = allDefs.filter(d => d.category === cat);
     let rowItems: (typeof catDefs[0] | undefined)[];
     if (cat === 'ability') {
-      // Race ability tab: up to 3 one-shot upgrades
+      // Race ability tab: up to 4 one-shot upgrades
       rowItems = catDefs.filter(d => d.type === 'race_ability');
     } else {
       const atkDef = catDefs.find(d => d.type === 'attack');
@@ -245,9 +240,9 @@ export class ResearchPopup {
     const gridY = tabY + TAB_H + PAD;
     const fontSize = isMobile ? 11 : 12;
     const smallFont = isMobile ? 10 : 11;
-    const iconSize = isMobile ? 12 : 14;
-    const iconFont = `${iconSize}px sans-serif`;
     const costIconSz = isMobile ? 8 : 9;
+    const frameSize = isMobile ? 30 : 40;
+    const framePad = 3;
 
     for (let r = 0; r < ROWS; r++) {
       const def = rowItems[r];
@@ -285,17 +280,41 @@ export class ResearchPopup {
       ctx.lineWidth = 1;
       ctx.stroke();
 
-      // Row 1: Icon + Name + Level/checkmark
-      const icon = UPGRADE_ICONS[def.id] ?? '';
+      // Skill icon with bordered frame
+      const skillKey = SKILL_ICON_MAP[def.id];
+      const frameX = bx + 6;
+      const frameY = by + Math.round((bh - frameSize) / 2);
       const textColor = isOwned ? '#66bb6a' : canAfford ? '#fff' : '#999';
-      let nameX = bx + 4;
-      if (icon) {
-        ctx.font = iconFont;
-        ctx.textAlign = 'left';
-        ctx.fillStyle = textColor;
-        ctx.fillText(icon, bx + 3, by + 15);
-        nameX = bx + iconSize + 6;
+
+      {
+        // Dark rounded background + clipped icon (with fallback "?" if key missing)
+        ctx.save();
+        ctx.beginPath();
+        ctx.roundRect(frameX, frameY, frameSize, frameSize, 5);
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+        ctx.fill();
+        ctx.clip();
+        ctx.globalAlpha = isOwned ? 1 : canAfford ? 1 : 0.4;
+        if (!skillKey || !ui.drawSkillIcon(ctx, skillKey, frameX + framePad, frameY + framePad, frameSize - framePad * 2)) {
+          // Fallback: draw "?" glyph
+          ctx.fillStyle = '#888';
+          ctx.font = `bold ${frameSize * 0.6}px monospace`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText('?', frameX + frameSize / 2, frameY + frameSize / 2);
+          ctx.textBaseline = 'alphabetic';
+        }
+        ctx.restore();
+        ctx.globalAlpha = 1;
+        // Border
+        ctx.strokeStyle = isOwned ? '#66bb6a' : canAfford ? '#c8a84e' : '#555';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.roundRect(frameX, frameY, frameSize, frameSize, 5);
+        ctx.stroke();
       }
+
+      const textX = skillKey ? frameX + frameSize + 8 : bx + 4;
       // Strip category prefix from name
       let displayName = def.name;
       for (const prefix of ['Melee ', 'Ranged ', 'Caster ']) {
@@ -304,7 +323,7 @@ export class ResearchPopup {
       ctx.fillStyle = textColor;
       ctx.font = `bold ${fontSize}px monospace`;
       ctx.textAlign = 'left';
-      ctx.fillText(displayName, nameX, by + 14);
+      ctx.fillText(displayName, textX, by + 16);
 
       // Level or checkmark (right-aligned)
       if (def.oneShot) {
@@ -326,17 +345,17 @@ export class ResearchPopup {
       ctx.font = `${smallFont}px monospace`;
       ctx.textAlign = 'left';
       const descCharW = smallFont * 0.6;
-      const descMaxChars = Math.floor((bw - 8) / descCharW);
+      const descMaxChars = Math.floor((bw - (textX - bx) - 4) / descCharW);
       const desc = def.desc;
       const descLines = this.wrapText(desc, descMaxChars, 3);
       for (let li = 0; li < descLines.length; li++) {
-        ctx.fillText(descLines[li], bx + 4, by + 27 + li * (smallFont + 2));
+        ctx.fillText(descLines[li], textX, by + 30 + li * (smallFont + 2));
       }
 
       // Bottom row: Cost with icons
       if (!isOwned) {
         const costY = by + bh - 6;
-        let costX = bx + 4;
+        let costX = textX;
         ctx.font = `${smallFont}px monospace`;
 
         if (cost.gold > 0) {

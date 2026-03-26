@@ -8,3 +8,6 @@ android/
 vite-dev*.log
 *.jks
 *-keystore-base64.txt
+# Full icon packs — only Used/ subfolder is needed for the build
+src/assets/images/NhanceSpellIconsBundle/Textures_PNG/
+src/assets/images/Skill_Icon_Pack/

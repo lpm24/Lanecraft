@@ -53,6 +53,19 @@ import iconRightArrowPng from '../assets/images/Tiny Swords (Free Pack)/Tiny Swo
 // Water background for scenes
 import waterBgPng from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Terrain/Tileset/Water Background color.png?url';
 
+// Nhance Spell Icons Bundle — only the icons actually used in research popup
+const skillIconGlob = import.meta.glob(
+  '../assets/images/NhanceSpellIconsBundle/Used/*.png',
+  { eager: true, query: '?url', import: 'default' }
+) as Record<string, string>;
+
+const SKILL_ICON_URLS: Record<string, string> = {};
+for (const [path, url] of Object.entries(skillIconGlob)) {
+  const filename = path.split('/').pop()!;
+  const key = filename.replace(/\.png$/i, '');
+  SKILL_ICON_URLS[key] = url;
+}
+
 export type IconName = 'gold' | 'wood' | 'meat' | 'sword' | 'shield' | 'play' | 'close' | 'settings' | 'info' | 'music' | 'diamond' | 'mana' | 'souls' | 'ooze' | 'star' | 'research' | 'nuke' | 'dice' | 'leftArrow' | 'rightArrow';
 export type RibbonColor = 0 | 1 | 2 | 3 | 4; // blue, red, yellow, purple, dark
 export type SwordColor = 0 | 1 | 2 | 3 | 4;
@@ -313,6 +326,16 @@ export class UIAssets {
 
   getIconImage(name: IconName): HTMLImageElement | null {
     return this.loadImage(ICON_URLS[name]);
+  }
+
+  /** Draw a skill icon from the Skill_Icon_Pack by key (e.g. 'blue_01', 'addon_03') */
+  drawSkillIcon(ctx: CanvasRenderingContext2D, key: string, x: number, y: number, size: number): boolean {
+    const url = SKILL_ICON_URLS[key];
+    if (!url) return false;
+    const img = this.loadImage(url);
+    if (!img) return false;
+    ctx.drawImage(img, x, y, size, size);
+    return true;
   }
 
   // =================================================================

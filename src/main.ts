@@ -16,6 +16,25 @@ import { loadProfile, updateProfileFromMatch, ACHIEVEMENTS } from './profile/Pro
 import { SoundManager } from './audio/SoundManager';
 import { MusicPlayer } from './audio/MusicPlayer';
 
+// Polyfill CanvasRenderingContext2D.roundRect for older browsers (Safari <15.4, Firefox <112)
+if (typeof CanvasRenderingContext2D !== 'undefined' && !CanvasRenderingContext2D.prototype.roundRect) {
+  CanvasRenderingContext2D.prototype.roundRect = function (x: number, y: number, w: number, h: number, radii?: number | number[]) {
+    const r = typeof radii === 'number' ? [radii, radii, radii, radii]
+      : Array.isArray(radii) ? [radii[0] ?? 0, radii[1] ?? radii[0] ?? 0, radii[2] ?? radii[0] ?? 0, radii[3] ?? radii[1] ?? radii[0] ?? 0]
+      : [0, 0, 0, 0];
+    this.moveTo(x + r[0], y);
+    this.lineTo(x + w - r[1], y);
+    this.arcTo(x + w, y, x + w, y + r[1], r[1]);
+    this.lineTo(x + w, y + h - r[2]);
+    this.arcTo(x + w, y + h, x + w - r[2], y + h, r[2]);
+    this.lineTo(x + r[3], y + h);
+    this.arcTo(x, y + h, x, y + h - r[3], r[3]);
+    this.lineTo(x, y + r[0]);
+    this.arcTo(x, y, x + r[0], y, r[0]);
+    this.closePath();
+  };
+}
+
 const canvas = document.getElementById('game') as HTMLCanvasElement;
 if (!canvas) throw new Error('Canvas element not found');
 
@@ -44,8 +63,9 @@ uiReady.then(() => {
   // Shared music player for mp3 tracks (menu, race select, combat)
   const musicPlayer = new MusicPlayer();
 
-  // "Now Playing" — forward track name into the active match's InputHandler
+  // "Now Playing" — forward track name into the active scene
   musicPlayer.onTrackChange = (name: string) => {
+    titleScene.setNowPlaying(name);
     matchScene.setNowPlaying(name);
   };
 
