@@ -1298,15 +1298,18 @@ function sellBuilding(state: GameState, cmd: Extract<GameCommand, { type: 'sell_
     if (t2Cost) { totalGold += t2Cost.gold; totalWood += t2Cost.wood; totalMeat += t2Cost.meat; totalEssence += t2Cost.deathEssence ?? 0; totalSouls += t2Cost.souls ?? 0; }
   }
 
-  // Refund 50% of total invested resources
-  const refundGold = Math.floor(totalGold * 0.5);
-  const refundWood = Math.floor(totalWood * 0.5);
-  const refundMeat = Math.floor(totalMeat * 0.5);
+  // Refund 50% of total invested resources (towers prorated by current health)
+  const sellRate = building.type === BuildingType.Tower
+    ? 0.5 * (building.hp / building.maxHp)
+    : 0.5;
+  const refundGold = Math.floor(totalGold * sellRate);
+  const refundWood = Math.floor(totalWood * sellRate);
+  const refundMeat = Math.floor(totalMeat * sellRate);
   player.gold += refundGold;
   player.wood += refundWood;
   player.meat += refundMeat;
-  if (totalEssence > 0) player.deathEssence += Math.floor(totalEssence * 0.5);
-  if (totalSouls > 0) player.souls += Math.floor(totalSouls * 0.5);
+  if (totalEssence > 0) player.deathEssence += Math.floor(totalEssence * sellRate);
+  if (totalSouls > 0) player.souls += Math.floor(totalSouls * sellRate);
 
   // If it's a hut, remove the associated harvester
   if (building.type === BuildingType.HarvesterHut) {
@@ -1776,7 +1779,7 @@ function spawnGeistSkeletons(state: GameState, eff: AbilityEffect): void {
       targetId: null, lane, pathProgress, carryingDiamond: false,
       statusEffects: [], hitCount: 0, shieldHp: 0,
       category: 'melee', upgradeTier: 0, upgradeNode: 'A',
-      upgradeSpecial: { lifestealPct: 0.15 }, kills: 0, damageDone: 0, healingDone: 0, buffsApplied: 0, lastDamagedByName: '', spawnTick: state.tick,
+      upgradeSpecial: { lifestealPct: 0.08 }, kills: 0, damageDone: 0, healingDone: 0, buffsApplied: 0, lastDamagedByName: '', spawnTick: state.tick,
       summonDuration: skeletonDuration,
     });
   }
@@ -1794,7 +1797,7 @@ function spawnGeistSkeletons(state: GameState, eff: AbilityEffect): void {
         targetId: null, lane, pathProgress, carryingDiamond: false,
         statusEffects: [], hitCount: 0, shieldHp: 0,
         category: 'ranged', upgradeTier: 0, upgradeNode: 'A',
-        upgradeSpecial: { lifestealPct: 0.10 }, kills: 0, damageDone: 0, healingDone: 0, buffsApplied: 0, lastDamagedByName: '', spawnTick: state.tick,
+        upgradeSpecial: { lifestealPct: 0.05 }, kills: 0, damageDone: 0, healingDone: 0, buffsApplied: 0, lastDamagedByName: '', spawnTick: state.tick,
         summonDuration: skeletonDuration,
       });
     }
@@ -2676,12 +2679,12 @@ function getEffectiveDamage(unit: UnitState, state?: GameState): number {
   if (state) {
     const gp = state.players[unit.playerId];
     if (gp?.race === Race.Geists && gp.researchUpgrades.raceUpgrades['geists_ability_4']) {
-      // Base lifesteal: melee 20%, ranged 20%, caster 20% (projectile)
-      let lsPct = 0.20;
-      // Death Grip: melee lifesteal +10%
-      if (unit.category === 'melee' && gp.researchUpgrades.raceUpgrades['geists_melee_1']) lsPct += 0.10;
-      // Soul Arrows: ranged lifesteal +10%
-      if (unit.category === 'ranged' && gp.researchUpgrades.raceUpgrades['geists_ranged_1']) lsPct += 0.10;
+      // Base lifesteal: melee 10%, ranged 10%, caster 10% (projectile)
+      let lsPct = 0.10;
+      // Death Grip: melee lifesteal +5%
+      if (unit.category === 'melee' && gp.researchUpgrades.raceUpgrades['geists_melee_1']) lsPct += 0.05;
+      // Soul Arrows: ranged lifesteal +5%
+      if (unit.category === 'ranged' && gp.researchUpgrades.raceUpgrades['geists_ranged_1']) lsPct += 0.05;
       if (lsPct > 0) dmg = Math.round(dmg * (1 + lsPct));
     }
   }
@@ -3602,7 +3605,7 @@ function applyOnHitEffects(state: GameState, attacker: UnitState, target: UnitSt
       if (isMelee) {
         applyStatus(target, StatusType.Burn, 1 + (sp?.extraBurnStacks ?? 0));
         applyWound(target); // Geists melee applies Wound
-        const geistMeleeSteal = Math.round(attacker.damage * 0.20);
+        const geistMeleeSteal = Math.round(attacker.damage * 0.10);
         const geistAh = healUnit(attacker, geistMeleeSteal);
         if (geistAh > 0) trackHealing(state, attacker, geistAh);
         if (geistMeleeSteal > 0) addCombatEvent(state, { type: 'lifesteal', x: target.x, y: target.y, x2: attacker.x, y2: attacker.y, color: '#b39ddb' });
@@ -3638,10 +3641,10 @@ function applyOnHitEffects(state: GameState, attacker: UnitState, target: UnitSt
     if (!isMelee && bu.raceUpgrades['wild_ranged_1']) { applyStatus(target, StatusType.Burn, 1); applyWound(target); }
     // Tenders Root Snare: 20% chance +1 Slow on ranged hit
     if (!isMelee && bu.raceUpgrades['tenders_ranged_2'] && state.rng() < 0.20) applyStatus(target, StatusType.Slow, 1);
-    // Geists Death Grip: lifesteal 15->25% (melee)
+    // Geists Death Grip: lifesteal 10->15% (melee)
     if (isMelee && bu.raceUpgrades['geists_melee_1']) {
-      // Extra 10% lifesteal (15% base already applied above)
-      const extraSteal = Math.round(attacker.damage * 0.10);
+      // Extra 5% lifesteal (10% base already applied above)
+      const extraSteal = Math.round(attacker.damage * 0.05);
       if (extraSteal > 0) {
         const eah = healUnit(attacker, extraSteal);
         if (eah > 0) trackHealing(state, attacker, eah);
@@ -4391,7 +4394,7 @@ function tickCombat(state: GameState): void {
               speed: 12, aoeRadius: 0, team: unit.team, visual: 'circle',
               sourcePlayerId: unit.playerId, sourceUnitId: unit.id,
               extraBurnStacks: sp?.extraBurnStacks,
-              lifestealPct: 0.2,
+              lifestealPct: 0.1,
             });
           } else if (isCrownMage) {
             // Crown mage branch: high-damage AoE with spell effects
@@ -4469,7 +4472,7 @@ function tickCombat(state: GameState): void {
             extraBurnStacks: sp?.extraBurnStacks,
             extraSlowStacks: sp?.extraSlowStacks,
             splashDamagePct: rangedSplashPct,
-            lifestealPct: isSiege ? (sp?.lifestealPct) : (race === Race.Geists ? 0.2 : undefined),
+            lifestealPct: isSiege ? (sp?.lifestealPct) : (race === Race.Geists ? 0.1 : undefined),
             buildingDamageMult: isSiege ? (sp?.buildingDamageMult ?? 3.0) : undefined,
           });
           // Research: Crown Volley — fire extra projectile at 40% damage
@@ -4509,7 +4512,7 @@ function tickCombat(state: GameState): void {
                 targetId: pvTarget.id, damage: effDmg,
                 speed: 15, aoeRadius: 0, team: unit.team, visual: RANGED_VISUAL[race] ?? 'arrow',
                 sourcePlayerId: unit.playerId, sourceUnitId: unit.id,
-                lifestealPct: 0.2,
+                lifestealPct: 0.1,
               });
             }
           }
@@ -4532,7 +4535,7 @@ function tickCombat(state: GameState): void {
                 sourcePlayerId: unit.playerId, sourceUnitId: unit.id,
                 extraBurnStacks: sp?.extraBurnStacks,
                 extraSlowStacks: sp?.extraSlowStacks,
-                lifestealPct: race === Race.Geists ? 0.2 : undefined,
+                lifestealPct: race === Race.Geists ? 0.1 : undefined,
               });
             }
           }
@@ -5170,11 +5173,11 @@ function tickProjectiles(state: GameState): void {
         // Oozlings Corrosive Spit: Vulnerable (+20% dmg taken) on ranged hit
         if (pbu.raceUpgrades['oozlings_ranged_1']) applyVulnerable(target);
         // Crown Piercing Arrows: ignore 20% def (applied as bonus damage)
-        // Geists Soul Arrows: +10% lifesteal on ranged
+        // Geists Soul Arrows: +5% lifesteal on ranged
         if (pbu.raceUpgrades['geists_ranged_1']) {
           const lsSource = p.sourceUnitId != null ? unitById.get(p.sourceUnitId) : undefined;
           if (lsSource && lsSource.hp > 0) {
-            const extraSteal = Math.round(p.damage * 0.10);
+            const extraSteal = Math.round(p.damage * 0.05);
             if (extraSteal > 0) {
               const ah = healUnit(lsSource, extraSteal);
               if (ah > 0) trackHealing(state, lsSource, ah);

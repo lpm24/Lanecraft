@@ -1946,7 +1946,7 @@ export class InputHandler {
         // Use race-specific building sprite for tower (cached to avoid per-frame table walk)
         const cacheKey = `tower:${race}`;
         let towerImg = this.trayBldgSpriteCache.get(cacheKey);
-        if (towerImg === undefined) { towerImg = this.sprites?.getBuildingSprite(BuildingType.Tower, 0, false, race) ?? null; this.trayBldgSpriteCache.set(cacheKey, towerImg); }
+        if (towerImg === undefined) { towerImg = this.sprites?.getBuildingSprite(BuildingType.Tower, 0, false, race) ?? null; if (towerImg) this.trayBldgSpriteCache.set(cacheKey, towerImg); }
         if (towerImg) {
           const aspect = towerImg.width / towerImg.height;
           const dh = spriteSize;
@@ -1957,7 +1957,7 @@ export class InputHandler {
         // Use race-specific building sprite for harvester hut (cached)
         const cacheKey = `hut:${race}`;
         let hutImg = this.trayBldgSpriteCache.get(cacheKey);
-        if (hutImg === undefined) { hutImg = this.sprites?.getBuildingSprite(BuildingType.HarvesterHut, 0, false, race) ?? null; this.trayBldgSpriteCache.set(cacheKey, hutImg); }
+        if (hutImg === undefined) { hutImg = this.sprites?.getBuildingSprite(BuildingType.HarvesterHut, 0, false, race) ?? null; if (hutImg) this.trayBldgSpriteCache.set(cacheKey, hutImg); }
         if (hutImg) {
           const aspect = hutImg.width / hutImg.height;
           const dh = spriteSize;
