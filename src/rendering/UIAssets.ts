@@ -1,6 +1,5 @@
 // UI sprite assets from Tiny Swords UI Elements pack
 // Provides 9-slice panels, ribbons, swords, icons, buttons, bars
-//
 // IMPORTANT: Spritesheets use 64px transparent gaps between tiles.
 // 448px images: tiles at [0,128] gap [192,64] gap [320,128]
 // 320px images: tiles at [0,64] gap [128,64] gap [256,64]
@@ -40,11 +39,34 @@ import iconClosePng from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (
 import iconSettingsPng from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/UI Elements/UI Elements/Icons/Icon_10.png?url';
 import iconInfoPng from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/UI Elements/UI Elements/Icons/Icon_11.png?url';
 import iconMusicPng from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/UI Elements/UI Elements/Icons/Icon_12.png?url';
+import iconDiamondPng from '../assets/images/Treasure Hunters/Treasure Hunters/Pirate Treasure/Sprites/Blue Diamond/01.png?url';
+import iconManaPng from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/UI Elements/UI Elements/Icons/Mana.png?url';
+import iconSoulsPng from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/UI Elements/UI Elements/Icons/Souls.png?url';
+import iconOozePng from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/UI Elements/UI Elements/Icons/Ooze.png?url';
+import iconStarPng from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/UI Elements/UI Elements/Icons/Star.png?url';
+import iconResearchPng from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/UI Elements/UI Elements/Icons/Research.png?url';
+import iconNukePng from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/UI Elements/UI Elements/Icons/Nuke.png?url';
+import iconDicePng from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/UI Elements/UI Elements/Icons/Dice.png?url';
+import iconLeftArrowPng from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/UI Elements/UI Elements/Icons/Left Arrow.png?url';
+import iconRightArrowPng from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/UI Elements/UI Elements/Icons/Right Arrow.png?url';
 
 // Water background for scenes
 import waterBgPng from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Terrain/Tileset/Water Background color.png?url';
 
-export type IconName = 'gold' | 'wood' | 'meat' | 'sword' | 'shield' | 'play' | 'close' | 'settings' | 'info' | 'music';
+// Nhance Spell Icons Bundle — only the icons actually used in research popup
+const skillIconGlob = import.meta.glob(
+  '../assets/images/NhanceSpellIconsBundle/Used/*.png',
+  { eager: true, query: '?url', import: 'default' }
+) as Record<string, string>;
+
+const SKILL_ICON_URLS: Record<string, string> = {};
+for (const [path, url] of Object.entries(skillIconGlob)) {
+  const filename = path.split('/').pop()!;
+  const key = filename.replace(/\.png$/i, '');
+  SKILL_ICON_URLS[key] = url;
+}
+
+export type IconName = 'gold' | 'wood' | 'meat' | 'sword' | 'shield' | 'play' | 'close' | 'settings' | 'info' | 'music' | 'diamond' | 'mana' | 'souls' | 'ooze' | 'star' | 'research' | 'nuke' | 'dice' | 'leftArrow' | 'rightArrow';
 export type RibbonColor = 0 | 1 | 2 | 3 | 4; // blue, red, yellow, purple, dark
 export type SwordColor = 0 | 1 | 2 | 3 | 4;
 
@@ -59,6 +81,16 @@ const ICON_URLS: Record<IconName, string> = {
   settings: iconSettingsPng,
   info: iconInfoPng,
   music: iconMusicPng,
+  diamond: iconDiamondPng,
+  mana: iconManaPng,
+  souls: iconSoulsPng,
+  ooze: iconOozePng,
+  star: iconStarPng,
+  research: iconResearchPng,
+  nuke: iconNukePng,
+  dice: iconDicePng,
+  leftArrow: iconLeftArrowPng,
+  rightArrow: iconRightArrowPng,
 };
 
 // Source tile positions for spritesheets with 64px gaps between tiles
@@ -143,17 +175,19 @@ export class UIAssets {
     const dx1 = x + dw0, dx2 = x + w - dw2;
     const dy1 = y + dh0, dy2 = y + h - dh2;
 
+    // Overlap by 1px to prevent sub-pixel seams from showing background
+    const o = 1;
     // Top row
-    ctx.drawImage(img, sx0, sy0, sw0, sh0, x, y, dw0, dh0);
-    ctx.drawImage(img, sx1, sy0, sw1, sh0, dx1, y, dw1, dh0);
-    ctx.drawImage(img, sx2, sy0, sw2, sh0, dx2, y, dw2, dh0);
+    ctx.drawImage(img, sx0, sy0, sw0, sh0, x, y, dw0 + o, dh0 + o);
+    ctx.drawImage(img, sx1, sy0, sw1, sh0, dx1, y, dw1 + o, dh0 + o);
+    ctx.drawImage(img, sx2, sy0, sw2, sh0, dx2, y, dw2, dh0 + o);
     // Middle row
-    ctx.drawImage(img, sx0, sy1, sw0, sh1, x, dy1, dw0, dh1);
-    ctx.drawImage(img, sx1, sy1, sw1, sh1, dx1, dy1, dw1, dh1);
-    ctx.drawImage(img, sx2, sy1, sw2, sh1, dx2, dy1, dw2, dh1);
+    ctx.drawImage(img, sx0, sy1, sw0, sh1, x, dy1, dw0 + o, dh1 + o);
+    ctx.drawImage(img, sx1, sy1, sw1, sh1, dx1, dy1, dw1 + o, dh1 + o);
+    ctx.drawImage(img, sx2, sy1, sw2, sh1, dx2, dy1, dw2, dh1 + o);
     // Bottom row
-    ctx.drawImage(img, sx0, sy2, sw0, sh2, x, dy2, dw0, dh2);
-    ctx.drawImage(img, sx1, sy2, sw1, sh2, dx1, dy2, dw1, dh2);
+    ctx.drawImage(img, sx0, sy2, sw0, sh2, x, dy2, dw0 + o, dh2);
+    ctx.drawImage(img, sx1, sy2, sw1, sh2, dx1, dy2, dw1 + o, dh2);
     ctx.drawImage(img, sx2, sy2, sw2, sh2, dx2, dy2, dw2, dh2);
   }
 
@@ -200,8 +234,9 @@ export class UIAssets {
     const drawnRightW = Math.round(Math.min(sw2 * scale, w * 0.35));
     const drawnCenterW = w - drawnLeftW - drawnRightW;
 
-    ctx.drawImage(img, sx0, srcY, sw0, srcH, x, y, drawnLeftW, h);
-    ctx.drawImage(img, sx1, srcY, sw1, srcH, x + drawnLeftW, y, drawnCenterW, h);
+    // Overlap by 1px to prevent sub-pixel seams from showing background
+    ctx.drawImage(img, sx0, srcY, sw0, srcH, x, y, drawnLeftW + 1, h);
+    ctx.drawImage(img, sx1, srcY, sw1, srcH, x + drawnLeftW, y, drawnCenterW + 1, h);
     ctx.drawImage(img, sx2, srcY, sw2, srcH, x + w - drawnRightW, y, drawnRightW, h);
   }
 
@@ -291,6 +326,16 @@ export class UIAssets {
 
   getIconImage(name: IconName): HTMLImageElement | null {
     return this.loadImage(ICON_URLS[name]);
+  }
+
+  /** Draw a skill icon from the Skill_Icon_Pack by key (e.g. 'blue_01', 'addon_03') */
+  drawSkillIcon(ctx: CanvasRenderingContext2D, key: string, x: number, y: number, size: number): boolean {
+    const url = SKILL_ICON_URLS[key];
+    if (!url) return false;
+    const img = this.loadImage(url);
+    if (!img) return false;
+    ctx.drawImage(img, x, y, size, size);
+    return true;
   }
 
   // =================================================================

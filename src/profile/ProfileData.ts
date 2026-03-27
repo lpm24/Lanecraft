@@ -175,12 +175,30 @@ export function createDefaultProfile(): PlayerProfile {
   };
 }
 
+function isValidProfile(p: unknown): p is PlayerProfile {
+  if (!p || typeof p !== 'object') return false;
+  const o = p as Record<string, unknown>;
+  return (
+    o.version === 1 &&
+    typeof o.avatarId === 'string' &&
+    typeof o.gamesPlayed === 'number' &&
+    typeof o.wins === 'number' &&
+    typeof o.losses === 'number' &&
+    typeof o.winStreak === 'number' &&
+    typeof o.bestWinStreak === 'number' &&
+    typeof o.totalPlayTimeSec === 'number' &&
+    (typeof o.raceStats === 'object' && o.raceStats !== null) &&
+    (typeof o.achievements === 'object' && o.achievements !== null)
+  );
+}
+
 export function loadProfile(): PlayerProfile {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
-      const p = JSON.parse(raw) as PlayerProfile;
-      if (p.version === 1) return p;
+      const p = JSON.parse(raw);
+      if (isValidProfile(p)) return p;
+      // Future: migrate older versions here (e.g. if p.version === 0)
     }
   } catch { /* corrupt data */ }
   return createDefaultProfile();

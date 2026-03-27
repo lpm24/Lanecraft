@@ -16,8 +16,30 @@ import { loadProfile, updateProfileFromMatch, ACHIEVEMENTS } from './profile/Pro
 import { SoundManager } from './audio/SoundManager';
 import { MusicPlayer } from './audio/MusicPlayer';
 
+// Polyfill CanvasRenderingContext2D.roundRect for older browsers (Safari <15.4, Firefox <112)
+if (typeof CanvasRenderingContext2D !== 'undefined' && !CanvasRenderingContext2D.prototype.roundRect) {
+  CanvasRenderingContext2D.prototype.roundRect = function (x: number, y: number, w: number, h: number, radii?: number | number[]) {
+    const r = typeof radii === 'number' ? [radii, radii, radii, radii]
+      : Array.isArray(radii) ? [radii[0] ?? 0, radii[1] ?? radii[0] ?? 0, radii[2] ?? radii[0] ?? 0, radii[3] ?? radii[1] ?? radii[0] ?? 0]
+      : [0, 0, 0, 0];
+    this.moveTo(x + r[0], y);
+    this.lineTo(x + w - r[1], y);
+    this.arcTo(x + w, y, x + w, y + r[1], r[1]);
+    this.lineTo(x + w, y + h - r[2]);
+    this.arcTo(x + w, y + h, x + w - r[2], y + h, r[2]);
+    this.lineTo(x + r[3], y + h);
+    this.arcTo(x, y + h, x, y + h - r[3], r[3]);
+    this.lineTo(x, y + r[0]);
+    this.arcTo(x, y, x + r[0], y, r[0]);
+    this.closePath();
+  };
+}
+
 const canvas = document.getElementById('game') as HTMLCanvasElement;
 if (!canvas) throw new Error('Canvas element not found');
+
+// Suppress native long-press context menu on mobile (Copy/Translate/etc.)
+canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
 // Shared asset loaders
 const sharedSprites = new SpriteLoader();
@@ -40,6 +62,12 @@ uiReady.then(() => {
 
   // Shared music player for mp3 tracks (menu, race select, combat)
   const musicPlayer = new MusicPlayer();
+
+  // "Now Playing" — forward track name into the active scene
+  musicPlayer.onTrackChange = (name: string) => {
+    titleScene.setNowPlaying(name);
+    matchScene.setNowPlaying(name);
+  };
 
   const profile = loadProfile();
   const titleScene = new TitleScene(manager, canvas, sharedUI, sharedSprites, musicPlayer);
@@ -65,6 +93,7 @@ uiReady.then(() => {
       slotNames: game.slotNames,
       slotBotDifficulties: game.slotBotDifficulties,
       wasPartyGame: wasParty,
+      replayFrames: game.replayFrames,
     });
     // Party games: reset to lobby. Solo games: clean up party.
     if (wasParty && titleScene.party) {
@@ -88,7 +117,7 @@ uiReady.then(() => {
     manager.switchTo('difficultySelect');
   });
 
-  const difficultySelectScene = new DifficultySelectScene(manager, canvas, sharedUI, (difficulty, mapDef, teamSize, fogOfWar) => {
+  const difficultySelectScene = new DifficultySelectScene(manager, canvas, sharedUI, (difficulty, mapDef, teamSize, fogOfWar, isometric) => {
     // Build solo config using party path for proper teamSize support
     const ppt = mapDef.playersPerTeam;
     const bots: { [slot: string]: string } = {};
@@ -110,6 +139,7 @@ uiReady.then(() => {
       mapDef,
       slotNames: { '0': titleScene.name },
       fogOfWar,
+      isometric,
     });
     manager.switchTo('match');
   });
@@ -123,9 +153,6 @@ uiReady.then(() => {
     // Use seeded RNG so all clients resolve the same random races
     const raceRng = createSeededRng(party.seed);
     const humanPlayers: { slot: number; race: Race }[] = [];
-    console.log('[PartyStart] maxSlots:', party.maxSlots, 'localSlot:', localSlot);
-    console.log('[PartyStart] players keys:', Object.keys(party.players), 'players:', JSON.stringify(party.players));
-    console.log('[PartyStart] bots:', JSON.stringify(party.bots));
     for (let i = 0; i < party.maxSlots; i++) {
       const p = party.players[String(i)];
       if (p) {
@@ -135,7 +162,6 @@ uiReady.then(() => {
         humanPlayers.push({ slot: i, race });
       }
     }
-    console.log('[PartyStart] humanPlayers:', JSON.stringify(humanPlayers));
     // Build slot names from party players
     const slotNames: { [slot: string]: string } = {};
     for (let i = 0; i < party.maxSlots; i++) {
@@ -145,7 +171,7 @@ uiReady.then(() => {
     matchScene.setPartyConfig({
       humanPlayers,
       slotBots: party.bots,
-      slotBotRaces: (party as any).botRaces,
+      slotBotRaces: party.botRaces,
       localSlot,
       seed: party.seed,
       partyCode: party.code,

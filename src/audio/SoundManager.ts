@@ -166,7 +166,7 @@ export class SoundManager {
   private warningGain: GainNode | null = null;
 
   constructor() {
-    this.settings = { musicVolume: 0.45, sfxVolume: 0.8 };
+    this.settings = { musicVolume: 0.2, sfxVolume: 0.5 };
     this.settingsUnsub = subscribeToAudioSettings((settings) => {
       this.settings = settings;
       this.applyAudioSettings();
@@ -747,6 +747,50 @@ export class SoundManager {
     this.filteredNoise(0.05, v * 0.2, d, 1500, 2.5);
   }
 
+  private playAbilityFireball(v: number, d: GainNode): void {
+    // Deep boom + crackling fire burst
+    this.note(60, 0.4, v * 0.4, d, 'sine');
+    this.sweep(300, 800, 0.12, v * 0.35, d, 'sawtooth');
+    this.filteredNoise(0.3, v * 0.3, d, 2500, 2);
+    this.sweep(150, 30, 0.4, v * 0.2, d, 'triangle', 0.05);
+  }
+
+  private playAbilityDeluge(v: number, d: GainNode): void {
+    // Rolling thunder + rain wash
+    this.sweep(80, 40, 0.8, v * 0.3, d, 'sine');
+    this.filteredNoise(0.6, v * 0.25, d, 400, 1);
+    this.sweep(200, 60, 0.5, v * 0.2, d, 'triangle', 0.1);
+    this.filteredNoise(0.4, v * 0.15, d, 3000, 0.5, 0.2);
+  }
+
+  private playAbilityFrenzy(v: number, d: GainNode): void {
+    // War horn + rising energy
+    this.sweep(200, 500, 0.2, v * 0.3, d, 'sawtooth');
+    this.note(300, 0.15, v * 0.25, d, 'triangle');
+    this.note(450, 0.1, v * 0.2, d, 'triangle', 0.08);
+  }
+
+  private playAbilitySummon(v: number, d: GainNode): void {
+    // Eerie ghostly rise
+    this.sweep(150, 400, 0.3, v * 0.25, d, 'sine');
+    this.sweep(200, 600, 0.25, v * 0.2, d, 'triangle', 0.05);
+    this.filteredNoise(0.2, v * 0.15, d, 800, 3);
+  }
+
+  private playAbilityTroll(v: number, d: GainNode): void {
+    // Heavy footstep + roar
+    this.note(50, 0.3, v * 0.4, d, 'sine');
+    this.sweep(100, 250, 0.15, v * 0.3, d, 'sawtooth', 0.05);
+    this.filteredNoise(0.2, v * 0.25, d, 600, 1.5);
+  }
+
+  private playAbilityPotion(v: number, d: GainNode): void {
+    // Bubbly pop + sparkle
+    this.note(800, 0.06, v * 0.25, d, 'sine');
+    this.note(1200, 0.04, v * 0.2, d, 'sine', 0.04);
+    this.note(600, 0.05, v * 0.15, d, 'triangle', 0.06);
+  }
+
   private playNukeIncoming(v: number, d: GainNode): void {
     // Slow-attack warning siren — NOT startling.
     // Soft filtered tone that swells over 0.8s, then repeats.
@@ -864,6 +908,12 @@ export class SoundManager {
       case 'ability_cleave':
         if (!this.shouldPlay('cleave', 80, 2)) return;
         this.playAbilityCleave(v, this.spatialDest(pan)); break;
+      case 'ability_fireball': this.playAbilityFireball(v, this.spatialDest(pan)); break;
+      case 'ability_deluge': this.playAbilityDeluge(v, this.spatialDest(pan)); break;
+      case 'ability_frenzy': this.playAbilityFrenzy(v, this.spatialDest(pan)); break;
+      case 'ability_summon': this.playAbilitySummon(v, this.spatialDest(pan)); break;
+      case 'ability_troll': this.playAbilityTroll(v, this.spatialDest(pan)); break;
+      case 'ability_potion': this.playAbilityPotion(v, this.spatialDest(pan)); break;
       // Below: less frequent sounds — always play, still get panning
       case 'building_placed': this.playBuildingPlaced(v, this.spatialDest(pan)); break;
       case 'building_destroyed': this.playBuildingDestroyed(v, this.spatialDest(pan)); break;

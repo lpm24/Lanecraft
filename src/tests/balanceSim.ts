@@ -1,6 +1,6 @@
 import { createInitialState, simulateTick } from '../simulation/GameState';
 import { GameCommand, Race, Team, TICK_RATE, MapDef } from '../simulation/types';
-import { runAllBotAI, createBotContext, BotDifficultyLevel } from '../simulation/BotAI';
+import { runAllBotAI, createBotContext, BotDifficultyLevel, BOT_DIFFICULTY_PRESETS } from '../simulation/BotAI';
 import { DUEL_MAP, SKIRMISH_MAP, WARZONE_MAP } from '../simulation/maps';
 
 // ==================== CONFIG ====================
@@ -38,14 +38,20 @@ interface MatchResult {
     team: string;
     isEmpty: boolean;
     damageDealt: number;
+    damageTaken: number;
+    towerDamage: number;
+    burnDamage: number;
+    abilityDamage: number;
+    healing: number;
     unitsSpawned: number;
     unitsLost: number;
     goldEarned: number;
     woodEarned: number;
-    stoneEarned: number;
+    meatEarned: number;
     buildingCount: number;
     nukeKills: number;
     diamondPickups: number;
+    hqHp: number;
   }[];
 }
 
@@ -79,6 +85,13 @@ function runHeadlessMatch(
   const state = createInitialState(players, undefined, mapDef);
 
   const botCtx = createBotContext(difficulty);
+  // Apply stat bonuses from difficulty to player state
+  const defaultDiff = BOT_DIFFICULTY_PRESETS[difficulty];
+  for (const p of state.players) {
+    if (!p.isBot || p.isEmpty) continue;
+    const diff = botCtx.difficulty[p.id] ?? defaultDiff;
+    if (diff.statBonus && diff.statBonus !== 1) p.statBonus = diff.statBonus;
+  }
   const commands: GameCommand[] = [];
   const emit = (cmd: GameCommand) => commands.push(cmd);
 
@@ -103,14 +116,20 @@ function runHeadlessMatch(
         team: p.team === Team.Bottom ? 'bottom' : 'top',
         isEmpty: p.isEmpty,
         damageDealt: s.totalDamageDealt,
+        damageTaken: s.totalDamageTaken,
+        towerDamage: s.towerDamageDealt,
+        burnDamage: s.burnDamageDealt,
+        abilityDamage: s.abilityDamageDealt,
+        healing: s.totalHealing,
         unitsSpawned: s.unitsSpawned,
         unitsLost: s.unitsLost,
         goldEarned: s.totalGoldEarned,
         woodEarned: s.totalWoodEarned,
-        stoneEarned: s.totalStoneEarned,
+        meatEarned: s.totalMeatEarned,
         buildingCount: state.buildings.filter(b => b.playerId === i).length,
         nukeKills: s.nukeKills,
         diamondPickups: s.diamondPickups,
+        hqHp: state.hqHp[p.team],
       };
     }),
   };
@@ -186,13 +205,19 @@ interface RaceStats {
   losses: number;
   draws: number;
   totalDamage: number;
+  totalDamageTaken: number;
+  totalTowerDamage: number;
+  totalBurnDamage: number;
+  totalAbilityDamage: number;
+  totalHealing: number;
   totalUnitsSpawned: number;
   totalUnitsLost: number;
   totalGold: number;
   totalWood: number;
-  totalStone: number;
+  totalMeat: number;
   totalNukeKills: number;
   totalDiamondPickups: number;
+  totalHqHp: number;
   appearances: number;
   totalDurationTicks: number;
 }
@@ -222,9 +247,12 @@ function aggregate(results: MatchResult[]) {
       if (!raceStats[p.race]) {
         raceStats[p.race] = {
           wins: 0, losses: 0, draws: 0, totalDamage: 0,
+          totalDamageTaken: 0, totalTowerDamage: 0, totalBurnDamage: 0,
+          totalAbilityDamage: 0, totalHealing: 0,
           totalUnitsSpawned: 0, totalUnitsLost: 0,
-          totalGold: 0, totalWood: 0, totalStone: 0,
+          totalGold: 0, totalWood: 0, totalMeat: 0,
           totalNukeKills: 0, totalDiamondPickups: 0,
+          totalHqHp: 0,
           appearances: 0, totalDurationTicks: 0,
         };
       }
@@ -235,13 +263,19 @@ function aggregate(results: MatchResult[]) {
       else if (r.winner === p.team) s.wins++;
       else s.losses++;
       s.totalDamage += p.damageDealt;
+      s.totalDamageTaken += p.damageTaken;
+      s.totalTowerDamage += p.towerDamage;
+      s.totalBurnDamage += p.burnDamage;
+      s.totalAbilityDamage += p.abilityDamage;
+      s.totalHealing += p.healing;
       s.totalUnitsSpawned += p.unitsSpawned;
       s.totalUnitsLost += p.unitsLost;
       s.totalGold += p.goldEarned;
       s.totalWood += p.woodEarned;
-      s.totalStone += p.stoneEarned;
+      s.totalMeat += p.meatEarned;
       s.totalNukeKills += p.nukeKills;
       s.totalDiamondPickups += p.diamondPickups;
+      s.totalHqHp += p.hqHp;
     }
 
     // Cross-team matchup tracking
@@ -452,11 +486,32 @@ function printResults(results: MatchResult[], mapLabel: string, raceFilter?: Rac
     const n = s.appearances || 1;
     const g = Math.round(s.totalGold / n);
     const w = Math.round(s.totalWood / n);
-    const st = Math.round(s.totalStone / n);
+    const st = Math.round(s.totalMeat / n);
     const avgDurMin = (s.totalDurationTicks / n / TICK_RATE) / 60;
     const resPerMin = avgDurMin > 0 ? Math.round((g + w + st) / avgDurMin) : 0;
     console.log('  ' + pad(race, 10) + pad(String(g), 10) + pad(String(w), 10) + pad(String(st), 10) +
       pad(String(g + w + st), 10) + pad(String(resPerMin), 10));
+  }
+
+  // ---- COMBAT BREAKDOWN ----
+  console.log(`\n  COMBAT BREAKDOWN (avg per game)`);
+  console.log('  ' + '-'.repeat(100));
+  console.log('  ' + pad('Race', 10) + pad('DmgDealt', 10) + pad('DmgTaken', 10) + pad('TowerDmg', 10) +
+    pad('BurnDmg', 10) + pad('AbilDmg', 10) + pad('Healing', 10) + pad('NukeKills', 10) + pad('AvgHQ%', 10));
+  console.log('  ' + '-'.repeat(100));
+  for (const race of races) {
+    const s = raceStats[race];
+    const n = s.appearances || 1;
+    const hqPct = Math.round((s.totalHqHp / n / 2000) * 100);
+    console.log('  ' + pad(race, 10) +
+      pad(String(Math.round(s.totalDamage / n)), 10) +
+      pad(String(Math.round(s.totalDamageTaken / n)), 10) +
+      pad(String(Math.round(s.totalTowerDamage / n)), 10) +
+      pad(String(Math.round(s.totalBurnDamage / n)), 10) +
+      pad(String(Math.round(s.totalAbilityDamage / n)), 10) +
+      pad(String(Math.round(s.totalHealing / n)), 10) +
+      pad(String((s.totalNukeKills / n).toFixed(1)), 10) +
+      pad(hqPct + '%', 10));
   }
 
   // ---- SINGLE RACE DEEP DIVE ----

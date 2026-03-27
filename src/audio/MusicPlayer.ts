@@ -6,18 +6,32 @@ const FADE_MS = 1500;
 // Discover all mp3 files at build time, keyed by relative path
 const allAudio = import.meta.glob('../assets/audio/**/*.mp3', { eager: true, query: '?url', import: 'default' }) as Record<string, string>;
 
+interface TrackInfo {
+  url: string;
+  name: string;
+}
+
+/** Extract a display name from a glob key like "../assets/audio/Foo/My Track(1).mp3" → "My Track" */
+function trackNameFromKey(key: string): string {
+  const filename = key.split('/').pop() ?? key;
+  return filename
+    .replace(/\.mp3$/i, '')      // strip extension
+    .replace(/\s*\(\d+\)$/, '')  // strip trailing "(1)" duplicates
+    .trim();
+}
+
 // Organize URLs by folder category
-function collectFolder(folder: string): string[] {
+function collectFolder(folder: string): TrackInfo[] {
   const prefix = `../assets/audio/${folder}/`;
   return Object.entries(allAudio)
     .filter(([k]) => k.startsWith(prefix))
-    .map(([, url]) => url);
+    .map(([k, url]) => ({ url, name: trackNameFromKey(k) }));
 }
 
 const MENU_TRACKS = collectFolder('Main Menu');
 const RACE_SELECT_TRACKS = collectFolder('Character Select');
 
-const COMBAT_TRACKS: Partial<Record<Race, string[]>> = {
+const COMBAT_TRACKS: Partial<Record<Race, TrackInfo[]>> = {
   [Race.Crown]: collectFolder('CombatCrown'),
   [Race.Horde]: collectFolder('CombatHorde'),
   [Race.Goblins]: collectFolder('CombatGoblins'),
@@ -31,8 +45,15 @@ const COMBAT_TRACKS: Partial<Record<Race, string[]>> = {
 
 type MusicCategory = 'menu' | 'raceSelect' | 'combat';
 
+/**
+ * Music player using pure Web Audio API (AudioBufferSourceNode) to stay in the
+ * "ambient" audio session category on iOS. This means game music will NOT
+ * interrupt podcasts, Spotify, or other background audio on mobile devices.
+ *
+ * HTMLAudioElement is avoided because it triggers the "playback" audio session
+ * category on iOS, which pauses other apps' audio.
+ */
 export class MusicPlayer {
-  private current: HTMLAudioElement | null = null;
   private category: MusicCategory | null = null;
   private combatRace: Race | null = null;
   private volume = 0.45;
@@ -41,7 +62,19 @@ export class MusicPlayer {
   private settingsUnsub: (() => void);
   private lastTrackUrl = '';
   private visibilityHandler: (() => void) | null = null;
-  private wasPaused = false;
+  private wasPlaying = false;
+
+  /** Called when a new track starts playing. */
+  onTrackChange: ((name: string) => void) | null = null;
+
+  private actx: AudioContext | null = null;
+  private gainNode: GainNode | null = null;
+  private sourceNode: AudioBufferSourceNode | null = null;
+  private bufferCache = new Map<string, AudioBuffer>();
+  private playing = false;
+  private stopping = false; // guards onended from firing playNext during intentional stops
+  // Track the current startTrack call to discard stale loads
+  private trackGeneration = 0;
 
   constructor() {
     this.settingsUnsub = subscribeToAudioSettings((s: AudioSettings) => {
@@ -51,17 +84,17 @@ export class MusicPlayer {
       }
     });
 
-    // Pause music when app goes to background so browser doesn't show media controls
+    // Pause music when app goes to background (saves battery, avoids lock-screen controls)
     this.visibilityHandler = () => {
       if (document.hidden) {
-        if (this.current && !this.current.paused) {
-          this.current.pause();
-          this.wasPaused = true;
+        if (this.playing) {
+          this.suspendPlayback();
+          this.wasPlaying = true;
         }
       } else {
-        if (this.wasPaused && this.current && this.category) {
-          this.current.play().catch(() => {});
-          this.wasPaused = false;
+        if (this.wasPlaying && this.category) {
+          this.resumePlayback();
+          this.wasPlaying = false;
         }
       }
     };
@@ -75,9 +108,15 @@ export class MusicPlayer {
       document.removeEventListener('visibilitychange', this.visibilityHandler);
       this.visibilityHandler = null;
     }
+    if (this.actx) {
+      this.actx.close().catch(() => {});
+      this.actx = null;
+      this.gainNode = null;
+    }
+    this.bufferCache.clear();
   }
 
-  private getTracksForCategory(): string[] {
+  private getTracksForCategory(): TrackInfo[] {
     switch (this.category) {
       case 'menu': return MENU_TRACKS;
       case 'raceSelect': return RACE_SELECT_TRACKS;
@@ -86,63 +125,108 @@ export class MusicPlayer {
     }
   }
 
-  private pickRandom(tracks: string[]): string {
-    if (tracks.length === 0) return '';
+  private pickRandom(tracks: TrackInfo[]): TrackInfo | null {
+    if (tracks.length === 0) return null;
     if (tracks.length === 1) return tracks[0];
-    // Avoid repeating the same track back to back
-    let url = tracks[Math.floor(Math.random() * tracks.length)];
-    if (url === this.lastTrackUrl) {
-      url = tracks[(tracks.indexOf(url) + 1) % tracks.length];
+    let pick = tracks[Math.floor(Math.random() * tracks.length)];
+    if (pick.url === this.lastTrackUrl) {
+      pick = tracks[(tracks.indexOf(pick) + 1) % tracks.length];
     }
-    return url;
+    return pick;
   }
 
-  /** Lazily create AudioContext + gain for routing music through Web Audio
-   *  (prevents browser from showing media session / interrupting podcasts) */
+  /** Lazily create AudioContext + gain — pure Web Audio stays in ambient
+   *  audio session category on iOS, so podcasts/music keep playing. */
   private ensureAudioContext(): void {
     if (this.actx) return;
     this.actx = new AudioContext();
     this.gainNode = this.actx.createGain();
     this.gainNode.connect(this.actx.destination);
-  }
-  private actx: AudioContext | null = null;
-  private gainNode: GainNode | null = null;
-  private sourceNode: MediaElementAudioSourceNode | null = null;
 
-  private startTrack(url: string): void {
-    if (!url) return;
-    this.lastTrackUrl = url;
-    const audio = new Audio(url);
-    audio.crossOrigin = 'anonymous';
-    audio.volume = 1; // volume controlled via gainNode, not element
-    this.current = audio;
+    // Explicitly request ambient audio session where the API is available (Safari 16.4+)
+    if ('audioSession' in navigator) {
+      (navigator as any).audioSession.type = 'ambient';
+    }
+  }
+
+  private async fetchBuffer(url: string): Promise<AudioBuffer> {
+    const cached = this.bufferCache.get(url);
+    if (cached) return cached;
+    const response = await fetch(url);
+    const arrayBuffer = await response.arrayBuffer();
+    this.ensureAudioContext();
+    const audioBuffer = await this.actx!.decodeAudioData(arrayBuffer);
+    this.bufferCache.set(url, audioBuffer);
+    return audioBuffer;
+  }
+
+  private async startTrack(track: TrackInfo): Promise<void> {
+    if (!track.url) return;
+    this.lastTrackUrl = track.url;
     this.fadeTarget = 0;
 
-    // Route through Web Audio API so browser doesn't treat it as a media session
     this.ensureAudioContext();
     if (this.actx!.state === 'suspended') void this.actx!.resume();
-    // Disconnect previous source
-    if (this.sourceNode) { try { this.sourceNode.disconnect(); } catch {} }
-    this.sourceNode = this.actx!.createMediaElementSource(audio);
-    this.sourceNode.connect(this.gainNode!);
 
-    // When track ends, play another random track from same category
-    audio.addEventListener('ended', () => {
-      if (this.current !== audio) return; // stale
+    // Stop any currently playing source
+    this.stopSource();
+
+    const gen = ++this.trackGeneration;
+
+    let buffer: AudioBuffer;
+    try {
+      buffer = await this.fetchBuffer(track.url);
+    } catch {
+      return; // network error — silently skip
+    }
+
+    // Discard if a newer track was requested while we were loading
+    if (gen !== this.trackGeneration) return;
+
+    const source = this.actx!.createBufferSource();
+    source.buffer = buffer;
+    source.connect(this.gainNode!);
+
+    // When track ends naturally, play another random track from same category.
+    // onended also fires on stop() — the stopping flag prevents unwanted chaining.
+    source.onended = () => {
+      if (this.sourceNode !== source || this.stopping) return;
+      this.playing = false;
       this.playNextInCategory();
-    });
+    };
 
-    audio.play().catch(() => {/* user hasn't interacted yet */});
+    source.start();
+    this.sourceNode = source;
+    this.playing = true;
     this.fadeIn();
+    this.onTrackChange?.(track.name);
+  }
+
+  private stopSource(): void {
+    if (this.sourceNode) {
+      this.stopping = true;
+      try { this.sourceNode.stop(); } catch { /* already stopped */ }
+      try { this.sourceNode.disconnect(); } catch {}
+      this.sourceNode = null;
+      this.stopping = false;
+    }
+    this.playing = false;
+  }
+
+  private suspendPlayback(): void {
+    if (this.actx) void this.actx.suspend();
+  }
+
+  private resumePlayback(): void {
+    if (this.actx) void this.actx.resume();
   }
 
   private playNextInCategory(): void {
     const tracks = this.getTracksForCategory();
     if (tracks.length === 0) return;
-    const url = this.pickRandom(tracks);
-    if (!url) return;
-    // No fade-out needed — previous track already ended
-    this.startTrack(url);
+    const track = this.pickRandom(tracks);
+    if (!track) return;
+    void this.startTrack(track);
   }
 
   private fadeIn(): void {
@@ -161,9 +245,9 @@ export class MusicPlayer {
 
   private fadeOut(onDone?: () => void): void {
     this.clearFade();
-    if (!this.current) { onDone?.(); return; }
+    if (!this.playing) { onDone?.(); return; }
     this.fadeTarget = 0;
-    const audio = this.current;
+    const source = this.sourceNode;
     const startVol = this.gainNode?.gain.value ?? this.volume;
     const start = Date.now();
     this.fadeTimer = setInterval(() => {
@@ -174,9 +258,9 @@ export class MusicPlayer {
       }
       if (t >= 1) {
         this.clearFade();
-        audio.pause();
-        audio.src = '';
-        if (this.current === audio) this.current = null;
+        if (this.sourceNode === source) {
+          this.stopSource();
+        }
         onDone?.();
       }
     }, 30);
@@ -190,27 +274,31 @@ export class MusicPlayer {
   }
 
   private switchTo(cat: MusicCategory, race?: Race): void {
-    // Already playing same category (and same race for combat)
     if (this.category === cat && (cat !== 'combat' || this.combatRace === race)) return;
 
     this.category = cat;
     this.combatRace = race ?? null;
 
+    // Evict cached buffers not in the new category to limit memory on mobile.
+    // Decoded PCM buffers are ~10x larger than compressed MP3.
+    const keepUrls = new Set(this.getTracksForCategory().map(t => t.url));
+    for (const key of this.bufferCache.keys()) {
+      if (!keepUrls.has(key)) this.bufferCache.delete(key);
+    }
+
     const tracks = this.getTracksForCategory();
     if (tracks.length === 0) {
-      // No tracks available for this category — just stop
       this.fadeOut();
       return;
     }
 
-    const url = this.pickRandom(tracks);
-    if (!url) return;
+    const track = this.pickRandom(tracks);
+    if (!track) return;
 
-    if (this.current) {
-      // Crossfade: fade out old, start new
-      this.fadeOut(() => this.startTrack(url));
+    if (this.playing) {
+      this.fadeOut(() => void this.startTrack(track));
     } else {
-      this.startTrack(url);
+      void this.startTrack(track);
     }
   }
 

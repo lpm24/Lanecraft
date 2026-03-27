@@ -19,6 +19,7 @@ export interface SettingsOverlayLayout {
   shakeRow: Rect;
   weatherRow: Rect;
   dayNightRow: Rect;
+  damageNumbersRow: Rect;
 }
 
 export function hitRect(x: number, y: number, rect: Rect, pad = 0): boolean {
@@ -29,8 +30,8 @@ export function getSettingsOverlayLayout(width: number, _height: number): Settin
   const size = 46;
   const button = { x: width - size - 14, y: 13 + getSafeTop(), w: size, h: size };
   // Panel height: title(24) + audioHeader(16) + music(30) + sfx(30) + gap(6)
-  //   + visualHeader(16) + shake(30) + weather(30) + dayNight(30) + pad(8) = 220
-  const panelH = 220;
+  //   + visualHeader(16) + shake(30) + weather(30) + dayNight(30) + dmgNums(30) + pad(8) = 250
+  const panelH = 250;
   const panel = { x: button.x + button.w - 210, y: button.y + button.h + 4, w: 210, h: panelH };
   const rowH = 28;
   const px = panel.x + 8;
@@ -44,6 +45,7 @@ export function getSettingsOverlayLayout(width: number, _height: number): Settin
   const shakeY = visualHeaderY + 16;
   const weatherY = shakeY + rowH + 2;
   const dayNightY = weatherY + rowH + 2;
+  const damageNumbersY = dayNightY + rowH + 2;
   return {
     button,
     panel,
@@ -53,6 +55,7 @@ export function getSettingsOverlayLayout(width: number, _height: number): Settin
     shakeRow: { x: px, y: shakeY, w: pw, h: rowH },
     weatherRow: { x: px, y: weatherY, w: pw, h: rowH },
     dayNightRow: { x: px, y: dayNightY, w: pw, h: rowH },
+    damageNumbersRow: { x: px, y: damageNumbersY, w: pw, h: rowH },
   };
 }
 
@@ -135,7 +138,7 @@ export function drawSettingsOverlay(
   layout: SettingsOverlayLayout,
   audioSettings: AudioSettings,
 ): void {
-  const { panel, close, musicRow, sfxRow, shakeRow, weatherRow, dayNightRow } = layout;
+  const { panel, close, musicRow, sfxRow, shakeRow, weatherRow, dayNightRow, damageNumbersRow } = layout;
   const vis = getVisualSettings();
 
   const bgPadX = panel.w * 0.10;
@@ -179,6 +182,7 @@ export function drawSettingsOverlay(
   drawToggleRow(ctx, shakeRow, 'Screen Shake', vis.screenShake, '#a5d6a7');
   drawToggleRow(ctx, weatherRow, 'Weather', vis.weather, '#a5d6a7');
   drawToggleRow(ctx, dayNightRow, 'Day/Night', vis.dayNight, '#a5d6a7');
+  drawToggleRow(ctx, damageNumbersRow, 'Dmg Numbers', vis.damageNumbers, '#a5d6a7');
 }
 
 /** Handle clicks on visual toggle rows. Returns true if a toggle was hit. */
@@ -194,6 +198,10 @@ export function handleVisualToggleClick(cx: number, cy: number, layout: Settings
   }
   if (hitRect(cx, cy, layout.dayNightRow)) {
     updateVisualSettings({ dayNight: !vis.dayNight });
+    return true;
+  }
+  if (hitRect(cx, cy, layout.damageNumbersRow)) {
+    updateVisualSettings({ damageNumbers: !vis.damageNumbers });
     return true;
   }
   return false;

@@ -9,6 +9,7 @@ export interface PartyPlayer {
   uid: string;
   name: string;
   race: Race;
+  avatarId?: string;  // profile avatar ID (e.g. "crown:melee", "geists:caster:G")
 }
 
 /**
@@ -22,6 +23,7 @@ export interface PartyState {
   hostUid: string;
   players: { [slot: string]: PartyPlayer }; // keyed by slot index
   bots?: { [slot: string]: string };  // per-slot bot difficulty (BotDifficultyLevel), absent = empty
+  botRaces?: { [slot: string]: string };  // per-slot bot race, absent/random = random at game start
   maxSlots: number;  // max human players (from mapDef.maxPlayers)
   mapId: string;     // map selection (host controls)
   status: 'waiting' | 'starting' | 'in_game' | 'ended';
@@ -29,6 +31,7 @@ export interface PartyState {
   difficulty?: string; // global fallback BotDifficultyLevel, set by host
   teamSize?: number;   // players per team (1 = 1v1, 2 = 2v2, etc). Default = map's playersPerTeam.
   createdAt?: number;  // Date.now() when party was created — used to skip stale parties
+  hostPing?: number;   // Date.now() last heartbeat from host — used to detect ghost parties
   fogOfWar?: boolean;  // whether fog of war is enabled (default true)
 }
 
@@ -89,11 +92,14 @@ export class PartyManager {
   private _state: PartyState | null = null;
   private listeners: Set<PartyListener> = new Set();
   private _localName: string;
+  private _localAvatarId: string | undefined;
   /** Explicitly tracks whether this client created or joined the party.
    *  UID-based detection fails when two tabs share the same anonymous auth. */
   private _isHost = false;
   /** Which player slot this client occupies (0 = host, 1+ = guests). */
   private _localSlot = 0;
+  /** Heartbeat interval — host writes hostPing every 15s so guests/searchers can detect ghost parties. */
+  private heartbeatInterval: ReturnType<typeof setInterval> | null = null;
 
   constructor() {
     this._localName = this.loadName();
@@ -107,12 +113,23 @@ export class PartyManager {
   get localSlotIndex(): number { return this._localSlot; }
 
   set localName(name: string) {
-    this._localName = name;
-    try { localStorage.setItem('lanecraft.playerName', name); } catch {}
+    this._localName = name.slice(0, 24).trim() || name.slice(0, 24);
+    try { localStorage.setItem('lanecraft.playerName', this._localName); } catch {}
     // Push name update if in a party
     if (this._state && this.partyCode) {
       const db = getDb();
-      set(ref(db, `parties/${this.partyCode}/players/${this._localSlot}/name`), name);
+      set(ref(db, `parties/${this.partyCode}/players/${this._localSlot}/name`), this._localName);
+    }
+  }
+
+  get localAvatarId(): string | undefined { return this._localAvatarId; }
+
+  set localAvatarId(avatarId: string | undefined) {
+    this._localAvatarId = avatarId;
+    // Push avatar update if in a party
+    if (this._state && this.partyCode && avatarId) {
+      const db = getDb();
+      set(ref(db, `parties/${this.partyCode}/players/${this._localSlot}/avatarId`), avatarId);
     }
   }
 
@@ -153,12 +170,13 @@ export class PartyManager {
     const party: PartyState = {
       code,
       hostUid: uid,
-      players: { '0': { uid, name: this._localName, race } },
+      players: { '0': { uid, name: this._localName, race, ...(this._localAvatarId ? { avatarId: this._localAvatarId } : {}) } },
       maxSlots,
       mapId,
       status: 'waiting',
       seed: Math.floor(Math.random() * 2147483647),
       createdAt: Date.now(),
+      hostPing: Date.now(),
       fogOfWar: true,
     };
 
@@ -170,6 +188,7 @@ export class PartyManager {
     this._isHost = true;
     this._localSlot = 0;
     this.partyCode = code;
+    this.startHeartbeat();
     this.subscribeToParty(code);
     return code;
   }
@@ -196,7 +215,7 @@ export class PartyManager {
     }
     if (freeSlot < 0) throw new Error('Party is full');
 
-    const player: PartyPlayer = { uid, name: this._localName, race };
+    const player: PartyPlayer = { uid, name: this._localName, race, ...(this._localAvatarId ? { avatarId: this._localAvatarId } : {}) };
     await set(ref(db, `parties/${code}/players/${freeSlot}`), player);
 
     // Clean up our slot if we disconnect
@@ -210,6 +229,8 @@ export class PartyManager {
 
   async leaveParty(): Promise<void> {
     if (!this.partyCode) return;
+
+    this.stopHeartbeat();
 
     if (this.unsubscribe) {
       this.unsubscribe();
@@ -330,6 +351,17 @@ export class PartyManager {
     }
   }
 
+  /** Set or clear a bot's race in a specific slot (host only). Pass null for random. */
+  async setSlotBotRace(slot: number, race: string | null): Promise<void> {
+    if (!this.partyCode || !this._state || !this._isHost) return;
+    const db = getDb();
+    if (race && race !== 'random') {
+      await set(ref(db, `parties/${this.partyCode}/botRaces/${slot}`), race);
+    } else {
+      await remove(ref(db, `parties/${this.partyCode}/botRaces/${slot}`));
+    }
+  }
+
   /** Swap two slots (host only). Moves humans and/or bots between positions. */
   async swapSlots(slotA: number, slotB: number): Promise<void> {
     if (!this.partyCode || !this._state || !this._isHost) return;
@@ -387,6 +419,27 @@ export class PartyManager {
     await set(ref(getDb(), `parties/${this.partyCode}/status`), 'starting');
   }
 
+  private startHeartbeat(): void {
+    this.stopHeartbeat();
+    if (!this.partyCode) return;
+    const db = getDb();
+    const code = this.partyCode;
+    // Write initial ping immediately
+    set(ref(db, `parties/${code}/hostPing`), Date.now()).catch(() => {});
+    // Then every 15 seconds
+    this.heartbeatInterval = setInterval(() => {
+      if (!this.partyCode || this.partyCode !== code) { this.stopHeartbeat(); return; }
+      set(ref(db, `parties/${code}/hostPing`), Date.now()).catch(() => {});
+    }, 15_000);
+  }
+
+  private stopHeartbeat(): void {
+    if (this.heartbeatInterval) {
+      clearInterval(this.heartbeatInterval);
+      this.heartbeatInterval = null;
+    }
+  }
+
   /** Find an open party (status=waiting, has empty slots) and join it.
    *  Returns true if joined, false if none found. */
   async findAndJoinGame(race: Race): Promise<boolean> {
@@ -399,15 +452,15 @@ export class PartyManager {
 
     if (!snap.exists()) return false;
 
-    // Collect all candidate parties (has empty slots, not ours, not stale)
+    // Collect all candidate parties (has empty slots, not ours, host alive)
     const now = Date.now();
-    const STALE_MS = 3 * 60 * 1000; // 3 minutes — skip parties older than this
+    const HEARTBEAT_STALE_MS = 30 * 1000; // 30 seconds — host must have pinged within this window
     const candidates: string[] = [];
     snap.forEach((child) => {
       const data = child.val() as PartyState;
       if (data.hostUid === uid || !child.key) return;
-      // Skip stale parties (host likely disconnected without cleanup)
-      if (data.createdAt && now - data.createdAt > STALE_MS) return;
+      // Require a recent host heartbeat — parties without one are ghost rooms
+      if (!data.hostPing || now - data.hostPing > HEARTBEAT_STALE_MS) return;
       // Check if there's an empty active slot
       const active = getActiveSlots(data);
       const occupiedActive = active.filter(s => !!data.players[String(s)]).length;

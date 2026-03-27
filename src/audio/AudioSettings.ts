@@ -5,8 +5,8 @@ export interface AudioSettings {
 
 const STORAGE_KEY = 'lanecraft.audioSettings';
 const DEFAULT_SETTINGS: AudioSettings = {
-  musicVolume: 0.45,
-  sfxVolume: 0.8,
+  musicVolume: 0.2,
+  sfxVolume: 0.5,
 };
 
 type AudioSettingsListener = (settings: AudioSettings) => void;

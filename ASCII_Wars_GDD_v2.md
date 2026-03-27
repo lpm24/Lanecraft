@@ -1,6 +1,6 @@
-# Lanecraft - Game Design Document v2 (Implementation Ready)
+# Lanecraft - Game Design Document v2
 
-> **Note:** This game was originally titled "ASCII Wars", then "Spawn Wars". It has since been renamed to **Lanecraft** and expanded from 6 to 9 races with sprite-based rendering.
+> **Note:** This document is a historical design reference from early development. The game has since evolved significantly: 9 races (Crown, Horde, Goblins, Oozlings, Demon, Deep, Wild, Geists, Tenders) replace the original 4 (Surge, Tide, Ember, Bastion), "Stone" is now "Meat", maps are data-driven (Duel 80x120, Skirmish 160x90, Warzone), and match duration targets 3-5 minutes. See `README.md` and `BALANCE_PRINCIPLES.md` for the current state of the game.
 
 ## Working Title
 Lanecraft

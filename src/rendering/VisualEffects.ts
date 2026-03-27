@@ -482,20 +482,24 @@ export class AmbientParticles {
   private particles: AmbientParticle[] = [];
   private spawnAcc = 0;
 
-  /** Spawn ambient particles near combat areas */
-  update(dt: number, combatZones: { x: number; y: number }[]): void {
+  /** Spawn ambient particles near combat areas.
+   *  Optional `proj` converts tile coords to world pixels (for isometric). */
+  update(dt: number, combatZones: { x: number; y: number }[], proj?: (x: number, y: number) => { px: number; py: number }): void {
     this.spawnAcc += dt;
 
     // Spawn dust near combat — more frequently, bigger clouds
     if (this.spawnAcc > 0.08 && combatZones.length > 0) {
       this.spawnAcc = 0;
       const zone = combatZones[Math.floor(Math.random() * combatZones.length)];
+      let zx: number, zy: number;
+      if (proj) { const p = proj(zone.x, zone.y); zx = p.px; zy = p.py; }
+      else { zx = zone.x * T; zy = zone.y * T; }
       // Spawn 2-3 dust motes per burst
       const count = 2 + Math.floor(Math.random() * 2);
       for (let i = 0; i < count; i++) {
         this.particles.push({
-          x: zone.x * T + (Math.random() - 0.5) * T * 4,
-          y: zone.y * T + (Math.random() - 0.5) * T * 2,
+          x: zx + (Math.random() - 0.5) * T * 4,
+          y: zy + (Math.random() - 0.5) * T * 2,
           vx: (Math.random() - 0.5) * 20,
           vy: -8 - Math.random() * 18,
           size: 1.5 + Math.random() * 2,
@@ -542,12 +546,19 @@ export class AmbientParticles {
   }
 
   /** Spawn race-themed ambient particles near units — all 9 races */
-  spawnRaceParticle(x: number, y: number, race: Race): void {
+  /** Spawn a race-themed particle at world-pixel coordinates. ~1.2% chance per call. */
+  spawnRaceParticlePx(wpx: number, wpy: number, race: Race): void {
     if (this.particles.length > 160) return;
-    if (Math.random() > 0.012) return; // ~1.2% chance per unit per frame
+    if (Math.random() > 0.012) return;
+    this._doSpawnRaceParticle(wpx + (Math.random() - 0.5) * T * 2, wpy, race);
+  }
 
-    const px = x * T + (Math.random() - 0.5) * T * 2;
-    const py = y * T;
+  /** Spawn a race-themed particle at tile coordinates (orthographic). */
+  spawnRaceParticle(x: number, y: number, race: Race): void {
+    this.spawnRaceParticlePx(x * T, y * T, race);
+  }
+
+  private _doSpawnRaceParticle(px: number, py: number, race: Race): void {
     const base = {
       x: px, y: py,
       vx: (Math.random() - 0.5) * 20,
@@ -813,8 +824,9 @@ interface TrailPoint {
 export class ProjectileTrails {
   private trails: TrailPoint[] = [];
 
-  addPoint(x: number, y: number, color: string): void {
-    this.trails.push({ x: x * T + T / 2, y: y * T + T / 2, age: 0, color });
+  /** Add a trail point at world-pixel coordinates. */
+  addPointPx(px: number, py: number, color: string): void {
+    this.trails.push({ x: px, y: py, age: 0, color });
     if (this.trails.length > 500) this.trails.shift();
   }
 
@@ -941,69 +953,77 @@ export class CombatVFX {
   private arcs: ArcEffect[] = [];
   private sparkles: SparkleEffect[] = [];
 
-  /** Feed in combat events from the simulation tick */
-  consume(events: CombatEvent[]): void {
+  /** Feed in combat events from the simulation tick.
+   *  Optional `proj` converts tile coords to world pixels (for isometric). */
+  consume(events: CombatEvent[], proj?: (x: number, y: number) => { px: number; py: number }): void {
+    const wp = proj
+      ? (x: number, y: number) => { const p = proj(x, y); return { x: p.px, y: p.py }; }
+      : (x: number, y: number) => ({ x: x * T, y: y * T });
     for (const e of events) {
+      const { x: ex, y: ey } = wp(e.x, e.y);
       switch (e.type) {
         case 'splash':
           this.rings.push({
-            x: e.x * T, y: e.y * T,
+            x: ex, y: ey,
             maxRadius: (e.radius ?? 3) * T,
             color: e.color, age: 0, maxAge: 0.4,
           });
           break;
         case 'pulse':
           this.rings.push({
-            x: e.x * T, y: e.y * T,
+            x: ex, y: ey,
             maxRadius: (e.radius ?? 6) * T,
             color: e.color, age: 0, maxAge: 0.5,
           });
           break;
-        case 'chain':
+        case 'chain': {
+          const { x: ex2, y: ey2 } = wp(e.x2 ?? e.x, e.y2 ?? e.y);
           this.arcs.push({
-            x1: e.x * T, y1: e.y * T,
-            x2: (e.x2 ?? e.x) * T, y2: (e.y2 ?? e.y) * T,
+            x1: ex, y1: ey, x2: ex2, y2: ey2,
             color: e.color, age: 0, maxAge: 0.3,
           });
           break;
-        case 'lifesteal':
+        }
+        case 'lifesteal': {
+          const { x: lx2, y: ly2 } = wp(e.x2 ?? e.x, e.y2 ?? e.y);
           this.sparkles.push({
-            x: e.x * T, y: e.y * T, color: e.color,
-            x2: (e.x2 ?? e.x) * T, y2: (e.y2 ?? e.y) * T,
+            x: ex, y: ey, color: e.color,
+            x2: lx2, y2: ly2,
             age: 0, maxAge: 0.35, type: 'lifesteal',
           });
           break;
+        }
         case 'heal':
           this.sparkles.push({
-            x: e.x * T, y: e.y * T, color: e.color,
+            x: ex, y: ey, color: e.color,
             age: 0, maxAge: 0.5, type: 'heal',
           });
           break;
         case 'dodge':
           this.sparkles.push({
-            x: e.x * T, y: e.y * T, color: e.color,
+            x: ex, y: ey, color: e.color,
             age: 0, maxAge: 0.25, type: 'dodge',
           });
           break;
         case 'revive':
           this.rings.push({
-            x: e.x * T, y: e.y * T, maxRadius: T * 2.5,
+            x: ex, y: ey, maxRadius: T * 2.5,
             color: e.color, age: 0, maxAge: 0.5,
           });
           this.sparkles.push({
-            x: e.x * T, y: e.y * T, color: e.color,
+            x: ex, y: ey, color: e.color,
             age: 0, maxAge: 0.5, type: 'revive',
           });
           break;
         case 'cleanse':
           this.sparkles.push({
-            x: e.x * T, y: e.y * T, color: e.color,
+            x: ex, y: ey, color: e.color,
             age: 0, maxAge: 0.4, type: 'cleanse',
           });
           break;
         case 'knockback':
           this.sparkles.push({
-            x: e.x * T, y: e.y * T, color: e.color,
+            x: ex, y: ey, color: e.color,
             age: 0, maxAge: 0.3, type: 'knockback',
           });
           break;

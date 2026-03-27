@@ -41,6 +41,10 @@ jobs:
         run: |
           sed -i '' '/func application.*continue userActivity/,/^    }/d' ios/App/App/AppDelegate.swift
 
+      - name: Patch AppPlugin (call.reject removed in newer Capacitor Swift PM)
+        run: |
+          sed -i '' 's/call\.reject("Unable to get App Info")/call.resolve()/' node_modules/@capacitor/app/ios/Sources/AppPlugin/AppPlugin.swift
+
       - name: Set app icon
         run: cp public/icons/app-icon-1024.png ios/App/App/Assets.xcassets/AppIcon.appiconset/AppIcon-512@2x.png
 

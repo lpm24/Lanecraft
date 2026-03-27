@@ -20,7 +20,7 @@ import { GameCommand } from '../simulation/types';
 export const TICKS_PER_TURN = 4; // 200ms at 20tps
 const HASH_CHECK_INTERVAL = 25; // check hash every 25 turns = every 5 seconds
 const CONNECTION_TIMEOUT_MS = 15000; // 15 seconds to establish connection
-const TURN_CLEANUP_DELAY = 10; // keep last N turns before cleaning up
+const TURN_CLEANUP_DELAY = 50; // keep last N turns before cleaning up (~10s buffer)
 
 interface TurnData {
   cmds: GameCommand[] | null; // null when no commands (Firebase strips empty arrays)
@@ -46,7 +46,7 @@ export class CommandSync {
   private connectionTimeout: ReturnType<typeof setTimeout> | null = null;
 
   // Firebase listeners to unsubscribe on stop
-  private unsubs: Unsubscribe[] = [];
+  private unsubs = new Set<Unsubscribe>();
 
   // Connection readiness
   private _connectedPromise: Promise<void>;
@@ -63,6 +63,7 @@ export class CommandSync {
   private consecutiveWriteFailures = 0;
   private writesDisabled = false;
   private reauthAttempted = false;
+  private reauthInProgress = false;
   private static readonly MAX_WRITE_FAILURES = 5;
 
   onDesync: DesyncCallback | null = null;
@@ -101,7 +102,6 @@ export class CommandSync {
   /** Initialize Firebase listeners and exchange ready signals. */
   start(): void {
     this.status = `starting slot=${this.localSlotId} humans=[${this.allHumanSlots.join(',')}] remotes=[${this.remoteSlotIds.join(',')}]`;
-    console.log(`[CommandSync] ${this.status}, party=${this.partyCode}`);
 
     const db = getDb();
     const gameRef = `games/${this.partyCode}`;
@@ -124,7 +124,6 @@ export class CommandSync {
     this.status = `writing ready for slot ${this.localSlotId}`;
     set(ref(db, `${gameRef}/ready/${this.localSlotId}`), true).then(() => {
       this.status = `ready written, waiting=${this.allHumanSlots.filter(id => !this.readyPlayers.has(id)).join(',')}`;
-      console.log(`[CommandSync] ${this.status}`);
       // If no remote players (solo + bots), resolve immediately
       this.checkAllReady();
     }).catch((err) => {
@@ -135,29 +134,33 @@ export class CommandSync {
 
     // Listen for each remote player's ready signal
     for (const remoteId of this.remoteSlotIds) {
-      console.log(`[CommandSync] Listening for ready at ${gameRef}/ready/${remoteId}`);
       const readyUnsub = onValue(ref(db, `${gameRef}/ready/${remoteId}`), (snap) => {
-        console.log(`[CommandSync] ready/${remoteId} snap:`, snap.val());
         if (snap.val() === true && !this.readyPlayers.has(remoteId)) {
           this.readyPlayers.add(remoteId);
           const waiting = this.allHumanSlots.filter(id => !this.readyPlayers.has(id));
           this.status = waiting.length > 0 ? `got slot ${remoteId}, waiting=${waiting.join(',')}` : 'all ready';
-          console.log(`[CommandSync] ${this.status}`);
           this.checkAllReady();
         }
         if (snap.val() === null && this.connected) {
-          // Remote player disconnected
-          this.connected = false;
+          // Remote player disconnected — remove them individually, don't kill everything
           this.status = `slot ${remoteId} disconnected`;
           console.warn(`[CommandSync] ${this.status}`);
-          this.onDisconnect?.();
+          if (!this.leftSlotQueue.includes(remoteId)) {
+            this.leftSlotQueue.push(remoteId);
+          }
+          this.removeHumanSlot(remoteId);
+          // Only fully disconnect if ALL remote players are gone
+          if (this.remoteSlotIds.length === 0) {
+            this.connected = false;
+            this.onDisconnect?.();
+          }
         }
       });
-      this.unsubs.push(readyUnsub);
+      this.unsubs.add(readyUnsub);
     }
 
     // Start latency measurement via Firebase server time
-    this.pingInterval = setInterval(() => this.measureLatency(), 3000);
+    this.pingInterval = setInterval(() => this.measureLatency(), 10000);
   }
 
   private checkAllReady(): void {
@@ -171,7 +174,6 @@ export class CommandSync {
         this.connectionTimeout = null;
       }
       this.status = 'connected';
-      console.log(`[CommandSync] All ${this.allHumanSlots.length} peers ready — game can start`);
       this._connectedResolve();
     }
   }
@@ -224,10 +226,10 @@ export class CommandSync {
         }
         // All data received — unsubscribe from this turn
         unsub();
-        this.unsubs = this.unsubs.filter(u => u !== unsub);
+        this.unsubs.delete(unsub);
       }
     });
-    this.unsubs.push(unsub);
+    this.unsubs.add(unsub);
   }
 
   /** Check if all human players have submitted data for this turn. */
@@ -264,6 +266,9 @@ export class CommandSync {
 
     // Only write to Firebase if there are remote players to sync with
     if (this.remoteSlotIds.length > 0 && !this.writesDisabled) {
+      // Pause writes while re-auth is in progress to avoid flooding failed requests
+      if (this.reauthInProgress) return;
+
       const db = getDb();
       set(ref(db, `games/${this.partyCode}/turns/${turn}/${this.localSlotId}`), data).then(() => {
         this.consecutiveWriteFailures = 0; // reset on success
@@ -274,11 +279,18 @@ export class CommandSync {
         // Try re-auth once before giving up (handles expired token / CORS refresh failure)
         if (this.consecutiveWriteFailures >= 3 && !this.reauthAttempted) {
           this.reauthAttempted = true;
-          console.warn('[CommandSync] Attempting re-auth after write failures');
+          this.reauthInProgress = true;
+          console.warn('[CommandSync] Attempting re-auth after write failures — pausing writes');
           reauth().then(user => {
+            this.reauthInProgress = false;
             if (user) {
-              console.log('[CommandSync] Re-auth succeeded, resetting failure counter');
               this.consecutiveWriteFailures = 0;
+            } else {
+              // Re-auth failed — treat as disconnect immediately
+              console.error('[CommandSync] Re-auth failed — treating as disconnect');
+              this.writesDisabled = true;
+              this.connected = false;
+              this.onDisconnect?.();
             }
           });
         }
@@ -320,10 +332,21 @@ export class CommandSync {
         if (this.isTurnComplete(turn)) {
           resolve(this.collectTurn(turn));
         } else {
-          // Some remote(s) never arrived — treat as disconnect
-          console.warn(`[CommandSync] Turn ${turn} timeout — missing remote data, treating as disconnect`);
-          this.connected = false;
-          this.onDisconnect?.();
+          // Identify which players timed out and remove them individually
+          const turnMap = this.turnBuffer.get(turn);
+          const missing = this.allHumanSlots.filter(id => id !== this.localSlotId && !turnMap?.has(id));
+          for (const slotId of missing) {
+            console.warn(`[CommandSync] Turn ${turn} timeout — slot ${slotId} missing, converting to bot`);
+            if (!this.leftSlotQueue.includes(slotId)) {
+              this.leftSlotQueue.push(slotId);
+            }
+            this.removeHumanSlot(slotId);
+          }
+          // Only fully disconnect if ALL remote players are gone
+          if (this.remoteSlotIds.length === 0) {
+            this.connected = false;
+            this.onDisconnect?.();
+          }
           resolve(this.collectTurn(turn));
         }
       }, timeoutMs);
@@ -401,7 +424,7 @@ export class CommandSync {
           this.removeHumanSlot(remoteId);
         }
       });
-      this.unsubs.push(unsub);
+      this.unsubs.add(unsub);
     }
   }
 
@@ -419,7 +442,7 @@ export class CommandSync {
     goOnline();
     // Restart latency ping
     if (!this.pingInterval && this.connected) {
-      this.pingInterval = setInterval(() => this.measureLatency(), 3000);
+      this.pingInterval = setInterval(() => this.measureLatency(), 10000);
     }
   }
 
@@ -434,7 +457,7 @@ export class CommandSync {
     }
     // Unsubscribe all Firebase listeners
     for (const unsub of this.unsubs) unsub();
-    this.unsubs = [];
+    this.unsubs.clear();
     this.subscribedTurns.clear();
 
     // Clean up only our own ready signal — don't delete the whole game node

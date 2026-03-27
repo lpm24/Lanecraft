@@ -9,25 +9,25 @@ import { getAudioSettings, subscribeToAudioSettings, updateAudioSettings } from 
 import { drawSettingsButton, drawSettingsOverlay, getSettingsOverlayLayout, hitRect, sliderValueFromPoint, handleVisualToggleClick, SettingsSliderDrag } from '../ui/SettingsOverlay';
 import { getSafeTop } from '../ui/SafeArea';
 
-type ResIcon = 'uiGold' | 'uiWood' | 'uiMeat';
+type ResIcon = 'uiGold' | 'uiWood' | 'uiMeat' | 'uiMana' | 'uiSouls' | 'uiOoze';
 
 interface RaceOption {
   race: Race;
   label: string;
   desc: string;
-  econ: [ResIcon, ResIcon];
+  econ: ResIcon[];
 }
 
 const RACES: RaceOption[] = [
-  { race: Race.Crown, label: 'CROWN', desc: 'Shield + balance', econ: ['uiGold', 'uiWood'] },
-  { race: Race.Horde, label: 'HORDE', desc: 'Brute force + knockback', econ: ['uiGold', 'uiMeat'] },
-  { race: Race.Goblins, label: 'GOBLINS', desc: 'Speed + poison', econ: ['uiGold', 'uiWood'] },
-  { race: Race.Oozlings, label: 'OOZLINGS', desc: 'Swarm + haste', econ: ['uiGold', 'uiMeat'] },
-  { race: Race.Demon, label: 'DEMON', desc: 'Glass cannon + burn', econ: ['uiMeat', 'uiWood'] },
-  { race: Race.Deep, label: 'DEEP', desc: 'Control + slow', econ: ['uiWood', 'uiGold'] },
-  { race: Race.Wild, label: 'WILD', desc: 'Aggro + poison', econ: ['uiWood', 'uiMeat'] },
-  { race: Race.Geists, label: 'GEISTS', desc: 'Undying + lifesteal', econ: ['uiMeat', 'uiGold'] },
-  { race: Race.Tenders, label: 'TENDERS', desc: 'Regen + healing', econ: ['uiWood', 'uiGold'] },
+  { race: Race.Crown, label: 'CROWN', desc: 'Hold the line, wear them down', econ: ['uiGold', 'uiWood'] },
+  { race: Race.Horde, label: 'HORDE', desc: 'Hit hard, send them flying', econ: ['uiGold', 'uiWood', 'uiMeat'] },
+  { race: Race.Goblins, label: 'GOBLINS', desc: 'Fast, cheap, and filthy', econ: ['uiGold', 'uiWood'] },
+  { race: Race.Oozlings, label: 'OOZLINGS', desc: 'Strength in numbers', econ: ['uiGold', 'uiMeat', 'uiOoze'] },
+  { race: Race.Demon, label: 'DEMON', desc: 'Everything burns', econ: ['uiMeat', 'uiWood', 'uiMana'] },
+  { race: Race.Deep, label: 'DEEP', desc: 'Crush them slowly', econ: ['uiWood', 'uiGold'] },
+  { race: Race.Wild, label: 'WILD', desc: 'Feral and relentless', econ: ['uiWood', 'uiMeat'] },
+  { race: Race.Geists, label: 'GEISTS', desc: 'Death is only the beginning', econ: ['uiMeat', 'uiGold', 'uiSouls'] },
+  { race: Race.Tenders, label: 'TENDERS', desc: 'Outlast and overgrow', econ: ['uiWood', 'uiGold'] },
 ];
 
 const RANDOM_INDEX = RACES.length; // index 9
@@ -391,16 +391,17 @@ export class RaceSelectScene implements Scene {
     ctx.fillStyle = '#fff';
     ctx.fillText('CHOOSE YOUR RACE', w / 2, ribbonY + ribbonH * 0.58);
 
-    const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
-    if (!isTouchDevice) {
-      const hintSize = Math.max(9, Math.min(w / 55, 12));
+    const boxes = this.getBoxLayout();
+    const boxW = boxes[0].w;
+    const isNarrow = boxW <= 170;
+    if (!isNarrow) {
+      const hintSize = Math.max(11, Math.min(w / 55, 12));
       ctx.font = `${hintSize}px monospace`;
       ctx.fillStyle = 'rgba(255,255,255,0.5)';
       ctx.fillText('Arrow keys + Enter  |  Click to select', w / 2, ribbonY + ribbonH + 12);
     }
 
-    const boxes = this.getBoxLayout();
-    const fontSize = Math.max(10, Math.min(boxes[0].w / 8, 16));
+    const fontSize = Math.max(11, Math.min(boxW / 8, 16));
 
     for (let i = 0; i < RACES.length; i++) {
       const race = RACES[i];
@@ -440,11 +441,17 @@ export class RaceSelectScene implements Scene {
         const spriteData = this.sprites.getUnitSprite(race.race, unitTypes[ui], 0);
         if (!spriteData) continue;
         const [img, def] = spriteData;
-        const fitSize = Math.min(spriteSlotW * 0.9, spriteZoneH);
+        const spriteScale = def.scale ?? 1.0;
         const aspect = def.frameW / def.frameH;
         const hScale = def.heightScale ?? 1.0;
-        const drawW = aspect >= 1 ? fitSize : fitSize * aspect;
-        const drawH = (aspect >= 1 ? fitSize / aspect : fitSize) * hScale;
+        const maxW = spriteSlotW * 0.9;
+        const maxH = spriteZoneH;
+        // Start with in-game proportional size (scale-aware)
+        let drawW = maxH * spriteScale * aspect;
+        let drawH = maxH * spriteScale * hScale;
+        // Clamp to fit within slot while preserving proportions
+        if (drawW > maxW) { const s = maxW / drawW; drawW *= s; drawH *= s; }
+        if (drawH > maxH) { const s = maxH / drawH; drawW *= s; drawH *= s; }
         const frame = isSelected ? getSpriteFrame(Math.floor(this.tick / 3), def) : 0;
         const slotCx = box.x + spriteSlotW * (ui + 0.5);
         const dx = Math.round(slotCx - drawW / 2);
@@ -459,21 +466,23 @@ export class RaceSelectScene implements Scene {
       const nameColor = isSelected ? colors.primary : '#fff';
       woodText(ctx, race.label, cx, nameY, nameColor, 'rgba(0,0,0,0.7)');
 
-      ctx.font = `${fontSize * 0.72}px monospace`;
-      woodText(ctx, race.desc, cx, nameY + nameFontSize * 0.85, '#ddd', 'rgba(0,0,0,0.5)');
+      if (!isNarrow) {
+        ctx.font = `${Math.max(11, fontSize * 0.72)}px monospace`;
+        woodText(ctx, race.desc, cx, nameY + nameFontSize * 0.85, '#ddd', 'rgba(0,0,0,0.5)');
+      }
 
       const iconSize = fontSize * 1.8;
       const iconGap = iconSize * 0.5;
-      const iconY = box.y + box.h * 0.73;
-      const totalIconW = iconSize * 2 + iconGap;
+      const iconY = box.y + box.h * (isNarrow ? 0.67 : 0.73);
+      const iconCount = race.econ.length;
+      const totalIconW = iconSize * iconCount + iconGap * (iconCount - 1);
       const iconStartX = cx - totalIconW / 2;
-      for (let ri = 0; ri < 2; ri++) {
+      for (let ri = 0; ri < iconCount; ri++) {
         const resData = this.sprites.getResourceSprite(race.econ[ri]);
         if (resData) {
-          const [rImg] = resData;
           const ix = iconStartX + ri * (iconSize + iconGap);
           if (!isSelected) ctx.globalAlpha = 0.7;
-          ctx.drawImage(rImg, ix, iconY, iconSize, iconSize);
+          ctx.drawImage(resData[0], ix, iconY, iconSize, iconSize);
           ctx.globalAlpha = 1;
         }
       }
@@ -484,7 +493,7 @@ export class RaceSelectScene implements Scene {
         const selRibX = cx - selRibW / 2;
         const selRibY = box.y + box.h * 0.90 - selRibH / 2;
         this.ui.drawSmallRibbon(ctx, selRibX, selRibY, selRibW, selRibH, 0);
-        ctx.font = `bold ${fontSize * 0.6}px monospace`;
+        ctx.font = `bold ${Math.max(11, fontSize * 0.6)}px monospace`;
         ctx.fillStyle = '#fff';
         ctx.textAlign = 'center';
         ctx.fillText('SELECTED', cx, selRibY + selRibH * 0.6);
@@ -522,17 +531,27 @@ export class RaceSelectScene implements Scene {
         ctx.strokeRect(rb.x + 1, rb.y + 1, rb.w - 2, rb.h - 2);
       }
 
-      const randFontSize = Math.max(10, Math.min(rb.h * 0.55, 14));
+      const randFontSize = Math.max(11, Math.min(rb.h * 0.55, 14));
+      const diceSize = Math.round(rb.h * 0.75);
+      const labelText = 'RANDOM';
       ctx.font = `bold ${randFontSize}px monospace`;
+      const textW = ctx.measureText(labelText).width;
+      const gap = Math.round(diceSize * 0.25);
+      const totalW = diceSize + gap + textW;
+      const startX = rb.x + (rb.w - totalW) / 2;
+      const iconColor = isRandSelected ? randColor : 'rgba(255,255,255,0.6)';
+      this.ui.drawIcon(ctx, 'dice', startX, rb.y + (rb.h - diceSize) / 2, diceSize);
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      woodText(ctx, '? RANDOM ?', rb.x + rb.w / 2, rb.y + rb.h / 2, isRandSelected ? randColor : 'rgba(255,255,255,0.6)');
+      woodText(ctx, labelText, startX + diceSize + gap + textW / 2, rb.y + rb.h / 2, iconColor);
+
+      ctx.restore();
 
       if (isRandSelected) {
         const selRibW = rb.w * 0.35;
         const selRibH = randFontSize * 1.2;
-        const selRibX = rb.x + rb.w - selRibW - 8;
-        const selRibY = rb.y + (rb.h - selRibH) / 2;
+        const selRibX = rb.x + (rb.w - selRibW) / 2;
+        const selRibY = rb.y + rb.h - selRibH / 2;
         this.ui.drawSmallRibbon(ctx, selRibX, selRibY, selRibW, selRibH, 0);
         ctx.font = `bold ${randFontSize * 0.55}px monospace`;
         ctx.fillStyle = '#fff';
@@ -540,8 +559,6 @@ export class RaceSelectScene implements Scene {
         ctx.textBaseline = 'middle';
         ctx.fillText('SELECTED', selRibX + selRibW / 2, selRibY + selRibH * 0.55);
       }
-
-      ctx.restore();
     }
 
     // Bottom button row: BACK (left) + NEXT (right)

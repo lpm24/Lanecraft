@@ -39,7 +39,7 @@ Stats aren't just balance levers — they communicate *what a unit is*. A player
 ### Cost ↔ Power Mapping
 - **Cheap units feel cheap**: Low HP, fast attack, expendable. Goblins and Oozlings should die fast but come fast.
 - **Expensive units feel elite**: High HP or damage, slower to replace. Demon Overlord, Deep Shell Guard, Horde Brute.
-- **Cost must match resource theme**: Stone races (Horde, Geists) pay stone for durability. Wood races (Tenders, Wild) pay wood for growth/nature.
+- **Cost must match resource theme**: Meat races (Horde, Geists) pay meat for durability. Wood races (Tenders, Wild) pay wood for growth/nature.
 
 ### Stat ↔ Animation Mapping
 Units should *look like they fight the way they fight*:
@@ -105,7 +105,7 @@ When an upgrade swaps the sprite to an entirely new creature:
 
 ### Free to Tune (within thematic bounds)
 - Unit HP, damage, attack speed, move speed (within ±25% of current values)
-- Building costs (gold, wood, stone amounts)
+- Building costs (gold, wood, meat amounts)
 - Building HP
 - Tower damage and attack speed
 - Status effect duration and magnitude (burn damage, slow %, shield amount)
@@ -190,3 +190,51 @@ To ensure races *feel* different, track these spread metrics:
 | Tower HP spread | 1.8:1+ ratio | Tenders (300) vs Goblins (150) = 2:1 ✓ |
 
 If tuning ever compresses these ratios below healthy range, the change should be rejected — races are becoming too similar.
+
+---
+
+## 8. Resource Exchange Rate & Effective Cost Model
+
+All balance cost comparisons use the **effective cost** model derived from harvester economics on the Duel map (2v2):
+
+### Exchange Rate: 2 gold = 1 wood = 1 meat
+
+**Why this ratio:**
+- Gold mine is 7.5 tiles from HQ → 7.0s cycle → 4 gold/trip → **0.571 gold/s** (0.286 eff/s)
+- Wood/Meat nodes are ~54 tiles from HQ → 38.2s cycle → 10/trip → **0.262 resource/s** (0.262 eff/s)
+- Gold income per worker in effective terms (0.286) ≈ wood/meat income (0.262), confirming the 2:1 ratio
+
+**Effective cost formula:** `eff = gold/2 + wood + meat`
+
+This means a building costing 80 gold (40 eff) requires roughly the same harvester-time investment as one costing 40 wood (40 eff).
+
+### Research Cost Parity
+
+Research costs are normalized so all races pay equal effective cost per level:
+- **Gold races**: pay `80 × 1.5^level` in gold → 40 eff per base level
+- **Non-gold races** (Demon, Wild): pay `40 × 1.5^level` split across wood/meat → 40 eff per base level
+- **Oozlings**: pay `30 × 1.4^level` in deathEssence (own economy)
+
+One-shot research follows the same principle: 150 gold = 75 wood/meat total for non-gold races.
+
+### Cost Analysis Tool
+
+Run `npm run cost-analysis` to generate a full report covering:
+1. **Building effective costs** — all 9 races × 6 building types
+2. **Upgrade effective costs** — tier 1 and tier 2 node costs
+3. **Unit power & efficiency** — HP×DPS per spawn cycle, power rate, cost-efficiency ratio at T0/T1/T2
+4. **Research costs** — cumulative effective cost and power multipliers
+5. **Late-game power** — T2 units × research multipliers, total investment efficiency
+6. **Tower value** — HP×DPS / effective cost
+7. **Hut payback** — seconds to recoup investment per hut (escalating costs)
+8. **Summary rankings** — sorted efficiency, rush cost, research cost, hut payback
+
+**Key metrics:**
+- **Power** = HP × DPS × spawnCount (combat value per spawn cycle)
+- **Power Rate** = Power / spawn interval (combat output per second from a building)
+- **Efficiency** = Power Rate / total effective cost (value per resource invested)
+- **Hut Payback** = hut effective cost / harvester income rate (seconds to break even)
+
+**When to re-run:** After any change to building costs, unit stats, upgrade multipliers, research costs, spawn intervals, or harvester economics.
+
+The tool reads directly from `data.ts` constants, so output always reflects the current state of the code.

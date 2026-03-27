@@ -1,23 +1,35 @@
 import { MAP_WIDTH, MAP_HEIGHT, TILE_SIZE } from '../simulation/types';
+import { isoWorldBounds } from './Projection';
 
 export class Camera {
   x = 0;
   y = 0;
   zoom = 1;
-  private maxZoom = 3;
-  // Configurable world size (set via setWorldSize for non-default maps)
+  private get maxZoom(): number { return this.isometric ? 5 : 3; }
   worldTilesW = MAP_WIDTH;
   worldTilesH = MAP_HEIGHT;
+  isometric = false;
   // Smooth pan target
   private panTargetX: number | null = null;
   private panTargetY: number | null = null;
   private panTargetZoom: number | null = null;
+  // Continuous follow target (world-pixel coords) — set each frame, cleared on manual input
+  followTargetX: number | null = null;
+  followTargetY: number | null = null;
 
   private get minZoom(): number {
-    const worldW = this.worldTilesW * TILE_SIZE;
-    const worldH = this.worldTilesH * TILE_SIZE;
-    // 5% padding on each side → view = world * 1.10
-    return Math.min(this.canvas.clientWidth / (worldW * 1.10), this.canvas.clientHeight / (worldH * 1.10));
+    let worldW: number, worldH: number;
+    if (this.isometric) {
+      const bounds = isoWorldBounds(this.worldTilesW, this.worldTilesH);
+      worldW = bounds.width;
+      worldH = bounds.height;
+    } else {
+      worldW = this.worldTilesW * TILE_SIZE;
+      worldH = this.worldTilesH * TILE_SIZE;
+    }
+    // Iso: tighter minimum (less zoom-out), ortho: 5% padding
+    const pad = this.isometric ? 1.25 : 1.10;
+    return Math.min(this.canvas.clientWidth / (worldW * pad), this.canvas.clientHeight / (worldH * pad));
   }
 
   private keys = new Set<string>();
@@ -107,10 +119,12 @@ export class Camera {
 
     c.addEventListener('wheel', (e) => {
       e.preventDefault();
-      // Manual zoom cancels smooth pan
+      // Manual zoom cancels smooth pan and follow
       this.panTargetX = null;
       this.panTargetY = null;
       this.panTargetZoom = null;
+      this.followTargetX = null;
+      this.followTargetY = null;
       const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
       const rect = c.getBoundingClientRect();
       const cursorX = e.clientX - rect.left;
@@ -128,13 +142,24 @@ export class Camera {
   }
 
   private clamp(): void {
-    const worldW = this.worldTilesW * TILE_SIZE;
-    const worldH = this.worldTilesH * TILE_SIZE;
+    let minX: number, minY: number, maxX: number, maxY: number;
+    if (this.isometric) {
+      const bounds = isoWorldBounds(this.worldTilesW, this.worldTilesH);
+      minX = bounds.minX;
+      minY = bounds.minY;
+      maxX = bounds.maxX;
+      maxY = bounds.maxY;
+    } else {
+      minX = 0;
+      minY = 0;
+      maxX = this.worldTilesW * TILE_SIZE;
+      maxY = this.worldTilesH * TILE_SIZE;
+    }
     const viewW = this.canvas.clientWidth / this.zoom;
     const viewH = this.canvas.clientHeight / this.zoom;
     const margin = 100;
-    this.x = Math.max(-margin, Math.min(worldW - viewW + margin, this.x));
-    this.y = Math.max(-margin, Math.min(worldH - viewH + margin, this.y));
+    this.x = Math.max(minX - margin, Math.min(maxX - viewW + margin, this.x));
+    this.y = Math.max(minY - margin, Math.min(maxY - viewH + margin, this.y));
   }
 
   /** Smoothly pan camera to center on a world-pixel position at a given zoom. */
@@ -153,10 +178,12 @@ export class Camera {
       this.keys.has('d') || this.keys.has('arrowright');
 
     if (hasKeyInput || this.isDragging) {
-      // Manual input cancels smooth pan
+      // Manual input cancels smooth pan and follow
       this.panTargetX = null;
       this.panTargetY = null;
       this.panTargetZoom = null;
+      this.followTargetX = null;
+      this.followTargetY = null;
     }
 
     if (this.keys.has('w') || this.keys.has('arrowup')) this.y -= panSpeed / this.zoom;
@@ -181,6 +208,15 @@ export class Camera {
         this.panTargetY = null;
         this.panTargetZoom = null;
       }
+    }
+
+    // Continuous follow target — smoothly track a moving entity
+    if (this.followTargetX !== null && this.followTargetY !== null) {
+      const tx = this.followTargetX - this.canvas.clientWidth / (2 * this.zoom);
+      const ty = this.followTargetY - this.canvas.clientHeight / (2 * this.zoom);
+      const flerp = 0.15;
+      this.x += (tx - this.x) * flerp;
+      this.y += (ty - this.y) * flerp;
     }
 
     this.clamp();

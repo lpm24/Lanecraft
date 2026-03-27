@@ -1,9 +1,10 @@
 import {
   GameState, GameCommand, Race, BuildingType, Lane, Team, HQ_WIDTH, HQ_HEIGHT,
   HarvesterAssignment, HQ_HP, MapDef, TICK_RATE, NUKE_RADIUS,
+  AbilityTargetMode, ResearchUpgradeState,
 } from './types';
-import { RACE_BUILDING_COSTS, UPGRADE_TREES, UpgradeNodeDef, UNIT_STATS, SPAWN_INTERVAL_TICKS, TOWER_STATS, getNodeUpgradeCost, HUT_COST_SCALE, GOLD_YIELD_PER_TRIP, WOOD_YIELD_PER_TRIP, STONE_YIELD_PER_TRIP } from './data';
-import { getHQPosition, getUnitUpgradeMultipliers, PASSIVE_INCOME } from './GameState';
+import { RACE_BUILDING_COSTS, UPGRADE_TREES, UpgradeNodeDef, UNIT_STATS, SPAWN_INTERVAL_TICKS, TOWER_STATS, getNodeUpgradeCost, HUT_COST_SCALE, TOWER_COST_SCALE, GOLD_YIELD_PER_TRIP, WOOD_YIELD_PER_TRIP, MEAT_YIELD_PER_TRIP, RACE_ABILITY_DEFS, getAllResearchUpgrades, getResearchUpgradeCost } from './data';
+import { getHQPosition, getUnitUpgradeMultipliers, PASSIVE_INCOME, getTeamAlleyOrigin, getBaseGoldPosition } from './GameState';
 
 // --- Bot Difficulty System ---
 
@@ -33,8 +34,6 @@ export interface BotDifficulty {
   useDynamicShift: boolean;
   /** Whether bot uses matchup-aware upgrade scoring (vs fixed race bias) */
   useSmartUpgrades: boolean;
-  /** Whether to use per-race optimized nightmare profiles */
-  useNightmareProfiles: boolean;
   /** Chance to make a suboptimal random decision (0 = perfect, 1 = fully random) */
   mistakeRate: number;
   /** Max total spawners (melee+ranged+caster) the bot will build. 99 = unlimited */
@@ -43,76 +42,80 @@ export interface BotDifficulty {
   maxHuts: number;
   /** If true, bot holds nuke until enemies are pushing near its HQ */
   nukeDefensiveOnly: boolean;
+  /** Multiplier applied to bot unit HP and damage at spawn (1.0 = normal).
+   *  Should stay at 1.0 for all difficulties — bots should win through better
+   *  decisions, not inflated stats. Kept as infrastructure but not used. */
+  statBonus: number;
 }
 
 export const BOT_DIFFICULTY_PRESETS: Record<BotDifficultyLevel, BotDifficulty> = {
-  // Easy: capped army, slow builds, no upgrades/nukes — clearly inferior economy & army
+  // Easy: profile-based build order, slow, capped, mistake-prone
   [BotDifficultyLevel.Easy]: {
-    buildSpeed: 60,           // 3 seconds between builds
-    upgradeSpeed: 999999,     // never upgrades
-    upgradeThreshold: 99,
-    nukeMinTime: 99,          // never nukes
+    buildSpeed: 1200,         // 60 seconds between builds
+    upgradeSpeed: 1200,       // 60 seconds between upgrades
+    upgradeThreshold: 4,
+    nukeMinTime: 8.0,
     laneIQ: 'random',
     counterBuild: false,
     useValueFunction: false,
     useDynamicShift: false,
     useSmartUpgrades: false,
-    useNightmareProfiles: false,
-    mistakeRate: 0.10,
-    maxSpawners: 3,           // hard cap: only 3 spawners total
-    maxHuts: 2,               // hard cap: only 2 huts
+    mistakeRate: 0.75,
+    maxSpawners: 99,
+    maxHuts: 99,
     nukeDefensiveOnly: false,
+    statBonus: 1.0,
   },
-  // Medium: moderate caps, moderate speed, no upgrades
+  // Medium: smart upgrades, basic lanes, fewer mistakes
   [BotDifficultyLevel.Medium]: {
-    buildSpeed: 35,           // 1.75 seconds between builds
-    upgradeSpeed: 999999,     // no upgrades — army mass wins over upgrades
-    upgradeThreshold: 99,
-    nukeMinTime: 4.0,
+    buildSpeed: 800,          // 40 seconds between builds
+    upgradeSpeed: 800,        // 40 seconds between upgrades
+    upgradeThreshold: 4,
+    nukeMinTime: 5.0,
     laneIQ: 'basic',
     counterBuild: false,
     useValueFunction: false,
     useDynamicShift: false,
-    useSmartUpgrades: false,
-    useNightmareProfiles: false,
-    mistakeRate: 0.03,
-    maxSpawners: 5,           // moderate cap: 5 spawners
-    maxHuts: 4,               // moderate cap: 4 huts
+    useSmartUpgrades: true,
+    mistakeRate: 0.50,
+    maxSpawners: 99,
+    maxHuts: 99,
     nukeDefensiveOnly: false,
+    statBonus: 1.0,
   },
-  // Hard: moderate caps, fast builds, upgrades after 6 spawners, nukes
+  // Hard: value function, dynamic shifting, threat lanes, rare mistakes
   [BotDifficultyLevel.Hard]: {
-    buildSpeed: 25,           // 1.25 seconds between builds
-    upgradeSpeed: 50,         // upgrades every 2.5 seconds
-    upgradeThreshold: 7,      // start upgrading after hitting spawner cap
-    nukeMinTime: 2.0,
+    buildSpeed: 500,          // 25 seconds between builds
+    upgradeSpeed: 500,        // 25 seconds between upgrades
+    upgradeThreshold: 5,
+    nukeMinTime: 3.0,
     laneIQ: 'threat',
     counterBuild: false,
-    useValueFunction: false,
-    useDynamicShift: false,
-    useSmartUpgrades: false,
-    useNightmareProfiles: false,
-    mistakeRate: 0,
-    maxSpawners: 7,           // high cap: 7 spawners
-    maxHuts: 6,               // high cap: 6 huts
-    nukeDefensiveOnly: false,
-  },
-  // Nightmare: unlimited, fastest builds, upgrades after 6 spawners
-  [BotDifficultyLevel.Nightmare]: {
-    buildSpeed: 10,           // 0.5 seconds between builds — relentless
-    upgradeSpeed: 20,         // upgrades every 1.0 seconds — aggressive upgrade tempo
-    upgradeThreshold: 4,      // start upgrading after 4 spawners — earlier power spikes
-    nukeMinTime: 1.0,
-    laneIQ: 'threat',
-    counterBuild: true,
     useValueFunction: true,
     useDynamicShift: true,
     useSmartUpgrades: true,
-    useNightmareProfiles: false,  // standard profiles — nightmare profiles hurt in testing
-    mistakeRate: 0,
-    maxSpawners: 99,          // unlimited
-    maxHuts: 8,               // more huts = economy advantage over hard
-    nukeDefensiveOnly: true,  // hold nuke until enemies push near HQ
+    mistakeRate: 0.25,
+    maxSpawners: 99,
+    maxHuts: 99,
+    nukeDefensiveOnly: false,
+    statBonus: 1.0,
+  },
+  // Nightmare: same systems as hard, near-perfect, higher caps
+  [BotDifficultyLevel.Nightmare]: {
+    buildSpeed: 200,          // 10 seconds between builds
+    upgradeSpeed: 200,        // 10 seconds between upgrades
+    upgradeThreshold: 4,
+    nukeMinTime: 1.5,
+    laneIQ: 'threat',
+    counterBuild: false,
+    useValueFunction: true,
+    useDynamicShift: true,
+    useSmartUpgrades: true,
+    mistakeRate: 0.05,
+    maxSpawners: 99,
+    maxHuts: 99,
+    nukeDefensiveOnly: false,
+    statBonus: 1.0,
   },
 };
 
@@ -149,7 +152,7 @@ interface RaceProfile {
 //   Don't rush — units too expensive. Invest in upgrades mid-game.
 //   Diamond: YES (gold harvesters can pivot to center easily)
 //
-// HORDE (Gold+Stone, 200g/25s start, 20g/2s passive)
+// HORDE (Gold+Meat, 200g/25s start, 20g/2s passive)
 //   Best DPS/cost in game (Brute 12dps @ 60 total cost = 0.20 dps/$).
 //   Strategy: Rush 2 melee immediately (20g+40s each), overwhelm early.
 //   Minimal econ — just 1 hut, spend everything on melee pressure.
@@ -161,15 +164,15 @@ interface RaceProfile {
 //   Flood with quantity. Poison stacks from volume.
 //   Diamond: YES (gold-based economy)
 //
-// OOZLINGS (Gold+Stone, 200g/25s start, 20g/2s passive)
+// OOZLINGS (Gold+Meat, 200g/25s start, 20g/2s passive)
 //   Melee spawns 2 at 60g (0.33 dps/cost!). Pure swarm.
 //   Strategy: Rush 3 melee spawners for 6 units/wave. Huts later.
 //   Overwhelm with bodies, bloater caster for AOE support.
-//   Diamond: SKIP until late (stone-needy, harvesters better on resources)
+//   Diamond: SKIP until late (meat-needy, harvesters better on resources)
 //
-// DEMON (Stone+Wood, 0g/50w/150s start, 2w/20s passive)
+// DEMON (Meat+Wood, 0g/50w/150s start, 2w/20s passive)
 //   Glass cannon: 15.6 dps melee @ 46 cost. Burns everything.
-//   Strategy: Rush melee (14w+32s, very cheap with stone start).
+//   Strategy: Rush melee (14w+32s, very cheap with meat start).
 //   Build 2 melee + 1 ranged fast, hut after. Pure aggression.
 //   Diamond: SKIP (no gold economy, harvesters wasted on center gold)
 //
@@ -179,17 +182,17 @@ interface RaceProfile {
 //   Build tower early for defense while economy ramps. Slow push late.
 //   Diamond: SKIP (gold-poor, harvesters should gather wood)
 //
-// WILD (Wood+Stone, 0g/150w/50s start, 20w/2s passive)
+// WILD (Wood+Meat, 0g/150w/50s start, 20w/2s passive)
 //   Poison + aggression. Ranged decent (7dps @ 53 cost). No gold.
 //   Strategy: Melee + ranged early (both cheap in wood). 2 huts.
 //   Push early while poison stacks. Caster for AOE poison mid.
 //   Diamond: SKIP (no gold economy)
 //
-// GEISTS (Stone+Gold, 50g/0w/150s start, 2g/20s passive)
-//   Undying melee (125hp + lifesteal). Stone-heavy costs.
+// GEISTS (Meat+Gold, 50g/0w/150s start, 2g/20s passive)
+//   Undying melee (125hp + lifesteal). Meat-heavy costs.
 //   Strategy: Rush melee (20g+35s, cheap). Lifesteal = sustain.
 //   2 melee early, 1 hut, ranged mid. Grind enemies down.
-//   Diamond: SKIP until late (stone economy, center gives gold)
+//   Diamond: SKIP until late (meat economy, center gives gold)
 //
 // TENDERS (Wood+Gold, 50g/150w start, 2g/20w passive)
 //   Tanky healers (120hp melee + regen). Expensive (75 total melee).
@@ -203,92 +206,102 @@ const RACE_LIKES_DIAMOND: Record<Race, boolean> = {
   [Race.Crown]: true,     // gold-based, diamond center = more gold
   [Race.Horde]: true,     // gold-based
   [Race.Goblins]: true,   // gold-based
-  [Race.Oozlings]: false, // needs stone more than center gold
+  [Race.Oozlings]: false, // needs meat more than center gold
   [Race.Demon]: false,    // no gold economy at all
   [Race.Deep]: false,     // wood-primary, gold is secondary
   [Race.Wild]: false,     // no gold economy
-  [Race.Geists]: false,   // stone-primary, gold is secondary
+  [Race.Geists]: false,   // meat-primary, gold is secondary
   [Race.Tenders]: false,  // wood-primary, gold is secondary
 };
 
 const RACE_PROFILES: Record<Race, RaceProfile> = {
-  // CROWN: Econ-first, shields are the power spike. Expensive so invest in upgrades.
+  // CROWN (Gold+Wood): Bowman is cheap (25w), Swordsman expensive (72g).
+  // Get huts early for gold income, mix melee wall + ranged, Priests mid for shields.
   [Race.Crown]: {
-    earlyMelee: 1, earlyRanged: 0, earlyHuts: 2, earlyTowers: 0,
-    midMelee: 2, midRanged: 1, midCasters: 2, midTowers: 1, midHuts: 4,
-    lateTowers: 2, alleyTowers: 2,
+    earlyMelee: 1, earlyRanged: 1, earlyHuts: 2, earlyTowers: 0,
+    midMelee: 2, midRanged: 3, midCasters: 1, midTowers: 0, midHuts: 4,
+    lateTowers: 1, alleyTowers: 2,
     meleeUpgradeBias: 'B', rangedUpgradeBias: 'C', casterUpgradeBias: 'B', towerUpgradeBias: 'C',
     vsSwarmExtraCasters: 1, vsTankExtraRanged: 1, vsGlassCannonExtraMelee: 1,
-    maxHuts: 5, pushThreshold: 1.3,
+    maxHuts: 5, pushThreshold: 1.2,
   },
-  // HORDE: All-in rush. Brute is best DPS/cost in game. Minimal econ, max pressure.
+  // HORDE (Gold+Meat): Brute is best DPS/cost (40m). 3-resource economy needs huts.
+  // Go taller than other races — diversify auras. War Chanter (caster) supports.
   [Race.Horde]: {
-    earlyMelee: 2, earlyRanged: 0, earlyHuts: 1, earlyTowers: 0,
-    midMelee: 3, midRanged: 1, midCasters: 1, midTowers: 1, midHuts: 2,
-    lateTowers: 2, alleyTowers: 2,
+    earlyMelee: 2, earlyRanged: 0, earlyHuts: 2, earlyTowers: 0,
+    midMelee: 3, midRanged: 2, midCasters: 1, midTowers: 0, midHuts: 4,
+    lateTowers: 1, alleyTowers: 2,
     meleeUpgradeBias: 'B', rangedUpgradeBias: 'C', casterUpgradeBias: 'C', towerUpgradeBias: 'B',
     vsSwarmExtraCasters: 1, vsTankExtraRanged: 1, vsGlassCannonExtraMelee: 0,
-    maxHuts: 3, pushThreshold: 1.0,
+    maxHuts: 5, pushThreshold: 1.0,
   },
-  // GOBLINS: Spam cheap buildings. Flood with quantity, poison from volume.
+  // GOBLINS (Gold+Wood): Everything is cheap. Swarm first, delay casters (Hexers).
+  // Go super wide with melee+ranged, poison stacks from volume.
   [Race.Goblins]: {
-    earlyMelee: 2, earlyRanged: 1, earlyHuts: 1, earlyTowers: 0,
-    midMelee: 3, midRanged: 3, midCasters: 1, midTowers: 0, midHuts: 3,
-    lateTowers: 1, alleyTowers: 2,
+    earlyMelee: 2, earlyRanged: 2, earlyHuts: 1, earlyTowers: 0,
+    midMelee: 4, midRanged: 4, midCasters: 0, midTowers: 0, midHuts: 3,
+    lateTowers: 1, alleyTowers: 1,
     meleeUpgradeBias: 'C', rangedUpgradeBias: 'C', casterUpgradeBias: 'C', towerUpgradeBias: 'C',
     vsSwarmExtraCasters: 0, vsTankExtraRanged: 1, vsGlassCannonExtraMelee: 1,
-    maxHuts: 4, pushThreshold: 1.0,
+    maxHuts: 4, pushThreshold: 0.9,
   },
-  // OOZLINGS: Rush 3 melee for 6 units/wave. Pure swarm, huts later.
+  // OOZLINGS (Gold+Meat): x2 swarm on everything. Go super wide, deaths fuel ooze economy.
+  // Lots of melee, some ranged/caster. Split ooze between upgrades and more spawners.
   [Race.Oozlings]: {
     earlyMelee: 3, earlyRanged: 0, earlyHuts: 1, earlyTowers: 0,
-    midMelee: 3, midRanged: 2, midCasters: 1, midTowers: 0, midHuts: 2,
-    lateTowers: 1, alleyTowers: 2,
+    midMelee: 5, midRanged: 1, midCasters: 1, midTowers: 0, midHuts: 3,
+    lateTowers: 1, alleyTowers: 1,
     meleeUpgradeBias: 'C', rangedUpgradeBias: 'C', casterUpgradeBias: 'C', towerUpgradeBias: 'C',
     vsSwarmExtraCasters: 0, vsTankExtraRanged: 1, vsGlassCannonExtraMelee: 0,
-    maxHuts: 3, pushThreshold: 0.9,
+    maxHuts: 4, pushThreshold: 0.9,
   },
-  // DEMON: Glass cannon rush. 2 melee + 1 ranged fast, burn everything down.
+  // DEMON (Meat+Wood): Glass cannon. Smasher melee + Eye Sniper ranged are both strong.
+  // Rush melee+ranged, huts for wood/meat income. Overlord (caster) weak — skip early.
+  // Save mana for big fireballs, upgrades last longer than fireballs.
   [Race.Demon]: {
-    earlyMelee: 2, earlyRanged: 1, earlyHuts: 1, earlyTowers: 0,
-    midMelee: 2, midRanged: 2, midCasters: 1, midTowers: 1, midHuts: 2,
-    lateTowers: 1, alleyTowers: 2,
+    earlyMelee: 2, earlyRanged: 1, earlyHuts: 2, earlyTowers: 0,
+    midMelee: 3, midRanged: 3, midCasters: 0, midTowers: 0, midHuts: 4,
+    lateTowers: 1, alleyTowers: 1,
     meleeUpgradeBias: 'C', rangedUpgradeBias: 'B', casterUpgradeBias: 'B', towerUpgradeBias: 'B',
     vsSwarmExtraCasters: 1, vsTankExtraRanged: 1, vsGlassCannonExtraMelee: 0,
-    maxHuts: 3, pushThreshold: 1.0,
+    maxHuts: 5, pushThreshold: 1.0,
   },
-  // DEEP: Econ-heavy, tower defense, slow push. Ranged first (wood-affordable).
+  // DEEP (Wood+Gold): Shell Guard tank (190 HP!) is the identity. Lead with melee wall.
+  // Harpooner ranged is great DPS. Tidecaller mid for slow stacking. Econ-heavy.
   [Race.Deep]: {
-    earlyMelee: 0, earlyRanged: 1, earlyHuts: 2, earlyTowers: 1,
-    midMelee: 1, midRanged: 2, midCasters: 1, midTowers: 2, midHuts: 4,
-    lateTowers: 3, alleyTowers: 3,
+    earlyMelee: 1, earlyRanged: 1, earlyHuts: 2, earlyTowers: 0,
+    midMelee: 3, midRanged: 2, midCasters: 1, midTowers: 0, midHuts: 4,
+    lateTowers: 1, alleyTowers: 2,
     meleeUpgradeBias: 'B', rangedUpgradeBias: 'C', casterUpgradeBias: 'C', towerUpgradeBias: 'C',
     vsSwarmExtraCasters: 1, vsTankExtraRanged: 1, vsGlassCannonExtraMelee: 0,
     maxHuts: 5, pushThreshold: 1.1,
   },
-  // WILD: Aggressive poison. Push early while stacks accumulate. Caster mid.
+  // WILD (Wood+Meat): Heavy spiders (melee), meat-on-kill upgrades. Diversify casters.
+  // Bonechucker ranged supports. Scaled Sage casters for AoE poison.
   [Race.Wild]: {
-    earlyMelee: 1, earlyRanged: 1, earlyHuts: 1, earlyTowers: 0,
-    midMelee: 2, midRanged: 2, midCasters: 2, midTowers: 1, midHuts: 3,
-    lateTowers: 2, alleyTowers: 2,
+    earlyMelee: 2, earlyRanged: 1, earlyHuts: 2, earlyTowers: 0,
+    midMelee: 3, midRanged: 2, midCasters: 1, midTowers: 0, midHuts: 4,
+    lateTowers: 1, alleyTowers: 1,
     meleeUpgradeBias: 'C', rangedUpgradeBias: 'B', casterUpgradeBias: 'C', towerUpgradeBias: 'C',
     vsSwarmExtraCasters: 1, vsTankExtraRanged: 0, vsGlassCannonExtraMelee: 1,
-    maxHuts: 3, pushThreshold: 1.1,
+    maxHuts: 5, pushThreshold: 1.0,
   },
-  // GEISTS: Rush cheap melee (lifesteal = sustain). Grind enemies down.
+  // GEISTS (Meat+Gold): Bone Knight melee (lifesteal sustain) + Wraith Bow ranged (cheap lifesteal).
+  // Go taller on melee+ranged, Necromancer caster for summons. Use summon ability whenever up.
   [Race.Geists]: {
-    earlyMelee: 2, earlyRanged: 0, earlyHuts: 1, earlyTowers: 0,
-    midMelee: 3, midRanged: 1, midCasters: 1, midTowers: 1, midHuts: 3,
-    lateTowers: 2, alleyTowers: 2,
+    earlyMelee: 1, earlyRanged: 1, earlyHuts: 2, earlyTowers: 0,
+    midMelee: 2, midRanged: 3, midCasters: 1, midTowers: 0, midHuts: 4,
+    lateTowers: 1, alleyTowers: 1,
     meleeUpgradeBias: 'B', rangedUpgradeBias: 'B', casterUpgradeBias: 'B', towerUpgradeBias: 'B',
     vsSwarmExtraCasters: 1, vsTankExtraRanged: 1, vsGlassCannonExtraMelee: 0,
-    maxHuts: 3, pushThreshold: 1.1,
+    maxHuts: 5, pushThreshold: 1.0,
   },
-  // TENDERS: Econ-first, tanky regen army. Push aggressively once built — sustain wins.
+  // TENDERS (Wood+Gold): Spread of units. Treant melee wall + Tinker ranged + Grove Keeper healer.
+  // Econ-heavy to sustain expensive units. Spawn seeds, time them to pop together.
   [Race.Tenders]: {
-    earlyMelee: 1, earlyRanged: 0, earlyHuts: 2, earlyTowers: 0,
-    midMelee: 2, midRanged: 1, midCasters: 2, midTowers: 1, midHuts: 4,
-    lateTowers: 2, alleyTowers: 3,
+    earlyMelee: 1, earlyRanged: 1, earlyHuts: 2, earlyTowers: 0,
+    midMelee: 2, midRanged: 2, midCasters: 1, midTowers: 0, midHuts: 4,
+    lateTowers: 1, alleyTowers: 2,
     meleeUpgradeBias: 'B', rangedUpgradeBias: 'C', casterUpgradeBias: 'B', towerUpgradeBias: 'C',
     vsSwarmExtraCasters: 1, vsTankExtraRanged: 1, vsGlassCannonExtraMelee: 0,
     maxHuts: 5, pushThreshold: 1.0,
@@ -298,72 +311,175 @@ const RACE_PROFILES: Record<Race, RaceProfile> = {
 export { RACE_PROFILES };
 export type { RaceProfile };
 
-// --- Nightmare-optimized profiles (exploit best strategies per race) ---
-const NIGHTMARE_PROFILES: Record<Race, RaceProfile> = {
-  // Oozlings: all-in melee swarm, skip econ
-  [Race.Oozlings]: {
-    ...RACE_PROFILES[Race.Oozlings],
-    earlyMelee: 4, earlyRanged: 0, earlyHuts: 0, earlyTowers: 0,
-    midMelee: 4, midRanged: 2, midCasters: 1, midTowers: 0, midHuts: 1,
-    maxHuts: 2, pushThreshold: 0.7,
-  },
-  // Horde: rush melee + ranged, minimal econ
-  [Race.Horde]: {
-    ...RACE_PROFILES[Race.Horde],
-    earlyMelee: 3, earlyRanged: 1, earlyHuts: 0, earlyTowers: 0,
-    midMelee: 4, midRanged: 2, midCasters: 1, midTowers: 0, midHuts: 1,
-    maxHuts: 2, pushThreshold: 0.8,
-  },
-  // Demon: rush cheap melee + ranged, pure aggression
-  [Race.Demon]: {
-    ...RACE_PROFILES[Race.Demon],
-    earlyMelee: 3, earlyRanged: 1, earlyHuts: 0, earlyTowers: 0,
-    midMelee: 3, midRanged: 3, midCasters: 1, midTowers: 0, midHuts: 1,
-    maxHuts: 2, pushThreshold: 0.8,
-  },
-  // Goblins: mass cheap spawners, flood with bodies
-  [Race.Goblins]: {
-    ...RACE_PROFILES[Race.Goblins],
-    earlyMelee: 3, earlyRanged: 1, earlyHuts: 0, earlyTowers: 0,
-    midMelee: 4, midRanged: 3, midCasters: 1, midTowers: 0, midHuts: 1,
-    maxHuts: 2, pushThreshold: 0.8,
-  },
-  // Crown: balanced but invest in shield casters, upgrade for shields
-  [Race.Crown]: {
-    ...RACE_PROFILES[Race.Crown],
-    earlyMelee: 2, earlyRanged: 0, earlyHuts: 1, earlyTowers: 0,
-    midMelee: 3, midRanged: 2, midCasters: 2, midTowers: 1, midHuts: 3,
-    maxHuts: 4, pushThreshold: 1.1,
-  },
-  // Geists: rush melee for lifesteal, then upgrade
-  [Race.Geists]: {
-    ...RACE_PROFILES[Race.Geists],
-    earlyMelee: 3, earlyRanged: 0, earlyHuts: 1, earlyTowers: 0,
-    midMelee: 3, midRanged: 2, midCasters: 1, midTowers: 1, midHuts: 2,
-    maxHuts: 3, pushThreshold: 1.0,
-  },
-  // Deep: early tower + ranged, commit lanes at 5min
-  [Race.Deep]: {
-    ...RACE_PROFILES[Race.Deep],
-    earlyMelee: 1, earlyRanged: 1, earlyHuts: 1, earlyTowers: 1,
-    midMelee: 2, midRanged: 2, midCasters: 1, midTowers: 2, midHuts: 3,
-    lateTowers: 3, alleyTowers: 4, maxHuts: 4, pushThreshold: 0.9,
-  },
-  // Wild: aggressive poison, commit lanes early
-  [Race.Wild]: {
-    ...RACE_PROFILES[Race.Wild],
-    earlyMelee: 2, earlyRanged: 1, earlyHuts: 0, earlyTowers: 0,
-    midMelee: 3, midRanged: 3, midCasters: 2, midTowers: 1, midHuts: 2,
-    maxHuts: 3, pushThreshold: 0.8,
-  },
-  // Tenders: invest in upgrades, regen scales with quality
-  [Race.Tenders]: {
-    ...RACE_PROFILES[Race.Tenders],
-    earlyMelee: 1, earlyRanged: 0, earlyHuts: 2, earlyTowers: 0,
-    midMelee: 2, midRanged: 1, midCasters: 2, midTowers: 1, midHuts: 4,
-    lateTowers: 3, alleyTowers: 3, maxHuts: 5, pushThreshold: 0.9,
-  },
+// ==================== COMPOSITION PROFILES ====================
+// Each race has multiple composition strategies ranked by effectiveness.
+// Bots randomly select from this pool, gated by difficulty:
+//   Easy: any profile    Medium: exclude worst    Hard: exclude bottom 2    Nightmare: top 3 + matchup-aware
+//
+// Rankings derived from `npm run profile-sim` (damage dealt across all matchups).
+// Re-run profile-sim after balance changes and update rankings accordingly.
+
+export type ProfileId = 'default' | 'heavyMelee' | 'heavyRanged' | 'heavyCaster' | 'meleeCaster' | 'rangedCaster' | 'rush' | 'turtle';
+
+interface CompositionProfile {
+  id: ProfileId;
+  profile: RaceProfile;
+}
+
+/** Build a composition profile by overriding specific fields on the race's base profile */
+function compProfile(base: RaceProfile, id: ProfileId, overrides: Partial<RaceProfile>): CompositionProfile {
+  return { id, profile: { ...base, ...overrides } };
+}
+
+function buildCompositionProfiles(race: Race): CompositionProfile[] {
+  const base = RACE_PROFILES[race];
+  return [
+    compProfile(base, 'default', {}),
+    compProfile(base, 'heavyMelee', {
+      earlyMelee: 2, earlyRanged: 0, earlyHuts: 1, earlyTowers: 0,
+      midMelee: 4, midRanged: 1, midCasters: 0, midTowers: 1, midHuts: 3,
+      lateTowers: 2, alleyTowers: 2, maxHuts: 4, pushThreshold: 1.0,
+    }),
+    compProfile(base, 'heavyRanged', {
+      earlyMelee: 1, earlyRanged: 1, earlyHuts: 1, earlyTowers: 0,
+      midMelee: 1, midRanged: 4, midCasters: 0, midTowers: 1, midHuts: 3,
+      lateTowers: 2, alleyTowers: 2, maxHuts: 4, pushThreshold: 1.1,
+    }),
+    compProfile(base, 'heavyCaster', {
+      earlyMelee: 1, earlyRanged: 0, earlyHuts: 1, earlyTowers: 0,
+      midMelee: 2, midRanged: 0, midCasters: 3, midTowers: 1, midHuts: 3,
+      lateTowers: 2, alleyTowers: 2, maxHuts: 4, pushThreshold: 1.1,
+    }),
+    compProfile(base, 'meleeCaster', {
+      earlyMelee: 2, earlyRanged: 0, earlyHuts: 1, earlyTowers: 0,
+      midMelee: 3, midRanged: 0, midCasters: 2, midTowers: 1, midHuts: 3,
+      lateTowers: 2, alleyTowers: 2, maxHuts: 4, pushThreshold: 1.0,
+    }),
+    compProfile(base, 'rangedCaster', {
+      earlyMelee: 1, earlyRanged: 1, earlyHuts: 1, earlyTowers: 0,
+      midMelee: 1, midRanged: 3, midCasters: 2, midTowers: 1, midHuts: 3,
+      lateTowers: 2, alleyTowers: 2, maxHuts: 4, pushThreshold: 1.1,
+    }),
+    compProfile(base, 'rush', {
+      earlyMelee: 2, earlyRanged: 1, earlyHuts: 0, earlyTowers: 0,
+      midMelee: 3, midRanged: 2, midCasters: 1, midTowers: 0, midHuts: 1,
+      lateTowers: 1, alleyTowers: 1, maxHuts: 2, pushThreshold: 0.8,
+    }),
+    compProfile(base, 'turtle', {
+      earlyMelee: 0, earlyRanged: 0, earlyHuts: 2, earlyTowers: 1,
+      midMelee: 2, midRanged: 1, midCasters: 1, midTowers: 2, midHuts: 5,
+      lateTowers: 3, alleyTowers: 3, maxHuts: 6, pushThreshold: 1.3,
+    }),
+  ];
+}
+
+// Lazy-built profile lookup (race -> profileId -> CompositionProfile)
+let _compositionProfiles: Record<Race, CompositionProfile[]> | null = null;
+export function getCompositionProfiles(race: Race): CompositionProfile[] {
+  if (!_compositionProfiles) {
+    _compositionProfiles = {} as Record<Race, CompositionProfile[]>;
+    for (const r of Object.values(Race)) {
+      _compositionProfiles[r] = buildCompositionProfiles(r);
+    }
+  }
+  return _compositionProfiles[race];
+}
+
+// --- Profile rankings per race (best→worst, from profile-sim data) ---
+// Re-generate with: npm run profile-sim -- --race=<name> --matches=3 --difficulty=hard
+// Then update this table with the ranking order.
+const PROFILE_RANKINGS: Record<Race, ProfileId[]> = {
+  //                    #1              #2            #3              #4            #5              #6              #7            #8
+  [Race.Crown]:    ['heavyMelee',  'rush',       'default',      'turtle',     'heavyRanged',  'meleeCaster',  'heavyCaster', 'rangedCaster'],
+  [Race.Horde]:    ['heavyMelee',  'meleeCaster','rush',         'turtle',     'default',      'rangedCaster', 'heavyRanged', 'heavyCaster'],
+  [Race.Goblins]:  ['rush',        'turtle',     'heavyRanged',  'rangedCaster','heavyCaster', 'heavyMelee',   'default',     'meleeCaster'],
+  [Race.Oozlings]: ['heavyCaster', 'turtle',     'rush',         'heavyRanged','rangedCaster', 'default',      'heavyMelee',  'meleeCaster'],
+  [Race.Demon]:    ['default',     'rush',       'turtle',       'heavyMelee', 'heavyCaster',  'rangedCaster', 'heavyRanged', 'meleeCaster'],
+  [Race.Deep]:     ['heavyMelee',  'rush',       'meleeCaster',  'turtle',     'default',      'heavyRanged',  'rangedCaster','heavyCaster'],
+  [Race.Wild]:     ['heavyMelee',  'rangedCaster','turtle',      'heavyCaster','heavyRanged',  'default',      'meleeCaster', 'rush'],
+  [Race.Geists]:   ['rangedCaster','rush',       'heavyMelee',   'turtle',     'heavyRanged',  'default',      'heavyCaster', 'meleeCaster'],
+  [Race.Tenders]:  ['rush',        'rangedCaster','heavyRanged', 'default',    'meleeCaster',  'heavyCaster',  'heavyMelee',  'turtle'],
 };
+
+// --- Nightmare matchup-aware: best profile per enemy archetype ---
+// From profile-sim "BEST PROFILE PER MATCHUP" data.
+// Key = attacker race, value = map of enemy race → best profileId.
+// Only entries whose profile is in that race's top 3 ranking will actually be used;
+// other entries serve as documentation for future ranking updates.
+const MATCHUP_PROFILES: Record<Race, Partial<Record<Race, ProfileId>>> = {
+  // Crown top3: heavyMelee, rush, default
+  [Race.Crown]:    { [Race.Horde]: 'heavyMelee', [Race.Demon]: 'rush', [Race.Deep]: 'heavyMelee', [Race.Tenders]: 'rush' },
+  // Horde top3: heavyMelee, meleeCaster, rush
+  [Race.Horde]:    { [Race.Deep]: 'heavyMelee', [Race.Wild]: 'heavyMelee', [Race.Tenders]: 'rush', [Race.Geists]: 'meleeCaster' },
+  // Goblins top3: rush, turtle, heavyRanged
+  [Race.Goblins]:  { [Race.Horde]: 'heavyRanged', [Race.Demon]: 'turtle', [Race.Deep]: 'rush', [Race.Wild]: 'rush' },
+  // Oozlings top3: heavyCaster, turtle, rush
+  [Race.Oozlings]: { [Race.Crown]: 'heavyCaster', [Race.Goblins]: 'rush', [Race.Wild]: 'rush', [Race.Geists]: 'heavyCaster', [Race.Tenders]: 'heavyCaster' },
+  // Demon top3: default, rush, turtle
+  [Race.Demon]:    { [Race.Deep]: 'turtle', [Race.Tenders]: 'turtle' },
+  // Deep top3: heavyMelee, rush, meleeCaster
+  [Race.Deep]:     { [Race.Horde]: 'rush', [Race.Oozlings]: 'rush', [Race.Demon]: 'heavyMelee', [Race.Tenders]: 'meleeCaster' },
+  // Wild top3: heavyMelee, rangedCaster, turtle
+  [Race.Wild]:     { [Race.Oozlings]: 'rangedCaster', [Race.Demon]: 'heavyMelee', [Race.Geists]: 'rangedCaster', [Race.Goblins]: 'turtle' },
+  // Geists top3: rangedCaster, rush, heavyMelee
+  [Race.Geists]:   { [Race.Goblins]: 'rangedCaster', [Race.Oozlings]: 'rush', [Race.Demon]: 'heavyMelee' },
+  // Tenders top3: rush, rangedCaster, heavyRanged
+  [Race.Tenders]:  { [Race.Horde]: 'rangedCaster', [Race.Crown]: 'heavyRanged' },
+};
+
+/**
+ * Select a composition profile for a bot based on difficulty and matchup.
+ * Called once per bot at game start, result is cached in BotContext.
+ */
+function selectCompositionProfile(
+  race: Race, difficulty: BotDifficulty, enemyRaces: Race[], rng: () => number,
+): RaceProfile {
+  const rankings = PROFILE_RANKINGS[race];
+  const allProfiles = getCompositionProfiles(race);
+  const profileById = new Map(allProfiles.map(p => [p.id, p]));
+
+  // Nightmare with matchup awareness: pick best counter from top 3
+  if (difficulty.mistakeRate === 0 && enemyRaces.length > 0) {
+    const matchups = MATCHUP_PROFILES[race];
+    // Find the best matchup profile that's in our top 3
+    const top3 = new Set(rankings.slice(0, 3));
+    for (const enemy of enemyRaces) {
+      const best = matchups?.[enemy];
+      if (best && top3.has(best)) {
+        const entry = profileById.get(best);
+        if (entry) return entry.profile;
+      }
+    }
+    // No specific matchup counter in top 3 — pick randomly from top 3
+    const idx = Math.floor(rng() * 3);
+    const fallback = profileById.get(rankings[idx]);
+    if (fallback) return fallback.profile;
+  }
+
+  // Determine pool size based on difficulty
+  let poolSize: number;
+  if (difficulty.mistakeRate >= 0.25) {
+    // Easy: all profiles
+    poolSize = rankings.length;
+  } else if (difficulty.mistakeRate >= 0.10) {
+    // Medium: exclude worst 1
+    poolSize = rankings.length - 1;
+  } else if (difficulty.mistakeRate >= 0.03) {
+    // Hard: exclude worst 2
+    poolSize = rankings.length - 2;
+  } else {
+    // Nightmare (no matchup hit above): top 3
+    poolSize = 3;
+  }
+
+  const pool = rankings.slice(0, poolSize);
+  const pick = pool[Math.floor(rng() * pool.length)];
+  const selected = profileById.get(pick);
+  if (selected) return selected.profile;
+
+  // Fallback: return first available profile (should never reach here)
+  return allProfiles[0].profile;
+}
 
 // Persistent per-bot state
 export interface BotContext {
@@ -377,11 +493,17 @@ export interface BotContext {
   lastLaneTick: Record<number, number>;
   // Nuke coordination: tick when bot declared "Nuking Now!", 0 = none
   nukeIntentTick: Record<number, number>;
+  // Research upgrade timing
+  lastResearchTick: Record<number, number>;
   // Difficulty settings
   difficulty: Record<number, BotDifficulty>;
   defaultDifficulty: BotDifficulty;
   // Intelligence system
   intelligence: Record<number, BotIntelligence>;
+  // Per-player composition profile (selected once at game start based on difficulty)
+  selectedProfile: Record<number, RaceProfile>;
+  // Optional per-player profile overrides (for testing composition strategies via profile-sim)
+  profileOverride?: Record<number, RaceProfile>;
 }
 
 // ==================== BOT INTELLIGENCE SYSTEM ====================
@@ -398,15 +520,15 @@ interface CategoryPerf {
 interface ResourceProjection {
   totalGoldNeeded: number;
   totalWoodNeeded: number;
-  totalStoneNeeded: number;
+  totalMeatNeeded: number;
   goldIncome: number;
   woodIncome: number;
-  stoneIncome: number;
+  meatIncome: number;
   goldSecsToTarget: number;
   woodSecsToTarget: number;
-  stoneSecsToTarget: number;
+  meatSecsToTarget: number;
   bottleneck: HarvesterAssignment;
-  /** Ideal harvester split: [gold, wood, stone, center] */
+  /** Ideal harvester split: [gold, wood, meat, center] */
   idealSplit: [number, number, number, number];
 }
 
@@ -428,6 +550,7 @@ interface ThreatProfile {
   wantShields: boolean;   // vs burn: shields absorb before HP
   wantCleanse: boolean;   // vs burn/slow: remove debuffs
   wantSpeed: boolean;     // vs slow/control: dodge the cc
+  wantSiege: boolean;     // vs turtling/towers: siege units to crack defenses
 }
 
 /** Real-time intelligence state per bot */
@@ -558,6 +681,7 @@ function assessThreatProfile(enemyRaces: Race[]): ThreatProfile {
     wantShields: hasBurn || hasBurst,        // absorb burst and DoT
     wantCleanse: hasBurn || hasControl,      // remove burn/slow stacks
     wantSpeed: hasControl,                   // dodge slow/CC
+    wantSiege: hasTanks,                     // tank races build lots of towers — need siege to crack them
   };
 }
 
@@ -630,22 +754,33 @@ function botUpdateIntelligence(
   }
   intel.prevMyUnitIds = currentMyIds;
 
-  // Building counts for my side
-  const myBuildings = state.buildings.filter(b => b.playerId === playerId);
-  myPerf.melee.buildingCount = myBuildings.filter(b => b.type === BuildingType.MeleeSpawner).length;
-  myPerf.ranged.buildingCount = myBuildings.filter(b => b.type === BuildingType.RangedSpawner).length;
-  myPerf.caster.buildingCount = myBuildings.filter(b => b.type === BuildingType.CasterSpawner).length;
-
-  // Enemy building scouting
+  // Building counts for my side + enemy scouting (single pass)
   const enemyTeam = botEnemyTeam(playerId, state);
-  const enemyBuildings = state.buildings.filter(b => botTeam(b.playerId, state) === enemyTeam);
-  intel.enemyBuildingCounts = {
-    melee: enemyBuildings.filter(b => b.type === BuildingType.MeleeSpawner).length,
-    ranged: enemyBuildings.filter(b => b.type === BuildingType.RangedSpawner).length,
-    caster: enemyBuildings.filter(b => b.type === BuildingType.CasterSpawner).length,
-    tower: enemyBuildings.filter(b => b.type === BuildingType.Tower).length,
-    hut: enemyBuildings.filter(b => b.type === BuildingType.HarvesterHut).length,
-  };
+  let myMelee = 0, myRanged = 0, myCaster = 0;
+  let eMelee = 0, eRanged = 0, eCaster = 0, eTower = 0, eHut = 0;
+  const myBuildings: typeof state.buildings = [];
+  const enemyBuildings: typeof state.buildings = [];
+  for (const b of state.buildings) {
+    if (b.playerId === playerId) {
+      myBuildings.push(b);
+      if (b.type === BuildingType.MeleeSpawner) myMelee++;
+      else if (b.type === BuildingType.RangedSpawner) myRanged++;
+      else if (b.type === BuildingType.CasterSpawner) myCaster++;
+    } else if (botTeam(b.playerId, state) === enemyTeam) {
+      enemyBuildings.push(b);
+      if (b.type === BuildingType.MeleeSpawner) eMelee++;
+      else if (b.type === BuildingType.RangedSpawner) eRanged++;
+      else if (b.type === BuildingType.CasterSpawner) eCaster++;
+      else if (b.type === BuildingType.Tower) eTower++;
+      else if (b.type === BuildingType.HarvesterHut) eHut++;
+    }
+  }
+  myPerf.melee.buildingCount = myMelee;
+  myPerf.ranged.buildingCount = myRanged;
+  myPerf.caster.buildingCount = myCaster;
+  intel.enemyBuildingCounts = { melee: eMelee, ranged: eRanged, caster: eCaster, tower: eTower, hut: eHut };
+  // Dynamically enable siege if enemy is turtling with towers
+  if (intel.enemyBuildingCounts.tower >= 2) intel.threats.wantSiege = true;
   const upgTiers = enemyBuildings
     .filter(b => b.type !== BuildingType.HarvesterHut)
     .map(b => Math.max(0, b.upgradePath.length - 1));
@@ -844,14 +979,17 @@ function botPlanResources(
   const player = state.players[playerId];
   const race = player.race;
   const costs = RACE_BUILDING_COSTS[race];
-  const meleeCount = myBuildings.filter(b => b.type === BuildingType.MeleeSpawner).length;
-  const rangedCount = myBuildings.filter(b => b.type === BuildingType.RangedSpawner).length;
-  const casterCount = myBuildings.filter(b => b.type === BuildingType.CasterSpawner).length;
-  const hutCount = myBuildings.filter(b => b.type === BuildingType.HarvesterHut).length;
-  const towerCount = myBuildings.filter(b => b.type === BuildingType.Tower).length;
+  let meleeCount = 0, rangedCount = 0, casterCount = 0, hutCount = 0, towerCount = 0;
+  for (const b of myBuildings) {
+    if (b.type === BuildingType.MeleeSpawner) meleeCount++;
+    else if (b.type === BuildingType.RangedSpawner) rangedCount++;
+    else if (b.type === BuildingType.CasterSpawner) casterCount++;
+    else if (b.type === BuildingType.HarvesterHut) hutCount++;
+    else if (b.type === BuildingType.Tower) towerCount++;
+  }
 
   // --- Build shopping list: next 3-4 purchases ---
-  const list: { gold: number; wood: number; stone: number }[] = [];
+  const list: { gold: number; wood: number; meat: number }[] = [];
 
   // Determine phase-appropriate targets (with build shift applied)
   let meleeTarget: number, rangedTarget: number, casterTarget: number, hutTarget: number;
@@ -887,7 +1025,7 @@ function botPlanResources(
     list.push({
       gold: Math.floor(hutCost.gold * mult),
       wood: Math.floor(hutCost.wood * mult),
-      stone: Math.floor(hutCost.stone * mult),
+      meat: Math.floor(hutCost.meat * mult),
     });
   }
 
@@ -905,63 +1043,63 @@ function botPlanResources(
   }
 
   // Sum next 3-4 items on list
-  let totalGold = 0, totalWood = 0, totalStone = 0;
+  let totalGold = 0, totalWood = 0, totalMeat = 0;
   const lookahead = Math.min(4, list.length);
   for (let i = 0; i < lookahead; i++) {
     totalGold += list[i].gold;
     totalWood += list[i].wood;
-    totalStone += list[i].stone;
+    totalMeat += list[i].meat;
   }
 
   // Deficits (what we need minus what we have)
   const goldNeeded = Math.max(0, totalGold - player.gold);
   const woodNeeded = Math.max(0, totalWood - player.wood);
-  const stoneNeeded = Math.max(0, totalStone - player.stone);
+  const meatNeeded = Math.max(0, totalMeat - player.meat);
 
   // --- Estimate income ---
   const passive = PASSIVE_RATES[race];
   // Harvester rates: yield / estimated round-trip time (~8.5s for nearby nodes)
   const GOLD_HARVEST_RATE = GOLD_YIELD_PER_TRIP / 8.5;   // ~0.59/sec
   const WOOD_HARVEST_RATE = WOOD_YIELD_PER_TRIP / 8.5;   // ~1.18/sec
-  const STONE_HARVEST_RATE = STONE_YIELD_PER_TRIP / 8.5;  // ~1.18/sec
+  const MEAT_HARVEST_RATE = MEAT_YIELD_PER_TRIP / 8.5;  // ~1.18/sec
   const harvesters = state.harvesters.filter(h => h.playerId === playerId);
-  let goldH = 0, woodH = 0, stoneH = 0;
+  let goldH = 0, woodH = 0, meatH = 0;
   for (const h of harvesters) {
     if (h.assignment === HarvesterAssignment.BaseGold || h.assignment === HarvesterAssignment.Center) goldH++;
     else if (h.assignment === HarvesterAssignment.Wood) woodH++;
-    else stoneH++;
+    else meatH++;
   }
 
   const goldIncome = passive.gold + goldH * GOLD_HARVEST_RATE;
   const woodIncome = passive.wood + woodH * WOOD_HARVEST_RATE;
-  const stoneIncome = passive.stone + stoneH * STONE_HARVEST_RATE;
+  const meatIncome = passive.meat + meatH * MEAT_HARVEST_RATE;
 
   // Time to afford each resource
   const goldSecs = goldIncome > 0.01 ? goldNeeded / goldIncome : (goldNeeded > 0 ? 999 : 0);
   const woodSecs = woodIncome > 0.01 ? woodNeeded / woodIncome : (woodNeeded > 0 ? 999 : 0);
-  const stoneSecs = stoneIncome > 0.01 ? stoneNeeded / stoneIncome : (stoneNeeded > 0 ? 999 : 0);
+  const meatSecs = meatIncome > 0.01 ? meatNeeded / meatIncome : (meatNeeded > 0 ? 999 : 0);
 
   // Bottleneck = resource with longest time-to-afford
   let bottleneck = HarvesterAssignment.BaseGold;
   let maxTime = goldSecs;
   if (woodSecs > maxTime) { bottleneck = HarvesterAssignment.Wood; maxTime = woodSecs; }
-  if (stoneSecs > maxTime) { bottleneck = HarvesterAssignment.Stone; maxTime = stoneSecs; }
+  if (meatSecs > maxTime) { bottleneck = HarvesterAssignment.Meat; maxTime = meatSecs; }
 
   // --- Calculate ideal harvester split ---
   // Distribute harvesters proportional to resource deficit, not current stockpiles
-  const totalDeficit = goldNeeded + woodNeeded + stoneNeeded;
+  const totalDeficit = goldNeeded + woodNeeded + meatNeeded;
   const totalHarvesters = harvesters.length;
-  let idealGold = 0, idealWood = 0, idealStone = 0, idealCenter = 0;
+  let idealGold = 0, idealWood = 0, idealMeat = 0, idealCenter = 0;
 
   if (totalDeficit > 0 && totalHarvesters > 0) {
     const goldPct = goldNeeded / totalDeficit;
     const woodPct = woodNeeded / totalDeficit;
-    const stonePct = stoneNeeded / totalDeficit;
+    const meatPct = meatNeeded / totalDeficit;
 
     // Assign harvesters proportionally, minimum 1 per needed resource
     idealGold = Math.max(goldNeeded > 10 ? 1 : 0, Math.round(goldPct * totalHarvesters));
     idealWood = Math.max(woodNeeded > 10 ? 1 : 0, Math.round(woodPct * totalHarvesters));
-    idealStone = Math.max(stoneNeeded > 10 ? 1 : 0, Math.round(stonePct * totalHarvesters));
+    idealMeat = Math.max(meatNeeded > 10 ? 1 : 0, Math.round(meatPct * totalHarvesters));
 
     // If race likes diamond and game is late enough, dedicate 1 to center
     if (RACE_LIKES_DIAMOND[race] && gameMinutes > 3 && totalHarvesters >= 3) {
@@ -969,39 +1107,39 @@ function botPlanResources(
     }
 
     // Normalize to total harvesters
-    const total = idealGold + idealWood + idealStone + idealCenter;
+    const total = idealGold + idealWood + idealMeat + idealCenter;
     if (total > totalHarvesters) {
       // Scale down proportionally, keep center if assigned
-      const scale = (totalHarvesters - idealCenter) / Math.max(1, idealGold + idealWood + idealStone);
+      const scale = (totalHarvesters - idealCenter) / Math.max(1, idealGold + idealWood + idealMeat);
       idealGold = Math.round(idealGold * scale);
       idealWood = Math.round(idealWood * scale);
-      idealStone = totalHarvesters - idealGold - idealWood - idealCenter;
+      idealMeat = totalHarvesters - idealGold - idealWood - idealCenter;
     } else if (total < totalHarvesters) {
       // Extra harvesters go to bottleneck
       const extra = totalHarvesters - total;
       if (bottleneck === HarvesterAssignment.Wood) idealWood += extra;
-      else if (bottleneck === HarvesterAssignment.Stone) idealStone += extra;
+      else if (bottleneck === HarvesterAssignment.Meat) idealMeat += extra;
       else idealGold += extra;
     }
   } else if (totalHarvesters > 0) {
     // No deficit — distribute based on what race needs most (from building costs)
     const totalCosts = costs[BuildingType.MeleeSpawner];
-    const costTotal = totalCosts.gold + totalCosts.wood + totalCosts.stone;
+    const costTotal = totalCosts.gold + totalCosts.wood + totalCosts.meat;
     if (costTotal > 0) {
       idealGold = Math.max(1, Math.round((totalCosts.gold / costTotal) * totalHarvesters));
       idealWood = Math.max(totalCosts.wood > 0 ? 1 : 0, Math.round((totalCosts.wood / costTotal) * totalHarvesters));
-      idealStone = totalHarvesters - idealGold - idealWood;
+      idealMeat = totalHarvesters - idealGold - idealWood;
     } else {
       idealGold = totalHarvesters;
     }
   }
 
   return {
-    totalGoldNeeded: totalGold, totalWoodNeeded: totalWood, totalStoneNeeded: totalStone,
-    goldIncome, woodIncome, stoneIncome,
-    goldSecsToTarget: goldSecs, woodSecsToTarget: woodSecs, stoneSecsToTarget: stoneSecs,
+    totalGoldNeeded: totalGold, totalWoodNeeded: totalWood, totalMeatNeeded: totalMeat,
+    goldIncome, woodIncome, meatIncome,
+    goldSecsToTarget: goldSecs, woodSecsToTarget: woodSecs, meatSecsToTarget: meatSecs,
     bottleneck,
-    idealSplit: [idealGold, idealWood, idealStone, idealCenter],
+    idealSplit: [idealGold, idealWood, idealMeat, idealCenter],
   };
 }
 
@@ -1085,6 +1223,12 @@ function scoreUpgradeNode(
   // Lifesteal / heal is always decent
   if (s.healBonus) score += 2;
 
+  // Siege units vs turtling/towers
+  if (threats.wantSiege) {
+    if (s.isSiegeUnit) score += 18;  // overcome negative hp/speed penalty, siege is exactly what we want
+    if (s.buildingDamageMult) score += (s.buildingDamageMult - 1) * 6;
+  }
+
   return score;
 }
 
@@ -1094,10 +1238,11 @@ export function createBotContext(
   return {
     lastChatTick: {}, currentLane: {}, lastPushTick: {},
     lastBuildTick: {}, lastUpgradeTick: {}, lastHarvesterTick: {},
-    lastLaneTick: {}, nukeIntentTick: {},
+    lastLaneTick: {}, nukeIntentTick: {}, lastResearchTick: {},
     difficulty: {},
     defaultDifficulty: BOT_DIFFICULTY_PRESETS[difficulty],
     intelligence: {},
+    selectedProfile: {},
   };
 }
 
@@ -1110,7 +1255,7 @@ const GLASS_CANNON_RACES: ReadonlySet<Race> = new Set([Race.Demon, Race.Wild]);
 function getEnemyRaces(state: GameState, playerId: number): Race[] {
   const myTeam = botTeam(playerId, state);
   return state.players
-    .filter(p => p.team !== myTeam)
+    .filter(p => p.team !== myTeam && !p.isEmpty)
     .map(p => p.race);
 }
 
@@ -1136,7 +1281,17 @@ function botEnemyTeam(playerId: number, state?: GameState): Team {
 function botCanAfford(state: GameState, playerId: number, type: BuildingType): boolean {
   const player = state.players[playerId];
   const cost = RACE_BUILDING_COSTS[player.race][type];
-  return player.gold >= cost.gold && player.wood >= cost.wood && player.stone >= cost.stone;
+  return player.gold >= cost.gold && player.wood >= cost.wood && player.meat >= cost.meat;
+}
+
+function botCanAffordTower(state: GameState, playerId: number, towerCount: number): boolean {
+  const player = state.players[playerId];
+  if (!player.hasBuiltTower) return true; // first tower is free
+  const baseCost = RACE_BUILDING_COSTS[player.race][BuildingType.Tower];
+  const mult = Math.pow(TOWER_COST_SCALE, Math.max(0, towerCount - 1));
+  return player.gold >= Math.floor(baseCost.gold * mult)
+    && player.wood >= Math.floor(baseCost.wood * mult)
+    && player.meat >= Math.floor(baseCost.meat * mult);
 }
 
 function botCanAffordHut(state: GameState, playerId: number, hutCount: number): boolean {
@@ -1145,7 +1300,7 @@ function botCanAffordHut(state: GameState, playerId: number, hutCount: number): 
   const mult = Math.pow(HUT_COST_SCALE, Math.max(0, hutCount - 1));
   return player.gold >= Math.floor(hutRes.gold * mult)
     && player.wood >= Math.floor(hutRes.wood * mult)
-    && player.stone >= Math.floor(hutRes.stone * mult);
+    && player.meat >= Math.floor(hutRes.meat * mult);
 }
 
 function unitStrength(u: GameState['units'][0]): number {
@@ -1156,7 +1311,7 @@ function getTeammateIds(playerId: number, state?: GameState): number[] {
   if (state?.mapDef) {
     const myTeam = botTeam(playerId, state);
     return state.players
-      .filter(p => p.team === myTeam && p.id !== playerId)
+      .filter(p => p.team === myTeam && p.id !== playerId && !p.isEmpty)
       .map(p => p.id);
   }
   // Legacy 4-player fallback
@@ -1166,11 +1321,11 @@ function getTeammateIds(playerId: number, state?: GameState): number[] {
 /** Total resource value available to spend */
 function totalResources(state: GameState, playerId: number): number {
   const p = state.players[playerId];
-  return p.gold + p.wood + p.stone;
+  return p.gold + p.wood + p.meat;
 }
 
-function resourceBundleTotal(cost: { gold: number; wood: number; stone: number }): number {
-  return cost.gold + cost.wood + cost.stone;
+function resourceBundleTotal(cost: { gold: number; wood: number; meat: number; deathEssence?: number; souls?: number }): number {
+  return cost.gold + cost.wood + cost.meat + (cost.deathEssence ?? 0) + (cost.souls ?? 0);
 }
 
 function buildingCategory(type: BuildingType): 'melee' | 'ranged' | 'caster' | null {
@@ -1188,22 +1343,113 @@ function getSpawnerPower(race: Race, type: BuildingType): number {
   const count = stats.spawnCount ?? 1;
   const dps = (stats.damage / Math.max(0.5, stats.attackSpeed)) * count;
   const hp = stats.hp * count;
-  return dps + hp / 10;
+  const cat = type === BuildingType.MeleeSpawner ? 'melee'
+    : type === BuildingType.RangedSpawner ? 'ranged' : 'caster';
+  const abilityMult = UNIT_ABILITY_VALUE[race]?.[cat] ?? { survMult: 1, dmgMult: 1 };
+  return (dps * abilityMult.dmgMult) + (hp * abilityMult.survMult) / 10;
 }
 
 // ==================== THROUGHPUT-BASED VALUATION (Nightmare) ====================
 
-/** Race-specific survivability multiplier reflecting passive effects (lifesteal, regen, shields, etc.) */
-const RACE_SURVIVABILITY: Record<Race, { melee: number; ranged: number; caster: number }> = {
-  [Race.Crown]:    { melee: 1.15, ranged: 1.05, caster: 1.10 },  // shields buff whole army
-  [Race.Horde]:    { melee: 1.15, ranged: 1.05, caster: 1.05 },  // knockback buys time
-  [Race.Goblins]:  { melee: 1.00, ranged: 1.05, caster: 1.05 },  // fast but fragile
-  [Race.Oozlings]: { melee: 1.10, ranged: 1.05, caster: 1.00 },  // haste helps dodge
-  [Race.Demon]:    { melee: 0.90, ranged: 0.95, caster: 0.90 },  // glass cannon penalty
-  [Race.Deep]:     { melee: 1.25, ranged: 1.10, caster: 1.10 },  // very tanky + slow debuff
-  [Race.Wild]:     { melee: 1.05, ranged: 1.05, caster: 1.05 },  // poison adds over time
-  [Race.Geists]:   { melee: 1.25, ranged: 1.10, caster: 1.10 },  // lifesteal + revive
-  [Race.Tenders]:  { melee: 1.20, ranged: 1.10, caster: 1.15 },  // regen + healing
+/**
+ * Unit ability value multipliers — captures combat effects that raw stats miss.
+ * Each unit type gets TWO multipliers:
+ *   survMult: effective HP multiplier (lifesteal, regen, shields, dodge, knockback)
+ *   dmgMult:  effective DPS multiplier (burn DoT, slow debuff, AoE, haste, wound)
+ *
+ * The value function uses: unitPower = sqrt(DPS * dmgMult * HP * survMult)
+ * This means a 1.5x dmgMult is like having 1.5x base DPS — huge for "weak" casters.
+ */
+const UNIT_ABILITY_VALUE: Record<Race, Record<string, { survMult: number; dmgMult: number }>> = {
+  [Race.Crown]: {
+    // Swordsman: no on-hit effects. Tanky base stats, benefits from Priest shields.
+    melee:  { survMult: 1.10, dmgMult: 1.00 },
+    // Bowman: no specials. Cheap (25w), solid ranged DPS.
+    ranged: { survMult: 1.00, dmgMult: 1.00 },
+    // Priest: shields 2-3 allies for 12 absorb each cast. Team-wide EHP boost.
+    // With Fortified Shields research: +8 absorb = 20 absorb per ally = massive.
+    caster: { survMult: 1.10, dmgMult: 2.0 },
+  },
+  [Race.Horde]: {
+    // Brute: knockback every 3rd hit + 10% melee lifesteal. High base stats.
+    melee:  { survMult: 1.20, dmgMult: 1.05 },
+    // Bowcleaver: no specials. Best ranged DPS in game (12.3 base).
+    ranged: { survMult: 1.00, dmgMult: 1.00 },
+    // War Chanter: haste pulse to 5 allies. +30% attack/move speed.
+    // With Berserker Howl: haste also gives +15% dmg. Force multiplier.
+    caster: { survMult: 1.00, dmgMult: 2.0 },
+  },
+  [Race.Goblins]: {
+    // Sticker: all Goblin attacks apply Wound (-50% healing). Fast (5.0 move).
+    // With Coated Blades research: +1 burn on melee. Burns stack with volume.
+    melee:  { survMult: 0.85, dmgMult: 1.30 },
+    // Knifer: burn on ranged hit (via projectile), wound on hit. Fast attack speed.
+    ranged: { survMult: 0.85, dmgMult: 1.40 },
+    // Hexer: AoE slow to enemies. With Potent Hex: +1 burn AoE.
+    // Slow + Burn = Seared combo (+50% burn dmg). Multiplicative with burn army.
+    caster: { survMult: 0.85, dmgMult: 2.2 },
+  },
+  [Race.Oozlings]: {
+    // Globule x2: 15% chance haste on melee hit. Death fuels ooze economy.
+    // With Volatile Membrane: explode on death. With Mitosis: 10% spawn on death.
+    melee:  { survMult: 1.15, dmgMult: 1.10 },
+    // Spitter x2: ranged bodies. With Corrosive Spit: vulnerable (+20% dmg taken).
+    ranged: { survMult: 1.00, dmgMult: 1.15 },
+    // Bloater x2: haste pulse to 3 allies. With Symbiotic Link: heal during haste.
+    caster: { survMult: 1.00, dmgMult: 1.8 },
+  },
+  [Race.Demon]: {
+    // Smasher: burn on every melee hit + Wound. Glass cannon (75 HP, 12 dmg).
+    // With Infernal Rage: +25% vs burning. Core burn synergy.
+    melee:  { survMult: 0.85, dmgMult: 1.45 },
+    // Eye Sniper: burn on ranged hit, long range (8). With Hellfire Arrows: +1 burn +10% dmg.
+    ranged: { survMult: 0.85, dmgMult: 1.35 },
+    // Overlord: no caster support ability (pure damage). AoE attacks.
+    // With Flame Conduit: +1 burn on AoE. With Immolation: 2-tile burn aura.
+    caster: { survMult: 0.80, dmgMult: 1.6 },
+  },
+  [Race.Deep]: {
+    // Shell Guard: slow on melee hit. 190 HP tank wall.
+    melee:  { survMult: 1.25, dmgMult: 1.10 },
+    // Harpooner: 2 slow stacks on ranged hit. Slows enemy approach + attack speed.
+    // With Frozen Harpoons: +1 slow = 3 stacks. Control machine.
+    ranged: { survMult: 1.10, dmgMult: 1.25 },
+    // Tidecaller: cleanses burn from allies. With Abyssal Ward: shields 3 allies.
+    // Defensive support — anti-burn, army sustain.
+    caster: { survMult: 1.10, dmgMult: 1.7 },
+  },
+  [Race.Wild]: {
+    // Lurker: burn (poison) on melee hit. On kill: heal 15% maxHP, frenzy+haste to nearby allies.
+    // Kill trigger is MASSIVE — snowballs fights. With Pack Hunter: +5% dmg per nearby ally.
+    melee:  { survMult: 1.15, dmgMult: 1.40 },
+    // Bonechucker: burn + wound via projectile. Anti-sustain.
+    // With Venomous Fangs: +1 burn + wound. With Predator's Mark: +15% dmg taken.
+    ranged: { survMult: 1.00, dmgMult: 1.35 },
+    // Scaled Sage: haste pulse to 3 allies. With Alpha Howl: also grants Frenzy (+50% dmg).
+    // Frenzy is the biggest DPS buff in the game — caster is a force multiplier.
+    caster: { survMult: 1.00, dmgMult: 2.2 },
+  },
+  [Race.Geists]: {
+    // Bone Knight: 20% melee lifesteal + burn + wound on hit. With Death Grip: 25% lifesteal.
+    // 20% lifesteal on a melee unit = ~25% effective HP increase in sustained combat.
+    melee:  { survMult: 1.35, dmgMult: 1.20 },
+    // Wraith Bow: 20% ranged lifesteal + burn on hit (via projectile).
+    // Lifesteal sustain keeps ranged alive in extended fights.
+    ranged: { survMult: 1.15, dmgMult: 1.20 },
+    // Necromancer: with Necrotic Burst research: heals 2 HP to 3 allies.
+    // With Undying Will: skeleton summon chance. Modest support.
+    caster: { survMult: 1.10, dmgMult: 1.6 },
+  },
+  [Race.Tenders]: {
+    // Treant: innate 1 HP/s regen. 154 HP = regen is ~0.6%/s sustained healing.
+    // With Bark Skin: regen doubles to 2 HP/s. Massive in long fights.
+    melee:  { survMult: 1.30, dmgMult: 1.00 },
+    // Tinker: with Healing Sap: heals ally 15% of dmg dealt. With Root Snare: 20% slow.
+    ranged: { survMult: 1.05, dmgMult: 1.10 },
+    // Grove Keeper: focused heal on most injured ally. Core sustain engine.
+    // With Bloom Burst: +2 heal. With Life Link: double heal <30% HP.
+    caster: { survMult: 1.10, dmgMult: 2.0 },
+  },
 };
 
 /**
@@ -1236,15 +1482,16 @@ function getSpawnerThroughput(race: Race, type: BuildingType, upgradePath?: stri
   const spawnsPerMinute = (60 * TICK_RATE) / Math.max(1, spawnInterval);
   const unitsPerMinute = spawnsPerMinute * count;
 
-  // Unit combat value: geometric mean of offense and survival
+  // Unit combat value: geometric mean of offense and survival, with ability multipliers
   const dps = damage / Math.max(0.2, attackSpeed);
   const cat = type === BuildingType.MeleeSpawner ? 'melee'
     : type === BuildingType.RangedSpawner ? 'ranged' : 'caster';
-  const survMult = RACE_SURVIVABILITY[race][cat];
-  const effectiveHp = hp * survMult;
+  const abilityMult = UNIT_ABILITY_VALUE[race]?.[cat] ?? { survMult: 1, dmgMult: 1 };
+  const effectiveDps = dps * abilityMult.dmgMult;
+  const effectiveHp = hp * abilityMult.survMult;
 
-  // Power = sqrt(DPS * effectiveHP) — rewards balanced offense/defense
-  const unitPower = Math.sqrt(dps * effectiveHp);
+  // Power = sqrt(effectiveDPS * effectiveHP) — rewards balanced offense/defense
+  const unitPower = Math.sqrt(effectiveDps * effectiveHp);
 
   return unitPower * unitsPerMinute;
 }
@@ -1284,18 +1531,18 @@ function detectPowerSpike(
  * Returns seconds. 0 = can afford now. 999 = can never afford.
  */
 function timeToAfford(
-  player: GameState['players'][0], cost: { gold: number; wood: number; stone: number },
+  player: GameState['players'][0], cost: { gold: number; wood: number; meat: number },
   plan: ResourceProjection | null,
 ): number {
   const goldNeed = Math.max(0, cost.gold - player.gold);
   const woodNeed = Math.max(0, cost.wood - player.wood);
-  const stoneNeed = Math.max(0, cost.stone - player.stone);
-  if (goldNeed === 0 && woodNeed === 0 && stoneNeed === 0) return 0;
+  const meatNeed = Math.max(0, cost.meat - player.meat);
+  if (goldNeed === 0 && woodNeed === 0 && meatNeed === 0) return 0;
   if (!plan) return 999;
   const goldSecs = plan.goldIncome > 0.01 ? goldNeed / plan.goldIncome : (goldNeed > 0 ? 999 : 0);
   const woodSecs = plan.woodIncome > 0.01 ? woodNeed / plan.woodIncome : (woodNeed > 0 ? 999 : 0);
-  const stoneSecs = plan.stoneIncome > 0.01 ? stoneNeed / plan.stoneIncome : (stoneNeed > 0 ? 999 : 0);
-  return Math.max(goldSecs, woodSecs, stoneSecs);
+  const meatSecs = plan.meatIncome > 0.01 ? meatNeed / plan.meatIncome : (meatNeed > 0 ? 999 : 0);
+  return Math.max(goldSecs, woodSecs, meatSecs);
 }
 
 function estimateSpawnerValue(
@@ -1309,7 +1556,7 @@ function estimateSpawnerValue(
   const diff = ctx.difficulty[playerId] ?? ctx.defaultDifficulty;
   const intel = ctx.intelligence[playerId];
 
-  // Nightmare: use throughput-based valuation with resource bottleneck awareness
+  // Use throughput-based valuation with resource bottleneck awareness
   let value: number;
   if (diff.useValueFunction) {
     const throughput = getSpawnerThroughput(race, type);
@@ -1320,6 +1567,12 @@ function estimateSpawnerValue(
       const waitTime = timeToAfford(state.players[playerId], cost, plan);
       if (waitTime > 8) value *= 0.85; // long wait = resource mismatch
     }
+    // Going wide bonus: spawners are more valuable early when you have few
+    const totalSpawners = state.buildings.filter(
+      b => b.playerId === playerId && b.type !== BuildingType.Tower && b.type !== BuildingType.HarvesterHut
+    ).length;
+    if (totalSpawners < 4) value *= 1.4; // early game: spawners are king
+    else if (totalSpawners < 7) value *= 1.15; // mid game: still good
   } else {
     value = getSpawnerPower(race, type) / totalCost;
   }
@@ -1344,8 +1597,14 @@ function estimateUpgradeValue(
   const choice = botPickUpgrade(state, ctx, building, profile, race, enemyRaces, diff);
   const tier = getNodeUpgradeCost(race, building.type, building.upgradePath.length, choice);
   const totalCost = resourceBundleTotal(tier);
-  if (totalCost <= 0) return { value: 0, choice: 'B' };
-  if (player.gold < tier.gold || player.wood < tier.wood || player.stone < tier.stone) {
+  if (totalCost <= 0 && !(tier.deathEssence ?? 0) && !(tier.souls ?? 0)) return { value: 0, choice: 'B' };
+  if (player.gold < tier.gold || player.wood < tier.wood || player.meat < tier.meat) {
+    return { value: 0, choice };
+  }
+  if ((tier.deathEssence ?? 0) > 0 && player.deathEssence < (tier.deathEssence ?? 0)) {
+    return { value: 0, choice };
+  }
+  if ((tier.souls ?? 0) > 0 && player.souls < (tier.souls ?? 0)) {
     return { value: 0, choice };
   }
 
@@ -1373,8 +1632,8 @@ function estimateUpgradeValue(
     const sameTypeCount = state.buildings.filter(
       b => b.playerId === player.id && b.type === building.type
     ).length;
-    // More buildings of same type = upgrade benefits more production
-    const volumeBonus = Math.max(1, sameTypeCount * 0.6);
+    // More buildings of same type = upgrade benefits more production (big multiplier)
+    const volumeBonus = Math.max(0.5, sameTypeCount * 0.7);
 
     value = (throughputDelta * (1 + spikeBonus + matchupBonus) * volumeBonus) / totalCost;
   } else {
@@ -1404,37 +1663,276 @@ function estimateUpgradeValue(
   return { value, choice };
 }
 
+// ==================== RESEARCH VALUE ESTIMATION ====================
+
+/**
+ * Synergy scores for race one-shot research upgrades.
+ * Higher = buy sooner. Scores reflect actual game impact:
+ * - Multiplicative effects (burn, shields, AoE, lifesteal) score high
+ * - Flat bonuses (+HP, +dmg) are moderate
+ * - Niche/situational effects score lower unless threat-matched
+ * - Ability upgrades are mid-late game investments
+ */
+function getOneShotSynergyScore(id: string, threats: ThreatProfile): number {
+  switch (id) {
+    // --- CROWN: shields are the power spike, ranged piercing is strong ---
+    case 'crown_melee_1': return threats.hasBurst ? 2.0 : 1.0;   // Defend Stance: -25% ranged dmg taken — niche
+    case 'crown_melee_2': return 2.0;                             // Royal Guard: +15% HP + gold on kill — solid mid
+    case 'crown_ranged_1': return threats.hasTanks ? 3.0 : 2.0;  // Piercing Arrows: ignore def + %HP dmg — great vs tanks
+    case 'crown_ranged_2': return 3.0;                            // Crown Volley: +1 projectile — multiplicative DPS spike
+    case 'crown_caster_1': return 3.5;                            // Fortified Shields: +8 absorb — core identity amplifier
+    case 'crown_caster_2': return 2.0;                            // Healing Aura: 1 HP/s to 2 allies — decent sustain
+    // Crown ability: Aegis Wrath (+25% dmg while shielded) is the big spike
+    case 'crown_ability_1': return 1.0;   // Swift Workers: econ QoL, low combat impact
+    case 'crown_ability_2': return 1.5;   // Royal Forge: saves wood, moderate econ
+    case 'crown_ability_3': return 3.5;   // Aegis Wrath: shielded +25% dmg — huge with Priest army
+    case 'crown_ability_4': return 2.0;   // Timber Surplus: +40% wood — strong econ
+
+    // --- HORDE: brute force, auras are the differentiator ---
+    case 'horde_melee_1': return 2.5;                             // Blood Rage: +20% dmg low HP + %HP dmg — aggressive
+    case 'horde_melee_2': return 2.5;                             // Thick Skin: +20% HP — always good for front line
+    case 'horde_ranged_1': return threats.hasSustain ? 3.0 : 1.5; // Heavy Bolts: Wound — amazing vs Tenders/Geists
+    case 'horde_ranged_2': return threats.hasSwarm ? 3.5 : 2.0;  // Bombardier: splash — huge vs swarm
+    case 'horde_caster_1': return 2.5;                            // War Drums: haste 3->5s — extends aura uptime
+    case 'horde_caster_2': return 3.0;                            // Berserker Howl: haste gives +15% dmg — multiplicative
+    // Horde ability: Wide Aura is the big late-game spike
+    case 'horde_ability_1': return 1.5;   // Trample: War Troll AoE — late game only
+    case 'horde_ability_2': return 1.0;   // Troll Discount: saves resources — minor
+    case 'horde_ability_3': return 3.0;   // Wide Aura: doubled range — huge with multiple casters
+    case 'horde_ability_4': return 2.0;   // Trophy Hunter: War Troll scales with kills — snowball
+
+    // --- GOBLINS: burn stacking, speed, cheap and nasty ---
+    case 'goblins_melee_1': return 3.0;                            // Coated Blades: +1 burn — core identity, scales with volume
+    case 'goblins_melee_2': return 2.0;                            // Scurry: +35% move — helps engage/disengage
+    case 'goblins_ranged_1': return 3.0;                           // Incendiary Tips: +1 burn ranged — more burn stacking
+    case 'goblins_ranged_2': return threats.hasTanks ? 3.0 : 2.0; // Acid Bolts: %HP dmg — great vs tanks
+    case 'goblins_caster_1': return 2.5;                           // Potent Hex: +1 burn AoE — synergy with casters
+    case 'goblins_caster_2': return threats.hasSustain ? 3.5 : 2.0; // Jinx Cloud: wound on slowed — anti-heal combo
+    // Goblin ability: Quick Brew is the early spike, rest are situational
+    case 'goblins_ability_1': return 2.5;   // Quick Brew: faster potions + attract — good mid
+    case 'goblins_ability_2': return 2.0;   // Cower Reflexes: dodge while fleeing — defensive
+    case 'goblins_ability_3': return 2.0;   // Potent Potions: 2x effect strength — strong
+    case 'goblins_ability_4': return 3.5;   // Elixir Mastery: permanent potions — game-changing
+
+    // --- OOZLINGS: death-powered economy, go wide ---
+    case 'oozlings_melee_1': return 3.0;   // Volatile Membrane: explode on death — amazing for swarm
+    case 'oozlings_melee_2': return 3.5;   // Mitosis: 10% spawn on death — economy engine
+    case 'oozlings_ranged_1': return 2.0;  // Corrosive Spit: vulnerable — amplifies all damage
+    case 'oozlings_ranged_2': return 1.5;  // Acid Pool: kill leaves pool — minor AoE
+    case 'oozlings_caster_1': return 1.5;  // Symbiotic Link: heal during haste — niche
+    case 'oozlings_caster_2': return 2.5;  // Mass Division: wound on AoE — anti-heal
+    // Oozling ability: death synergy is everything
+    case 'oozlings_ability_1': return 2.5;  // Spitter Mound: 25% ranged spawn from Ooze Mound — free diversity
+    case 'oozlings_ability_2': return 2.0;  // Caster Mound: 25% caster spawn — free diversity
+    case 'oozlings_ability_3': return 3.5;  // Death Burst: 3 random ooze on death — massive with swarm
+    case 'oozlings_ability_4': return 2.5;  // Ooze Vitality: 2 HP/s regen all units — great sustain for swarm
+
+    // --- DEMON: burn everything, mana economy matters ---
+    case 'demon_melee_1': return 3.0;                             // Infernal Rage: +25% vs burning — core synergy
+    case 'demon_melee_2': return 2.5;                             // Soul Siphon: +2 mana on kill — fuels fireballs
+    case 'demon_ranged_1': return 3.0;                            // Hellfire Arrows: +1 burn +10% dmg — dual spike
+    case 'demon_ranged_2': return threats.hasSwarm ? 3.5 : 2.0;  // Eye of Destruction: splash — huge vs swarm
+    case 'demon_caster_1': return 2.0;                            // Flame Conduit: +1 AoE burn — caster-dependent
+    case 'demon_caster_2': return 2.0;                            // Immolation: burn aura — caster-dependent
+    // Demon ability: save mana for big groups, upgrades > fireballs long-term
+    case 'demon_ability_1': return 1.5;   // Rapid Fire: -25% cooldown — only if using ability actively
+    case 'demon_ability_2': return 2.5;   // Scorched Earth: burn ground — strong AoE denial
+    case 'demon_ability_3': return 2.0;   // Siege Fire: +50% building dmg — push tool
+    case 'demon_ability_4': return 2.5;   // Mana Siphon: +50% mana income — more fireballs
+
+    // --- DEEP: tank wall + slow control ---
+    case 'deep_melee_1': return 3.0;                              // Tidal Guard: +15% HP +5% DR — makes tanks unkillable
+    case 'deep_melee_2': return 2.5;                              // Crushing Depths: +20% vs slowed — synergy with Harpooner
+    case 'deep_ranged_1': return 2.5;                             // Frozen Harpoons: +1 slow — more control
+    case 'deep_ranged_2': return 2.0;                             // Anchor Shot: +50% siege dmg — late push tool
+    case 'deep_caster_1': return threats.hasBurn ? 3.0 : 1.5;    // Purifying Tide: cleanse burn — critical vs burn races
+    case 'deep_caster_2': return 2.0;                             // Abyssal Ward: shield allies — decent support
+    // Deep ability: Deluge upgrades are late game
+    case 'deep_ability_1': return 1.5;   // Crushing Rain: 3 dps during Deluge — late game
+    case 'deep_ability_2': return 2.0;   // Healing Rain: heal during Deluge — late sustain
+    case 'deep_ability_3': return 2.5;   // Freezing Depths: slowed units even slower — always-on passive
+    case 'deep_ability_4': return 2.0;   // Purifying Deluge: cleanse debuffs — anti-burn/slow
+
+    // --- WILD: poison aggro, meat-on-kill, frenzy timing ---
+    case 'wild_melee_1': return 3.0;                              // Savage Frenzy: +2s frenzy +10% dmg — core identity
+    case 'wild_melee_2': return 3.0;                              // Pack Hunter: +5%/ally — scales with army size
+    case 'wild_ranged_1': return 2.5;                             // Venomous Fangs: burn + wound — dual debuff
+    case 'wild_ranged_2': return 2.0;                             // Predator's Mark: +15% dmg taken — amplifier
+    case 'wild_caster_1': return 2.5;                             // Nature's Wrath: +1 AoE radius — more coverage
+    case 'wild_caster_2': return 3.0;                             // Alpha Howl: casters grant frenzy — huge multiplicative
+    // Wild ability: meat economy and frenzy scaling
+    case 'wild_ability_1': return 2.5;   // Meat Harvest: +3 meat on kill — sustains production
+    case 'wild_ability_2': return 3.0;   // Blood Frenzy: kill frenzy radius doubled — army-wide spike
+    case 'wild_ability_3': return 2.0;   // Pack Speed: +10% move — decent mobility
+    case 'wild_ability_4': return 3.0;   // Savage Instinct: frenzy lifesteal — sustain during aggression
+
+    // --- GEISTS: lifesteal sustain, soul economy, summon spam ---
+    case 'geists_melee_1': return 3.0;                            // Death Grip: lifesteal 15->25% — huge sustain spike
+    case 'geists_melee_2': return threats.hasBurst ? 3.0 : 2.0;  // Spectral Armor: DR per missing HP — anti-burst
+    case 'geists_ranged_1': return 2.0;                           // Soul Arrows: +10% lifesteal — moderate
+    case 'geists_ranged_2': return 2.0;                           // Phantom Volley: 15% pass-through — minor
+    case 'geists_caster_1': return 2.0;                           // Necrotic Burst: +2 heal — incremental
+    case 'geists_caster_2': return 2.5;                           // Undying Will: skeleton summon — more bodies
+    // Geists ability: summon upgrades, use ability whenever up
+    case 'geists_ability_1': return 3.0;   // Bone Archers: +3 skeleton archers — huge value per summon
+    case 'geists_ability_2': return 2.5;   // Empowered Minions: +5 dmg +25% speed — better skeletons
+    case 'geists_ability_3': return 2.0;   // Death Defiance: 5% avoid death — minor but always-on
+    case 'geists_ability_4': return 3.0;   // Hungering Dark: lifesteal = +dmg — multiplicative scaling
+
+    // --- TENDERS: regen sustain, seed timing ---
+    case 'tenders_melee_1': return 3.0;                            // Bark Skin: regen 1->2 HP/s — doubles sustain
+    case 'tenders_melee_2': return 1.5;                            // Thorned Vines: reflect 3 dmg — minor
+    case 'tenders_ranged_1': return 2.5;                           // Healing Sap: heal 15% of dmg — sustain + damage
+    case 'tenders_ranged_2': return 1.5;                           // Root Snare: 20% slow — unreliable
+    case 'tenders_caster_1': return 3.0;                           // Bloom Burst: +2 heal — core healer buff
+    case 'tenders_caster_2': return 2.5;                           // Life Link: double heal <30% — clutch saves
+    // Tenders ability: seed management
+    case 'tenders_ability_1': return 2.5;   // Fast Growth: seeds grow 40% faster — more seed pops
+    case 'tenders_ability_2': return 2.5;   // Quick Seeds: -30% cooldown — more seeds overall
+    case 'tenders_ability_3': return 2.0;   // Reseed: 30% replant — value over time
+    case 'tenders_ability_4': return 2.5;   // Ironwood: tower upgrades -50% cost — strong tower play
+
+    default: return 1.0;
+  }
+}
+
+/**
+ * Estimate value of a research upgrade in comparable power-per-cost units.
+ * Used by Nightmare (botValueBasedBuild) and Hard (botUpgradeBuildings) bots.
+ */
+function estimateResearchValue(
+  _state: GameState, _ctx: BotContext, playerId: number,
+  upgradeId: string, race: Race, bu: ResearchUpgradeState,
+  intel: BotIntelligence, myBuildings: GameState['buildings'],
+): number {
+  const def = getAllResearchUpgrades(race).find(d => d.id === upgradeId);
+  if (!def) return 0;
+
+  // Skip already-owned one-shots
+  if (def.oneShot && bu.raceUpgrades[def.id]) return 0;
+
+  // Get level for scaling upgrades (cap at 3 — diminishing returns beyond that)
+  let level = 0;
+  if (upgradeId === 'melee_atk') level = bu.meleeAtkLevel;
+  else if (upgradeId === 'melee_def') level = bu.meleeDefLevel;
+  else if (upgradeId === 'ranged_atk') level = bu.rangedAtkLevel;
+  else if (upgradeId === 'ranged_def') level = bu.rangedDefLevel;
+  else if (upgradeId === 'caster_atk') level = bu.casterAtkLevel;
+  else if (upgradeId === 'caster_def') level = bu.casterDefLevel;
+
+  // Hard cap: don't value research beyond level 3 (massive diminishing returns)
+  if (!def.oneShot && level >= 3) return 0;
+
+  const cost = getResearchUpgradeCost(upgradeId, level, race);
+  const totalCost = cost.gold + cost.wood + cost.meat + (cost.deathEssence ?? 0) + (cost.souls ?? 0);
+  if (totalCost <= 0) return 0;
+
+  // Race ability upgrades: scale with total army size (these are global effects)
+  if (def.category === 'ability') {
+    if (!def.oneShot) return 0;
+    const synergyScore = getOneShotSynergyScore(upgradeId, intel.threats);
+    const totalSpawners = myBuildings.filter(b => b.playerId === playerId &&
+      (b.type === BuildingType.MeleeSpawner || b.type === BuildingType.RangedSpawner || b.type === BuildingType.CasterSpawner)
+    ).length;
+    // Scale with army size — ability upgrades are mid-late investments
+    const armyScale = Math.max(1, totalSpawners * 0.6);
+    return synergyScore * armyScale * 0.5 / totalCost;
+  }
+
+  // Get category counts
+  const cat = def.category;
+  const catType = cat === 'melee' ? BuildingType.MeleeSpawner
+    : cat === 'ranged' ? BuildingType.RangedSpawner
+    : BuildingType.CasterSpawner;
+  const spawnerCount = myBuildings.filter(b => b.playerId === playerId && b.type === catType).length;
+  const unitStats = UNIT_STATS[race]?.[catType];
+  if (!unitStats) return 0;
+  const abilityMult = UNIT_ABILITY_VALUE[race]?.[cat] ?? { survMult: 1, dmgMult: 1 };
+  const avgDamage = unitStats.damage * abilityMult.dmgMult;
+  const avgHP = unitStats.hp * abilityMult.survMult;
+
+  const threats = intel.threats;
+  const armyAdvantage = intel.armyAdvantage;
+
+  // --- Race one-shot upgrades ---
+  if (def.oneShot) {
+    if (spawnerCount === 0) return 0; // no spawners of this category
+    const synergyScore = getOneShotSynergyScore(upgradeId, threats);
+    // One-shots multiply ALL future production from this category.
+    // Value scales quadratically with spawner count (more spawners = more units benefiting).
+    return synergyScore * Math.pow(spawnerCount, 1.3) * 0.6 / totalCost;
+  }
+
+  // Research multiplies ALL units of this category — current AND future.
+  // The more spawners you have, the more value each research level provides.
+  // Use spawnerCount^1.5 to reflect that research is multiplicative across production.
+  const productionScale = Math.pow(Math.max(1, spawnerCount), 1.5);
+
+  // --- Attack upgrades (melee_atk, ranged_atk, caster_atk) ---
+  if (def.type === 'attack') {
+    // Marginal multiplier gain: 1.25^(level+1) - 1.25^level = 1.25^level * 0.25
+    const marginalMult = Math.pow(1.25, level) * 0.25;
+    let value = marginalMult * productionScale * avgDamage * 3.0 / totalCost;
+
+    // Boost if this is the effective category
+    if (intel.effectiveCategory === cat) value *= 1.3;
+    // If losing, attack upgrades get +20% (need to punch through)
+    if (armyAdvantage < 0.8) value *= 1.2;
+
+    return value;
+  }
+
+  // --- Defense upgrades (melee_def, ranged_def, caster_def) ---
+  if (def.type === 'defense') {
+    // Marginal DR gain: 1/(1+0.06*level) - 1/(1+0.06*(level+1))
+    const oldDR = 1 - 1 / (1 + 0.06 * level);
+    const newDR = 1 - 1 / (1 + 0.06 * (level + 1));
+    // Effective HP multiplier increase
+    const ehpGain = (newDR > 0.99 ? 100 : 1 / (1 - newDR)) - (oldDR > 0.99 ? 100 : 1 / (1 - oldDR));
+    let value = ehpGain * productionScale * avgHP * 3.0 / totalCost;
+
+    // If losing badly, defense gets +50%
+    if (armyAdvantage < 0.6) value *= 1.5;
+    // If weak category matches, multiply by 1.5
+    if (intel.weakCategory === cat) value *= 1.5;
+
+    return value;
+  }
+
+  return 0;
+}
+
 function estimateHutPaybackSeconds(
   state: GameState, ctx: BotContext, playerId: number, hutCount: number,
 ): number {
   const race = state.players[playerId].race;
   const hutBase = RACE_BUILDING_COSTS[race][BuildingType.HarvesterHut];
   const mult = Math.pow(HUT_COST_SCALE, Math.max(0, hutCount - 1));
-  const totalCost = Math.floor(hutBase.gold * mult) + Math.floor(hutBase.wood * mult) + Math.floor(hutBase.stone * mult);
+  const totalCost = Math.floor(hutBase.gold * mult) + Math.floor(hutBase.wood * mult) + Math.floor(hutBase.meat * mult);
   if (totalCost <= 0) return 999;
 
   const plan = ctx.intelligence[playerId]?.resourcePlan;
   const passive = PASSIVE_RATES[race];
   const harvesters = state.harvesters.filter(h => h.playerId === playerId);
-  let goldH = 0, woodH = 0, stoneH = 0;
+  let goldH = 0, woodH = 0, meatH = 0;
   for (const h of harvesters) {
     if (h.assignment === HarvesterAssignment.BaseGold || h.assignment === HarvesterAssignment.Center) goldH++;
     else if (h.assignment === HarvesterAssignment.Wood) woodH++;
-    else stoneH++;
+    else meatH++;
   }
 
   const goldIncome = plan?.goldIncome ?? (passive.gold + goldH * (GOLD_YIELD_PER_TRIP / 8.5));
   const woodIncome = plan?.woodIncome ?? (passive.wood + woodH * (WOOD_YIELD_PER_TRIP / 8.5));
-  const stoneIncome = plan?.stoneIncome ?? (passive.stone + stoneH * (STONE_YIELD_PER_TRIP / 8.5));
+  const meatIncome = plan?.meatIncome ?? (passive.meat + meatH * (MEAT_YIELD_PER_TRIP / 8.5));
 
   const costTime = Math.max(
     hutBase.gold > 0 ? Math.floor(hutBase.gold * mult) / Math.max(0.1, goldIncome) : 0,
     hutBase.wood > 0 ? Math.floor(hutBase.wood * mult) / Math.max(0.1, woodIncome) : 0,
-    hutBase.stone > 0 ? Math.floor(hutBase.stone * mult) / Math.max(0.1, stoneIncome) : 0
+    hutBase.meat > 0 ? Math.floor(hutBase.meat * mult) / Math.max(0.1, meatIncome) : 0
   );
 
   // Avg harvester income: weighted by resource types the race uses
-  const avgHarvestRate = (GOLD_YIELD_PER_TRIP + WOOD_YIELD_PER_TRIP + STONE_YIELD_PER_TRIP) / 3 / 8.5;
+  const avgHarvestRate = (GOLD_YIELD_PER_TRIP + WOOD_YIELD_PER_TRIP + MEAT_YIELD_PER_TRIP) / 3 / 8.5;
   const directPayback = totalCost / avgHarvestRate;
   return Math.max(directPayback, costTime * 1.2);
 }
@@ -1462,7 +1960,7 @@ function shouldBuildHutNow(
 
   const payback = estimateHutPaybackSeconds(state, ctx, playerId, hutCount);
   const bottleneckWait = intel?.resourcePlan
-    ? Math.max(intel.resourcePlan.goldSecsToTarget, intel.resourcePlan.woodSecsToTarget, intel.resourcePlan.stoneSecsToTarget)
+    ? Math.max(intel.resourcePlan.goldSecsToTarget, intel.resourcePlan.woodSecsToTarget, intel.resourcePlan.meatSecsToTarget)
     : 0;
 
   // When behind hard: never invest in economy, spend on army
@@ -1627,9 +2125,18 @@ export function runAllBotAI(state: GameState, ctx: BotContext, emit: Emit): void
 function runSingleBotAI(state: GameState, ctx: BotContext, playerId: number, emit: Emit): void {
   const diff = ctx.difficulty[playerId] ?? ctx.defaultDifficulty;
   const player = state.players[playerId];
-  const profile = diff.useNightmareProfiles
-    ? NIGHTMARE_PROFILES[player.race]
-    : RACE_PROFILES[player.race];
+  const enemyRaces = getEnemyRaces(state, playerId);
+
+  // Select composition profile once per bot (first tick), then cache it
+  if (!ctx.selectedProfile[playerId] && !ctx.profileOverride?.[playerId]) {
+    ctx.selectedProfile[playerId] = selectCompositionProfile(
+      player.race, diff, enemyRaces, () => state.rng(),
+    );
+  }
+  const profile = ctx.profileOverride?.[playerId]
+    ?? ctx.selectedProfile[playerId]
+    ?? RACE_PROFILES[player.race];
+
   const myBuildings = state.buildings.filter(b => b.playerId === playerId);
   const meleeCount = myBuildings.filter(b => b.type === BuildingType.MeleeSpawner).length;
   const rangedCount = myBuildings.filter(b => b.type === BuildingType.RangedSpawner).length;
@@ -1637,7 +2144,6 @@ function runSingleBotAI(state: GameState, ctx: BotContext, playerId: number, emi
   const towerCount = myBuildings.filter(b => b.type === BuildingType.Tower && b.buildGrid === 'military').length;
   const alleyTowerCount = myBuildings.filter(b => b.type === BuildingType.Tower && b.buildGrid === 'alley').length;
   const hutCount = myBuildings.filter(b => b.type === BuildingType.HarvesterHut).length;
-  const enemyRaces = getEnemyRaces(state, playerId);
 
   const gameMinutes = state.tick / (20 * 60);
   const myTeam = botTeam(playerId, state);
@@ -1685,7 +2191,7 @@ function runSingleBotAI(state: GameState, ctx: BotContext, playerId: number, emi
       // Do nothing — simulates inattention
     } else if (atSpawnerCap && atHutCap) {
       // At all caps — only towers possible
-      if (towerCount + alleyTowerCount < 3 && botCanAfford(state, playerId, BuildingType.Tower)) {
+      if (towerCount + alleyTowerCount < 3 && botCanAffordTower(state, playerId, towerCount + alleyTowerCount)) {
         built = botPlaceAlleyTower(state, playerId, emit);
       }
     } else if (totalSpawners === 0 && gameMinutes > 0.3) {
@@ -1705,15 +2211,39 @@ function runSingleBotAI(state: GameState, ctx: BotContext, playerId: number, emi
   }
 
   // 2. Upgrades — gated by difficulty threshold
-  const upgradeInterval = Math.max(20, Math.floor(diff.upgradeSpeed / urgency));
-  if (state.tick - (ctx.lastUpgradeTick[playerId] ?? 0) >= upgradeInterval) {
-    if (botUpgradeBuildings(state, ctx, playerId, profile, myBuildings, enemyRaces, gameMinutes, diff, emit)) {
-      ctx.lastUpgradeTick[playerId] = state.tick;
+  // When useValueFunction is true, upgrades are already competed inside botValueBasedBuild.
+  // Running botUpgradeBuildings separately would double-drain resources (especially bad for
+  // multi-resource races like Horde where upgrades cost all 3 resources simultaneously).
+  if (!diff.useValueFunction) {
+    const upgradeInterval = Math.max(20, Math.floor(diff.upgradeSpeed / urgency));
+    if (state.tick - (ctx.lastUpgradeTick[playerId] ?? 0) >= upgradeInterval) {
+      if (botUpgradeBuildings(state, ctx, playerId, profile, myBuildings, enemyRaces, gameMinutes, diff, emit)) {
+        ctx.lastUpgradeTick[playerId] = state.tick;
+      }
     }
   }
 
   // 3. Lane management — quality scaled by difficulty
   botEvaluateLanes(state, ctx, playerId, myTeam, profile, myBuildings, gameMinutes, diff, emit);
+
+  // 3.5. Race ability — check every 2 seconds (Easy bots skip)
+  if (diff.laneIQ !== 'random' && state.tick % 40 === 0) {
+    botUseAbility(state, playerId, emit);
+  }
+
+  // 3.6. Research upgrades
+  // Nightmare: handled inside botValueBasedBuild (unified value function)
+  // Hard: handled inside botUpgradeBuildings (compared against building upgrades)
+  // Medium: simple timer-based (45s, attack only, army/econ first)
+  // Easy: never
+  if (!diff.useValueFunction && diff.upgradeThreshold >= 99) {
+    // Medium only (upgradeThreshold >= 99 means no building upgrades, i.e. Medium)
+    const researchInterval = diff.laneIQ === 'random' ? 999999 : 45 * TICK_RATE;
+    if (state.tick - (ctx.lastResearchTick[playerId] ?? 0) >= researchInterval) {
+      botManageResearch(state, ctx, playerId, player, diff, emit);
+      ctx.lastResearchTick[playerId] = state.tick;
+    }
+  }
 
   // 4. Harvesters — check every ~2-3 seconds (faster for nightmare)
   const baseHarvInterval = diff.useValueFunction ? 40 : 60;
@@ -1793,15 +2323,18 @@ function botValueBasedBuild(
   const intel = ctx.intelligence[playerId];
   const plan = intel?.resourcePlan ?? null;
 
-  // Score all options — including unaffordable ones for save-for logic
+  // Score all options — including unaffordable ones for goal-oriented saving
   interface BuildOption {
-    action: 'spawner' | 'upgrade' | 'hut' | 'tower' | 'alley_tower';
+    action: 'spawner' | 'upgrade' | 'hut' | 'tower' | 'alley_tower' | 'research';
     value: number;
     affordable: boolean;
     waitSecs: number;  // seconds to afford (0 if affordable now)
+    resourceTypes: number; // how many distinct resource types this costs (1, 2, or 3)
+    cost: { gold: number; wood: number; meat: number; souls?: number; deathEssence?: number };
     type?: BuildingType;
     building?: GameState['buildings'][0];
     upgradeChoice?: string;
+    researchId?: string;
   }
 
   const options: BuildOption[] = [];
@@ -1810,14 +2343,52 @@ function botValueBasedBuild(
   const spawnerTypes = [BuildingType.MeleeSpawner, BuildingType.RangedSpawner, BuildingType.CasterSpawner];
   const shift = (diff.useDynamicShift && intel?.buildShift) ? intel.buildShift : { melee: 0, ranged: 0, caster: 0 };
 
+  // Profile-based target for current game phase (used to steer value function)
+  const profileTarget = (type: BuildingType): number => {
+    if (gameMinutes < 1.5) {
+      if (type === BuildingType.MeleeSpawner) return profile.earlyMelee;
+      if (type === BuildingType.RangedSpawner) return profile.earlyRanged;
+      return 0;
+    } else if (gameMinutes < 5) {
+      if (type === BuildingType.MeleeSpawner) return profile.midMelee;
+      if (type === BuildingType.RangedSpawner) return profile.midRanged;
+      return profile.midCasters;
+    } else {
+      if (type === BuildingType.MeleeSpawner) return profile.midMelee + 1;
+      if (type === BuildingType.RangedSpawner) return profile.midRanged + 1;
+      return profile.midCasters + 1;
+    }
+  };
+
   for (const type of spawnerTypes) {
     const sv = estimateSpawnerValue(state, ctx, playerId, type);
     const cat = type === BuildingType.MeleeSpawner ? 'melee' : type === BuildingType.RangedSpawner ? 'ranged' : 'caster';
     const shiftBonus = Math.max(0, shift[cat]) * 0.02;
+
+    // Profile steering: strongly boost value if below target, penalize if above
+    const currentCount = type === BuildingType.MeleeSpawner ? meleeCount
+      : type === BuildingType.RangedSpawner ? rangedCount : casterCount;
+    const target = profileTarget(type);
+    let profileMult = 1.0;
+    if (currentCount < target) {
+      profileMult = 1.5 + (target - currentCount) * 0.2;
+      if (currentCount === 0) profileMult *= 1.5; // first of this type is extra valuable
+    } else if (target === 0 && currentCount > 0) {
+      profileMult = 0.3; // profile says skip
+    } else if (currentCount > target) {
+      profileMult = 0.6 / Math.max(1, currentCount - target + 1); // diminishing returns
+    }
+
+    // Even if profile says 0 casters, build at least 1 after army is established
+    if (currentCount === 0 && type === BuildingType.CasterSpawner && target === 0 && meleeCount + rangedCount >= 3 && gameMinutes > 1.5) {
+      profileMult = 2.5;
+    }
+
     const cost = costs[type];
     const canAfford = botCanAfford(state, playerId, type);
     const wait = canAfford ? 0 : timeToAfford(player, cost, plan);
-    options.push({ action: 'spawner', value: sv + shiftBonus, affordable: canAfford, waitSecs: wait, type });
+    const spRT = (cost.gold > 0 ? 1 : 0) + (cost.wood > 0 ? 1 : 0) + (cost.meat > 0 ? 1 : 0);
+    options.push({ action: 'spawner', value: (sv + shiftBonus) * profileMult, affordable: canAfford, waitSecs: wait, resourceTypes: spRT, cost, type });
   }
 
   // --- Upgrade options (both affordable and unaffordable) ---
@@ -1828,7 +2399,9 @@ function botValueBasedBuild(
     for (const b of upgradeable) {
       const choice = botPickUpgrade(state, ctx, b, profile, race, enemyRaces, diff);
       const tier = getNodeUpgradeCost(race, b.type, b.upgradePath.length, choice);
-      const canAfford = player.gold >= tier.gold && player.wood >= tier.wood && player.stone >= tier.stone;
+      const canAfford = player.gold >= tier.gold && player.wood >= tier.wood && player.meat >= tier.meat
+        && ((tier.deathEssence ?? 0) <= 0 || player.deathEssence >= (tier.deathEssence ?? 0))
+        && ((tier.souls ?? 0) <= 0 || player.souls >= (tier.souls ?? 0));
 
       // Compute value even if can't afford (for save-for comparison)
       let uv: number;
@@ -1864,8 +2437,10 @@ function botValueBasedBuild(
 
       if (uv > 0) {
         const wait = canAfford ? 0 : timeToAfford(player, tier, plan);
+        const upRT = (tier.gold > 0 ? 1 : 0) + (tier.wood > 0 ? 1 : 0) + (tier.meat > 0 ? 1 : 0);
         options.push({
-          action: 'upgrade', value: uv, affordable: canAfford, waitSecs: wait,
+          action: 'upgrade', value: uv, affordable: canAfford, waitSecs: wait, resourceTypes: upRT,
+          cost: { gold: tier.gold, wood: tier.wood, meat: tier.meat, deathEssence: tier.deathEssence, souls: tier.souls },
           building: b, upgradeChoice: choice,
         });
       }
@@ -1883,92 +2458,129 @@ function botValueBasedBuild(
       const timeHorizon = Math.max(60, 300 - gameMinutes * 30);
       const avgSpawnerCost = spawnerTypes.reduce((sum, t) => sum + resourceBundleTotal(costs[t]), 0) / 3;
       const avgThroughput = spawnerTypes.reduce((sum, t) => sum + getSpawnerThroughput(race, t), 0) / 3;
-      const additionalIncome = (GOLD_YIELD_PER_TRIP + WOOD_YIELD_PER_TRIP + STONE_YIELD_PER_TRIP) / 3 / 8.5;
+      const additionalIncome = (GOLD_YIELD_PER_TRIP + WOOD_YIELD_PER_TRIP + MEAT_YIELD_PER_TRIP) / 3 / 8.5;
       const enabledThroughput = avgSpawnerCost > 0
         ? (additionalIncome * timeHorizon / avgSpawnerCost) * avgThroughput
         : 0;
       const hutBase = costs[BuildingType.HarvesterHut];
       const mult = Math.pow(HUT_COST_SCALE, Math.max(0, hutCount - 1));
-      const hutTotalCost = Math.floor(hutBase.gold * mult) + Math.floor(hutBase.wood * mult) + Math.floor(hutBase.stone * mult);
+      const hutTotalCost = Math.floor(hutBase.gold * mult) + Math.floor(hutBase.wood * mult) + Math.floor(hutBase.meat * mult);
       let hv = hutTotalCost > 0 ? enabledThroughput / hutTotalCost : 0;
+      // Early game: first 2-3 huts are critical for economy
+      if (hutCount < 2 && gameMinutes < 2) hv *= 1.8;
+      else if (hutCount < 3 && gameMinutes < 3) hv *= 1.3;
       // Scale down if payback is long
       if (payback > 60) hv *= 60 / payback;
       // Pressure bonus when resource-starved
       const pressureBonus = plan
         ? Math.min(0.15, Math.max(0, Math.max(
-          plan.goldSecsToTarget, plan.woodSecsToTarget, plan.stoneSecsToTarget,
+          plan.goldSecsToTarget, plan.woodSecsToTarget, plan.meatSecsToTarget,
         ) - 15) * 0.005)
         : 0;
       hv += pressureBonus;
       if (hv > 0) {
         const canAffordHut = botCanAffordHut(state, playerId, hutCount);
-        options.push({ action: 'hut', value: hv, affordable: canAffordHut, waitSecs: 0 });
+        const hutBase2 = costs[BuildingType.HarvesterHut];
+        const hutRT = (hutBase2.gold > 0 ? 1 : 0) + (hutBase2.wood > 0 ? 1 : 0) + (hutBase2.meat > 0 ? 1 : 0);
+        const hutCostActual = { gold: Math.floor(hutBase2.gold * mult), wood: Math.floor(hutBase2.wood * mult), meat: Math.floor(hutBase2.meat * mult) };
+        options.push({ action: 'hut', value: hv, affordable: canAffordHut, waitSecs: 0, resourceTypes: hutRT, cost: hutCostActual });
       }
     }
   }
 
-  // --- Tower options ---
+  // --- Tower options (hard cap at profile target or 6, whichever is lower) ---
   const totalTowers = towerCount + alleyTowerCount;
-  if (totalTowers < profile.lateTowers + profile.alleyTowers) {
+  const towerCap = Math.min(profile.lateTowers + profile.alleyTowers, 6);
+  if (totalTowers < towerCap) {
     const ts = TOWER_STATS[race];
-    const towerCost = costs[BuildingType.Tower];
-    const totalCostT = towerCost.gold + towerCost.wood + towerCost.stone;
+    const towerBaseCost = costs[BuildingType.Tower];
+    const towerMult = totalTowers > 0 ? Math.pow(TOWER_COST_SCALE, Math.max(0, totalTowers - 1)) : 1;
+    const towerCost = { gold: Math.floor(towerBaseCost.gold * towerMult), wood: Math.floor(towerBaseCost.wood * towerMult), meat: Math.floor(towerBaseCost.meat * towerMult) };
+    const totalCostT = towerCost.gold + towerCost.wood + towerCost.meat;
     const towerDPS = ts.damage / ts.attackSpeed;
-    let towerVal = totalCostT > 0 ? (towerDPS + ts.hp * 0.005) / totalCostT : 0;
+    let towerVal = totalCostT > 0 ? (towerDPS + ts.hp * 0.005) / totalCostT * 0.5 : 0; // towers are low priority
     // Towers more valuable when losing
     const armyAdv = intel?.armyAdvantage ?? 1;
-    if (armyAdv < 0.7) towerVal *= 1.6;
-    else if (armyAdv < 0.9) towerVal *= 1.2;
-    // First tower is free — massive value
+    if (armyAdv < 0.7) towerVal *= 1.4;
+    else if (armyAdv < 0.9) towerVal *= 1.1;
+    // First tower is free — good value
     if (totalTowers === 0) towerVal *= 5;
-    const canAffordTower = botCanAfford(state, playerId, BuildingType.Tower);
+    const canAffordTower = botCanAffordTower(state, playerId, totalTowers);
     if (alleyTowerCount < profile.alleyTowers) {
-      options.push({ action: 'alley_tower', value: towerVal, affordable: canAffordTower, waitSecs: 0 });
+      const twRT = (towerCost.gold > 0 ? 1 : 0) + (towerCost.wood > 0 ? 1 : 0) + (towerCost.meat > 0 ? 1 : 0);
+      options.push({ action: 'alley_tower', value: towerVal, affordable: canAffordTower, waitSecs: 0, resourceTypes: twRT, cost: towerCost });
     } else if (towerCount < profile.lateTowers) {
-      options.push({ action: 'tower', value: towerVal, affordable: canAffordTower, waitSecs: 0, type: BuildingType.Tower });
+      const twRT2 = (towerCost.gold > 0 ? 1 : 0) + (towerCost.wood > 0 ? 1 : 0) + (towerCost.meat > 0 ? 1 : 0);
+      options.push({ action: 'tower', value: towerVal, affordable: canAffordTower, waitSecs: 0, resourceTypes: twRT2, cost: towerCost, type: BuildingType.Tower });
+    }
+  }
+
+  // --- Research upgrades (Nightmare: integrated into value function) ---
+  if (intel) {
+    const bu = player.researchUpgrades;
+    const allResearch = getAllResearchUpgrades(race);
+    for (const rDef of allResearch) {
+      if (rDef.oneShot && bu.raceUpgrades[rDef.id]) continue;
+
+      let rLevel = 0;
+      if (rDef.id === 'melee_atk') rLevel = bu.meleeAtkLevel;
+      else if (rDef.id === 'melee_def') rLevel = bu.meleeDefLevel;
+      else if (rDef.id === 'ranged_atk') rLevel = bu.rangedAtkLevel;
+      else if (rDef.id === 'ranged_def') rLevel = bu.rangedDefLevel;
+      else if (rDef.id === 'caster_atk') rLevel = bu.casterAtkLevel;
+      else if (rDef.id === 'caster_def') rLevel = bu.casterDefLevel;
+
+      const rCost = getResearchUpgradeCost(rDef.id, rLevel, race);
+      const rTotalCost = rCost.gold + rCost.wood + rCost.meat + (rCost.souls ?? 0);
+      if (rTotalCost <= 0) continue;
+
+      const canAffordR = player.gold >= rCost.gold && player.wood >= rCost.wood && player.meat >= rCost.meat
+        && ((rCost.souls ?? 0) <= 0 || player.souls >= (rCost.souls ?? 0));
+      const rv = estimateResearchValue(state, ctx, playerId, rDef.id, race, bu, intel, myBuildings);
+      if (rv > 0) {
+        const waitR = canAffordR ? 0 : timeToAfford(player, rCost, plan);
+        const rRT = (rCost.gold > 0 ? 1 : 0) + (rCost.wood > 0 ? 1 : 0) + (rCost.meat > 0 ? 1 : 0) + ((rCost.souls ?? 0) > 0 ? 1 : 0);
+        options.push({
+          action: 'research', value: rv, affordable: canAffordR, waitSecs: waitR, resourceTypes: rRT,
+          cost: { gold: rCost.gold, wood: rCost.wood, meat: rCost.meat, souls: rCost.souls, deathEssence: rCost.deathEssence },
+          researchId: rDef.id,
+        });
+      }
     }
   }
 
   if (options.length === 0) return false;
 
-  // --- Save-for logic: should we skip buying cheap now to afford something better soon? ---
-  const affordableOptions = options.filter(o => o.affordable);
-  const unaffordableOptions = options.filter(o => !o.affordable && o.waitSecs < 20 && o.waitSecs > 0);
-
-  // Sort both by value (deterministic tie-break by action name, then type, then building id)
-  // NOTE: use < > instead of localeCompare to avoid locale-dependent sort order (desync risk)
+  // --- Pick best affordable option, with save-for logic ---
   const cmpStr = (x: string, y: string) => x < y ? -1 : x > y ? 1 : 0;
   const optionSort = (a: BuildOption, b: BuildOption) =>
     b.value - a.value
     || cmpStr(a.action, b.action)
     || cmpStr(a.type ?? '', b.type ?? '')
-    || (a.building?.id ?? 0) - (b.building?.id ?? 0);
+    || (a.building?.id ?? 0) - (b.building?.id ?? 0)
+    || cmpStr(a.researchId ?? '', b.researchId ?? '');
+
+  const affordableOptions = options.filter(o => o.affordable);
+  const unaffordableOptions = options.filter(o => !o.affordable && o.waitSecs < 20 && o.waitSecs > 0);
   affordableOptions.sort(optionSort);
   unaffordableOptions.sort(optionSort);
 
   const bestAffordable = affordableOptions[0];
   const bestUnaffordable = unaffordableOptions[0];
 
-  // If a much better option is almost affordable, save for it
-  if (bestUnaffordable && bestAffordable) {
+  // Save-for logic: skip buying cheap now to afford something better soon
+  if (bestUnaffordable && bestAffordable && bestUnaffordable.resourceTypes <= 1) {
     const valueRatio = bestUnaffordable.value / Math.max(0.001, bestAffordable.value);
-    // Save if: unaffordable is 80%+ better AND we can afford it within 6 seconds
-    if (valueRatio > 1.8 && bestUnaffordable.waitSecs <= 6) {
-      return false; // skip building — save resources
-    }
-    // Also save if: upgrade is 50%+ better AND almost ready (< 4 seconds)
-    if (bestUnaffordable.action === 'upgrade' && valueRatio > 1.5 && bestUnaffordable.waitSecs <= 4) {
-      return false;
-    }
+    if (valueRatio > 1.8 && bestUnaffordable.waitSecs <= 6) return false;
+    if (bestUnaffordable.action === 'upgrade' && valueRatio > 1.5 && bestUnaffordable.waitSecs <= 4) return false;
   }
 
-  // If nothing affordable, skip
   if (!bestAffordable) return false;
 
   // Mistake: occasionally pick 2nd or 3rd best
   let pick = bestAffordable;
   if (diff.mistakeRate > 0 && affordableOptions.length > 1 && state.rng() < diff.mistakeRate) {
-    pick = affordableOptions[Math.min(1, affordableOptions.length - 1)];
+    pick = affordableOptions[Math.min(1 + Math.floor(state.rng() * 2), affordableOptions.length - 1)];
   }
 
   switch (pick.action) {
@@ -1981,11 +2593,17 @@ function botValueBasedBuild(
     case 'hut':
       emit({ type: 'build_hut', playerId });
       return true;
+    case 'research':
+      emit({ type: 'research_upgrade', playerId, upgradeId: pick.researchId! });
+      return true;
     case 'tower':
     case 'alley_tower':
       return botPlaceAlleyTower(state, playerId, emit);
   }
+  return false;
 }
+
+
 
 // ==================== PROFILE-BASED BUILD ORDER ====================
 
@@ -2016,7 +2634,7 @@ function botDoBuildOrder(
   const tryBuild = (type: BuildingType): boolean => {
     // Towers must go in the tower alley, not the military grid
     if (type === BuildingType.Tower) {
-      if (botCanAfford(state, playerId, type)) return botPlaceAlleyTower(state, playerId, emit);
+      if (botCanAffordTower(state, playerId, towerCount + alleyTowerCount)) return botPlaceAlleyTower(state, playerId, emit);
       return false;
     }
     // Enforce spawner cap for spawner types
@@ -2084,7 +2702,7 @@ function botDoBuildOrder(
 
     if (hutCount < profile.midHuts && hutCount < profile.maxHuts && tryHut()) return true;
     if (towerCount < profile.midTowers && tryBuild(BuildingType.Tower)) return true;
-    if (alleyTowerCount < 1 && botCanAfford(state, playerId, BuildingType.Tower)) {
+    if (alleyTowerCount < 1 && botCanAffordTower(state, playerId, towerCount + alleyTowerCount)) {
       if (botPlaceAlleyTower(state, playerId, emit)) return true;
     }
     // Keep building spawners beyond profile targets if we haven't hit our cap
@@ -2109,12 +2727,12 @@ function botDoBuildOrder(
 
   // Turtle strategy: prioritize towers
   if (strategy === 'turtle') {
-    if (alleyTowerCount < profile.alleyTowers + 1 && botCanAfford(state, playerId, BuildingType.Tower)) {
+    if (alleyTowerCount < profile.alleyTowers + 1 && botCanAffordTower(state, playerId, towerCount + alleyTowerCount)) {
       if (botPlaceAlleyTower(state, playerId, emit)) return true;
     }
     if (towerCount < profile.lateTowers + 1 && tryBuild(BuildingType.Tower)) return true;
   } else {
-    if (alleyTowerCount < profile.alleyTowers && botCanAfford(state, playerId, BuildingType.Tower)) {
+    if (alleyTowerCount < profile.alleyTowers && botCanAffordTower(state, playerId, towerCount + alleyTowerCount)) {
       if (botPlaceAlleyTower(state, playerId, emit)) return true;
     }
     if (towerCount < profile.lateTowers && tryBuild(BuildingType.Tower)) return true;
@@ -2154,7 +2772,7 @@ function botDoBuildOrder(
 
   // Very late: fill alley with towers
   if (gameMinutes > 7 && alleyTowerCount < state.mapDef.towerAlleyCols * state.mapDef.towerAlleyRows
-      && botCanAfford(state, playerId, BuildingType.Tower)) {
+      && botCanAffordTower(state, playerId, towerCount + alleyTowerCount)) {
     if (botPlaceAlleyTower(state, playerId, emit)) return true;
   }
   return false;
@@ -2185,10 +2803,21 @@ function botPlaceAlleyTower(state: GameState, playerId: number, emit: Emit): boo
   const teamAlleyBuildings = state.buildings.filter(
     b => b.buildGrid === 'alley' && botTeam(b.playerId, state) === myTeam
   );
+  // Hard cap: max 6 towers per team regardless of profile
+  if (teamAlleyBuildings.length >= 6) return false;
   const occupied = new Set(teamAlleyBuildings.map(b => `${b.gridX},${b.gridY}`));
   const freeSlots: { gx: number; gy: number }[] = [];
+  // Compute gold mine exclusion zone for landscape maps
+  let exGX = -999, exGY = -999;
+  if (state.mapDef.shapeAxis === 'x') {
+    const origin = getTeamAlleyOrigin(myTeam, state.mapDef);
+    const goldPos = getBaseGoldPosition(myTeam, state.mapDef);
+    exGX = Math.round(goldPos.x - origin.x);
+    exGY = Math.round(goldPos.y - origin.y);
+  }
   for (let gy = 0; gy < state.mapDef.towerAlleyRows; gy++) {
     for (let gx = 0; gx < state.mapDef.towerAlleyCols; gx++) {
+      if (gx >= exGX - 3 && gx < exGX + 3 && gy >= exGY - 3 && gy < exGY + 3) continue;
       if (!occupied.has(`${gx},${gy}`)) freeSlots.push({ gx, gy });
     }
   }
@@ -2250,10 +2879,11 @@ function botUpgradeBuildings(
   for (const b of upgradeable) {
     const uv = estimateUpgradeValue(state, ctx, playerId, b, profile, enemyRaces, diff);
     const cost = getNodeUpgradeCost(player.race, b.type, b.upgradePath.length, uv.choice);
-    if (player.gold < cost.gold || player.wood < cost.wood || player.stone < cost.stone) continue;
+    if (player.gold < cost.gold || player.wood < cost.wood || player.meat < cost.meat) continue;
+    if ((cost.deathEssence ?? 0) > 0 && player.deathEssence < (cost.deathEssence ?? 0)) continue;
 
     // Don't spend all resources on upgrades if we need buildings
-    const resAfter = (player.gold - cost.gold) + (player.wood - cost.wood) + (player.stone - cost.stone);
+    const resAfter = (player.gold - cost.gold) + (player.wood - cost.wood) + (player.meat - cost.meat);
     if (gameMinutes < 3 && resAfter < 30 && spawnerCount < 3) continue;
     if (uv.value <= 0) continue;
 
@@ -2280,6 +2910,45 @@ function botUpgradeBuildings(
     emit({ type: 'purchase_upgrade', playerId, buildingId: b.id, choice: uv.choice });
     return true;
   }
+
+  // --- Hard bots: evaluate research upgrades alongside building upgrades ---
+  // (Nightmare bots handle this in botValueBasedBuild instead)
+  if (!diff.useValueFunction && intel) {
+    const bu = player.researchUpgrades;
+    const allResearch = getAllResearchUpgrades(player.race);
+    let bestResearchValue = 0;
+    let bestResearchId: string | null = null;
+
+    for (const rDef of allResearch) {
+      if (rDef.oneShot && bu.raceUpgrades[rDef.id]) continue;
+
+      let rLevel = 0;
+      if (rDef.id === 'melee_atk') rLevel = bu.meleeAtkLevel;
+      else if (rDef.id === 'melee_def') rLevel = bu.meleeDefLevel;
+      else if (rDef.id === 'ranged_atk') rLevel = bu.rangedAtkLevel;
+      else if (rDef.id === 'ranged_def') rLevel = bu.rangedDefLevel;
+      else if (rDef.id === 'caster_atk') rLevel = bu.casterAtkLevel;
+      else if (rDef.id === 'caster_def') rLevel = bu.casterDefLevel;
+
+      const rCost = getResearchUpgradeCost(rDef.id, rLevel, player.race);
+      if (player.gold < rCost.gold || player.wood < rCost.wood || player.meat < rCost.meat) continue;
+      if ((rCost.souls ?? 0) > 0 && player.souls < (rCost.souls ?? 0)) continue;
+
+      const rv = estimateResearchValue(state, ctx, playerId, rDef.id, player.race, bu, intel, myBuildings);
+      // Hard bots slightly undervalue research (0.8x) to prefer army investment
+      const adjustedRv = rv * 0.8;
+      if (adjustedRv > bestResearchValue) {
+        bestResearchValue = adjustedRv;
+        bestResearchId = rDef.id;
+      }
+    }
+
+    if (bestResearchId && bestResearchValue > 0) {
+      emit({ type: 'research_upgrade', playerId, upgradeId: bestResearchId });
+      return true;
+    }
+  }
+
   return false;
 }
 
@@ -2545,10 +3214,10 @@ function botManageHarvesters(
 
   if (plan) {
     // Use the ideal split calculated by resource planner
-    const [idealGold, idealWood, idealStone, idealCenter] = plan.idealSplit;
+    const [idealGold, idealWood, idealMeat, idealCenter] = plan.idealSplit;
     for (let i = 0; i < idealGold; i++) assignments.push(HarvesterAssignment.BaseGold);
     for (let i = 0; i < idealWood; i++) assignments.push(HarvesterAssignment.Wood);
-    for (let i = 0; i < idealStone; i++) assignments.push(HarvesterAssignment.Stone);
+    for (let i = 0; i < idealMeat; i++) assignments.push(HarvesterAssignment.Meat);
     for (let i = 0; i < idealCenter; i++) assignments.push(HarvesterAssignment.Center);
 
     // Pad or trim to match actual harvester count
@@ -2562,17 +3231,17 @@ function botManageHarvesters(
     // Fallback: use legacy primary/secondary resource logic
     const race = player.race;
     const costs = RACE_BUILDING_COSTS[race];
-    let totalGoldNeed = 0, totalWoodNeed = 0, totalStoneNeed = 0;
+    let totalGoldNeed = 0, totalWoodNeed = 0, totalMeatNeed = 0;
     for (const type of [BuildingType.MeleeSpawner, BuildingType.RangedSpawner, BuildingType.CasterSpawner, BuildingType.Tower]) {
       const c = costs[type];
       totalGoldNeed += c.gold;
       totalWoodNeed += c.wood;
-      totalStoneNeed += c.stone;
+      totalMeatNeed += c.meat;
     }
     const resNeeds: [HarvesterAssignment, number][] = [
       [HarvesterAssignment.BaseGold, totalGoldNeed],
       [HarvesterAssignment.Wood, totalWoodNeed],
-      [HarvesterAssignment.Stone, totalStoneNeed],
+      [HarvesterAssignment.Meat, totalMeatNeed],
     ];
     resNeeds.sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
     const primaryRes = resNeeds[0][1] > 0 ? resNeeds[0][0] : HarvesterAssignment.BaseGold;
@@ -2582,6 +3251,20 @@ function botManageHarvesters(
       if (i < 2) assignments.push(primaryRes);
       else if (i < 3) assignments.push(secondaryRes);
       else assignments.push(primaryRes);
+    }
+  }
+
+  // --- Demon: assign at least one harvester to Mana if we have 2+ harvesters ---
+  if (player.race === Race.Demon && myHarvesters.length >= 2) {
+    const manaCount = assignments.filter(a => a === HarvesterAssignment.Mana).length;
+    if (manaCount === 0) {
+      // Replace the last non-center assignment with Mana
+      for (let i = assignments.length - 1; i >= 0; i--) {
+        if (assignments[i] !== HarvesterAssignment.Center) {
+          assignments[i] = HarvesterAssignment.Mana;
+          break;
+        }
+      }
     }
   }
 
@@ -2702,5 +3385,155 @@ function botQuickChat(
     emit({ type: 'quick_chat', playerId, message });
     ctx.lastChatTick[playerId] = state.tick;
   }
+}
+
+// ==================== RACE ABILITY ====================
+
+function botUseAbility(state: GameState, playerId: number, emit: Emit): void {
+  const player = state.players[playerId];
+  if (!player || player.isEmpty) return;
+
+  const def = RACE_ABILITY_DEFS[player.race];
+  if (!def) return;
+
+  // Tenders uses stack-based system
+  if (player.race === Race.Tenders) {
+    if (player.abilityStacks <= 0) return;
+  } else {
+    if (player.abilityCooldown > 0) return;
+    // Check if we can afford it
+    const growthMult = def.costGrowthFactor ? Math.pow(def.costGrowthFactor, player.abilityUseCount) : 1;
+    const goldCost = Math.floor((def.baseCost.gold ?? 0) * growthMult);
+    const woodCost = Math.floor((def.baseCost.wood ?? 0) * growthMult);
+    const meatCost = Math.floor((def.baseCost.meat ?? 0) * growthMult);
+    const manaCost = Math.floor((def.baseCost.mana ?? 0) * growthMult);
+    const soulsCost = player.race === Race.Geists
+      ? (def.baseCost.souls ?? 0) + 5 * player.abilityUseCount
+      : Math.floor((def.baseCost.souls ?? 0) * growthMult);
+    const essenceCost = Math.floor((def.baseCost.deathEssence ?? 0) * growthMult);
+
+    if (player.gold < goldCost || player.wood < woodCost || player.meat < meatCost) return;
+    if (player.mana < manaCost || player.souls < soulsCost || player.deathEssence < essenceCost) return;
+  }
+
+  const enemyTeam = botEnemyTeam(playerId, state);
+
+  if (def.targetMode === AbilityTargetMode.Instant) {
+    // Instant abilities: use when there are enemy units on the field
+    const enemyCount = state.units.filter(u => u.team === enemyTeam && u.hp > 0).length;
+    if (enemyCount >= 3 || state.tick > 3 * 60 * TICK_RATE) {
+      emit({ type: 'use_ability', playerId });
+    }
+  } else if (def.targetMode === AbilityTargetMode.Targeted) {
+    const radius = def.aoeRadius ?? 6;
+    const r2 = radius * radius;
+
+    // Wild targets allies (buff), others target enemies (damage/summon)
+    const isAllyTarget = player.race === Race.Wild;
+    const targets = isAllyTarget
+      ? state.units.filter(u => u.team === player.team && u.hp > 0)
+      : state.units.filter(u => u.team === enemyTeam && u.hp > 0);
+    if (targets.length < 2) return;
+
+    // Find densest cluster center
+    let bestX = 0, bestY = 0, bestScore = 0;
+    for (const t of targets) {
+      let score = 0;
+      for (const o of targets) {
+        if ((t.x - o.x) ** 2 + (t.y - o.y) ** 2 <= r2) score++;
+      }
+      if (score > bestScore) { bestScore = score; bestX = t.x; bestY = t.y; }
+    }
+
+    if (bestScore >= 2) {
+      emit({ type: 'use_ability', playerId, x: bestX, y: bestY });
+    }
+  } else if (def.targetMode === AbilityTargetMode.BuildSlot) {
+    // BuildSlot abilities (Oozlings Ooze Mound): use when affordable, but consider
+    // whether research would be better value once we have enough racial buildings.
+    const racialCount = state.buildings.filter(b => b.playerId === playerId && b.isGlobule).length;
+    // After 6+ Ooze Mounds, alternate: save some deathEssence for research upgrades
+    if (racialCount >= 6 && player.race === Race.Oozlings) {
+      // Only build if we have enough deathEssence to cover both the mound AND a research
+      const nextResearchCost = 30 * Math.pow(1.4, Math.max(
+        player.researchUpgrades.meleeAtkLevel,
+        player.researchUpgrades.meleeDefLevel,
+      ));
+      const essenceCost = Math.floor((def.baseCost.deathEssence ?? 0) * (def.costGrowthFactor ? Math.pow(def.costGrowthFactor, player.abilityUseCount) : 1));
+      if (player.deathEssence < essenceCost + nextResearchCost) return; // save for research
+    }
+    emit({ type: 'use_ability', playerId });
+  }
+}
+
+// === Research Upgrade Bot Logic ===
+
+/**
+ * Simple timer-based research for Medium bots only.
+ * Only buys attack upgrades. Skips if a spawner or hut is affordable (army/econ first).
+ */
+function botManageResearch(
+  state: GameState, _ctx: BotContext, playerId: number,
+  player: GameState['players'][0], diff: BotDifficulty, emit: Emit,
+): void {
+  const bu = player.researchUpgrades;
+  const race = player.race;
+  const myBuildings = state.buildings.filter(b => b.playerId === playerId);
+  const meleeCount = myBuildings.filter(b => b.type === BuildingType.MeleeSpawner).length;
+  const rangedCount = myBuildings.filter(b => b.type === BuildingType.RangedSpawner).length;
+  const casterCount = myBuildings.filter(b => b.type === BuildingType.CasterSpawner).length;
+  const hutCount = myBuildings.filter(b => b.type === BuildingType.HarvesterHut).length;
+  const totalSpawners = meleeCount + rangedCount + casterCount;
+
+  // Army/econ first: skip research if we can afford a spawner or hut instead
+  if (totalSpawners < diff.maxSpawners) {
+    const spawnerTypes = [BuildingType.MeleeSpawner, BuildingType.RangedSpawner, BuildingType.CasterSpawner];
+    for (const t of spawnerTypes) {
+      if (botCanAfford(state, playerId, t)) return;
+    }
+  }
+  if (hutCount < diff.maxHuts && botCanAffordHut(state, playerId, hutCount)) return;
+
+  // Medium: only attack upgrades
+  const allDefs = getAllResearchUpgrades(race);
+
+  type UpgradeCandidate = { id: string; score: number; cost: { gold: number; wood: number; meat: number } };
+  const candidates: UpgradeCandidate[] = [];
+
+  for (const def of allDefs) {
+    if (def.oneShot && bu.raceUpgrades[def.id]) continue;
+    // Medium: only attack upgrades
+    if (def.type !== 'attack') continue;
+
+    let level = 0;
+    if (def.id === 'melee_atk') level = bu.meleeAtkLevel;
+    else if (def.id === 'ranged_atk') level = bu.rangedAtkLevel;
+    else if (def.id === 'caster_atk') level = bu.casterAtkLevel;
+
+    const cost = getResearchUpgradeCost(def.id, level, race);
+    if (player.gold < cost.gold || player.wood < cost.wood || player.meat < cost.meat) continue;
+    if ((cost.deathEssence ?? 0) > 0 && player.deathEssence < (cost.deathEssence ?? 0)) continue;
+    if ((cost.souls ?? 0) > 0 && player.souls < (cost.souls ?? 0)) continue;
+
+    // Score based on how many spawners of this category we have
+    let categoryWeight = 0;
+    if (def.category === 'melee') categoryWeight = meleeCount;
+    else if (def.category === 'ranged') categoryWeight = rangedCount;
+    else categoryWeight = casterCount;
+    if (categoryWeight === 0) continue;
+
+    let score = categoryWeight * 2; // attack multiplier
+    const totalCost = cost.gold + cost.wood + cost.meat + (cost.deathEssence ?? 0) + (cost.souls ?? 0);
+    score /= Math.max(1, totalCost / 100);
+
+    candidates.push({ id: def.id, score, cost });
+  }
+
+  if (candidates.length === 0) return;
+
+  // Sort by score descending — deterministic tie-break by id string comparison (no localeCompare)
+  candidates.sort((a, b) => b.score - a.score || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  const best = candidates[0];
+  emit({ type: 'research_upgrade', playerId, upgradeId: best.id });
 }
 

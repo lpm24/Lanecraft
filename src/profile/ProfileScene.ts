@@ -2,7 +2,7 @@ import { Scene, SceneManager } from '../scenes/Scene';
 import { UIAssets } from '../rendering/UIAssets';
 import { SpriteLoader, drawSpriteFrame, getSpriteFrame } from '../rendering/SpriteLoader';
 import { Race, BuildingType } from '../simulation/types';
-import { RACE_COLORS, UNIT_STATS, UPGRADE_TREES } from '../simulation/data';
+import { RACE_COLORS, RACE_LABELS as _RACE_LABELS_UPPER, UNIT_STATS, UPGRADE_TREES } from '../simulation/data';
 import {
   PlayerProfile, loadProfile, saveProfile,
   ACHIEVEMENTS, ALL_AVATARS,
@@ -15,11 +15,10 @@ const ALL_RACES: Race[] = [
   Race.Crown, Race.Horde, Race.Goblins, Race.Oozlings, Race.Demon,
   Race.Deep, Race.Wild, Race.Geists, Race.Tenders,
 ];
-const RACE_LABELS: Record<Race, string> = {
-  [Race.Crown]: 'Crown', [Race.Horde]: 'Horde', [Race.Goblins]: 'Goblins',
-  [Race.Oozlings]: 'Oozlings', [Race.Demon]: 'Demon', [Race.Deep]: 'Deep',
-  [Race.Wild]: 'Wild', [Race.Geists]: 'Geists', [Race.Tenders]: 'Tenders',
-};
+// Title-case labels derived from shared uppercase constants
+const RACE_LABELS: Record<Race, string> = Object.fromEntries(
+  Object.entries(_RACE_LABELS_UPPER).map(([k, v]) => [k, v.charAt(0) + v.slice(1).toLowerCase()])
+) as Record<Race, string>;
 
 const CAT_TO_BUILDING: Record<string, BuildingType> = {
   melee: BuildingType.MeleeSpawner,
@@ -60,6 +59,8 @@ export class ProfileScene implements Scene {
   private touchStartY = 0;
   private touchDragged = false;
   private enterTime = 0;
+  private scrollVelocity = 0;
+  private overscroll = 0; // positive = past bottom, negative = past top
 
   constructor(manager: SceneManager, canvas: HTMLCanvasElement, ui: UIAssets, sprites: SpriteLoader) {
     this.manager = manager;
@@ -72,6 +73,8 @@ export class ProfileScene implements Scene {
     this.profile = loadProfile();
     this.playerName = loadPlayerName();
     this.scrollY = 0;
+    this.scrollVelocity = 0;
+    this.overscroll = 0;
     this.tab = 'stats';
     this.enterTime = Date.now();
 
@@ -81,6 +84,8 @@ export class ProfileScene implements Scene {
       const rect = this.canvas.getBoundingClientRect();
       this.handleClick(e.clientX - rect.left, e.clientY - rect.top);
     };
+    let touchTime = 0;
+    let prevTouchY = 0;
     this.touchHandler = (e: TouchEvent) => {
       const touch = e.touches[0];
       if (!touch) return;
@@ -88,11 +93,36 @@ export class ProfileScene implements Scene {
         this.touchLastY = touch.clientY;
         this.touchStartY = touch.clientY;
         this.touchDragged = false;
+        this.scrollVelocity = 0; // stop momentum on new touch
+        prevTouchY = touch.clientY;
+        touchTime = Date.now();
       } else if (e.type === 'touchmove') {
         e.preventDefault();
         const dy = this.touchLastY - touch.clientY;
         this.touchLastY = touch.clientY;
-        this.scrollY = Math.max(0, Math.min(this.maxScrollY, this.scrollY + dy));
+
+        // Track velocity from recent movement
+        const now = Date.now();
+        const dt = now - touchTime;
+        if (dt > 0) {
+          this.scrollVelocity = (prevTouchY - touch.clientY) / dt * 16; // px per frame
+          prevTouchY = touch.clientY;
+          touchTime = now;
+        }
+
+        // Allow overscroll with rubber-band resistance
+        const newScroll = this.scrollY + dy * 1.3; // 1.3x multiplier for more responsive feel
+        if (newScroll < 0) {
+          this.overscroll = newScroll * 0.4; // rubber band at top
+          this.scrollY = 0;
+        } else if (newScroll > this.maxScrollY) {
+          this.overscroll = (newScroll - this.maxScrollY) * 0.4; // rubber band at bottom
+          this.scrollY = this.maxScrollY;
+        } else {
+          this.overscroll = 0;
+          this.scrollY = newScroll;
+        }
+
         if (Math.abs(touch.clientY - this.touchStartY) > 8) this.touchDragged = true;
       }
     };
@@ -106,6 +136,8 @@ export class ProfileScene implements Scene {
         const rect = this.canvas.getBoundingClientRect();
         this.handleClick(t.clientX - rect.left, t.clientY - rect.top);
       }
+      // If overscrolled, velocity should be zero (bounce back handles it)
+      if (this.overscroll !== 0) this.scrollVelocity = 0;
     };
     this.wheelHandler = (e: WheelEvent) => {
       this.scrollY = Math.max(0, Math.min(this.maxScrollY, this.scrollY + e.deltaY * 0.5));
@@ -135,7 +167,34 @@ export class ProfileScene implements Scene {
     this.wheelHandler = null; this.keyHandler = null;
   }
 
-  update(dt: number): void { this.animTime += dt; }
+  update(dt: number): void {
+    this.animTime += dt;
+
+    // Bounce back from overscroll
+    if (this.overscroll !== 0) {
+      this.overscroll *= 0.85; // spring back
+      if (Math.abs(this.overscroll) < 0.5) this.overscroll = 0;
+    }
+
+    // Momentum scrolling (only when not touching)
+    if (Math.abs(this.scrollVelocity) > 0.3) {
+      const newScroll = this.scrollY + this.scrollVelocity;
+      if (newScroll < 0) {
+        this.overscroll = newScroll * 0.3;
+        this.scrollY = 0;
+        this.scrollVelocity = 0;
+      } else if (newScroll > this.maxScrollY) {
+        this.overscroll = (newScroll - this.maxScrollY) * 0.3;
+        this.scrollY = this.maxScrollY;
+        this.scrollVelocity = 0;
+      } else {
+        this.scrollY = newScroll;
+      }
+      this.scrollVelocity *= 0.95; // friction
+    } else {
+      this.scrollVelocity = 0;
+    }
+  }
 
   // ─── Simple panel background (dark rounded rect) ───
 
@@ -195,6 +254,8 @@ export class ProfileScene implements Scene {
         if (cx >= tx && cx <= tx + tabW) {
           this.tab = tabs[i];
           this.scrollY = 0;
+          this.scrollVelocity = 0;
+          this.overscroll = 0;
           return;
         }
       }
@@ -250,9 +311,15 @@ export class ProfileScene implements Scene {
     ctx.rect(0, headerH, W, H - headerH);
     ctx.clip();
 
+    // Apply overscroll offset for bounce effect
+    const savedScrollY = this.scrollY;
+    this.scrollY -= this.overscroll;
+
     if (this.tab === 'stats') this.renderStats(ctx, W, H, headerH);
     else if (this.tab === 'achievements') this.renderAchievements(ctx, W, H, headerH);
     else if (this.tab === 'avatars') this.renderAvatars(ctx, W, H, headerH);
+
+    this.scrollY = savedScrollY;
 
     // Clamp scroll after content height is computed
     this.scrollY = Math.min(this.scrollY, Math.max(0, this.maxScrollY));
@@ -303,7 +370,7 @@ export class ProfileScene implements Scene {
       const active = this.tab === tabs[i].key;
       this.ui.drawBigBlueButton(ctx, tx, tabBarY, tabW, tabH, active);
       ctx.fillStyle = active ? '#fff' : '#a0c4e8';
-      const tabFont = compact ? Math.max(10, Math.round(tabW / 7)) : (tabW < 160 ? 20 : 22);
+      const tabFont = compact ? Math.max(11, Math.round(tabW / 7)) : (tabW < 160 ? 20 : 22);
       ctx.font = `bold ${tabFont}px monospace`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
@@ -372,7 +439,14 @@ export class ProfileScene implements Scene {
         const feetY = avY + avatarSize - sprInset - 2;
         const drawY = feetY - drawH * gY;
         const drawX = avX + (avatarSize - drawW) / 2;
+        if (def.flipX) {
+          ctx.save();
+          ctx.translate(avX + avatarSize / 2, 0);
+          ctx.scale(-1, 1);
+          ctx.translate(-(avX + avatarSize / 2), 0);
+        }
         drawSpriteFrame(ctx, img, def, frame, drawX, drawY, drawW, drawH);
+        if (def.flipX) ctx.restore();
       }
     }
 
@@ -446,7 +520,7 @@ export class ProfileScene implements Scene {
     y += compact ? 36 : 60;
 
     // Column headers — proportional positioning
-    const hdrFont = compact ? 10 : 20;
+    const hdrFont = compact ? 11 : 20;
     const dataFont = compact ? 12 : 22;
     ctx.font = `bold ${hdrFont}px monospace`; ctx.fillStyle = '#999';
     const rCols = [
@@ -550,7 +624,7 @@ export class ProfileScene implements Scene {
       ctx.fillText(ach.name, textX, y + (compact ? 22 : 36));
 
       // Description
-      ctx.font = `${compact ? 10 : 20}px monospace`;
+      ctx.font = `${compact ? 11 : 20}px monospace`;
       ctx.fillStyle = '#999';
       ctx.fillText(ach.desc, textX, y + (compact ? 38 : 64), compact ? textW - 40 : undefined);
 
@@ -648,7 +722,7 @@ export class ProfileScene implements Scene {
 
       // Race + category label
       const rc = RACE_COLORS[avatar.race];
-      ctx.font = `${compact ? 9 : 14}px monospace`;
+      ctx.font = `${compact ? 11 : 14}px monospace`;
       ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
       ctx.fillStyle = unlocked ? (rc?.primary ?? '#aaa') : '#444';
       const unitName = getAvatarUnitName(avatar.race, avatar.category, avatar.upgradeNode);
@@ -680,7 +754,14 @@ export class ProfileScene implements Scene {
       const gY = def.groundY ?? 0.71;
       const feetY = y + size * 0.85;
       const drawY = feetY - drawH * gY;
+      if (def.flipX) {
+        ctx.save();
+        ctx.translate(x + size / 2, 0);
+        ctx.scale(-1, 1);
+        ctx.translate(-(x + size / 2), 0);
+      }
       drawSpriteFrame(ctx, img, def, frame, drawX, drawY, drawW, drawH);
+      if (def.flipX) ctx.restore();
     } else {
       const rc = RACE_COLORS[raceStr as Race];
       if (rc) {

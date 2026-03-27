@@ -14,7 +14,7 @@ import {
   SHARED_ALLEY_COLS, SHARED_ALLEY_ROWS,
   ZONES, CROSS_BASE_MARGIN, CROSS_BASE_WIDTH,
   DIAMOND_CENTER_X, DIAMOND_CENTER_Y, DIAMOND_HALF_W, DIAMOND_HALF_H,
-  WOOD_NODE_X, STONE_NODE_X,
+  WOOD_NODE_X, MEAT_NODE_X,
   LANE_PATHS,
   getMarginAtRow,
 } from './types';
@@ -129,7 +129,7 @@ export const DUEL_MAP: MapDef = {
 
   resourceNodes: [
     { type: ResourceType.Wood, x: WOOD_NODE_X, y: 60 },
-    { type: ResourceType.Stone, x: STONE_NODE_X, y: 60 },
+    { type: ResourceType.Meat, x: MEAT_NODE_X, y: 60 },
   ],
 
   isPlayable(x: number, y: number): boolean {
@@ -197,25 +197,26 @@ function skGetMarginAtCol(x: number): number {
 
 // ---- Skirmish base layout ----
 // Left side (Team 0):
-//   x=0..4: build grids (3 wide), one per player strip
-//   x=5:    hut columns (1 wide), one per player strip
-//   x=10..29: tower alley (20×12), centered vertically
-//   HQ inside tower alley, centered at y=45
+//   x=2:   hut columns (1 wide, miners — furthest from HQ), one per player strip
+//   x=4:   research building (midpoint between hut and build grid)
+//   x=6..8: build grids (3 wide, war units — closest to HQ), one per player strip
+//   x=19..30: tower alley (12 wide × 20 tall), centered vertically
+//   HQ center at x=14, centered at y=45
 // Right side (Team 1): mirrored
 
-// Build grid origins: 3 wide × 14 tall, left-aligned in each strip
+// Build grid origins: 3 wide × 14 tall, closer to HQ (war units nearest HQ)
 function skBuildGridOrigin(side: 'left' | 'right', slotInTeam: number): Vec2 {
   const stripY = skPlayerStripY(slotInTeam);
   const y = stripY + Math.floor((SK_PLAYER_STRIP_H - SK_BUILD_ROWS) / 2);
-  const x = side === 'left' ? 2 : SK_W - 2 - SK_BUILD_COLS; // 2 or 155
+  const x = side === 'left' ? 6 : SK_W - 6 - SK_BUILD_COLS; // 6 or 151
   return { x, y };
 }
 
-// Hut grid origins: 1 wide × 10 tall, next to builds
+// Hut grid origins: 1 wide × 10 tall, farther from HQ (miners furthest back)
 function skHutGridOrigin(side: 'left' | 'right', slotInTeam: number): Vec2 {
   const stripY = skPlayerStripY(slotInTeam);
   const y = stripY + Math.floor((SK_PLAYER_STRIP_H - SK_HUT_ROWS) / 2);
-  const x = side === 'left' ? 6 : SK_W - 6 - SK_HUT_COLS; // 6 or 153
+  const x = side === 'left' ? 2 : SK_W - 2 - SK_HUT_COLS; // 2 or 157
   return { x, y };
 }
 
@@ -280,13 +281,13 @@ export const SKIRMISH_MAP: MapDef = {
 
   playerSlots: [
     // Team 0 (Left): P0=top, P1=mid, P2=bottom
-    { teamIndex: 0, buildGridOrigin: skBuildGridOrigin('left', 0), hutGridOrigin: skHutGridOrigin('left', 0) },
-    { teamIndex: 0, buildGridOrigin: skBuildGridOrigin('left', 1), hutGridOrigin: skHutGridOrigin('left', 1) },
-    { teamIndex: 0, buildGridOrigin: skBuildGridOrigin('left', 2), hutGridOrigin: skHutGridOrigin('left', 2) },
+    { teamIndex: 0, buildGridOrigin: skBuildGridOrigin('left', 0), hutGridOrigin: skHutGridOrigin('left', 0), defaultLane: Lane.Left },
+    { teamIndex: 0, buildGridOrigin: skBuildGridOrigin('left', 1), hutGridOrigin: skHutGridOrigin('left', 1), defaultLane: Lane.Right },
+    { teamIndex: 0, buildGridOrigin: skBuildGridOrigin('left', 2), hutGridOrigin: skHutGridOrigin('left', 2), defaultLane: Lane.Left },
     // Team 1 (Right): P3=top, P4=mid, P5=bottom
-    { teamIndex: 1, buildGridOrigin: skBuildGridOrigin('right', 0), hutGridOrigin: skHutGridOrigin('right', 0) },
-    { teamIndex: 1, buildGridOrigin: skBuildGridOrigin('right', 1), hutGridOrigin: skHutGridOrigin('right', 1) },
-    { teamIndex: 1, buildGridOrigin: skBuildGridOrigin('right', 2), hutGridOrigin: skHutGridOrigin('right', 2) },
+    { teamIndex: 1, buildGridOrigin: skBuildGridOrigin('right', 0), hutGridOrigin: skHutGridOrigin('right', 0), defaultLane: Lane.Left },
+    { teamIndex: 1, buildGridOrigin: skBuildGridOrigin('right', 1), hutGridOrigin: skHutGridOrigin('right', 1), defaultLane: Lane.Right },
+    { teamIndex: 1, buildGridOrigin: skBuildGridOrigin('right', 2), hutGridOrigin: skHutGridOrigin('right', 2), defaultLane: Lane.Left },
   ],
 
   lanePaths: [
@@ -318,7 +319,7 @@ export const SKIRMISH_MAP: MapDef = {
 
   resourceNodes: [
     { type: ResourceType.Wood, x: SK_DIAMOND_X, y: 6 },
-    { type: ResourceType.Stone, x: SK_DIAMOND_X, y: SK_H - 6 },
+    { type: ResourceType.Meat, x: SK_DIAMOND_X, y: SK_H - 6 },
   ],
 
   isPlayable(x: number, y: number): boolean {
@@ -365,14 +366,14 @@ const WZ_HUT_ROWS = 10;
 function wzBuildGridOrigin(side: 'left' | 'right', slotInTeam: number): Vec2 {
   const stripY = wzPlayerStripY(slotInTeam);
   const y = stripY + Math.floor((WZ_PLAYER_STRIP_H - WZ_BUILD_ROWS) / 2);
-  const x = side === 'left' ? 2 : WZ_W - 2 - WZ_BUILD_COLS;
+  const x = side === 'left' ? 6 : WZ_W - 6 - WZ_BUILD_COLS; // closer to HQ
   return { x, y };
 }
 
 function wzHutGridOrigin(side: 'left' | 'right', slotInTeam: number): Vec2 {
   const stripY = wzPlayerStripY(slotInTeam);
   const y = stripY + Math.floor((WZ_PLAYER_STRIP_H - WZ_HUT_ROWS) / 2);
-  const x = side === 'left' ? 6 : WZ_W - 6 - WZ_HUT_COLS;
+  const x = side === 'left' ? 2 : WZ_W - 2 - WZ_HUT_COLS; // farther from HQ
   return { x, y };
 }
 
@@ -474,7 +475,7 @@ export const WARZONE_MAP: MapDef = {
 
   resourceNodes: [
     { type: ResourceType.Wood, x: WZ_DIAMOND_X, y: 6 },
-    { type: ResourceType.Stone, x: WZ_DIAMOND_X, y: WZ_H - 6 },
+    { type: ResourceType.Meat, x: WZ_DIAMOND_X, y: WZ_H - 6 },
   ],
 
   isPlayable(x: number, y: number): boolean {

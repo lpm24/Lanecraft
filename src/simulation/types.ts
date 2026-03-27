@@ -29,7 +29,7 @@ export const ZONES = {
 } as const;
 
 // Peanut/hourglass-shaped map: wide bases, narrow necks, widest at diamond center.
-// The shape bulges outward at diamond level creating left/right tips for wood/stone.
+// The shape bulges outward at diamond level creating left/right tips for wood/meat.
 export const SHAPE_BASE_WIDTH = 64;        // playable width at base zones
 export const SHAPE_NECK_WIDTH = 34;        // narrowed ~10% to tighten mid/neck walkable area
 export const SHAPE_CENTER_WIDTH = 67;      // narrowed ~10%; keeps base/player spaces unchanged
@@ -84,11 +84,11 @@ export const GOLD_PER_CELL = 10;
 
 // Side resource node positions (moved inward to stay aligned with narrower walkable area)
 export const WOOD_NODE_X = 12;
-export const STONE_NODE_X = 68;
+export const MEAT_NODE_X = 68;
 
 // HQ
-export const HQ_WIDTH = 8;
-export const HQ_HEIGHT = 3;
+export const HQ_WIDTH = 4;
+export const HQ_HEIGHT = 2;
 export const HQ_HP = 2000;
 export const NUKE_RADIUS = 16;
 
@@ -205,7 +205,7 @@ export interface MapDef {
   getPlayableRange(axisPos: number): { min: number; max: number };
   /** Which axis the shape varies along: 'y' for portrait maps, 'x' for landscape */
   shapeAxis: 'y' | 'x';
-  /** Multiplier for wood/stone harvester deposits. Default 1. */
+  /** Multiplier for wood/meat harvester deposits. Default 1. */
   resourceYield?: number;
 }
 
@@ -239,19 +239,21 @@ export enum BuildingType {
   CasterSpawner = 'caster_spawner',
   Tower = 'tower',
   HarvesterHut = 'harvester_hut',
+  Research = 'research',
 }
 
 export enum ResourceType {
   Gold = 'gold',
   Wood = 'wood',
-  Stone = 'stone',
+  Meat = 'meat',
 }
 
 export enum HarvesterAssignment {
   BaseGold = 'base_gold',
   Wood = 'wood',
-  Stone = 'stone',
+  Meat = 'meat',
   Center = 'center', // mine gold cells, then compete for diamond once exposed
+  Mana = 'mana',     // Demon: harvester generates mana instead of resources
 }
 
 // === Status Effects ===
@@ -261,7 +263,9 @@ export enum StatusType {
   Burn = 'burn',       // 2 dmg/sec per stack for 3s, max 5
   Haste = 'haste',     // 1.3x speed, 3s, no stack, refreshes
   Shield = 'shield',   // absorbs 12 damage, 4s, 1 instance
-  Frenzy = 'frenzy',   // Wild kill bonus: +30% damage, 3s, refreshes on kills
+  Frenzy = 'frenzy',       // Wild kill bonus: +30% damage, 3s, refreshes on kills
+  Wound = 'wound',         // -50% healing received, 6s, max 1 stack, refreshes
+  Vulnerable = 'vulnerable', // +20% damage taken, 3s, max 1 stack, refreshes
 }
 
 export interface StatusEffect {
@@ -277,21 +281,85 @@ export interface Vec2 {
   y: number;
 }
 
+export interface ResearchUpgradeState {
+  meleeAtkLevel: number;
+  rangedAtkLevel: number;
+  casterAtkLevel: number;
+  meleeDefLevel: number;
+  rangedDefLevel: number;
+  casterDefLevel: number;
+  raceUpgrades: Record<string, boolean>;
+}
+
+export function createResearchUpgradeState(): ResearchUpgradeState {
+  return {
+    meleeAtkLevel: 0, rangedAtkLevel: 0, casterAtkLevel: 0,
+    meleeDefLevel: 0, rangedDefLevel: 0, casterDefLevel: 0,
+    raceUpgrades: {},
+  };
+}
+
 export interface PlayerState {
   id: number; // 0-3
   team: Team;
   race: Race;
   gold: number;
   wood: number;
-  stone: number;
+  meat: number;
   goldFrac?: number;  // fractional accumulator for passive income < 1/sec
   woodFrac?: number;
-  stoneFrac?: number;
+  meatFrac?: number;
   nukeAvailable: boolean;
   connected: boolean;
   isBot: boolean;
   isEmpty: boolean;  // true = slot is unoccupied (no buildings, no income, no AI)
   hasBuiltTower: boolean;
+  // Race ability state
+  abilityCooldown: number;       // ticks remaining until ability can be used again
+  abilityUseCount: number;       // how many times used (for growing costs)
+  abilityStacks: number;         // Tenders: accumulated seed charges (max 10)
+  // Special resources (0 for races that don't use them)
+  mana: number;                  // Demon
+  manaFrac?: number;             // fractional accumulator for passive mana gen
+  souls: number;                 // Geists (gained from ANY death)
+  deathEssence: number;          // Oozlings (gained from oozling deaths)
+  researchUpgrades: ResearchUpgradeState;
+  /** Accumulated War Troll kills across all summons (Horde Trophy Hunter) */
+  trollKills: number;
+  /** Multiplier for unit HP and damage at spawn (default 1.0, used by nightmare bots) */
+  statBonus: number;
+}
+
+// Race ability targeting mode
+export enum AbilityTargetMode {
+  Instant = 'instant',       // Deep slow, Horde troll summon
+  Targeted = 'targeted',     // Demon fireball, Wild frenzy, Geist skeletons
+  BuildSlot = 'build_slot',  // Crown gold building, Goblin potion shop, Tenders seeds
+}
+
+// Per-race ability definition (static data)
+export interface RaceAbilityDef {
+  race: Race;
+  name: string;
+  targetMode: AbilityTargetMode;
+  baseCooldownTicks: number;
+  baseCost: { gold?: number; wood?: number; meat?: number; mana?: number; souls?: number; deathEssence?: number };
+  costGrowthFactor?: number;  // multiplier per use (for growing costs)
+  requiresVision?: boolean;   // Demon fireball, Geist skeletons
+  aoeRadius?: number;         // for targeted abilities
+}
+
+// Active ability effect in the game world
+export interface AbilityEffect {
+  id: number;
+  type: string;               // 'deep_rain', 'wild_frenzy', etc.
+  playerId: number;
+  team: Team;
+  x?: number;                 // world position (for targeted effects)
+  y?: number;
+  radius?: number;
+  duration: number;           // ticks remaining
+  data?: Record<string, number>;  // ability-specific payload
 }
 
 export interface BuildingState {
@@ -309,6 +377,13 @@ export interface BuildingState {
   actionTimer: number;
   placedTick: number;
   upgradePath: string[];
+  // Race ability building markers
+  isFoundry?: boolean;     // Crown: gold yield building
+  isPotionShop?: boolean;  // Goblins: potion shop
+  isGlobule?: boolean;     // Oozlings: globule building
+  isSeed?: boolean;        // Tenders: seed pod
+  seedTimer?: number;      // Tenders: ticks until seed pops
+  seedTier?: number;       // Tenders: 0=T1, 1=T2, 2=T3
 }
 
 export interface UnitState {
@@ -337,10 +412,19 @@ export interface UnitState {
   upgradeNode: string;                 // terminal upgrade node key ('A','B','C','D','E','F','G')
   upgradeSpecial: Record<string, any>; // upgrade-granted special effects
   kills: number;          // individual kill count for war hero tracking
+  damageDone: number;     // total damage dealt (for war hero display)
+  healingDone: number;    // total HP healed to allies (for support hero)
+  buffsApplied: number;   // ally buff instances applied (Haste/Frenzy/Shield, for support hero)
   lastDamagedByName: string; // name of last unit/source that dealt damage
   spawnTick: number;      // tick when unit was created
   nukeImmune?: boolean;   // diamond champion — immune to nuke damage
   isChampion?: boolean;   // diamond champion flag (for rendering/targeting)
+  summonDuration?: number; // ticks remaining for temporary summons (e.g. Geist skeletons)
+  fleeTimer?: number;      // Goblins: ticks remaining in flee state (run away then re-engage)
+  spriteRace?: Race;       // override race for sprite lookup (e.g. Horde troll uses Goblin troll art)
+  stuckTicks?: number;     // consecutive ticks without moving — triggers path-snap escape
+  soulStacks?: number;     // Geist Soul Gorger: stacks gained from nearby deaths (max 20)
+  visualScale?: number;    // extra render scale multiplier (e.g. 2.0 for War Troll)
 }
 
 // Snapshot of a notable unit for post-match display
@@ -351,10 +435,26 @@ export interface WarHero {
   category: 'melee' | 'ranged' | 'caster';
   upgradeNode: string;  // terminal upgrade node key ('A','B',...)
   kills: number;
+  damageDone: number;
+  healingDone: number;
+  buffsApplied: number;
   survived: boolean;
   killedByName: string | null; // name of the unit/source that killed it, null if survived
   spawnTick: number;    // tick when unit was spawned
   deathTick: number | null; // tick when unit died, null if survived
+}
+
+/** Compact per-second snapshot used by the post-match minimap replay. */
+export interface MinimapFrame {
+  tick: number;
+  /** Unit positions by owner — only x/y/playerId/team to keep size small. */
+  units: Array<{ x: number; y: number; playerId: number; team: number }>;
+  hqHp: [number, number];
+  diamond: { x: number; y: number; carried: boolean } | null;
+  /** Active nuke telegraphs — player-colored warning circles. */
+  nukes: Array<{ x: number; y: number; radius: number; playerId: number }>;
+  /** Top-kill unit position per player (war hero candidate while alive). */
+  warHeroPositions: Array<{ x: number; y: number; playerId: number }>;
 }
 
 // A single gold cell in the diamond obstacle
@@ -386,7 +486,9 @@ export interface HarvesterState {
   woodCarryTarget: number;
   woodDropsCreated: number;
   targetCellIdx: number; // index into diamondCells being mined, -1 if none
+  diamondCellsMinedThisTrip: number; // how many full diamond cells cleared this trip
   fightTargetId: number | null; // harvester id of enemy carrier to attack
+  path: { x: number; y: number }[]; // A* computed waypoints (tile centers)
 }
 
 export interface WoodPileState {
@@ -394,6 +496,21 @@ export interface WoodPileState {
   x: number;
   y: number;
   amount: number;
+}
+
+export type PotionType = 'speed' | 'rage' | 'shield';
+
+export interface PotionDropState {
+  id: number;
+  x: number;          // landing position
+  y: number;
+  srcX: number;       // throw origin (shop position)
+  srcY: number;
+  type: PotionType;
+  team: Team;
+  flightTicks: number;    // total flight duration
+  flightProgress: number; // 0 = just launched, >= flightTicks = landed
+  remainingTicks: number; // despawn timer (counts down after landing)
 }
 
 export interface DiamondState {
@@ -427,6 +544,10 @@ export interface ProjectileState {
   splashDamagePct?: number;
   lifestealPct?: number;
   isTowerShot?: boolean;
+  // Siege cannonball: fly to a world position instead of chasing a unit
+  targetX?: number;
+  targetY?: number;
+  buildingDamageMult?: number;  // on impact, deal damage * mult to buildings in aoeRadius
 }
 
 export interface FloatingText {
@@ -439,6 +560,12 @@ export interface FloatingText {
   maxAge: number;  // ticks until removed
   xOff: number;    // random x offset in tiles for visual spread
   big?: boolean;   // true = keyword/icon text (larger font, pop-in scale)
+  vx?: number;     // horizontal velocity (tiles/tick) for arc motion
+  vy?: number;     // initial vertical velocity for arc/gravity
+  ftType?: 'damage' | 'heal' | 'resource' | 'status' | 'ability'; // animation variant
+  magnitude?: number; // for scaling text size (e.g. damage amount)
+  miniIcon?: string;  // canvas-drawn mini icon: 'sword', 'arrow', 'fire', 'skull', 'shield_icon', 'lightning', 'poison', 'heart'
+  ownerOnly?: number; // if set, only render for this player index (e.g. mana/souls/ooze)
 }
 
 export interface Particle {
@@ -510,6 +637,8 @@ export type SoundEventType =
   | 'unit_killed' | 'melee_hit' | 'ranged_hit'
   | 'unit_spawn' | 'tower_fire' | 'upgrade_complete'
   | 'ability_leap' | 'ability_cleave'
+  | 'ability_fireball' | 'ability_deluge' | 'ability_frenzy'
+  | 'ability_summon' | 'ability_troll' | 'ability_potion'
   | 'nuke_incoming' | 'nuke_detonated'
   | 'diamond_exposed' | 'diamond_carried' | 'hq_damaged'
   | 'match_start' | 'match_end_win' | 'match_end_lose';
@@ -523,14 +652,18 @@ export interface SoundEvent {
 export interface PlayerStats {
   totalGoldEarned: number;
   totalWoodEarned: number;
-  totalStoneEarned: number;
+  totalMeatEarned: number;
   totalDamageDealt: number;
   totalDamageNearHQ: number; // within 20 tiles of own HQ
   totalDamageTaken: number;
   towerDamageDealt: number;
+  burnDamageDealt: number;   // damage from Burn DoT ticks
+  abilityDamageDealt: number; // damage from race abilities (fireball, deluge, etc.)
+  nukeDamageDealt: number;   // damage from nuke detonations
   totalHealing: number;
   unitsSpawned: number;
   unitsLost: number;
+  enemyUnitsKilled: number;
   nukeKills: number;
   diamondPickups: number;
   diamondTimeHeld: number; // ticks carrying diamond
@@ -538,10 +671,12 @@ export interface PlayerStats {
 
 export function createPlayerStats(): PlayerStats {
   return {
-    totalGoldEarned: 0, totalWoodEarned: 0, totalStoneEarned: 0,
+    totalGoldEarned: 0, totalWoodEarned: 0, totalMeatEarned: 0,
     totalDamageDealt: 0, totalDamageNearHQ: 0,
-    totalDamageTaken: 0, towerDamageDealt: 0, totalHealing: 0,
-    unitsSpawned: 0, unitsLost: 0, nukeKills: 0,
+    totalDamageTaken: 0, towerDamageDealt: 0,
+    burnDamageDealt: 0, abilityDamageDealt: 0, nukeDamageDealt: 0,
+    totalHealing: 0,
+    unitsSpawned: 0, unitsLost: 0, enemyUnitsKilled: 0, nukeKills: 0,
     diamondPickups: 0, diamondTimeHeld: 0,
   };
 }
@@ -567,13 +702,14 @@ export interface GameState {
   units: UnitState[];
   harvesters: HarvesterState[];
   woodPiles: WoodPileState[];
+  potionDrops: PotionDropState[];
   projectiles: ProjectileState[];
   diamond: DiamondState;
   diamondCells: GoldCell[]; // the mineable gold cells forming the obstacle
   hqHp: number[];               // indexed by team (0, 1); length matches mapDef.teams.length
   hqAttackTimer: number[];      // per-team HQ attack cooldown (ticks remaining)
   winner: Team | null;
-  winCondition: 'military' | 'diamond' | 'timeout' | null;
+  winCondition: 'military' | 'diamond' | 'timeout' | 'concede' | null;
   matchPhase: 'prematch' | 'playing' | 'ended';
   prematchTimer: number;
   floatingTexts: FloatingText[];
@@ -581,14 +717,16 @@ export interface GameState {
   nukeEffects: NukeEffect[];
   nukeTelegraphs: NukeTelegraph[];
   nukeTeamCooldown: number[];   // per-team cooldown ticks remaining (0 = ready)
+  abilityEffects: AbilityEffect[];  // active race ability effects
   pings: PingState[];
   quickChats: QuickChatState[];
   soundEvents: SoundEvent[];
   combatEvents: CombatEvent[];
   nextEntityId: number;
   playerStats: PlayerStats[];
-  warHeroes: WarHero[];          // populated at match end — top unit per player
-  fallenHeroes: WarHero[];       // units with kills > 0 that died during the match
+  warHeroes: WarHero[];          // populated at match end — top killer per player
+  supportHeroes: WarHero[];      // populated at match end — top support unit per player
+  fallenHeroes: WarHero[];       // notable units that died during the match
   fogOfWar: boolean;             // whether fog of war is enabled
   /** Per-team tile visibility: teamIndex → flat boolean array [y * mapWidth + x] */
   visibility: boolean[][];
@@ -602,9 +740,11 @@ export type GameCommand =
   | { type: 'toggle_lane'; playerId: number; buildingId: number; lane: Lane }
   | { type: 'toggle_all_lanes'; playerId: number; lane: Lane }
   | { type: 'purchase_upgrade'; playerId: number; buildingId: number; choice: string }
-  | { type: 'build_hut'; playerId: number }
+  | { type: 'build_hut'; playerId: number; hutSlot?: number }
   | { type: 'set_hut_assignment'; playerId: number; hutId: number; assignment: HarvesterAssignment }
   | { type: 'fire_nuke'; playerId: number; x: number; y: number }
   | { type: 'ping'; playerId: number; x: number; y: number }
   | { type: 'quick_chat'; playerId: number; message: string }
-  | { type: 'concede'; playerId: number };
+  | { type: 'concede'; playerId: number }
+  | { type: 'use_ability'; playerId: number; x?: number; y?: number; gridX?: number; gridY?: number }
+  | { type: 'research_upgrade'; playerId: number; upgradeId: string };

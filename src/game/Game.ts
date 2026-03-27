@@ -1,4 +1,4 @@
-import { GameState, GameCommand, Race, Team, MapDef, HQ_HP, TILE_SIZE, createSeededRng } from '../simulation/types';
+import { GameState, GameCommand, Race, Team, MapDef, HQ_HP, TILE_SIZE, createSeededRng, MinimapFrame } from '../simulation/types';
 import { createInitialState, simulateTick, computeStateHash, getHQPosition } from '../simulation/GameState';
 import { DUEL_MAP } from '../simulation/maps';
 import { GameLoop } from './GameLoop';
@@ -8,6 +8,7 @@ import { SoundManager } from '../audio/SoundManager';
 import { runAllBotAI, createBotContext, BotContext, BotDifficultyLevel, BOT_DIFFICULTY_PRESETS } from '../simulation/BotAI';
 import { UIAssets } from '../rendering/UIAssets';
 import { CommandSync, TICKS_PER_TURN } from '../network/CommandSync';
+import { tileToPixel } from '../rendering/Projection';
 
 export interface GamePartyOptions {
   /** All human players in slot order: { slotIndex, race }.
@@ -23,6 +24,7 @@ export interface GamePartyOptions {
   botDifficulty?: BotDifficultyLevel;
   mapDef?: MapDef;           // map to play on (default: DUEL_MAP)
   fogOfWar?: boolean;        // enable fog of war
+  isometric?: boolean;       // enable isometric rendering
 }
 
 export class Game {
@@ -34,13 +36,22 @@ export class Game {
   private sounds: SoundManager;
   onMatchEnd: (() => void) | null = null;
   onQuitGame: (() => void) | null = null;
-  private matchEndTick = 0;
+  private matchEndTick = -1;
+  private connectingInterval: ReturnType<typeof setInterval> | null = null;
+
+  /** Compact per-second snapshots for the post-match minimap replay. */
+  replayFrames: MinimapFrame[] = [];
+  private readonly REPLAY_INTERVAL = 5; // 4 snapshots per second at 20 tps
   private pagehideHandler: (() => void) | null = null;
 
   /** Per-slot display names for the results screen. */
   slotNames: { [slot: string]: string } = {};
   /** Per-slot bot difficulty labels (absent = human). */
   slotBotDifficulties: { [slot: string]: string } = {};
+
+  setNowPlaying(name: string): void {
+    this.input.setNowPlaying(name);
+  }
 
   private botCtx!: BotContext;
 
@@ -87,8 +98,9 @@ export class Game {
         }
       }
 
-      // Shuffle remaining races for random assignment
-      const otherRaces = allRaces.filter(r => !usedRaces.has(r));
+      // Shuffle remaining races for random assignment (fall back to all if every race is taken)
+      let otherRaces = allRaces.filter(r => !usedRaces.has(r));
+      if (otherRaces.length === 0) otherRaces = [...allRaces];
       for (let i = otherRaces.length - 1; i > 0; i--) {
         const j = Math.floor(shuffleRng() * (i + 1));
         [otherRaces[i], otherRaces[j]] = [otherRaces[j], otherRaces[i]];
@@ -139,6 +151,13 @@ export class Game {
       }
     }
 
+    // Apply stat bonuses from bot difficulty to player state
+    for (const p of this.state.players) {
+      if (!p.isBot || p.isEmpty) continue;
+      const diff = this.botCtx.difficulty[p.id] ?? this.botCtx.defaultDifficulty;
+      if (diff.statBonus && diff.statBonus !== 1) p.statBonus = diff.statBonus;
+    }
+
     // Set local player ID for party mode (even local games)
     if (partyOpts) {
       this.localPlayerId = partyOpts.localPlayerId;
@@ -165,9 +184,11 @@ export class Game {
 
     this.renderer = new Renderer(canvas, ui);
     this.renderer.localPlayerId = this.localPlayerId;
+    this.renderer.isometric = partyOpts?.isometric ?? false;
     // Set camera world size for non-default maps
     this.renderer.camera.worldTilesW = mapDef.width;
     this.renderer.camera.worldTilesH = mapDef.height;
+    this.renderer.camera.isometric = this.renderer.isometric;
     this.input = new InputHandler(this, canvas, this.renderer.camera, ui, this.renderer.sprites);
     this.input.onQuitGame = () => this.handleQuitGame();
     this.input.onConcede = () => this.handleConcede();
@@ -177,8 +198,14 @@ export class Game {
     const localTeam = this.state.players[this.localPlayerId]?.team ?? Team.Bottom;
     const hqPos = getHQPosition(localTeam, mapDef);
     const T = TILE_SIZE;
-    this.renderer.camera.x = hqPos.x * T - canvas.clientWidth / (2 * this.renderer.camera.zoom) + 4 * T;
-    this.renderer.camera.y = hqPos.y * T - canvas.clientHeight / (2 * this.renderer.camera.zoom) + 3 * T;
+    if (this.renderer.isometric) {
+      const { px, py } = tileToPixel(hqPos.x + 4, hqPos.y + 3, true);
+      this.renderer.camera.x = px - canvas.clientWidth / (2 * this.renderer.camera.zoom);
+      this.renderer.camera.y = py - canvas.clientHeight / (2 * this.renderer.camera.zoom);
+    } else {
+      this.renderer.camera.x = hqPos.x * T - canvas.clientWidth / (2 * this.renderer.camera.zoom) + 4 * T;
+      this.renderer.camera.y = hqPos.y * T - canvas.clientHeight / (2 * this.renderer.camera.zoom) + 3 * T;
+    }
 
     this.loop = new GameLoop(
       () => this.tick(),
@@ -218,17 +245,16 @@ export class Game {
       // Show "Connecting..." while waiting for handshake, refresh periodically
       this.waitingForAllyMs = 1;
       this.drawConnectingScreen();
-      const connectingInterval = setInterval(() => this.drawConnectingScreen(), 500);
+      this.connectingInterval = setInterval(() => this.drawConnectingScreen(), 500);
       // Wait for P2P connection + handshake before starting game loop
       this.commandSync.whenReady().then(() => {
-        clearInterval(connectingInterval);
-        console.log('[Game] P2P ready, starting game loop');
+        if (this.connectingInterval) { clearInterval(this.connectingInterval); this.connectingInterval = null; }
         this.waitingForAllyMs = 0;
         // Pre-seed turn 0 so the first tick doesn't stall
         this.turnCommands.set(0, []);
         this.loop.start();
       }).catch((err) => {
-        clearInterval(connectingInterval);
+        if (this.connectingInterval) { clearInterval(this.connectingInterval); this.connectingInterval = null; }
         console.error('[Game] P2P connection failed:', err);
         this.peerDisconnected = true;
         this.waitingForAllyMs = 0;
@@ -262,6 +288,7 @@ export class Game {
   }
 
   stop(): void {
+    if (this.connectingInterval) { clearInterval(this.connectingInterval); this.connectingInterval = null; }
     this.loop.stop();
     this.sounds.dispose();
     this.input.destroy();
@@ -293,8 +320,8 @@ export class Game {
   private handleConcede(): void {
     if (this.state.matchPhase === 'ended') return;
 
-    if (this.isMultiplayer && this.commandSync && this.localPlayerId !== 0) {
-      // Non-host in multiplayer: leave game (replaced by bot), show results locally
+    if (this.isMultiplayer && this.commandSync) {
+      // Multiplayer: broadcast leave so peers know we conceded, then force-end locally
       this.commandSync.broadcastLeave();
       const localTeam = this.state.players[this.localPlayerId]?.team ?? Team.Bottom;
       const enemyTeam = localTeam === Team.Bottom ? Team.Top : Team.Bottom;
@@ -303,7 +330,7 @@ export class Game {
       this.state.matchPhase = 'ended';
       this.state.soundEvents.push({ type: 'match_end_lose' });
     } else {
-      // Solo or host: send concede command through simulation (syncs to all players)
+      // Solo: send concede command through simulation
       this.sendCommand({ type: 'concede', playerId: this.localPlayerId });
     }
   }
@@ -316,7 +343,6 @@ export class Game {
     // Set Nightmare difficulty for the replacement bot
     const preset = BOT_DIFFICULTY_PRESETS[BotDifficultyLevel.Nightmare];
     if (preset) this.botCtx.difficulty[slotId] = preset;
-    console.log(`[Game] Player ${slotId} left — replaced with Nightmare bot`);
   }
 
   sendCommand(cmd: GameCommand): void {
@@ -342,6 +368,7 @@ export class Game {
     this.runBotAI();
     simulateTick(this.state, this.pendingCommands);
     this.pendingCommands = [];
+    if (this.state.tick % this.REPLAY_INTERVAL === 0) this.captureReplayFrame();
     this.postTick();
   }
 
@@ -359,6 +386,7 @@ export class Game {
       runAllBotAI(this.state, this.botCtx, (cmd) => this.pendingCommands.push(cmd));
       simulateTick(this.state, this.pendingCommands);
       this.pendingCommands = [];
+      if (this.state.tick % this.REPLAY_INTERVAL === 0) this.captureReplayFrame();
       this.postTick();
       return true;
     }
@@ -414,6 +442,7 @@ export class Game {
 
     simulateTick(this.state, this.pendingCommands);
     this.pendingCommands = [];
+    if (this.state.tick % this.REPLAY_INTERVAL === 0) this.captureReplayFrame();
     this.postTick();
 
     // On last tick of turn: push our commands and clean up
@@ -462,6 +491,31 @@ export class Game {
     });
   }
 
+  private captureReplayFrame(): void {
+    const s = this.state;
+    const d = s.diamond;
+
+    // Top-kill unit per player — war hero candidate while alive
+    const topKillers = new Map<number, { x: number; y: number; playerId: number; kills: number }>();
+    for (const u of s.units) {
+      if (u.kills > 0) {
+        const cur = topKillers.get(u.playerId);
+        if (!cur || u.kills > cur.kills) {
+          topKillers.set(u.playerId, { x: u.x, y: u.y, playerId: u.playerId, kills: u.kills });
+        }
+      }
+    }
+
+    this.replayFrames.push({
+      tick: s.tick,
+      units: s.units.map(u => ({ x: u.x, y: u.y, playerId: u.playerId, team: u.team })),
+      hqHp: [s.hqHp[0], s.hqHp[1]],
+      diamond: d ? { x: d.x, y: d.y, carried: d.carrierId !== null } : null,
+      nukes: s.nukeTelegraphs.map(t => ({ x: t.x, y: t.y, radius: t.radius, playerId: t.playerId })),
+      warHeroPositions: [...topKillers.values()].map(({ x, y, playerId }) => ({ x, y, playerId })),
+    });
+  }
+
   private postTick(): void {
     // Play sounds emitted during this tick
     for (const ev of this.state.soundEvents) {
@@ -480,7 +534,7 @@ export class Game {
 
     // Check for match end — delay 3 seconds so player can see the final moment
     if (this.state.matchPhase === 'ended') {
-      if (this.matchEndTick === 0) this.matchEndTick = this.state.tick;
+      if (this.matchEndTick < 0) this.matchEndTick = this.state.tick;
       if (this.onMatchEnd && this.state.tick - this.matchEndTick >= 60) { // 3s at 20tps
         this.onMatchEnd();
         this.onMatchEnd = null;
@@ -489,10 +543,12 @@ export class Game {
   }
 
   private render(): void {
+    this.input.updateCameraFollow();
     this.renderer.camera.tick();
     this.renderer.placingBuilding = this.input.placingBuilding;
-    this.renderer.render(this.state, this.isMultiplayer ? this.networkLatencyMs : undefined, this.desyncDetected, this.peerDisconnected, this.waitingForAllyMs);
-    this.input.render(this.renderer);
+    const latencyMs = this.isMultiplayer ? this.networkLatencyMs : undefined;
+    this.renderer.render(this.state, latencyMs, this.desyncDetected, this.peerDisconnected, this.waitingForAllyMs);
+    this.input.render(this.renderer, latencyMs);
   }
 
   private runBotAI(): void {

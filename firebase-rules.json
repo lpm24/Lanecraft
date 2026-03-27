@@ -73,6 +73,12 @@
             ".write": "auth != null && data.parent().parent().child('hostUid').val() === auth.uid",
             ".validate": "newData.isString() && newData.val().length <= 20"
           }
+        },
+        "botRaces": {
+          "$slot": {
+            ".write": "auth != null && data.parent().parent().child('hostUid').val() === auth.uid",
+            ".validate": "newData.isString() && newData.val().length <= 20"
+          }
         }
       }
     },
@@ -90,6 +96,7 @@
         },
         "turns": {
           "$turn": {
+            ".write": "auth != null && !newData.exists()",
             "$slot": {
               ".write": "auth != null",
               ".validate": "newData.hasChild('t') && newData.child('t').isNumber()"

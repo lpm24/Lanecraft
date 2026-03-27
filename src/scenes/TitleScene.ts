@@ -2,7 +2,7 @@ import { Scene, SceneManager } from './Scene';
 import { UIAssets } from '../rendering/UIAssets';
 import { SpriteLoader, drawSpriteFrame, drawGridFrame, getSpriteFrame } from '../rendering/SpriteLoader';
 import { Race, BuildingType, StatusType } from '../simulation/types';
-import { RACE_COLORS } from '../simulation/data';
+import { RACE_COLORS, RACE_LABELS } from '../simulation/data';
 import { PartyManager, PartyState, PartyPlayer, getPartyPlayerCount, getActiveSlots } from '../network/PartyManager';
 import { isFirebaseConfigured, initFirebase } from '../network/FirebaseService';
 import { PlayerProfile, ALL_AVATARS, loadProfile, checkNonMatchAchievement, ACHIEVEMENTS } from '../profile/ProfileData';
@@ -39,17 +39,6 @@ function getModeName(teamSize: number): string {
     default: return `${teamSize}v${teamSize}`;
   }
 }
-
-
-
-// ─── Title Scene ───
-
-// Race label lookup for party UI
-const RACE_LABELS: Record<Race, string> = {
-  [Race.Crown]: 'CROWN', [Race.Horde]: 'HORDE', [Race.Goblins]: 'GOBLINS',
-  [Race.Oozlings]: 'OOZLINGS', [Race.Demon]: 'DEMON', [Race.Deep]: 'DEEP',
-  [Race.Wild]: 'WILD', [Race.Geists]: 'GEISTS', [Race.Tenders]: 'TENDERS',
-};
 
 
 export class TitleScene implements Scene {
@@ -109,6 +98,12 @@ export class TitleScene implements Scene {
   private audioSettings = getAudioSettings();
   private audioSettingsUnsub: (() => void) | null = null;
   private settingsOpen = false;
+
+  /** "Now Playing" track name + timing for fade */
+  private nowPlayingName = '';
+  private nowPlayingStart = 0;
+  private static readonly NP_SHOW_MS = 10_000;
+  private static readonly NP_FADE_MS = 600;
   private sliderDrag = new SettingsSliderDrag();
   private userInteracted = false;
   private fightStartPlayed = false;
@@ -125,8 +120,8 @@ export class TitleScene implements Scene {
   private connecting = false; // true while Firebase is initializing (custom game / find game)
   private joinCodeInput: string = '';
   private joinInputActive = false;
+  private joinHiddenInput: HTMLInputElement | null = null;
   private firebaseReady = false;
-  // partyDifficultyIndex removed — difficulty is per-slot via bots
   // Drag-and-drop state for party slot rearrangement
   private dragSlot = -1;  // which slot is being dragged (-1 = none)
   private dragX = 0;
@@ -141,6 +136,11 @@ export class TitleScene implements Scene {
   onPartyStart: ((party: PartyState, localSlot: number) => void) | null = null;
   onLocalStart: ((setup: LocalSetup) => void) | null = null;
   private localSetup: LocalSetup | null = null;
+
+  setNowPlaying(name: string): void {
+    this.nowPlayingName = name;
+    this.nowPlayingStart = performance.now();
+  }
 
   constructor(manager: SceneManager, canvas: HTMLCanvasElement, ui: UIAssets, sprites: SpriteLoader, musicPlayer: MusicPlayer) {
     this.manager = manager;
@@ -186,7 +186,9 @@ export class TitleScene implements Scene {
     });
     this.joinCodeInput = '';
     this.joinInputActive = false;
+    this.blurJoinHiddenInput();
     this.localSetup = null;
+
     this.partyError = '';
     this.partyStartFired = false;
     this.matchmaking = false;
@@ -195,9 +197,12 @@ export class TitleScene implements Scene {
     this.profile = loadProfile();
     this.playerName = loadPlayerName();
 
-    // Listen for party state changes
+    // Sync profile changes to party (avatar, name) — picks up edits from ProfileScene
     if (this.party) {
+      this.party.localName = this.playerName;
+      if (this.profile) this.party.localAvatarId = this.profile.avatarId;
       this.partyState = this.party.state;
+      this.party.removeListener(this.partyListener);
       this.party.addListener(this.partyListener);
     }
 
@@ -225,17 +230,50 @@ export class TitleScene implements Scene {
       const cy = e.clientY - rect.top;
       if (this.partyState && this.party) {
         const pl = this.getPartyLayout();
+        const ps = this.partyState;
         const localSlot = this.party.localSlotIndex;
-        if (pl.slotRects[localSlot] && this.hitRect(cx, cy, pl.slotRects[localSlot])) {
+        const maxSlots = ps.maxSlots ?? 4;
+        // Right-click own slot → cycle race backward
+        if (this.hitRect(cx, cy, pl.slotRects[localSlot])) {
           e.preventDefault();
           this.cycleRace(-1);
+          return;
+        }
+        // Right-click on bot slot → cycle bot race
+        if (this.party.isHost) {
+          const partyActiveSet = new Set(getActiveSlots(ps));
+          for (let i = 0; i < maxSlots; i++) {
+            if (i === localSlot) continue;
+            if (!partyActiveSet.has(i)) continue;
+            if (this.hitRect(cx, cy, pl.slotRects[i])) {
+              const hasPlayer = !!ps.players[String(i)];
+              if (!hasPlayer && ps.bots?.[String(i)]) {
+                e.preventDefault();
+                this.cyclePartyBotRace(i);
+                return;
+              }
+            }
+          }
         }
       } else if (this.localSetup) {
         const pl = this.getLocalSetupLayout();
-        const ps = this.localSetup.playerSlot;
-        if (pl.slotRects[ps] && this.hitRect(cx, cy, pl.slotRects[ps])) {
+        const ls = this.localSetup;
+        // Right-click own slot → cycle race backward
+        if (this.hitRect(cx, cy, pl.slotRects[ls.playerSlot])) {
           e.preventDefault();
           this.cycleRace(-1);
+          return;
+        }
+        // Right-click bot slot → cycle bot race
+        const localActiveSet = new Set(getLocalActiveSlots(ls));
+        for (let i = 0; i < ls.maxSlots; i++) {
+          if (i === ls.playerSlot) continue;
+          if (!localActiveSet.has(i)) continue;
+          if (this.hitRect(cx, cy, pl.slotRects[i]) && ls.bots[String(i)]) {
+            e.preventDefault();
+            this.cycleBotRace(i);
+            return;
+          }
         }
       }
     };
@@ -279,22 +317,20 @@ export class TitleScene implements Scene {
           if (cleaned.length >= 4) {
             this.joinInputActive = true;
             this.joinCodeInput = cleaned;
+            this.focusJoinHiddenInput();
             this.doJoinParty();
           } else if (cleaned.length > 0) {
             this.joinInputActive = true;
             this.joinCodeInput = cleaned;
+            this.focusJoinHiddenInput();
           }
         }).catch(() => {});
         return;
       }
       if (this.joinInputActive) {
-        if (e.key === 'Escape') { this.joinInputActive = false; this.joinCodeInput = ''; return; }
-        if (e.key === 'Backspace') { this.joinCodeInput = this.joinCodeInput.slice(0, -1); return; }
-        if (e.key === 'Enter' && this.joinCodeInput.length >= 4) { this.doJoinParty(); return; }
-        if (this.joinCodeInput.length < 5 && /^[a-zA-Z0-9]$/.test(e.key)) {
-          this.joinCodeInput += e.key.toUpperCase();
-          return;
-        }
+        if (e.key === 'Escape') { this.closeJoinInput(); return; }
+        // Let hidden input handle all text input, Enter, and Backspace
+        return;
       }
     };
     this.canvas.addEventListener('mousedown', interactHandler, { once: true });
@@ -452,6 +488,7 @@ export class TitleScene implements Scene {
     this.mouseUpHandler = null;
     this.audioSettingsUnsub?.();
     this.audioSettingsUnsub = null;
+    this.blurJoinHiddenInput();
     this.menuMusic.dispose();
     this.clearMatchmakingTimeout();
     if (this.party) {
@@ -490,9 +527,10 @@ export class TitleScene implements Scene {
     // If we joined via matchmaking as guest, just wait for host to start (clear matchmaking flag)
     if (s && getPartyPlayerCount(s) >= 2 && this.matchmaking && !this.party?.isHost) {
       this.matchmaking = false;
-      this.clearMatchmakingTimeout();
+      // Do NOT clear the matchmaking timeout — it's our safety net against ghost hosts.
+      // If the host never starts, the timeout fires and cancelMatchmaking() leaves the party.
     }
-    // Party destroyed while matchmaking
+    // Party destroyed while matchmaking or while waiting for ghost host to start
     if (!s && this.matchmaking) {
       this.matchmaking = false;
       this.clearMatchmakingTimeout();
@@ -525,7 +563,10 @@ export class TitleScene implements Scene {
 
   private getPartyLayout(): {
     panel: { x: number; y: number; w: number; h: number };
-    slotRects: { x: number; y: number; w: number; h: number }[]; // one per maxSlots
+    slotRects: { x: number; y: number; w: number; h: number }[];
+    teamW: number;
+    cellTop: number;
+    cellBot: number;
     start: { x: number; y: number; w: number; h: number };
     leave: { x: number; y: number; w: number; h: number };
     code: { x: number; y: number; w: number; h: number };
@@ -536,25 +577,12 @@ export class TitleScene implements Scene {
     const w = this.canvas.clientWidth;
     const h = this.canvas.clientHeight;
     const maxSlots = this.partyState?.maxSlots ?? 4;
-    const panelW = Math.min(w * 0.98, 616);
-    const panelH = Math.min(h * 0.588, 420);
+    const mapDef = getMapById(this.partyState?.mapId ?? 'duel');
+    const ppt = mapDef.playersPerTeam;
+    const panelW = Math.min(w * 0.98, 720);
+    const panelH = Math.min(h * 0.68, 500);
     const px = (w - panelW) / 2;
     const py = h * 0.26;
-    const slotW = 40;
-    const slotH = 40;
-    const slotY = py + panelH * 0.40;
-
-    // Dynamic slot positioning: divide panel width evenly
-    const slotRects: { x: number; y: number; w: number; h: number }[] = [];
-    const colW = panelW / maxSlots;
-    for (let i = 0; i < maxSlots; i++) {
-      slotRects.push({
-        x: px + colW * i + colW / 2 - slotW / 2,
-        y: slotY,
-        w: slotW,
-        h: slotH,
-      });
-    }
 
     // Mode toggle + fog toggle side by side
     const totalTogW = panelW * 0.72;
@@ -562,8 +590,28 @@ export class TitleScene implements Scene {
     const toggleW = totalTogW * 0.6;
     const fogW = totalTogW - toggleW - toggleGap;
     const toggleH = 24;
-    const mapTogY = py + panelH * 0.26;
+    const mapTogY = py + panelH * 0.17;
     const modeTogX = px + (panelW - totalTogW) / 2;
+
+    // Two team columns with slots as rows
+    const teamGap = 10;
+    const teamW = (panelW - teamGap) / 2;
+    const slotAreaTop = py + panelH * 0.26;
+    const slotAreaBot = py + panelH * 0.73;
+    const slotAreaH = slotAreaBot - slotAreaTop;
+    const teamLabelH = 18;
+    const rowGap = 4;
+    const availH = slotAreaH - teamLabelH;
+    const rowH = Math.min(60, (availH - (ppt - 1) * rowGap) / Math.max(1, ppt));
+
+    const slotRects: { x: number; y: number; w: number; h: number }[] = [];
+    for (let i = 0; i < maxSlots; i++) {
+      const team = Math.floor(i / ppt);
+      const row = i % ppt;
+      const tx = px + team * (teamW + teamGap);
+      const ry = slotAreaTop + teamLabelH + row * (rowH + rowGap);
+      slotRects.push({ x: tx + 4, y: ry, w: teamW - 8, h: rowH });
+    }
 
     // Difficulty buttons (host only, between slots and start button)
     const dbtnW = panelW * 0.18;
@@ -572,8 +620,8 @@ export class TitleScene implements Scene {
     const dbtnTotalW = PARTY_DIFFICULTY_OPTIONS.length * dbtnW + (PARTY_DIFFICULTY_OPTIONS.length - 1) * dbtnGap;
     const dbtnStartX = px + (panelW - dbtnTotalW) / 2;
     const dbtnY = py + panelH * 0.76;
-    const diffBtns = PARTY_DIFFICULTY_OPTIONS.map((_, i) => ({
-      x: dbtnStartX + i * (dbtnW + dbtnGap),
+    const diffBtns = PARTY_DIFFICULTY_OPTIONS.map((_, idx) => ({
+      x: dbtnStartX + idx * (dbtnW + dbtnGap),
       y: dbtnY,
       w: dbtnW,
       h: dbtnH,
@@ -582,8 +630,11 @@ export class TitleScene implements Scene {
     return {
       panel: { x: px, y: py, w: panelW, h: panelH },
       slotRects,
-      start: { x: px + panelW * 0.15, y: py + panelH - 56, w: panelW * 0.42, h: 44 },
-      leave: { x: px + panelW * 0.60, y: py + panelH - 56, w: panelW * 0.28, h: 44 },
+      teamW,
+      cellTop: slotAreaTop,
+      cellBot: slotAreaBot,
+      leave: { x: px + panelW * 0.15, y: py + panelH - 56, w: panelW * 0.28, h: 44 },
+      start: { x: px + panelW * 0.46, y: py + panelH - 56, w: panelW * 0.42, h: 44 },
       code: { x: px + panelW * 0.125, y: py + 2, w: panelW * 0.75, h: 52 },
       modeToggle: { x: modeTogX, y: mapTogY, w: toggleW, h: toggleH },
       fogToggle: { x: modeTogX + toggleW + toggleGap, y: mapTogY, w: fogW, h: toggleH },
@@ -594,6 +645,9 @@ export class TitleScene implements Scene {
   private getLocalSetupLayout(): {
     panel: { x: number; y: number; w: number; h: number };
     slotRects: { x: number; y: number; w: number; h: number }[];
+    teamW: number;
+    cellTop: number;
+    cellBot: number;
     start: { x: number; y: number; w: number; h: number };
     leave: { x: number; y: number; w: number; h: number };
     modeToggle: { x: number; y: number; w: number; h: number };
@@ -601,24 +655,13 @@ export class TitleScene implements Scene {
   } {
     const w = this.canvas.clientWidth;
     const h = this.canvas.clientHeight;
+    const mapDef = getMapById(this.localSetup?.mapId ?? 'duel');
     const maxSlots = this.localSetup?.maxSlots ?? 4;
+    const ppt = mapDef.playersPerTeam;
     const panelW = Math.min(w * 0.98, 616);
-    const panelH = Math.min(h * 0.52, 370);
+    const panelH = Math.min(h * 0.58, 420);
     const px = (w - panelW) / 2;
     const py = h * 0.26;
-    const slotH = 70;
-    const slotY = py + panelH * 0.34;
-
-    const slotRects: { x: number; y: number; w: number; h: number }[] = [];
-    const colW = panelW / maxSlots;
-    for (let i = 0; i < maxSlots; i++) {
-      slotRects.push({
-        x: px + colW * i + 4,
-        y: slotY,
-        w: colW - 8,
-        h: slotH,
-      });
-    }
 
     // Mode toggle + fog toggle side by side
     const totalTogW = panelW * 0.72;
@@ -628,17 +671,37 @@ export class TitleScene implements Scene {
     const toggleH = 24;
     const mapTogY = py + panelH * 0.12;
     const modeTogX = px + (panelW - totalTogW) / 2;
-    const fogX = modeTogX + toggleW + toggleGap;
-    const fogY = mapTogY;
-    const fogH = toggleH;
+
+    // Two team columns with slots as rows
+    const teamGap = 10;
+    const teamW = (panelW - teamGap) / 2;
+    const slotAreaTop = py + panelH * 0.26;
+    const slotAreaBot = py + panelH * 0.80;
+    const slotAreaH = slotAreaBot - slotAreaTop;
+    const teamLabelH = 18;
+    const rowGap = 4;
+    const availH = slotAreaH - teamLabelH;
+    const rowH = Math.min(60, (availH - (ppt - 1) * rowGap) / Math.max(1, ppt));
+
+    const slotRects: { x: number; y: number; w: number; h: number }[] = [];
+    for (let i = 0; i < maxSlots; i++) {
+      const team = Math.floor(i / ppt);
+      const row = i % ppt;
+      const tx = px + team * (teamW + teamGap);
+      const ry = slotAreaTop + teamLabelH + row * (rowH + rowGap);
+      slotRects.push({ x: tx + 4, y: ry, w: teamW - 8, h: rowH });
+    }
 
     return {
       panel: { x: px, y: py, w: panelW, h: panelH },
       slotRects,
-      start: { x: px + panelW * 0.15, y: py + panelH - 56, w: panelW * 0.42, h: 44 },
-      leave: { x: px + panelW * 0.60, y: py + panelH - 56, w: panelW * 0.28, h: 44 },
+      teamW,
+      cellTop: slotAreaTop,
+      cellBot: slotAreaBot,
+      leave: { x: px + panelW * 0.15, y: py + panelH - 56, w: panelW * 0.28, h: 44 },
+      start: { x: px + panelW * 0.46, y: py + panelH - 56, w: panelW * 0.42, h: 44 },
       modeToggle: { x: modeTogX, y: mapTogY, w: toggleW, h: toggleH },
-      fogToggle: { x: fogX, y: fogY, w: fogW, h: fogH },
+      fogToggle: { x: modeTogX + toggleW + toggleGap, y: mapTogY, w: fogW, h: toggleH },
     };
   }
 
@@ -646,6 +709,47 @@ export class TitleScene implements Scene {
     // Inflate hit area by pad on each side for mobile tappability (min 44px targets)
     const pad = 6;
     return cx >= r.x - pad && cx <= r.x + r.w + pad && cy >= r.y - pad && cy <= r.y + r.h + pad;
+  }
+
+  /** Compute RACE and DIFF button rects for a bot slot, stacked on the right side. */
+  private getBotSlotButtons(sr: { x: number; y: number; w: number; h: number }): {
+    raceBtn: { x: number; y: number; w: number; h: number };
+    diffBtn: { x: number; y: number; w: number; h: number };
+  } {
+    const btnW = 42;
+    const btnH = Math.min(18, (sr.h - 6) / 2);
+    const gap = 3;
+    const btnX = sr.x + sr.w - btnW - 20; // leave room for X button
+    const topY = sr.y + (sr.h - btnH * 2 - gap) / 2;
+    return {
+      raceBtn: { x: btnX, y: topY, w: btnW, h: btnH },
+      diffBtn: { x: btnX, y: topY + btnH + gap, w: btnW, h: btnH },
+    };
+  }
+
+  /** Red X button in top-right corner of a slot rect. */
+  private getSlotRemoveBtn(sr: { x: number; y: number; w: number; h: number }): { x: number; y: number; w: number; h: number } {
+    const size = 16;
+    return { x: sr.x + sr.w - size - 1, y: sr.y + 1, w: size, h: size };
+  }
+
+  /** Draw the red X remove button in the top-right corner of a slot. */
+  private drawRemoveButton(ctx: CanvasRenderingContext2D, sr: { x: number; y: number; w: number; h: number }): void {
+    const btn = this.getSlotRemoveBtn(sr);
+    ctx.fillStyle = 'rgba(180,40,40,0.6)';
+    ctx.beginPath();
+    ctx.roundRect(btn.x, btn.y, btn.w, btn.h, 3);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,80,80,0.5)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.roundRect(btn.x, btn.y, btn.w, btn.h, 3);
+    ctx.stroke();
+    ctx.font = `bold ${btn.h * 0.7}px monospace`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#ff6666';
+    ctx.fillText('X', btn.x + btn.w / 2, btn.y + btn.h / 2);
   }
 
   private handleClick(cx: number, cy: number): void {
@@ -732,33 +836,48 @@ export class TitleScene implements Scene {
 
     // If in local setup mode, handle local setup UI
     if (this.localSetup) {
+      // Profile button accessible from lobby
+      if (this.hitRect(cx, cy, this.profileBtnRect)) {
+        this.manager.switchTo('profile');
+        return;
+      }
       const pl = this.getLocalSetupLayout();
       const ls = this.localSetup;
-      // Click own slot's race icon to cycle
-      if (pl.slotRects[ls.playerSlot] && this.hitRect(cx, cy, pl.slotRects[ls.playerSlot])) {
+      const localActiveSet = new Set(getLocalActiveSlots(ls));
+      // Click own slot's race to cycle
+      if (this.hitRect(cx, cy, pl.slotRects[ls.playerSlot])) {
         this.cycleRace();
         return;
       }
-      // Click non-player slots: sprite area (slotRect) = cycle race, below = cycle difficulty
-      const localActiveSet = new Set(getLocalActiveSlots(ls));
+      // Click non-player slots: check X/RACE/DIFF buttons first, then cell for empty slots
       for (let i = 0; i < ls.maxSlots; i++) {
         if (i === ls.playerSlot) continue;
-        if (!localActiveSet.has(i)) continue; // skip inactive slots
+        if (!localActiveSet.has(i)) continue;
         const sr = pl.slotRects[i];
         if (!sr) continue;
-        // Extended hit area: slot rect + 40px below for the difficulty/hint text
-        const extendedRect = { x: sr.x, y: sr.y, w: sr.w, h: sr.h + 40 };
-        if (this.hitRect(cx, cy, extendedRect)) {
-          if (!ls.bots[String(i)]) {
-            // Empty slot — any click adds a bot
-            this.localSetupCycleBot(i);
-          } else if (cy <= sr.y + sr.h) {
-            // Click on sprite area — cycle race
-            this.cycleBotRace(i);
-          } else {
-            // Click below sprite (difficulty label area) — cycle difficulty
-            this.localSetupCycleBot(i);
+        if (ls.bots[String(i)]) {
+          // X button — remove bot
+          const removeBtn = this.getSlotRemoveBtn(sr);
+          if (this.hitRect(cx, cy, removeBtn)) {
+            delete ls.bots[String(i)];
+            if (ls.botRaces) delete ls.botRaces[String(i)];
+            saveLocalSetup(ls);
+            return;
           }
+          // RACE and DIFF buttons
+          const { raceBtn, diffBtn } = this.getBotSlotButtons(sr);
+          if (this.hitRect(cx, cy, raceBtn)) {
+            this.cycleBotRace(i);
+            return;
+          }
+          if (this.hitRect(cx, cy, diffBtn)) {
+            this.localSetupCycleDifficulty(i);
+            return;
+          }
+        }
+        // Click anywhere in cell on empty slot adds a bot
+        if (this.hitRect(cx, cy, sr) && !ls.bots[String(i)]) {
+          this.localSetupCycleBot(i);
           return;
         }
       }
@@ -775,12 +894,14 @@ export class TitleScene implements Scene {
       }
       // Start button
       if (this.hitRect(cx, cy, pl.start) && canStartLocalSetup(ls)) {
+        saveLocalSetup(ls);
         if (this.onLocalStart) this.onLocalStart(ls);
         this.localSetup = null;
         return;
       }
-      // Leave / back button
+      // Leave / back button — save state so it's restored next time
       if (this.hitRect(cx, cy, pl.leave)) {
+        saveLocalSetup(ls);
         this.localSetup = null;
         return;
       }
@@ -789,32 +910,56 @@ export class TitleScene implements Scene {
 
     // If in a party (but not matchmaking), handle party UI
     if (this.partyState && !this.matchmaking) {
+      // Profile button accessible from lobby
+      if (this.hitRect(cx, cy, this.profileBtnRect)) {
+        this.manager.switchTo('profile');
+        return;
+      }
       const pl = this.getPartyLayout();
       const ps = this.partyState;
       const isHost = this.party?.isHost;
       const localSlot = this.party?.localSlotIndex ?? 0;
-      // Click own slot's race icon to cycle
-      if (pl.slotRects[localSlot] && this.hitRect(cx, cy, pl.slotRects[localSlot])) {
+      const maxSlots = ps.maxSlots ?? 4;
+      // Click own slot to cycle race
+      if (this.hitRect(cx, cy, pl.slotRects[localSlot])) {
         this.cycleRace();
         return;
       }
-      // Host clicking non-local slots: cycle bot difficulty (Empty→Easy→Med→Hard→Nightmare→Empty)
+      // Host clicking non-local slots: X/RACE/DIFF buttons on bot slots, X on player slots, cell click for empty
       const partyActiveSet = new Set(getActiveSlots(ps));
       if (isHost) {
-        for (let i = 0; i < (ps.maxSlots ?? 4); i++) {
+        for (let i = 0; i < maxSlots; i++) {
           if (i === localSlot) continue;
-          if (!partyActiveSet.has(i)) continue; // skip inactive slots
-          if (pl.slotRects[i] && this.hitRect(cx, cy, pl.slotRects[i])) {
-            const hasPlayer = !!ps.players[String(i)];
-            if (!hasPlayer) {
-              // Cycle bot difficulty for this slot
-              const currentBot = ps.bots?.[String(i)] ?? null;
-              const cycle: (string | null)[] = [null, BotDifficultyLevel.Easy, BotDifficultyLevel.Medium, BotDifficultyLevel.Hard, BotDifficultyLevel.Nightmare];
-              const curIdx = currentBot ? cycle.indexOf(currentBot) : 0;
-              const nextIdx = (curIdx + 1) % cycle.length;
-              this.party?.setSlotBot(i, cycle[nextIdx]);
+          if (!partyActiveSet.has(i)) continue;
+          const sr = pl.slotRects[i];
+          if (!sr) continue;
+          const hasPlayer = !!ps.players[String(i)];
+          const currentBot = ps.bots?.[String(i)] ?? null;
+          // X button — remove bot
+          if (currentBot) {
+            const removeBtn = this.getSlotRemoveBtn(sr);
+            if (this.hitRect(cx, cy, removeBtn)) {
+              this.party?.setSlotBot(i, null);
+              return;
             }
-            // Don't kick human players — just ignore click on their slot
+          }
+          if (hasPlayer) continue;
+          if (currentBot) {
+            const { raceBtn, diffBtn } = this.getBotSlotButtons(sr);
+            if (this.hitRect(cx, cy, raceBtn)) {
+              this.cyclePartyBotRace(i);
+              return;
+            }
+            if (this.hitRect(cx, cy, diffBtn)) {
+              const cycle = [BotDifficultyLevel.Easy, BotDifficultyLevel.Medium, BotDifficultyLevel.Hard, BotDifficultyLevel.Nightmare];
+              const curIdx = cycle.indexOf(currentBot as BotDifficultyLevel);
+              this.party?.setSlotBot(i, cycle[(curIdx + 1) % cycle.length]);
+              return;
+            }
+          }
+          // Empty slot — click anywhere in cell adds a bot
+          if (this.hitRect(cx, cy, sr) && !currentBot) {
+            this.party?.setSlotBot(i, BotDifficultyLevel.Easy);
             return;
           }
         }
@@ -858,17 +1003,29 @@ export class TitleScene implements Scene {
       return;
     }
 
-    // If join input is active, clicking outside the input box dismisses
+    // If join input is active, handle button clicks or dismiss
     if (this.joinInputActive) {
       const w = this.canvas.clientWidth;
       const h = this.canvas.clientHeight;
-      const boxW = Math.min(w * 0.55, 340);
-      const boxH = Math.min(h * 0.16, 120);
-      const boxX = (w - boxW) / 2;
-      const boxY = h * 0.30;
-      if (!this.hitRect(cx, cy, { x: boxX, y: boxY, w: boxW, h: boxH })) {
-        this.joinInputActive = false;
-        this.joinCodeInput = '';
+      const jl = this.getJoinInputLayout(w, h);
+      if (this.hitRect(cx, cy, jl.join) && this.joinCodeInput.length >= 4) {
+        this.doJoinParty();
+        return;
+      }
+      if (this.hitRect(cx, cy, jl.cancel)) {
+        this.closeJoinInput();
+        return;
+      }
+      // Tapping the code display area refocuses the hidden input (reopens keyboard)
+      const codeArea = { x: jl.boxX, y: jl.boxY + jl.boxH * 0.35, w: jl.boxW, h: jl.boxH * 0.35 };
+      if (this.hitRect(cx, cy, codeArea)) {
+        this.focusJoinHiddenInput();
+        return;
+      }
+      // Clicking outside the scroll + buttons area dismisses
+      const fullH = (jl.cancel.y + jl.cancel.h) - jl.bgY;
+      if (!this.hitRect(cx, cy, { x: jl.bgX, y: jl.bgY, w: jl.bgW, h: fullH })) {
+        this.closeJoinInput();
       }
       return;
     }
@@ -901,8 +1058,7 @@ export class TitleScene implements Scene {
       return;
     }
     if (this.hitRect(cx, cy, btns.join)) {
-      this.joinInputActive = true;
-      this.joinCodeInput = '';
+      this.openJoinInput();
       return;
     }
   }
@@ -943,13 +1099,15 @@ export class TitleScene implements Scene {
     // Timeout: if no game starts within 60s, cancel and let the user know
     this.clearMatchmakingTimeout();
     this.matchmakingTimeout = setTimeout(() => {
-      if (!this.matchmaking) return;
+      // Fire even if matchmaking flag was cleared (guest joined but host never started).
+      // cancelMatchmaking will leave the ghost party.
       this.cancelMatchmaking();
       this.showPartyError('No players found — try again');
     }, 60_000);
     try {
       await this.ensureFirebase();
       this.party!.localName = this.playerName;
+      if (this.profile) this.party!.localAvatarId = this.profile.avatarId;
       const lastRace = this.getLastPartyRace();
       const joined = await this.party!.findAndJoinGame(lastRace);
       if (!joined) {
@@ -995,6 +1153,7 @@ export class TitleScene implements Scene {
     try {
       await this.ensureFirebase();
       this.party!.localName = this.playerName;
+      if (this.profile) this.party!.localAvatarId = this.profile.avatarId;
       // Restore saved custom game settings (mode/map)
       const saved = loadLocalSetup();
       const mapId = saved?.mapId ?? 'duel';
@@ -1004,12 +1163,16 @@ export class TitleScene implements Scene {
       if (teamSize !== getMapById(mapId).playersPerTeam) {
         await this.party!.updateTeamSize(teamSize);
       }
-      // Restore saved bots
+      // Restore saved bots and their races
       if (saved?.bots) {
         for (const [slot, difficulty] of Object.entries(saved.bots)) {
           const slotNum = Number(slot);
           if (slotNum !== (saved.playerSlot ?? 0)) {
             await this.party!.setSlotBot(slotNum, difficulty);
+            const botRace = saved.botRaces?.[slot];
+            if (botRace && botRace !== 'random') {
+              await this.party!.setSlotBotRace(slotNum, botRace);
+            }
           }
         }
       }
@@ -1037,6 +1200,17 @@ export class TitleScene implements Scene {
       // Clean up race when removing bot
       if (this.localSetup.botRaces) delete this.localSetup.botRaces[String(slot)];
     }
+    saveLocalSetup(this.localSetup);
+  }
+
+  /** Cycle bot difficulty without removing — Easy→Med→Hard→Nightmare→Easy */
+  private localSetupCycleDifficulty(slot: number): void {
+    if (!this.localSetup) return;
+    const current = this.localSetup.bots[String(slot)];
+    if (!current) return;
+    const cycle = [BotDifficultyLevel.Easy, BotDifficultyLevel.Medium, BotDifficultyLevel.Hard, BotDifficultyLevel.Nightmare];
+    const curIdx = cycle.indexOf(current as BotDifficultyLevel);
+    this.localSetup.bots[String(slot)] = cycle[(curIdx + 1) % cycle.length];
     saveLocalSetup(this.localSetup);
   }
 
@@ -1144,14 +1318,66 @@ export class TitleScene implements Scene {
     try {
       await this.ensureFirebase();
       this.party!.localName = this.playerName;
+      if (this.profile) this.party!.localAvatarId = this.profile.avatarId;
       await this.party!.joinParty(this.joinCodeInput, this.getLastPartyRace());
-      this.joinInputActive = false;
-      this.joinCodeInput = '';
+      this.closeJoinInput();
     } catch (e: any) {
       console.error('[Party] Join failed:', e);
       this.showPartyError(e.message || 'Failed to join');
     } finally {
       this.connecting = false;
+    }
+  }
+
+  private openJoinInput(): void {
+    this.joinInputActive = true;
+    this.joinCodeInput = '';
+    this.focusJoinHiddenInput();
+  }
+
+  private closeJoinInput(): void {
+    this.joinInputActive = false;
+    this.joinCodeInput = '';
+    this.blurJoinHiddenInput();
+  }
+
+  private focusJoinHiddenInput(): void {
+    if (!this.joinHiddenInput) {
+      const inp = document.createElement('input');
+      inp.type = 'text';
+      inp.autocapitalize = 'characters';
+      inp.autocomplete = 'off';
+      inp.maxLength = 5;
+      inp.style.position = 'fixed';
+      inp.style.left = '-9999px';
+      inp.style.top = '0';
+      inp.style.opacity = '0';
+      inp.style.width = '1px';
+      inp.style.height = '1px';
+      inp.addEventListener('input', () => {
+        const cleaned = inp.value.replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(0, 5);
+        inp.value = cleaned;
+        this.joinCodeInput = cleaned;
+      });
+      inp.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && this.joinCodeInput.length >= 4) {
+          this.doJoinParty();
+        } else if (e.key === 'Escape') {
+          this.closeJoinInput();
+        }
+      });
+      document.body.appendChild(inp);
+      this.joinHiddenInput = inp;
+    }
+    this.joinHiddenInput.value = this.joinCodeInput;
+    this.joinHiddenInput.focus();
+  }
+
+  private blurJoinHiddenInput(): void {
+    if (this.joinHiddenInput) {
+      this.joinHiddenInput.blur();
+      this.joinHiddenInput.remove();
+      this.joinHiddenInput = null;
     }
   }
 
@@ -1184,6 +1410,15 @@ export class TitleScene implements Scene {
     const next = raceOrder[(idx + 1) % raceOrder.length];
     this.localSetup.botRaces[String(slot)] = next;
     saveLocalSetup(this.localSetup);
+  }
+
+  private cyclePartyBotRace(slot: number): void {
+    if (!this.partyState || !this.party) return;
+    const raceOrder: (string)[] = ['random', ...ALL_RACES];
+    const current = this.partyState.botRaces?.[String(slot)] ?? 'random';
+    const idx = raceOrder.indexOf(current);
+    const next = raceOrder[(idx + 1) % raceOrder.length];
+    this.party.setSlotBotRace(slot, next === 'random' ? null : next);
   }
 
   private showPartyError(msg: string): void {
@@ -1475,7 +1710,7 @@ export class TitleScene implements Scene {
       const vsPadY = Math.round(vsH * 0.075);
       this.ui.drawWoodTable(ctx, vsX - vsPadX, vsY - vsPadY, vsW + vsPadX * 2, vsH + vsPadY * 2);
 
-      const fontSize = Math.max(10, Math.min(vsH / (teamSize + 1) * 0.45, 14));
+      const fontSize = Math.max(11, Math.min(vsH / (teamSize + 1) * 0.45, 14));
       ctx.textBaseline = 'middle';
 
       for (let i = 0; i < teamSize; i++) {
@@ -1511,10 +1746,10 @@ export class TitleScene implements Scene {
 
       // Team avg ELO
       const eloY = vsY + vsH * 0.85;
-      const eloFontSize = Math.max(9, fontSize * 0.7);
+      const eloFontSize = Math.max(11, fontSize * 0.7);
       ctx.font = `${eloFontSize}px monospace`;
-      const blueAvgElo = Math.round(this.bannerBlue.reduce((s, u) => s + getElo(u.race, u.category), 0) / teamSize);
-      const redAvgElo = Math.round(this.bannerRed.reduce((s, u) => s + getElo(u.race, u.category), 0) / teamSize);
+      const blueAvgElo = Math.round(this.bannerBlue.reduce((s, u) => s + getElo(u.race, u.category, u.upgradeNode), 0) / teamSize);
+      const redAvgElo = Math.round(this.bannerRed.reduce((s, u) => s + getElo(u.race, u.category, u.upgradeNode), 0) / teamSize);
       const blueFavored = blueAvgElo > redAvgElo;
       const redFavored = redAvgElo > blueAvgElo;
       const eloLabel = teamSize > 1 ? 'avg ' : '';
@@ -1533,7 +1768,7 @@ export class TitleScene implements Scene {
       const ctrlGap = 8;
       const totalCtrlW = ctrlW * 5 + ctrlGap * 4;
       const ctrlStartX = (w - totalCtrlW) / 2;
-      const ctrlFont = Math.max(8, Math.min(ctrlH * 0.42, 12));
+      const ctrlFont = Math.max(11, Math.min(ctrlH * 0.42, 12));
 
       const drawCtrlBtn = (x: number, label: string, strokeColor: string, textColor: string) => {
         ctx.fillStyle = 'rgba(0,0,0,0.5)';
@@ -1641,7 +1876,7 @@ export class TitleScene implements Scene {
     const subX = (w - subW) / 2;
     const subY = bannerY + bannerH - subH * 0.2;
     this.ui.drawSmallRibbon(ctx, subX, subY, subW, subH, 0);
-    ctx.font = `bold ${Math.max(10, subH * 0.38)}px monospace`;
+    ctx.font = `bold ${Math.max(11, subH * 0.38)}px monospace`;
     ctx.textBaseline = 'middle';
     ctx.fillStyle = '#fff';
     ctx.fillText('Spawn Glory', w / 2, subY + subH * 0.5);
@@ -1670,7 +1905,7 @@ export class TitleScene implements Scene {
       const errX = (w - errW) / 2;
       const errY = h * 0.70;
       this.ui.drawBigRibbon(ctx, errX, errY, errW, errH, 1); // red ribbon
-      ctx.font = `bold ${Math.max(10, errH * 0.36)}px monospace`;
+      ctx.font = `bold ${Math.max(11, errH * 0.36)}px monospace`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillStyle = '#fff';
@@ -1681,10 +1916,29 @@ export class TitleScene implements Scene {
     // Player name + dice button
     this.renderNameTag(ctx, w, h);
 
+    // === "Now Playing" track name (bottom-left) ===
+    if (this.nowPlayingName) {
+      const elapsed = performance.now() - this.nowPlayingStart;
+      const total = TitleScene.NP_SHOW_MS + TitleScene.NP_FADE_MS;
+      if (elapsed < total) {
+        const alpha = elapsed < TitleScene.NP_SHOW_MS
+          ? 1
+          : 1 - (elapsed - TitleScene.NP_SHOW_MS) / TitleScene.NP_FADE_MS;
+        ctx.save();
+        ctx.globalAlpha = alpha * 0.85;
+        ctx.font = '11px monospace';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'alphabetic';
+        ctx.fillStyle = '#fff';
+        ctx.fillText(`♪ ${this.nowPlayingName}`, 10, h - 12);
+        ctx.restore();
+      }
+    }
+
     // Version
     ctx.textAlign = 'center';
     ctx.textBaseline = 'alphabetic';
-    ctx.font = `${Math.max(10, Math.min(w / 60, 14))}px monospace`;
+    ctx.font = `${Math.max(11, Math.min(w / 60, 14))}px monospace`;
     ctx.fillStyle = 'rgba(255,255,255,0.35)';
     ctx.fillText(`build ${__BUILD_NUMBER__} (${__BUILD_HASH__})`, w / 2, h - 12);
   }
@@ -1809,7 +2063,14 @@ export class TitleScene implements Scene {
           const feetY = avatarY + avatarSize - sprInset - 2;
           const drawY = feetY - drawH * gY;
           const drawX = avatarX + (avatarSize - drawW) / 2;
+          if (def.flipX) {
+            ctx.save();
+            ctx.translate(avatarX + avatarSize / 2, 0);
+            ctx.scale(-1, 1);
+            ctx.translate(-(avatarX + avatarSize / 2), 0);
+          }
           drawSpriteFrame(ctx, img, def, frame, drawX, drawY, drawW, drawH);
+          if (def.flipX) ctx.restore();
         }
       }
     }
@@ -1819,7 +2080,7 @@ export class TitleScene implements Scene {
     const nameY = avatarY + avatarSize + 4;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
-    ctx.font = `bold ${fontSize * 0.8}px monospace`;
+    ctx.font = `bold ${Math.max(11, fontSize * 0.8)}px monospace`;
     ctx.fillStyle = 'rgba(0,0,0,0.6)';
     ctx.fillText(this.playerName, nameCx + 1, nameY + 1);
     ctx.fillStyle = '#ffd700';
@@ -1830,32 +2091,64 @@ export class TitleScene implements Scene {
 
   // ─── Render: Join code input ───
 
-  private renderJoinInput(ctx: CanvasRenderingContext2D, w: number, h: number): void {
+  private getJoinInputLayout(w: number, h: number) {
     const boxW = Math.min(w * 0.55, 340);
     const boxH = Math.min(h * 0.16, 120);
     const boxX = (w - boxW) / 2;
     const boxY = h * 0.30;
+    const bgW = boxW * 1.5;
+    const bgH = boxH * 1.5;
+    const bgX = boxX - (bgW - boxW) / 2;
+    const bgY = boxY - (bgH - boxH) / 2;
+    const btnH = 44;
+    const btnY = boxY + boxH + 8;
+    return {
+      boxW, boxH, boxX, boxY,
+      bgW, bgH, bgX, bgY,
+      cancel: { x: bgX + bgW * 0.08, y: btnY, w: bgW * 0.32, h: btnH },
+      join:   { x: bgX + bgW * 0.60, y: btnY, w: bgW * 0.32, h: btnH },
+    };
+  }
 
-    this.ui.drawBanner(ctx, boxX, boxY, boxW, boxH);
+  private renderJoinInput(ctx: CanvasRenderingContext2D, w: number, h: number): void {
+    const jl = this.getJoinInputLayout(w, h);
 
-    const labelSize = Math.max(11, Math.min(boxH * 0.18, 16));
+    this.ui.drawBanner(ctx, jl.bgX, jl.bgY, jl.bgW, jl.bgH);
+
+    const labelSize = Math.max(11, Math.min(jl.boxH * 0.18, 16));
     ctx.font = `bold ${labelSize}px monospace`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillStyle = '#3a2a1a';
-    ctx.fillText('ENTER INVITE CODE', w / 2, boxY + boxH * 0.25);
+    ctx.fillText('ENTER INVITE CODE', w / 2, jl.boxY + jl.boxH * 0.25);
 
     // Code display
-    const codeSize = Math.max(18, Math.min(boxH * 0.28, 32));
+    const codeSize = Math.max(18, Math.min(jl.boxH * 0.28, 32));
     ctx.font = `bold ${codeSize}px monospace`;
     const display = this.joinCodeInput + (Math.floor(this.animTime * 2) % 2 === 0 ? '_' : ' ');
     ctx.fillStyle = '#8b4513';
-    ctx.fillText(display, w / 2, boxY + boxH * 0.52);
+    ctx.fillText(display, w / 2, jl.boxY + jl.boxH * 0.52);
 
-    // Hint
-    ctx.font = `${Math.max(9, labelSize * 0.8)}px monospace`;
-    ctx.fillStyle = 'rgba(60,40,20,0.55)';
-    ctx.fillText('Type code + Enter  |  ESC to cancel', w / 2, boxY + boxH * 0.78);
+    // CANCEL button — red sword (left)
+    this.ui.drawSword(ctx, jl.cancel.x, jl.cancel.y, jl.cancel.w, jl.cancel.h, 1);
+    const cancelFontSize = Math.max(11, Math.min(jl.cancel.h * 0.32, 14));
+    ctx.font = `bold ${cancelFontSize}px monospace`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#fff';
+    ctx.fillText('CANCEL', jl.cancel.x + jl.cancel.w * 0.52, jl.cancel.y + jl.cancel.h * 0.5);
+
+    // JOIN button — blue sword (right), dimmed if code too short
+    const canJoin = this.joinCodeInput.length >= 4;
+    ctx.globalAlpha = canJoin ? 1 : 0.4;
+    this.ui.drawSword(ctx, jl.join.x, jl.join.y, jl.join.w, jl.join.h, canJoin ? 0 : 4);
+    const joinFontSize = Math.max(11, Math.min(jl.join.h * 0.35, 16));
+    ctx.font = `bold ${joinFontSize}px monospace`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#fff';
+    ctx.fillText('JOIN', jl.join.x + jl.join.w * 0.52, jl.join.y + jl.join.h * 0.5);
+    ctx.globalAlpha = 1;
   }
 
   // ─── Render: Party panel ───
@@ -1874,7 +2167,7 @@ export class TitleScene implements Scene {
     const ppPadY = Math.round(pl.panel.h * 0.05);
     this.ui.drawWoodTable(ctx, pl.panel.x - ppPadX, pl.panel.y - ppPadY, pl.panel.w + ppPadX * 2, pl.panel.h + ppPadY * 2);
 
-    const fontSize = Math.max(10, Math.min(pl.panel.w / 28, 15));
+    const fontSize = Math.max(11, Math.min(pl.panel.w / 28, 15));
 
     // Header
     const headerH = 28;
@@ -1896,7 +2189,7 @@ export class TitleScene implements Scene {
       ctx.strokeStyle = 'rgba(255,215,64,0.3)';
       ctx.lineWidth = 1;
       ctx.strokeRect(mt.x, mt.y, mt.w, mt.h);
-      const mtFontSize = Math.max(8, mt.h * 0.5);
+      const mtFontSize = Math.max(11, mt.h * 0.5);
       ctx.font = `bold ${mtFontSize}px monospace`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
@@ -1916,7 +2209,7 @@ export class TitleScene implements Scene {
       ctx.strokeStyle = fogOn ? 'rgba(102,217,239,0.5)' : 'rgba(255,255,255,0.2)';
       ctx.lineWidth = 1;
       ctx.strokeRect(ft.x, ft.y, ft.w, ft.h);
-      const ftFontSize = Math.max(8, ft.h * 0.5);
+      const ftFontSize = Math.max(11, ft.h * 0.5);
       ctx.font = `bold ${ftFontSize}px monospace`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
@@ -1924,55 +2217,36 @@ export class TitleScene implements Scene {
       ctx.fillText(`FOG: ${fogOn ? 'ON' : 'OFF'}`, ft.x + ft.w / 2, ft.y + ft.h / 2);
     }
 
-    // Team color backgrounds
+    // Two-column team layout
     const activeSlots = new Set(getLocalActiveSlots(ls));
-    const colW = pl.panel.w / maxSlots;
+    const teamW = pl.teamW;
+    const teamGap = 10;
     const teamColors = ['rgba(50,100,220,0.12)', 'rgba(220,50,50,0.12)'];
     const teamBorderColors = ['rgba(80,140,255,0.35)', 'rgba(255,80,80,0.35)'];
     const teamLabels = ['TEAM 1', 'TEAM 2'];
-    const slotAreaTop = pl.panel.y + pl.panel.h * 0.26;
-    const slotAreaBot = pl.panel.y + pl.panel.h * 0.80;
+    const { cellTop: slotAreaTop, cellBot: slotAreaBot } = pl;
 
     for (let t = 0; t < mapDef.teams.length; t++) {
-      const startSlot = t * playersPerTeam;
-      const endSlot = startSlot + playersPerTeam;
-      const x0 = pl.panel.x + colW * startSlot + 2;
-      const x1 = pl.panel.x + colW * endSlot - 2;
+      const x0 = pl.panel.x + t * (teamW + teamGap);
+      const x1 = x0 + teamW;
       const r = 6;
-      ctx.fillStyle = teamColors[t % teamColors.length];
+      ctx.fillStyle = teamColors[t];
       ctx.beginPath();
-      ctx.moveTo(x0 + r, slotAreaTop); ctx.lineTo(x1 - r, slotAreaTop);
-      ctx.arcTo(x1, slotAreaTop, x1, slotAreaTop + r, r);
-      ctx.lineTo(x1, slotAreaBot - r);
-      ctx.arcTo(x1, slotAreaBot, x1 - r, slotAreaBot, r);
-      ctx.lineTo(x0 + r, slotAreaBot);
-      ctx.arcTo(x0, slotAreaBot, x0, slotAreaBot - r, r);
-      ctx.lineTo(x0, slotAreaTop + r);
-      ctx.arcTo(x0, slotAreaTop, x0 + r, slotAreaTop, r);
-      ctx.closePath();
+      ctx.roundRect(x0, slotAreaTop, x1 - x0, slotAreaBot - slotAreaTop, r);
       ctx.fill();
-      ctx.strokeStyle = teamBorderColors[t % teamBorderColors.length];
+      ctx.strokeStyle = teamBorderColors[t];
       ctx.lineWidth = 1;
       ctx.stroke();
 
-      const teamLabelSize = Math.max(7, fontSize * 0.6);
+      const teamLabelSize = Math.max(11, fontSize * 0.7);
       ctx.font = `bold ${teamLabelSize}px monospace`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'top';
-      ctx.fillStyle = teamBorderColors[t % teamBorderColors.length];
-      ctx.fillText(teamLabels[t] ?? `TEAM ${t + 1}`, (x0 + x1) / 2, slotAreaTop + 3);
+      ctx.fillStyle = teamBorderColors[t];
+      ctx.fillText(teamLabels[t], (x0 + x1) / 2, slotAreaTop + 3);
     }
 
-    // Team divider
-    const divX = pl.panel.x + colW * playersPerTeam;
-    ctx.strokeStyle = 'rgba(255,255,255,0.3)';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(divX, slotAreaTop);
-    ctx.lineTo(divX, slotAreaBot);
-    ctx.stroke();
-
-    // Render slots
+    // Render slots as rows within team columns
     for (let i = 0; i < maxSlots; i++) {
       const slotRect = pl.slotRects[i];
       const isPlayer = i === ls.playerSlot;
@@ -1980,106 +2254,102 @@ export class TitleScene implements Scene {
       const isActive = activeSlots.has(i);
 
       if (this.isDragging && this.dragSlot === i) ctx.globalAlpha = 0.3;
-      // Dim inactive slots
       if (!isActive) ctx.globalAlpha = 0.15;
 
       if (isPlayer) {
-        const slotCx = pl.panel.x + colW * i + colW / 2;
-        if (ls.playerRace === 'random') {
-          // Random player — show ? icon and RANDOM label
-          ctx.font = `bold ${Math.max(18, fontSize * 2)}px monospace`;
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'middle';
-          ctx.fillStyle = 'rgba(255,220,100,0.8)';
-          ctx.fillText('?', slotCx, slotRect.y + 20);
-
-          ctx.font = `bold ${Math.max(8, fontSize * 0.75)}px monospace`;
-          ctx.fillStyle = 'rgba(255,220,100,0.9)';
-          ctx.fillText('RANDOM', slotCx, slotRect.y + 40);
-
-          ctx.font = `${Math.max(9, fontSize * 0.85)}px monospace`;
-          ctx.fillStyle = '#fff';
-          ctx.fillText(this.playerName, slotCx, slotRect.y + 52);
-
-          ctx.font = `${Math.max(7, fontSize * 0.6)}px monospace`;
-          ctx.fillStyle = 'rgba(255,255,255,0.35)';
-          ctx.fillText('click to change', slotCx, slotRect.y - 6);
-        } else {
-          const fakePlayer: PartyPlayer = { uid: 'local', name: this.playerName, race: ls.playerRace };
-          this.renderPlayerSlot(ctx, pl.panel.x + colW * i, pl.panel.y + pl.panel.h * 0.30, colW, fakePlayer, true, slotRect, true, i);
-        }
+        const fakePlayer = { uid: 'local', name: this.playerName, race: ls.playerRace } as PartyPlayer;
+        this.renderPlayerSlot(ctx, fakePlayer, true, slotRect, true, i, true);
       } else if (botDiff) {
-        // Bot slot — render like a player slot but with difficulty label on top
-        const slotCx = pl.panel.x + colW * i + colW / 2;
+        const spad = 3;
+        const icoSz = slotRect.h - spad * 2;
+        const leftPad = slotRect.x + spad;
+        const midY = slotRect.y + slotRect.h / 2;
         const diffOpt = PARTY_DIFFICULTY_OPTIONS.find(d => d.level === botDiff);
         const diffLabel = diffOpt?.label ?? botDiff.toUpperCase();
         const diffColor = diffOpt?.color ?? '#aaa';
         const botRace = ls.botRaces?.[String(i)] ?? 'random';
 
-        // Race sprite (capped to slot height so it doesn't overflow)
-        const iconSize = Math.min(slotRect.w, slotRect.h);
+        // Left: sprite + race name + difficulty
         if (botRace !== 'random') {
           const spriteData = this.sprites.getUnitSprite(botRace as Race, 'melee', i);
           if (spriteData) {
             const [img, def] = spriteData;
             const frame = getSpriteFrame(Math.floor(this.animTime * 20), def);
             const gY = def.groundY ?? 0.71;
-            const drawY = slotRect.y + slotRect.h - iconSize * gY;
-            drawSpriteFrame(ctx, img, def, frame, slotCx - iconSize / 2, drawY, iconSize, iconSize);
+            const drawY = slotRect.y + spad + icoSz - icoSz * gY;
+            drawSpriteFrame(ctx, img, def, frame, leftPad, drawY, icoSz, icoSz);
           }
-          const colors = RACE_COLORS[botRace as Race];
+          ctx.textAlign = 'left';
+          ctx.textBaseline = 'middle';
           ctx.font = `bold ${fontSize}px monospace`;
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'top';
+          const colors = RACE_COLORS[botRace as Race];
           ctx.fillStyle = colors?.primary ?? '#aaa';
-          ctx.fillText(RACE_LABELS[botRace as Race] ?? botRace, slotCx, slotRect.y + slotRect.h + 6);
+          ctx.fillText(RACE_LABELS[botRace as Race] ?? botRace, leftPad + icoSz + 4, midY + fontSize * 0.55);
         } else {
-          ctx.font = `bold ${Math.max(18, fontSize * 2)}px monospace`;
+          ctx.font = `bold ${Math.max(14, icoSz * 0.5)}px monospace`;
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
           ctx.fillStyle = 'rgba(255,220,100,0.6)';
-          ctx.fillText('?', slotCx, slotRect.y + slotRect.h * 0.5);
-          ctx.font = `bold ${Math.max(8, fontSize * 0.75)}px monospace`;
-          ctx.textBaseline = 'top';
-          ctx.fillStyle = 'rgba(255,220,100,0.7)';
-          ctx.fillText('RANDOM', slotCx, slotRect.y + slotRect.h + 6);
+          ctx.fillText('?', leftPad + icoSz / 2, midY);
+          ctx.textAlign = 'left';
+          ctx.font = `bold ${fontSize}px monospace`;
+          ctx.fillStyle = 'rgba(255,220,100,0.9)';
+          ctx.fillText('RANDOM', leftPad + icoSz + 4, midY + fontSize * 0.55);
         }
 
-        // Difficulty label below race label
-        ctx.font = `bold ${Math.max(9, fontSize * 0.8)}px monospace`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'top';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.font = `bold ${Math.max(11, fontSize * 0.75)}px monospace`;
         ctx.fillStyle = diffColor;
-        ctx.fillText(`BOT ${diffLabel}`, slotCx, slotRect.y + slotRect.h + 6 + fontSize * 1.3);
+        ctx.fillText(`BOT ${diffLabel}`, leftPad + icoSz + 4, midY - fontSize * 0.45);
 
-        ctx.font = `${Math.max(6, fontSize * 0.5)}px monospace`;
-        ctx.fillStyle = 'rgba(255,255,255,0.3)';
-        ctx.fillText('click: diff / race', slotCx, slotRect.y + slotRect.h + 6 + fontSize * 2.5);
+        // Right side: RACE / DIFF buttons + X remove
+        {
+          const { raceBtn, diffBtn } = this.getBotSlotButtons(slotRect);
+          const btnFontSize = Math.max(10, raceBtn.h * 0.6);
+          ctx.fillStyle = 'rgba(255,255,255,0.08)';
+          ctx.fillRect(raceBtn.x, raceBtn.y, raceBtn.w, raceBtn.h);
+          ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+          ctx.lineWidth = 1;
+          ctx.strokeRect(raceBtn.x, raceBtn.y, raceBtn.w, raceBtn.h);
+          ctx.font = `bold ${btnFontSize}px monospace`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillStyle = 'rgba(255,255,255,0.6)';
+          ctx.fillText('RACE', raceBtn.x + raceBtn.w / 2, raceBtn.y + raceBtn.h / 2);
+          ctx.fillStyle = 'rgba(255,255,255,0.08)';
+          ctx.fillRect(diffBtn.x, diffBtn.y, diffBtn.w, diffBtn.h);
+          ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+          ctx.strokeRect(diffBtn.x, diffBtn.y, diffBtn.w, diffBtn.h);
+          ctx.fillStyle = 'rgba(255,255,255,0.6)';
+          ctx.fillText('DIFF', diffBtn.x + diffBtn.w / 2, diffBtn.y + diffBtn.h / 2);
+          this.drawRemoveButton(ctx, slotRect);
+        }
       } else {
-        // Empty slot
-        const slotCx = pl.panel.x + colW * i + colW / 2;
-        const slotY = pl.panel.y + pl.panel.h * 0.38;
-        ctx.font = `bold ${Math.max(8, fontSize * 0.8)}px monospace`;
+        const slotCx = slotRect.x + slotRect.w / 2;
+        const slotMidY = slotRect.y + slotRect.h / 2;
+        ctx.font = `bold ${Math.max(11, fontSize * 0.8)}px monospace`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillStyle = 'rgba(255,255,255,0.2)';
-        ctx.fillText(isActive ? 'EMPTY' : '—', slotCx, slotY);
+        ctx.fillText(isActive ? 'EMPTY' : '—', slotCx, slotMidY);
         if (isActive) {
-          ctx.font = `${Math.max(7, fontSize * 0.55)}px monospace`;
+          ctx.font = `${Math.max(11, fontSize * 0.55)}px monospace`;
           ctx.fillStyle = 'rgba(255,255,255,0.3)';
-          ctx.fillText('click to add bot', slotCx, slotY + fontSize * 1.3);
+          ctx.fillText('tap to add bot', slotCx, slotMidY + fontSize * 1.1);
         }
       }
 
       if ((this.isDragging && this.dragSlot === i) || !isActive) ctx.globalAlpha = 1;
 
-      // Divider lines within same team
-      if (i > 0 && i % playersPerTeam !== 0) {
+      // Horizontal dividers between rows within same team
+      const row = i % playersPerTeam;
+      if (row > 0) {
         ctx.strokeStyle = 'rgba(255,255,255,0.08)';
         ctx.lineWidth = 1;
         ctx.beginPath();
-        ctx.moveTo(pl.panel.x + colW * i, slotAreaTop + 14);
-        ctx.lineTo(pl.panel.x + colW * i, slotAreaBot - 4);
+        ctx.moveTo(slotRect.x, slotRect.y - 2);
+        ctx.lineTo(slotRect.x + slotRect.w, slotRect.y - 2);
         ctx.stroke();
       }
     }
@@ -2097,7 +2367,7 @@ export class TitleScene implements Scene {
           const gY = def.groundY ?? 0.71;
           drawSpriteFrame(ctx, img, def, frame, this.dragX - ghostSize / 2, this.dragY - ghostSize * gY, ghostSize, ghostSize);
         }
-        ctx.font = `bold ${Math.max(8, fontSize * 0.7)}px monospace`;
+        ctx.font = `bold ${Math.max(11, fontSize * 0.7)}px monospace`;
         ctx.textAlign = 'center';
         ctx.fillStyle = '#fff';
         ctx.fillText(this.playerName, this.dragX, this.dragY + ghostSize * 0.4);
@@ -2119,7 +2389,7 @@ export class TitleScene implements Scene {
     const canStart = canStartLocalSetup(ls);
     ctx.globalAlpha = canStart ? 1 : 0.4;
     this.ui.drawSword(ctx, pl.start.x, pl.start.y, pl.start.w, pl.start.h, canStart ? 0 : 4);
-    const startFontSize = Math.max(10, Math.min(pl.start.h * 0.35, 16));
+    const startFontSize = Math.max(11, Math.min(pl.start.h * 0.35, 16));
     ctx.font = `bold ${startFontSize}px monospace`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
@@ -2129,7 +2399,7 @@ export class TitleScene implements Scene {
 
     // BACK button
     this.ui.drawSword(ctx, pl.leave.x, pl.leave.y, pl.leave.w, pl.leave.h, 1);
-    const leaveFontSize = Math.max(9, Math.min(pl.leave.h * 0.32, 14));
+    const leaveFontSize = Math.max(11, Math.min(pl.leave.h * 0.32, 14));
     ctx.font = `bold ${leaveFontSize}px monospace`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
@@ -2138,7 +2408,7 @@ export class TitleScene implements Scene {
 
     // Start validation hint
     if (!canStart) {
-      ctx.font = `${Math.max(8, fontSize * 0.6)}px monospace`;
+      ctx.font = `${Math.max(11, fontSize * 0.6)}px monospace`;
       ctx.textAlign = 'center';
       ctx.fillStyle = 'rgba(255,100,100,0.7)';
       ctx.fillText('Each team needs at least 1 player or bot', w / 2, pl.start.y - 8);
@@ -2157,18 +2427,18 @@ export class TitleScene implements Scene {
     const ppPadY = Math.round(pl.panel.h * 0.05);
     this.ui.drawWoodTable(ctx, pl.panel.x - ppPadX, pl.panel.y - ppPadY, pl.panel.w + ppPadX * 2, pl.panel.h + ppPadY * 2);
 
-    const fontSize = Math.max(10, Math.min(pl.panel.w / 28, 15));
+    const fontSize = Math.max(11, Math.min(pl.panel.w / 28, 15));
     const isHost = this.party?.isHost;
 
     // Big ribbon header with party code front-and-center
     const codeRibW = pl.panel.w * 0.75;
-    const codeRibH = 52;
+    const codeRibH = 62;
     const codeRibX = pl.panel.x + (pl.panel.w - codeRibW) / 2;
     const codeRibY = pl.panel.y + 2;
     this.ui.drawBigRibbon(ctx, codeRibX, codeRibY, codeRibW, codeRibH, 2); // yellow
 
     // "PARTY CODE" small label at top of ribbon
-    const labelSize = Math.max(8, codeRibH * 0.2);
+    const labelSize = Math.max(11, codeRibH * 0.2);
     ctx.font = `bold ${labelSize}px monospace`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
@@ -2176,9 +2446,24 @@ export class TitleScene implements Scene {
     ctx.fillText('PARTY CODE', w / 2, codeRibY + codeRibH * 0.25);
 
     // Large code text — letter-spaced, bright white on the ribbon
-    const codeFontSize = Math.max(20, Math.min(pl.panel.w / 10, 36));
-    const codeStr = ps.code.split('').join('  ');
+    // Scale font to fit within ribbon width on small screens
+    let codeFontSize = Math.max(18, Math.min(pl.panel.w / 8, 44));
+    let codeStr = ps.code.split('').join('   ');
     ctx.font = `bold ${codeFontSize}px monospace`;
+    const maxCodeW = codeRibW * 0.88;
+    if (ctx.measureText(codeStr).width > maxCodeW) {
+      // Try narrower spacing first
+      codeStr = ps.code.split('').join('  ');
+      ctx.font = `bold ${codeFontSize}px monospace`;
+      if (ctx.measureText(codeStr).width > maxCodeW) {
+        codeStr = ps.code.split('').join(' ');
+        ctx.font = `bold ${codeFontSize}px monospace`;
+        if (ctx.measureText(codeStr).width > maxCodeW) {
+          codeFontSize = codeFontSize * maxCodeW / ctx.measureText(codeStr).width;
+          ctx.font = `bold ${codeFontSize}px monospace`;
+        }
+      }
+    }
     const codeTxtY = codeRibY + codeRibH * 0.6;
     ctx.fillStyle = 'rgba(0,0,0,0.5)';
     ctx.fillText(codeStr, w / 2 + 1, codeTxtY + 1);
@@ -2186,7 +2471,7 @@ export class TitleScene implements Scene {
     ctx.fillText(codeStr, w / 2, codeTxtY);
 
     // Tap to copy hint / copied feedback
-    ctx.font = `${Math.max(8, fontSize * 0.7)}px monospace`;
+    ctx.font = `${Math.max(11, fontSize * 0.7)}px monospace`;
     if (this.copyFeedbackTimer > 0) {
       const fadeIn = Math.min(1, (120 - this.copyFeedbackTimer) / 10);
       const floatY = (1 - this.copyFeedbackTimer / 120) * -6;
@@ -2208,7 +2493,7 @@ export class TitleScene implements Scene {
       ctx.strokeStyle = 'rgba(255,215,64,0.3)';
       ctx.lineWidth = 1;
       ctx.strokeRect(mt.x, mt.y, mt.w, mt.h);
-      const mtFontSize = Math.max(8, mt.h * 0.5);
+      const mtFontSize = Math.max(11, mt.h * 0.5);
       ctx.font = `bold ${mtFontSize}px monospace`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
@@ -2230,7 +2515,7 @@ export class TitleScene implements Scene {
       ctx.strokeStyle = fogOn ? 'rgba(102,217,239,0.5)' : 'rgba(255,255,255,0.2)';
       ctx.lineWidth = 1;
       ctx.strokeRect(ft.x, ft.y, ft.w, ft.h);
-      const ftFontSize = Math.max(8, ft.h * 0.5);
+      const ftFontSize = Math.max(11, ft.h * 0.5);
       ctx.font = `bold ${ftFontSize}px monospace`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
@@ -2238,43 +2523,31 @@ export class TitleScene implements Scene {
       ctx.fillText(`FOG: ${fogOn ? 'ON' : 'OFF'}`, ft.x + ft.w / 2, ft.y + ft.h / 2);
     }
 
-    // Team color backgrounds behind slot groups
+    // Two-column team layout
     const partyActiveSlots = new Set(getActiveSlots(ps));
-    const colW = pl.panel.w / maxSlots;
+    const teamW = pl.teamW;
+    const teamGap = 10;
     const localSlot = this.party?.localSlotIndex ?? 0;
     const mapDef = getMapById(ps.mapId ?? 'duel');
     const playersPerTeam = mapDef.playersPerTeam;
     const teamColors = ['rgba(50,100,220,0.12)', 'rgba(220,50,50,0.12)'];
     const teamBorderColors = ['rgba(80,140,255,0.35)', 'rgba(255,80,80,0.35)'];
     const teamLabels = ['TEAM 1', 'TEAM 2'];
-    const slotAreaTop = pl.panel.y + pl.panel.h * 0.26;
-    const slotAreaBot = pl.panel.y + pl.panel.h * 0.73;
+    const { cellTop: slotAreaTop, cellBot: slotAreaBot } = pl;
 
-    // Draw team background regions
     for (let t = 0; t < 2; t++) {
-      const startSlot = t * playersPerTeam;
-      const endSlot = startSlot + playersPerTeam;
-      const x0 = pl.panel.x + colW * startSlot + 2;
-      const x1 = pl.panel.x + colW * endSlot - 2;
+      const x0 = pl.panel.x + t * (teamW + teamGap);
+      const x1 = x0 + teamW;
       const r = 6;
       ctx.fillStyle = teamColors[t];
       ctx.beginPath();
-      ctx.moveTo(x0 + r, slotAreaTop); ctx.lineTo(x1 - r, slotAreaTop);
-      ctx.arcTo(x1, slotAreaTop, x1, slotAreaTop + r, r);
-      ctx.lineTo(x1, slotAreaBot - r);
-      ctx.arcTo(x1, slotAreaBot, x1 - r, slotAreaBot, r);
-      ctx.lineTo(x0 + r, slotAreaBot);
-      ctx.arcTo(x0, slotAreaBot, x0, slotAreaBot - r, r);
-      ctx.lineTo(x0, slotAreaTop + r);
-      ctx.arcTo(x0, slotAreaTop, x0 + r, slotAreaTop, r);
-      ctx.closePath();
+      ctx.roundRect(x0, slotAreaTop, x1 - x0, slotAreaBot - slotAreaTop, r);
       ctx.fill();
       ctx.strokeStyle = teamBorderColors[t];
       ctx.lineWidth = 1;
       ctx.stroke();
 
-      // Team label at top of region
-      const teamLabelSize = Math.max(7, fontSize * 0.6);
+      const teamLabelSize = Math.max(11, fontSize * 0.7);
       ctx.font = `bold ${teamLabelSize}px monospace`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'top';
@@ -2282,82 +2555,116 @@ export class TitleScene implements Scene {
       ctx.fillText(teamLabels[t], (x0 + x1) / 2, slotAreaTop + 3);
     }
 
-    // Team divider (thicker line between teams)
-    const divX = pl.panel.x + colW * playersPerTeam;
-    ctx.strokeStyle = 'rgba(255,255,255,0.3)';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(divX, slotAreaTop);
-    ctx.lineTo(divX, slotAreaBot);
-    ctx.stroke();
-
+    // Render slots as rows within team columns
     for (let i = 0; i < maxSlots; i++) {
       const player = ps.players[String(i)];
       const slotRect = pl.slotRects[i];
       const botDiff = ps.bots?.[String(i)] ?? null;
 
       const isSlotActive = partyActiveSlots.has(i);
-      // Dim slot if being dragged or inactive
       if (this.isDragging && this.dragSlot === i) ctx.globalAlpha = 0.3;
       else if (!isSlotActive) ctx.globalAlpha = 0.15;
 
       if (player) {
         const isSlotHost = i === 0;
-        this.renderPlayerSlot(ctx, pl.panel.x + colW * i, pl.panel.y + pl.panel.h * 0.30, colW, player, isSlotHost, slotRect, i === localSlot, i);
+        this.renderPlayerSlot(ctx, player, isSlotHost, slotRect, i === localSlot, i, i === localSlot);
+        if (isHost && i !== localSlot && !isSlotHost && isSlotActive) {
+          this.drawRemoveButton(ctx, slotRect);
+        }
       } else if (botDiff) {
-        // Bot slot — show difficulty with color
-        const slotCx = pl.panel.x + colW * i + colW / 2;
-        const slotY = pl.panel.y + pl.panel.h * 0.38;
+        const spad = 3;
+        const icoSz = slotRect.h - spad * 2;
+        const leftPad = slotRect.x + spad;
+        const midY = slotRect.y + slotRect.h / 2;
         const diffOpt = PARTY_DIFFICULTY_OPTIONS.find(d => d.level === botDiff);
         const diffLabel = diffOpt?.label ?? botDiff.toUpperCase();
         const diffColor = diffOpt?.color ?? '#aaa';
+        const botRace = ps.botRaces?.[String(i)] ?? 'random';
 
-        // Bot icon (gear-like indicator)
-        ctx.font = `bold ${Math.max(12, fontSize * 1.2)}px monospace`;
-        ctx.textAlign = 'center';
+        if (botRace !== 'random') {
+          const spriteData = this.sprites.getUnitSprite(botRace as Race, 'melee', i);
+          if (spriteData) {
+            const [img, def] = spriteData;
+            const frame = getSpriteFrame(Math.floor(this.animTime * 20), def);
+            const gY = def.groundY ?? 0.71;
+            const drawY = slotRect.y + spad + icoSz - icoSz * gY;
+            drawSpriteFrame(ctx, img, def, frame, leftPad, drawY, icoSz, icoSz);
+          }
+          ctx.textAlign = 'left';
+          ctx.textBaseline = 'middle';
+          ctx.font = `bold ${fontSize}px monospace`;
+          const colors = RACE_COLORS[botRace as Race];
+          ctx.fillStyle = colors?.primary ?? '#aaa';
+          ctx.fillText(RACE_LABELS[botRace as Race] ?? botRace.toUpperCase(), leftPad + icoSz + 4, midY + fontSize * 0.55);
+        } else {
+          ctx.font = `bold ${Math.max(14, icoSz * 0.5)}px monospace`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillStyle = 'rgba(255,220,100,0.8)';
+          ctx.fillText('?', leftPad + icoSz / 2, midY);
+          ctx.textAlign = 'left';
+          ctx.font = `bold ${fontSize}px monospace`;
+          ctx.fillStyle = 'rgba(255,220,100,0.9)';
+          ctx.fillText('RANDOM', leftPad + icoSz + 4, midY + fontSize * 0.55);
+        }
+
+        ctx.textAlign = 'left';
         ctx.textBaseline = 'middle';
+        ctx.font = `bold ${Math.max(11, fontSize * 0.75)}px monospace`;
         ctx.fillStyle = diffColor;
-        ctx.fillText('BOT', slotCx, slotY);
-
-        ctx.font = `bold ${Math.max(8, fontSize * 0.8)}px monospace`;
-        ctx.fillStyle = diffColor;
-        ctx.fillText(diffLabel, slotCx, slotY + fontSize * 1.3);
+        ctx.fillText(`BOT ${diffLabel}`, leftPad + icoSz + 4, midY - fontSize * 0.45);
 
         if (isHost && isSlotActive) {
-          ctx.font = `${Math.max(7, fontSize * 0.55)}px monospace`;
-          ctx.fillStyle = 'rgba(255,255,255,0.35)';
-          ctx.fillText('click to change', slotCx, slotY + fontSize * 2.3);
+          const { raceBtn, diffBtn } = this.getBotSlotButtons(slotRect);
+          const btnFontSize = Math.max(10, raceBtn.h * 0.6);
+          ctx.fillStyle = 'rgba(255,255,255,0.08)';
+          ctx.fillRect(raceBtn.x, raceBtn.y, raceBtn.w, raceBtn.h);
+          ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+          ctx.lineWidth = 1;
+          ctx.strokeRect(raceBtn.x, raceBtn.y, raceBtn.w, raceBtn.h);
+          ctx.font = `bold ${btnFontSize}px monospace`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillStyle = 'rgba(255,255,255,0.6)';
+          ctx.fillText('RACE', raceBtn.x + raceBtn.w / 2, raceBtn.y + raceBtn.h / 2);
+          ctx.fillStyle = 'rgba(255,255,255,0.08)';
+          ctx.fillRect(diffBtn.x, diffBtn.y, diffBtn.w, diffBtn.h);
+          ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+          ctx.strokeRect(diffBtn.x, diffBtn.y, diffBtn.w, diffBtn.h);
+          ctx.fillStyle = 'rgba(255,255,255,0.6)';
+          ctx.fillText('DIFF', diffBtn.x + diffBtn.w / 2, diffBtn.y + diffBtn.h / 2);
+          this.drawRemoveButton(ctx, slotRect);
         }
       } else {
-        // Empty slot (no bot, no player)
-        const slotCx = pl.panel.x + colW * i + colW / 2;
-        const slotY = pl.panel.y + pl.panel.h * 0.38;
-        ctx.font = `bold ${Math.max(8, fontSize * 0.8)}px monospace`;
+        const slotCx = slotRect.x + slotRect.w / 2;
+        const slotMidY = slotRect.y + slotRect.h / 2;
+        ctx.font = `bold ${Math.max(11, fontSize * 0.8)}px monospace`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillStyle = 'rgba(255,255,255,0.2)';
-        ctx.fillText(isSlotActive ? 'EMPTY' : '—', slotCx, slotY);
+        ctx.fillText(isSlotActive ? 'EMPTY' : '—', slotCx, slotMidY);
         if (isHost && isSlotActive) {
-          ctx.font = `${Math.max(7, fontSize * 0.55)}px monospace`;
+          ctx.font = `${Math.max(11, fontSize * 0.55)}px monospace`;
           ctx.fillStyle = 'rgba(255,255,255,0.3)';
-          ctx.fillText('click to add bot', slotCx, slotY + fontSize * 1.3);
+          ctx.fillText('tap to add bot', slotCx, slotMidY + fontSize * 1.1);
         }
       }
 
       if ((this.isDragging && this.dragSlot === i) || !isSlotActive) ctx.globalAlpha = 1;
 
-      // Divider lines between slots within same team
-      if (i > 0 && i !== playersPerTeam) {
+      // Horizontal dividers between rows within same team
+      const row = i % playersPerTeam;
+      if (row > 0) {
         ctx.strokeStyle = 'rgba(255,255,255,0.08)';
         ctx.lineWidth = 1;
         ctx.beginPath();
-        ctx.moveTo(pl.panel.x + colW * i, slotAreaTop + 14);
-        ctx.lineTo(pl.panel.x + colW * i, slotAreaBot - 4);
+        ctx.moveTo(slotRect.x, slotRect.y - 2);
+        ctx.lineTo(slotRect.x + slotRect.w, slotRect.y - 2);
         ctx.stroke();
       }
     }
 
-    // Drag ghost: render dragged player at cursor position
+    // Drag ghost
     if (this.isDragging && this.dragSlot >= 0) {
       const dragPlayer = ps.players[String(this.dragSlot)];
       if (dragPlayer) {
@@ -2370,7 +2677,7 @@ export class TitleScene implements Scene {
           const gY = def.groundY ?? 0.71;
           drawSpriteFrame(ctx, img, def, frame, this.dragX - ghostSize / 2, this.dragY - ghostSize * gY, ghostSize, ghostSize);
         }
-        ctx.font = `bold ${Math.max(8, fontSize * 0.7)}px monospace`;
+        ctx.font = `bold ${Math.max(11, fontSize * 0.7)}px monospace`;
         ctx.textAlign = 'center';
         ctx.fillStyle = '#fff';
         ctx.fillText(dragPlayer.name, this.dragX, this.dragY + ghostSize * 0.4);
@@ -2383,7 +2690,7 @@ export class TitleScene implements Scene {
       const canStart = canStartParty(ps);
       ctx.globalAlpha = canStart ? 1 : 0.4;
       this.ui.drawSword(ctx, pl.start.x, pl.start.y, pl.start.w, pl.start.h, canStart ? 0 : 4); // blue or dark
-      const startFontSize = Math.max(10, Math.min(pl.start.h * 0.35, 16));
+      const startFontSize = Math.max(11, Math.min(pl.start.h * 0.35, 16));
       ctx.font = `bold ${startFontSize}px monospace`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
@@ -2392,7 +2699,7 @@ export class TitleScene implements Scene {
       ctx.globalAlpha = 1;
     } else {
       // Guest sees "waiting for host"
-      ctx.font = `${Math.max(9, fontSize * 0.8)}px monospace`;
+      ctx.font = `${Math.max(11, fontSize * 0.8)}px monospace`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillStyle = 'rgba(255,255,255,0.5)';
@@ -2401,7 +2708,7 @@ export class TitleScene implements Scene {
 
     // LEAVE button — red sword
     this.ui.drawSword(ctx, pl.leave.x, pl.leave.y, pl.leave.w, pl.leave.h, 1);
-    const leaveFontSize = Math.max(9, Math.min(pl.leave.h * 0.32, 14));
+    const leaveFontSize = Math.max(11, Math.min(pl.leave.h * 0.32, 14));
     ctx.font = `bold ${leaveFontSize}px monospace`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
@@ -2411,65 +2718,117 @@ export class TitleScene implements Scene {
 
   private renderPlayerSlot(
     ctx: CanvasRenderingContext2D,
-    x: number, _y: number, slotW: number,
     player: PartyPlayer, isHost: boolean,
     raceRect: { x: number; y: number; w: number; h: number },
     isLocal = false,
     slotIndex = 0,
+    showRaceBtn = false,
   ): void {
-    const cx = x + slotW / 2;
-    const fontSize = Math.max(10, Math.min(slotW / 10, 14));
+    const fontSize = Math.max(11, Math.min(raceRect.w / 18, 14));
     const isRandom = (player.race as string) === 'random';
+    const pad = 3;
+    const imgSize = raceRect.h - pad * 2; // fill row height
+    const midY = raceRect.y + raceRect.h / 2;
+    let curX = raceRect.x + pad;
 
+    // 1) Avatar badge
+    const avatarIdToUse = isLocal ? this.profile?.avatarId : player.avatarId;
+    const avatarDef = avatarIdToUse ? ALL_AVATARS.find(a => a.id === avatarIdToUse) : undefined;
+    const badgeSize = imgSize;
+    const badgeX = curX;
+    const badgeY = raceRect.y + pad;
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.beginPath();
+    ctx.roundRect(badgeX, badgeY, badgeSize, badgeSize, 3);
+    ctx.fill();
+    ctx.strokeStyle = isLocal ? 'rgba(255,215,0,0.4)' : 'rgba(180,180,180,0.3)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.roundRect(badgeX, badgeY, badgeSize, badgeSize, 3);
+    ctx.stroke();
+    if (avatarDef) {
+      const sprData = this.sprites.getUnitSprite(avatarDef.race, avatarDef.category, 0, false, avatarDef.upgradeNode);
+      if (sprData) {
+        const [img, def] = sprData;
+        const frame = getSpriteFrame(Math.floor(this.animTime * 20), def);
+        const aspect = def.frameW / def.frameH;
+        const sprInset = 2;
+        const sprScale = def.scale ?? 1.0;
+        const drawH = (badgeSize - sprInset * 2) * sprScale;
+        const drawW = drawH * aspect;
+        const gY = def.groundY ?? 0.71;
+        const feetY = badgeY + badgeSize - sprInset - 1;
+        const drawY = feetY - drawH * gY;
+        const drawX = badgeX + (badgeSize - drawW) / 2;
+        drawSpriteFrame(ctx, img, def, frame, drawX, drawY, drawW, drawH);
+      }
+    }
+    curX += badgeSize + 3;
+
+    // 2) Race sprite
     if (isRandom) {
-      // Random race — show ? icon
-      ctx.font = `bold ${Math.max(18, fontSize * 2.2)}px monospace`;
+      ctx.font = `bold ${Math.max(14, imgSize * 0.6)}px monospace`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillStyle = 'rgba(255,220,100,0.8)';
-      ctx.fillText('?', cx, raceRect.y + raceRect.h * 0.5);
+      ctx.fillText('?', curX + imgSize / 2, midY);
     } else {
-      // Race icon — use slot index for sprite color variant (team 0 = pid 0, team 1 = pid 1+)
       const spriteData = this.sprites.getUnitSprite(player.race, 'melee', slotIndex);
       if (spriteData) {
         const [img, def] = spriteData;
-        const iconSize = Math.min(raceRect.w, raceRect.h);
         const frame = getSpriteFrame(Math.floor(this.animTime * 20), def);
         const gY = def.groundY ?? 0.71;
-        const drawY = raceRect.y + raceRect.h - iconSize * gY;
-        drawSpriteFrame(ctx, img, def, frame, cx - iconSize / 2, drawY, iconSize, iconSize);
+        const drawY = raceRect.y + pad + imgSize - imgSize * gY;
+        drawSpriteFrame(ctx, img, def, frame, curX, drawY, imgSize, imgSize);
       }
     }
+    curX += imgSize + 4;
 
-    // Race label below icon
-    const labelY = raceRect.y + raceRect.h + 6;
-    ctx.font = `bold ${fontSize}px monospace`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'top';
-    if (isRandom) {
-      ctx.fillStyle = 'rgba(255,220,100,0.9)';
-      ctx.fillText('RANDOM', cx, labelY);
-    } else {
-      const colors = RACE_COLORS[player.race];
-      ctx.fillStyle = colors.primary;
-      ctx.fillText(RACE_LABELS[player.race], cx, labelY);
+    // 3) Text: top = HOST label, middle = Player Name, bottom = Race Name
+    const textX = curX;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+
+    // Host tag above name
+    if (isHost) {
+      ctx.font = `${Math.max(8, fontSize * 0.55)}px monospace`;
+      ctx.fillStyle = '#ffe082';
+      ctx.fillText('HOST', textX, midY - fontSize * 1.0);
     }
 
     // Player name
-    ctx.font = `${Math.max(9, fontSize * 0.85)}px monospace`;
+    ctx.font = `bold ${fontSize}px monospace`;
     ctx.fillStyle = '#fff';
-    ctx.fillText(player.name, cx, labelY + fontSize * 1.3);
+    const nameText = player.name;
+    ctx.fillText(nameText, textX, midY - fontSize * 0.25);
 
-    // Host crown or "Guest" label
-    ctx.font = `${Math.max(8, fontSize * 0.7)}px monospace`;
-    ctx.fillStyle = isHost ? '#ffe082' : 'rgba(255,255,255,0.5)';
-    ctx.fillText(isHost ? 'HOST' : 'GUEST', cx, labelY + fontSize * 2.4);
+    // Bottom line: race name
+    ctx.font = `${Math.max(11, fontSize * 0.8)}px monospace`;
+    if (isRandom) {
+      ctx.fillStyle = 'rgba(255,220,100,0.9)';
+      ctx.fillText('RANDOM', textX, midY + fontSize * 0.75);
+    } else {
+      const colors = RACE_COLORS[player.race];
+      ctx.fillStyle = colors.primary;
+      ctx.fillText(RACE_LABELS[player.race], textX, midY + fontSize * 0.75);
+    }
 
-    // "Click to change" hint if this is the local player's slot
-    if (isLocal) {
-      ctx.font = `${Math.max(7, fontSize * 0.6)}px monospace`;
-      ctx.fillStyle = 'rgba(255,255,255,0.35)';
-      ctx.fillText('click to change', cx, raceRect.y - 10);
+    // 4) RACE button (only for own slot, hidden when too narrow to avoid collision)
+    if (showRaceBtn && raceRect.w > 250) {
+      const btnW = 42;
+      const btnH = Math.min(18, (raceRect.h - 6) / 2);
+      const btnX = raceRect.x + raceRect.w - btnW - 4;
+      const btnY = raceRect.y + (raceRect.h - btnH) / 2;
+      ctx.fillStyle = 'rgba(255,255,255,0.08)';
+      ctx.fillRect(btnX, btnY, btnW, btnH);
+      ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(btnX, btnY, btnW, btnH);
+      ctx.font = `bold ${Math.max(10, btnH * 0.6)}px monospace`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = 'rgba(255,255,255,0.6)';
+      ctx.fillText('RACE', btnX + btnW / 2, btnY + btnH / 2);
     }
   }
 
@@ -2536,15 +2895,18 @@ export class TitleScene implements Scene {
 
     const [img, def] = spriteData;
     const spriteScale = def.scale ?? 1.0;
-    const scaledSize = size * spriteScale;
-    const drawW = scaledSize;
-    const drawH = scaledSize * (def.heightScale ?? 1.0);
+    const baseH = size * spriteScale;
+    const aspect = def.frameW / def.frameH;
+    const drawW = baseH * aspect;
+    const drawH = baseH * (def.heightScale ?? 1.0);
     const frame = getSpriteFrame(frameTick, def);
     const sx = this.tileToScreen(unit.x, screenW);
     const gY = def.groundY ?? 0.71;
     const drawY = baseY - drawH * gY;
 
-    if (unit.facingLeft) {
+    // flipX sprites face left natively — invert facing so they match right-facing convention
+    const effectiveFaceLeft = def.flipX ? !unit.facingLeft : unit.facingLeft;
+    if (effectiveFaceLeft) {
       ctx.save();
       ctx.translate(sx, 0);
       ctx.scale(-1, 1);
