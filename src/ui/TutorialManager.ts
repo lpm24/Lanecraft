@@ -124,14 +124,14 @@ export interface TutorialPopupInfo {
 const POPUP_INFO: Record<TutorialStep, TutorialPopupInfo | null> = {
   click_builder: {
     title: 'Build a Miner Hut',
-    body: 'Miners collect resources for your army.\nClick the Miner button below!',
+    body: 'Miners collect resources.\nClick the Miner button below!',
     trayCol: 0,
     highlightGrid: 'none',
     arrowToSettings: false,
   },
   place_builder: {
     title: 'Place Your Hut',
-    body: 'Now click an open slot near your base\nto place it.',
+    body: 'Click an open slot near\nyour base to place it.',
     trayCol: -1,
     highlightGrid: 'hut',
     arrowToSettings: false,
@@ -210,37 +210,37 @@ export function getMenuTutorialInfo(): MenuTutorialInfo | null {
     case 'menu_profile': return {
       target: 'profile',
       title: 'Profile',
-      body: 'Change your avatar, view your stats\nand unlock achievements.',
+      body: 'Your avatar, stats, and\nachievements.',
     };
     case 'menu_solo': return {
       target: 'solo',
       title: 'Play Solo',
-      body: 'Pick a race, difficulty, and team size\nto battle against bots.',
+      body: 'Pick a race and difficulty\nto battle against bots.',
     };
     case 'menu_find': return {
       target: 'findGame',
       title: 'Find Game',
-      body: 'Queue up for an online match\nagainst other players.',
+      body: 'Queue for an online match.',
     };
     case 'menu_custom': return {
       target: 'custom',
       title: 'Custom Game',
-      body: 'Create a private lobby and invite\nfriends to play together.',
+      body: 'Create a private lobby\nand invite friends.',
     };
     case 'menu_join': return {
       target: 'join',
       title: 'Join Party',
-      body: 'Enter a party code to join\na friend\'s lobby.',
+      body: 'Enter a code to join\na friend\'s lobby.',
     };
     case 'menu_gallery': return {
       target: 'gallery',
       title: 'Unit Gallery',
-      body: 'Browse every unit in the game\nand learn about their abilities.',
+      body: 'Browse every unit and\nlearn their abilities.',
     };
     case 'menu_duel': return {
       target: 'duel',
       title: 'Duel Arena',
-      body: 'Units from different races fight here.\nWatch and learn who beats who!',
+      body: 'Units from different races\nfight automatically here.',
     };
     default: return null;
   }

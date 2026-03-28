@@ -1433,8 +1433,12 @@ export class InputHandler {
     }
 
     // Popup bubble — anchored at top during placement so it doesn't cover the build grid
+    const bodyLines = info.body.split('\n');
     const popupW = Math.min(300, W - 40);
-    const popupH = isPlacementStep ? 70 : 120;
+    // Dynamic height: title + body lines + skip link + padding
+    const popupH = isPlacementStep
+      ? 22 + bodyLines.length * 15 + 18
+      : 28 + 10 + bodyLines.length * 18 + 10 + 16 + 10;
     let popupX = (W - popupW) / 2;
     let popupY: number;
     if (isPlacementStep) {

@@ -2102,9 +2102,11 @@ export class TitleScene implements Scene {
       ctx.fillRect(0, 0, w, h);
     }
 
-    // Popup bubble — positioned so it never overlaps the highlighted element
+    // Popup bubble — sized to fit content, positioned to not overlap highlight
+    const bodyLines = info.body.split('\n');
     const popupW = Math.min(280, w - 40);
-    const popupH = 90;
+    // title(26) + gap(10) + bodyLines*17 + gap(10) + skipLink(16) + padding(8)
+    const popupH = 26 + 10 + bodyLines.length * 17 + 10 + 16 + 8;
     let popupX: number;
     let popupY: number;
     if (targetRect) {
