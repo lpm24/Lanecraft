@@ -1005,8 +1005,8 @@ const RACE_BUILDING_SPRITES: Record<string, string | undefined> = {
   'crown:ranged:D': H(52), 'crown:ranged:E': H(50), 'crown:ranged:F': H(43), 'crown:ranged:G': H(41),
   'crown:caster:B': H(11), 'crown:caster:C': H(28),
   'crown:caster:D': H(15), 'crown:caster:E': H(37), 'crown:caster:F': H(38), 'crown:caster:G': H(53),
-  'crown:tower:B': H(24), 'crown:tower:C': H(32),
-  'crown:tower:D': H(36), 'crown:tower:E': H(47), 'crown:tower:F': H(35), 'crown:tower:G': H(8),
+  'crown:tower:A': H(58), 'crown:tower:B': H(59), 'crown:tower:C': H(60),
+  'crown:tower:D': H(61), 'crown:tower:E': H(62), 'crown:tower:F': H(63), 'crown:tower:G': H(64),
 
   // === GOBLINS (Human Pack) ===
   'goblins:research:A': H(18), 'goblins:hut:A': O(52), 'goblins:potionshop:A': H(48),
@@ -1016,8 +1016,8 @@ const RACE_BUILDING_SPRITES: Record<string, string | undefined> = {
   'goblins:ranged:D': H(2), 'goblins:ranged:E': H(26), 'goblins:ranged:F': H(25), 'goblins:ranged:G': H(49),
   'goblins:caster:A': H(57), 'goblins:caster:B': H(7), 'goblins:caster:C': H(16),
   'goblins:caster:D': H(9), 'goblins:caster:E': H(23), 'goblins:caster:F': H(45), 'goblins:caster:G': H(46),
-  'goblins:tower:A': H(55), 'goblins:tower:B': H(51), 'goblins:tower:C': H(27),
-  'goblins:tower:D': H(40), 'goblins:tower:E': H(39), 'goblins:tower:F': H(54), 'goblins:tower:G': H(13),
+  'goblins:tower:A': H(65), 'goblins:tower:B': H(66), 'goblins:tower:C': H(67),
+  'goblins:tower:D': H(68), 'goblins:tower:E': H(69), 'goblins:tower:F': H(70), 'goblins:tower:G': H(71),
 
   // === HORDE (Orc Pack — warm tribal) ===
   'horde:research:A': O(38), 'horde:hut:A': O(7),
@@ -1077,7 +1077,8 @@ const RACE_BUILDING_SPRITES: Record<string, string | undefined> = {
   'deep:caster:A': N(9), 'deep:caster:B': N(20), 'deep:caster:C': N(19),
   'deep:caster:D': N(11), 'deep:caster:E': N(38), 'deep:caster:G': N(7),
   // F inherits C=N(19)
-  'deep:tower:A': N(35), // teal dome — shared with ranged:E (acceptable: prefer thematic over Tiny Swords fallback)
+  'deep:tower:A': N(56), 'deep:tower:B': N(57), 'deep:tower:C': N(58),
+  'deep:tower:D': N(59), 'deep:tower:E': N(60), 'deep:tower:F': N(61), 'deep:tower:G': N(62),
 
   // === GEISTS (NightElf Pack — purple/dark/undead) ===
   // 16 assets: N(1,10,14,15,16,17,21,24,27,30,32,33,36,37,40,43)
@@ -1093,24 +1094,23 @@ const RACE_BUILDING_SPRITES: Record<string, string | undefined> = {
   'geists:caster:A': N(21), 'geists:caster:B': N(30),
   'geists:caster:G': N(10),
   // C inherits A=N(21), D/E inherit B=N(30), F inherits C=A=N(21)
-  'geists:tower:A': N(36),
+  'geists:tower:A': N(93), 'geists:tower:B': N(94), 'geists:tower:C': N(98),
+  'geists:tower:D': N(96), 'geists:tower:E': N(97), 'geists:tower:F': N(95), 'geists:tower:G': N(99),
   // all tower upgrades inherit base — N(36) only used here
 
   // === OOZLINGS (NightElf Pack — green/alchemical) ===
   // 12 assets: N(2,3,4,5,6,8,18,23,25,28,41,44)
   // research=N(3), hut=N(28), melee=N(5), ranged=N(8), caster=N(18), tower=N(41)
   // Remaining unique for upgrades: N(2,4,6,23,25,44)
-  'oozlings:research:A': N(3), 'oozlings:hut:A': N(28),
-  'oozlings:melee:A': N(5), 'oozlings:melee:B': N(44), 'oozlings:melee:C': N(4),
-  // D inherits B=N(44), E inherits B=N(44), F inherits C=N(4), G=N(23)
-  'oozlings:melee:G': N(23),
-  'oozlings:ranged:A': N(8), 'oozlings:ranged:B': N(2), 'oozlings:ranged:C': N(6),
-  // D inherits B=N(2), E inherits B=N(2), F inherits C=N(6), G=N(25)
-  'oozlings:ranged:G': N(25),
-  'oozlings:caster:A': N(18),
-  // all caster upgrades inherit base — limited unique assets
-  'oozlings:tower:A': N(41),
-  // all tower upgrades inherit base
+  'oozlings:research:A': N(3), 'oozlings:hut:A': N(77),
+  'oozlings:melee:A': N(78), 'oozlings:melee:B': N(79), 'oozlings:melee:C': N(80),
+  'oozlings:melee:D': N(81), 'oozlings:melee:E': N(82), 'oozlings:melee:F': N(83), 'oozlings:melee:G': N(84),
+  'oozlings:ranged:A': N(86), 'oozlings:ranged:B': N(87), 'oozlings:ranged:C': N(88),
+  'oozlings:ranged:D': N(89), 'oozlings:ranged:E': N(90), 'oozlings:ranged:F': N(91), 'oozlings:ranged:G': N(92),
+  'oozlings:caster:A': N(70), 'oozlings:caster:B': N(71), 'oozlings:caster:C': N(72),
+  'oozlings:caster:D': N(73), 'oozlings:caster:E': N(74), 'oozlings:caster:F': N(75), 'oozlings:caster:G': N(76),
+  'oozlings:tower:A': N(63), 'oozlings:tower:B': N(64), 'oozlings:tower:C': N(65),
+  'oozlings:tower:D': N(66), 'oozlings:tower:E': N(67), 'oozlings:tower:F': N(68), 'oozlings:tower:G': N(69),
 };
 
 const RACE_KEY: Record<Race, string> = {

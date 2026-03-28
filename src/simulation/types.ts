@@ -548,6 +548,8 @@ export interface ProjectileState {
   targetX?: number;
   targetY?: number;
   buildingDamageMult?: number;  // on impact, deal damage * mult to buildings in aoeRadius
+  critChance?: number;          // chance (0-1) to deal critical hit (rolled on impact)
+  critMult?: number;            // critical hit damage multiplier
 }
 
 export interface FloatingText {

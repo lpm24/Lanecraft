@@ -1373,11 +1373,11 @@ const UNIT_ABILITY_VALUE: Record<Race, Record<string, { survMult: number; dmgMul
   [Race.Horde]: {
     // Brute: knockback every 3rd hit + 10% melee lifesteal. High base stats.
     melee:  { survMult: 1.20, dmgMult: 1.05 },
-    // Bowcleaver: no specials. Best ranged DPS in game (12.3 base).
-    ranged: { survMult: 1.00, dmgMult: 1.00 },
-    // War Chanter: haste pulse to 5 allies. +30% attack/move speed.
-    // With Berserker Howl: haste also gives +15% dmg. Force multiplier.
-    caster: { survMult: 1.00, dmgMult: 2.0 },
+    // Bowcleaver: best ranged DPS in game (13.8 base with 18 dmg).
+    ranged: { survMult: 1.00, dmgMult: 1.05 },
+    // War Chanter: haste pulse + chain heal (B-path). +25% dmg with Berserker Howl.
+    // Chain heal gives Horde sustain they desperately need.
+    caster: { survMult: 1.00, dmgMult: 2.2 },
   },
   [Race.Goblins]: {
     // Sticker: all Goblin attacks apply Wound (-50% healing). Fast (5.0 move).
@@ -1399,14 +1399,15 @@ const UNIT_ABILITY_VALUE: Record<Race, Record<string, { survMult: number; dmgMul
     caster: { survMult: 1.00, dmgMult: 1.8 },
   },
   [Race.Demon]: {
-    // Smasher: burn on every melee hit + Wound. Glass cannon (75 HP, 12 dmg).
+    // Smasher: burn on every melee hit + Wound. Glass cannon (85 HP, 12 dmg).
     // With Infernal Rage: +25% vs burning. Core burn synergy.
-    melee:  { survMult: 0.85, dmgMult: 1.45 },
-    // Eye Sniper: burn on ranged hit, long range (8). With Hellfire Arrows: +1 burn +10% dmg.
-    ranged: { survMult: 0.85, dmgMult: 1.35 },
-    // Overlord: no caster support ability (pure damage). AoE attacks.
+    melee:  { survMult: 0.90, dmgMult: 1.45 },
+    // Eye Sniper: burn on ranged hit, long range (8), 20% crit at 1.75x.
+    // With Hellfire Arrows: +1 burn +10% dmg. Crit identity = burst damage.
+    ranged: { survMult: 0.85, dmgMult: 1.50 },
+    // Overlord: strongest base caster (52 HP, 19 dmg). AoE attacks.
     // With Flame Conduit: +1 burn on AoE. With Immolation: 2-tile burn aura.
-    caster: { survMult: 0.80, dmgMult: 1.6 },
+    caster: { survMult: 0.85, dmgMult: 1.7 },
   },
   [Race.Deep]: {
     // Shell Guard: slow on melee hit. 190 HP tank wall.
@@ -1437,8 +1438,8 @@ const UNIT_ABILITY_VALUE: Record<Race, Record<string, { survMult: number; dmgMul
     // Lifesteal sustain keeps ranged alive in extended fights.
     ranged: { survMult: 1.15, dmgMult: 1.20 },
     // Necromancer: with Necrotic Burst research: heals 2 HP to 3 allies.
-    // With Undying Will: skeleton summon chance. Modest support.
-    caster: { survMult: 1.10, dmgMult: 1.6 },
+    // With Undying Will: skeleton summon chance. Decent support.
+    caster: { survMult: 1.10, dmgMult: 1.8 },
   },
   [Race.Tenders]: {
     // Treant: innate 1 HP/s regen. 154 HP = regen is ~0.6%/s sustained healing.
@@ -1677,29 +1678,29 @@ function getOneShotSynergyScore(id: string, threats: ThreatProfile): number {
   switch (id) {
     // --- CROWN: shields are the power spike, ranged piercing is strong ---
     case 'crown_melee_1': return threats.hasBurst ? 2.0 : 1.0;   // Defend Stance: -25% ranged dmg taken — niche
-    case 'crown_melee_2': return 2.0;                             // Royal Guard: +15% HP + gold on kill — solid mid
+    case 'crown_melee_2': return 2.5;                             // Royal Guard: +15% HP + gold on kill — econ synergy
     case 'crown_ranged_1': return threats.hasTanks ? 3.0 : 2.0;  // Piercing Arrows: ignore def + %HP dmg — great vs tanks
     case 'crown_ranged_2': return 3.0;                            // Crown Volley: +1 projectile — multiplicative DPS spike
     case 'crown_caster_1': return 3.5;                            // Fortified Shields: +8 absorb — core identity amplifier
     case 'crown_caster_2': return 2.0;                            // Healing Aura: 1 HP/s to 2 allies — decent sustain
     // Crown ability: Aegis Wrath (+25% dmg while shielded) is the big spike
-    case 'crown_ability_1': return 1.0;   // Swift Workers: econ QoL, low combat impact
-    case 'crown_ability_2': return 1.5;   // Royal Forge: saves wood, moderate econ
-    case 'crown_ability_3': return 3.5;   // Aegis Wrath: shielded +25% dmg — huge with Priest army
-    case 'crown_ability_4': return 2.0;   // Timber Surplus: +40% wood — strong econ
+    case 'crown_ability_1': return 3.5;   // Swift Workers: +40% worker speed — huge economy boost
+    case 'crown_ability_2': return 1.0;   // Royal Forge: foundry no wood — very narrow, buy cheap
+    case 'crown_ability_3': return 4.0;   // Aegis Wrath: +25% dmg while shielded — army-wide spike
+    case 'crown_ability_4': return 3.5;   // Timber Surplus: +40% wood income — massive econ boost
 
     // --- HORDE: brute force, auras are the differentiator ---
-    case 'horde_melee_1': return 2.5;                             // Blood Rage: +20% dmg low HP + %HP dmg — aggressive
-    case 'horde_melee_2': return 2.5;                             // Thick Skin: +20% HP — always good for front line
+    case 'horde_melee_1': return 3.0;                             // Blood Rage: up to +40% dmg based on missing HP — strong
+    case 'horde_melee_2': return 2.5;                             // Thick Skin: +25% HP — always good for front line
     case 'horde_ranged_1': return threats.hasSustain ? 3.0 : 1.5; // Heavy Bolts: Wound — amazing vs Tenders/Geists
     case 'horde_ranged_2': return threats.hasSwarm ? 3.5 : 2.0;  // Bombardier: splash — huge vs swarm
-    case 'horde_caster_1': return 2.5;                            // War Drums: haste 3->5s — extends aura uptime
-    case 'horde_caster_2': return 3.0;                            // Berserker Howl: haste gives +15% dmg — multiplicative
-    // Horde ability: Wide Aura is the big late-game spike
-    case 'horde_ability_1': return 1.5;   // Trample: War Troll AoE — late game only
-    case 'horde_ability_2': return 1.0;   // Troll Discount: saves resources — minor
+    case 'horde_caster_1': return 3.0;                            // War Drums: haste 3->5s + 20% attack speed — strong
+    case 'horde_caster_2': return 3.5;                            // Berserker Howl: haste gives +25% dmg — multiplicative
+    // Horde ability: Trophy Hunter is the big late-game snowball
+    case 'horde_ability_1': return 2.5;   // Trample: War Troll AoE — solid mid-game
+    case 'horde_ability_2': return 1.0;   // Troll Discount: saves resources — minor, buy opportunistically
     case 'horde_ability_3': return 3.0;   // Wide Aura: doubled range — huge with multiple casters
-    case 'horde_ability_4': return 2.0;   // Trophy Hunter: War Troll scales with kills — snowball
+    case 'horde_ability_4': return 4.0;   // Trophy Hunter: +2%/kill snowball — game-winning late
 
     // --- GOBLINS: burn stacking, speed, cheap and nasty ---
     case 'goblins_melee_1': return 3.0;                            // Coated Blades: +1 burn — core identity, scales with volume
@@ -1708,11 +1709,11 @@ function getOneShotSynergyScore(id: string, threats: ThreatProfile): number {
     case 'goblins_ranged_2': return threats.hasTanks ? 3.0 : 2.0; // Acid Bolts: %HP dmg — great vs tanks
     case 'goblins_caster_1': return 2.5;                           // Potent Hex: +1 burn AoE — synergy with casters
     case 'goblins_caster_2': return threats.hasSustain ? 3.5 : 2.0; // Jinx Cloud: wound on slowed — anti-heal combo
-    // Goblin ability: Quick Brew is the early spike, rest are situational
+    // Goblin ability: Elixir Mastery + Potent Potions are the elite late-game combo
     case 'goblins_ability_1': return 2.5;   // Quick Brew: faster potions + attract — good mid
-    case 'goblins_ability_2': return 2.0;   // Cower Reflexes: dodge while fleeing — defensive
-    case 'goblins_ability_3': return 2.0;   // Potent Potions: 2x effect strength — strong
-    case 'goblins_ability_4': return 3.5;   // Elixir Mastery: permanent potions — game-changing
+    case 'goblins_ability_2': return 1.0;   // Cower Reflexes: dodge while fleeing — weak, buy cheap
+    case 'goblins_ability_3': return 4.0;   // Potent Potions: 2x effect strength — elite
+    case 'goblins_ability_4': return 4.5;   // Elixir Mastery: permanent potions — #1 ability in game
 
     // --- OOZLINGS: death-powered economy, go wide ---
     case 'oozlings_melee_1': return 3.0;   // Volatile Membrane: explode on death — amazing for swarm
@@ -1721,11 +1722,11 @@ function getOneShotSynergyScore(id: string, threats: ThreatProfile): number {
     case 'oozlings_ranged_2': return 1.5;  // Acid Pool: kill leaves pool — minor AoE
     case 'oozlings_caster_1': return 1.5;  // Symbiotic Link: heal during haste — niche
     case 'oozlings_caster_2': return 2.5;  // Mass Division: wound on AoE — anti-heal
-    // Oozling ability: death synergy is everything
-    case 'oozlings_ability_1': return 2.5;  // Spitter Mound: 25% ranged spawn from Ooze Mound — free diversity
-    case 'oozlings_ability_2': return 2.0;  // Caster Mound: 25% caster spawn — free diversity
-    case 'oozlings_ability_3': return 3.5;  // Death Burst: 3 random ooze on death — massive with swarm
-    case 'oozlings_ability_4': return 2.5;  // Ooze Vitality: 2 HP/s regen all units — great sustain for swarm
+    // Oozling ability: Ooze Vitality is the powerhouse on swarm armies
+    case 'oozlings_ability_1': return 2.0;  // Spitter Mound: 25% ranged spawn — moderate diversity
+    case 'oozlings_ability_2': return 2.0;  // Caster Mound: 25% caster spawn — moderate diversity
+    case 'oozlings_ability_3': return 1.5;  // Death Burst: 3 ooze on tower death — reactive, weak
+    case 'oozlings_ability_4': return 4.0;  // Ooze Vitality: 2 HP/s all units — massive on swarm army
 
     // --- DEMON: burn everything, mana economy matters ---
     case 'demon_melee_1': return 3.0;                             // Infernal Rage: +25% vs burning — core synergy
@@ -1734,24 +1735,24 @@ function getOneShotSynergyScore(id: string, threats: ThreatProfile): number {
     case 'demon_ranged_2': return threats.hasSwarm ? 3.5 : 2.0;  // Eye of Destruction: splash — huge vs swarm
     case 'demon_caster_1': return 2.0;                            // Flame Conduit: +1 AoE burn — caster-dependent
     case 'demon_caster_2': return 2.0;                            // Immolation: burn aura — caster-dependent
-    // Demon ability: save mana for big groups, upgrades > fireballs long-term
-    case 'demon_ability_1': return 1.5;   // Rapid Fire: -25% cooldown — only if using ability actively
-    case 'demon_ability_2': return 2.5;   // Scorched Earth: burn ground — strong AoE denial
-    case 'demon_ability_3': return 2.0;   // Siege Fire: +50% building dmg — push tool
-    case 'demon_ability_4': return 2.5;   // Mana Siphon: +50% mana income — more fireballs
+    // Demon ability: Scorched Earth is the standout, Mana Siphon fuels the engine
+    case 'demon_ability_1': return 2.0;   // Rapid Fire: -25% cooldown — moderate
+    case 'demon_ability_2': return 3.5;   // Scorched Earth: burn ground — strong AoE denial
+    case 'demon_ability_3': return 1.5;   // Siege Fire: +50% building dmg — niche push tool
+    case 'demon_ability_4': return 3.0;   // Mana Siphon: +50% mana income — fuels everything
 
     // --- DEEP: tank wall + slow control ---
     case 'deep_melee_1': return 3.0;                              // Tidal Guard: +15% HP +5% DR — makes tanks unkillable
-    case 'deep_melee_2': return 2.5;                              // Crushing Depths: +20% vs slowed — synergy with Harpooner
+    case 'deep_melee_2': return 3.5;                              // Crushing Depths: +50% vs slowed — huge with Harpooner slow
     case 'deep_ranged_1': return 2.5;                             // Frozen Harpoons: +1 slow — more control
-    case 'deep_ranged_2': return 2.0;                             // Anchor Shot: +50% siege dmg — late push tool
-    case 'deep_caster_1': return threats.hasBurn ? 3.0 : 1.5;    // Purifying Tide: cleanse burn — critical vs burn races
+    case 'deep_ranged_2': return 2.5;                             // Anchor Shot: +100% siege dmg — devastating push tool
+    case 'deep_caster_1': return 3.0;                             // Purifying Tide: cleanse burn + haste 5 allies — mobility fix
     case 'deep_caster_2': return 2.0;                             // Abyssal Ward: shield allies — decent support
-    // Deep ability: Deluge upgrades are late game
-    case 'deep_ability_1': return 1.5;   // Crushing Rain: 3 dps during Deluge — late game
-    case 'deep_ability_2': return 2.0;   // Healing Rain: heal during Deluge — late sustain
-    case 'deep_ability_3': return 2.5;   // Freezing Depths: slowed units even slower — always-on passive
-    case 'deep_ability_4': return 2.0;   // Purifying Deluge: cleanse debuffs — anti-burn/slow
+    // Deep ability: Healing Rain is the fight-winner, Purifying is matchup-dependent
+    case 'deep_ability_1': return 2.5;   // Crushing Rain: 3 dps in Deluge — solid AoE damage
+    case 'deep_ability_2': return 3.5;   // Healing Rain: 5 HP/s in Deluge — fight-winning sustain
+    case 'deep_ability_3': return 2.0;   // Freezing Depths: 15% extra slow — moderate passive
+    case 'deep_ability_4': return threats.hasBurn ? 3.0 : 1.5;   // Purifying Deluge: cleanse — great vs burn/slow, useless otherwise
 
     // --- WILD: poison aggro, meat-on-kill, frenzy timing ---
     case 'wild_melee_1': return 3.0;                              // Savage Frenzy: +2s frenzy +10% dmg — core identity
@@ -1760,11 +1761,11 @@ function getOneShotSynergyScore(id: string, threats: ThreatProfile): number {
     case 'wild_ranged_2': return 2.0;                             // Predator's Mark: +15% dmg taken — amplifier
     case 'wild_caster_1': return 2.5;                             // Nature's Wrath: +1 AoE radius — more coverage
     case 'wild_caster_2': return 3.0;                             // Alpha Howl: casters grant frenzy — huge multiplicative
-    // Wild ability: meat economy and frenzy scaling
-    case 'wild_ability_1': return 2.5;   // Meat Harvest: +3 meat on kill — sustains production
-    case 'wild_ability_2': return 3.0;   // Blood Frenzy: kill frenzy radius doubled — army-wide spike
+    // Wild ability: Blood Frenzy is the army-wide snowball, Savage Instinct combos with it
+    case 'wild_ability_1': return 1.5;   // Meat Harvest: 30% chance +3 meat — weak trickle
+    case 'wild_ability_2': return 4.0;   // Blood Frenzy: 4x frenzy area — army-wide, game-defining
     case 'wild_ability_3': return 2.0;   // Pack Speed: +10% move — decent mobility
-    case 'wild_ability_4': return 3.0;   // Savage Instinct: frenzy lifesteal — sustain during aggression
+    case 'wild_ability_4': return 3.0;   // Savage Instinct: frenzy lifesteal — great combo with Blood Frenzy
 
     // --- GEISTS: lifesteal sustain, soul economy, summon spam ---
     case 'geists_melee_1': return 3.0;                            // Death Grip: lifesteal 15->25% — huge sustain spike
@@ -1773,11 +1774,11 @@ function getOneShotSynergyScore(id: string, threats: ThreatProfile): number {
     case 'geists_ranged_2': return 2.0;                           // Phantom Volley: 15% pass-through — minor
     case 'geists_caster_1': return 2.0;                           // Necrotic Burst: +2 heal — incremental
     case 'geists_caster_2': return 2.5;                           // Undying Will: skeleton summon — more bodies
-    // Geists ability: summon upgrades, use ability whenever up
-    case 'geists_ability_1': return 3.0;   // Bone Archers: +3 skeleton archers — huge value per summon
-    case 'geists_ability_2': return 2.5;   // Empowered Minions: +5 dmg +25% speed — better skeletons
-    case 'geists_ability_3': return 2.0;   // Death Defiance: 5% avoid death — minor but always-on
-    case 'geists_ability_4': return 3.0;   // Hungering Dark: lifesteal = +dmg — multiplicative scaling
+    // Geists ability: Hungering Dark is the elite multiplicative scaler
+    case 'geists_ability_1': return 3.0;   // Bone Archers: +3 skeleton archers — big value per summon
+    case 'geists_ability_2': return 2.0;   // Empowered Minions: +5 dmg +25% speed — moderate
+    case 'geists_ability_3': return 1.0;   // Death Defiance: 5% avoid death — weakest ability in game
+    case 'geists_ability_4': return 4.5;   // Hungering Dark: lifesteal=+dmg — elite multiplicative scaling
 
     // --- TENDERS: regen sustain, seed timing ---
     case 'tenders_melee_1': return 3.0;                            // Bark Skin: regen 1->2 HP/s — doubles sustain
@@ -1786,11 +1787,11 @@ function getOneShotSynergyScore(id: string, threats: ThreatProfile): number {
     case 'tenders_ranged_2': return 1.5;                           // Root Snare: 20% slow — unreliable
     case 'tenders_caster_1': return 3.0;                           // Bloom Burst: +2 heal — core healer buff
     case 'tenders_caster_2': return 2.5;                           // Life Link: double heal <30% — clutch saves
-    // Tenders ability: seed management
-    case 'tenders_ability_1': return 2.5;   // Fast Growth: seeds grow 40% faster — more seed pops
-    case 'tenders_ability_2': return 2.5;   // Quick Seeds: -30% cooldown — more seeds overall
-    case 'tenders_ability_3': return 2.0;   // Reseed: 30% replant — value over time
-    case 'tenders_ability_4': return 2.5;   // Ironwood: tower upgrades -50% cost — strong tower play
+    // Tenders ability: Fast Growth + Quick Seeds are the seed pipeline combo
+    case 'tenders_ability_1': return 3.0;   // Fast Growth: seeds grow 40% faster — core seed upgrade
+    case 'tenders_ability_2': return 3.0;   // Quick Seeds: -30% cooldown — core seed upgrade
+    case 'tenders_ability_3': return 1.5;   // Reseed: 30% replant — niche value over time
+    case 'tenders_ability_4': return 1.5;   // Ironwood: tower upgrades -50% — narrow, tower-only
 
     default: return 1.0;
   }

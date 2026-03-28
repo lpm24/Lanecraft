@@ -1132,7 +1132,7 @@ function processResearchUpgrade(state: GameState, cmd: Extract<GameCommand, { ty
     const id = cmd.upgradeId;
     // HP bonuses for existing melee units
     const hpMults: Record<string, number> = {
-      'crown_melee_2': 1.15, 'horde_melee_2': 1.20, 'deep_melee_1': 1.15,
+      'crown_melee_2': 1.15, 'horde_melee_2': 1.25, 'deep_melee_1': 1.15,
     };
     if (hpMults[id]) {
       const mult = hpMults[id];
@@ -2602,7 +2602,7 @@ function tickSpawners(state: GameState): void {
       let raceMoveSpeedMult = 1;
       if (category === 'melee') {
         if (bu.raceUpgrades['crown_melee_2']) raceHpMult *= 1.15;
-        if (bu.raceUpgrades['horde_melee_2']) raceHpMult *= 1.20;
+        if (bu.raceUpgrades['horde_melee_2']) raceHpMult *= 1.25;
         if (bu.raceUpgrades['deep_melee_1']) raceHpMult *= 1.15;
         if (bu.raceUpgrades['goblins_melee_2']) raceMoveSpeedMult *= 1.35;
       }
@@ -3396,6 +3396,19 @@ function applyCasterSupport(state: GameState, caster: UnitState, race: Race, sp:
           if (hordeHasteCount >= 5 + healBonus) break;
         }
       }
+      // Chain heal: heal most injured allies (Battle Chanter B-path upgrade)
+      const chainHealCount = sp?.chainHeal ?? 0;
+      if (chainHealCount > 0) {
+        const injured = allies.filter(a => a.hp < a.maxHp).sort((a, b) => (a.hp / a.maxHp) - (b.hp / b.maxHp));
+        let healed = 0;
+        const healAmt = caster.damage; // heal amount = caster damage stat
+        for (const a of injured) {
+          if (healed >= chainHealCount) break;
+          const ah = healUnit(a, healAmt);
+          if (ah > 0) { trackHealing(state, caster, ah); healed++; }
+        }
+        if (healed > 0) addCombatEvent(state, { type: 'pulse', x: caster.x, y: caster.y, radius: supportRange, color: '#66bb6a' });
+      }
       if (hordeHasteCount > 0) addCombatEvent(state, { type: 'pulse', x: caster.x, y: caster.y, radius: supportRange, color: '#ffab40' });
       break;
     }
@@ -3450,6 +3463,14 @@ function applyCasterSupport(state: GameState, caster: UnitState, race: Race, sp:
           addDeathParticles(state, a.x, a.y, '#1565c0', 1);
           addCombatEvent(state, { type: 'cleanse', x: a.x, y: a.y, color: '#1565c0' });
           cleansed++;
+        }
+      }
+      // Research: Purifying Tide — also grant +25% move speed via haste to cleansed/nearby allies
+      if (extraCleanse > 0) {
+        for (const a of allies.slice(0, 5)) {
+          if (!a.statusEffects.some(e => e.type === StatusType.Haste)) {
+            applyStatus(a, StatusType.Haste, 1);
+          }
         }
       }
       // Research: Abyssal Ward — shield 3 HP to nearby allies
@@ -4415,14 +4436,49 @@ function tickCombat(state: GameState): void {
             const cbuGen = state.players[unit.playerId]?.researchUpgrades;
             if (cbuGen?.raceUpgrades['wild_caster_1']) aoeRadius += 1;
             const effDmg = getEffectiveDamage(unit, state);
-            state.projectiles.push({
-              id: genId(state), x: unit.x, y: unit.y,
-              targetId: target.id, damage: effDmg,
-              speed: 10, aoeRadius, team: unit.team, visual: 'circle',
-              sourcePlayerId: unit.playerId, sourceUnitId: unit.id,
-              extraBurnStacks: sp?.extraBurnStacks,
-              extraSlowStacks: sp?.extraSlowStacks,
-            });
+            // Oozlings caster chain lightning: fire chain projectiles to nearby enemies
+            const casterChainCount = (race === Race.Oozlings && sp?.extraChainTargets) ? sp.extraChainTargets : 0;
+            if (casterChainCount > 0) {
+              // Primary single-target hit (no AoE) + chain bounces
+              state.projectiles.push({
+                id: genId(state), x: unit.x, y: unit.y,
+                targetId: target.id, damage: effDmg,
+                speed: 12, aoeRadius: 0, team: unit.team, visual: 'orb',
+                sourcePlayerId: unit.playerId, sourceUnitId: unit.id,
+                extraSlowStacks: sp?.extraSlowStacks,
+              });
+              const chainPct = sp?.chainDamagePct ?? 0.5;
+              const chained: number[] = [target.id];
+              let lastX = target.x, lastY = target.y;
+              for (let ci = 0; ci < casterChainCount; ci++) {
+                let chainTgt: UnitState | null = null;
+                let chainDist = Infinity;
+                for (const o of _combatGrid.getNearby(lastX, lastY, 4)) {
+                  if (o.team === unit.team || chained.includes(o.id)) continue;
+                  const d = Math.sqrt((o.x - lastX) ** 2 + (o.y - lastY) ** 2);
+                  if (d <= 4 && d < chainDist) { chainTgt = o; chainDist = d; }
+                }
+                if (!chainTgt) break;
+                chained.push(chainTgt.id);
+                addCombatEvent(state, { type: 'chain', x: lastX, y: lastY, x2: chainTgt.x, y2: chainTgt.y, color: '#7c4dff' });
+                state.projectiles.push({
+                  id: genId(state), x: lastX, y: lastY,
+                  targetId: chainTgt.id, damage: Math.round(effDmg * chainPct),
+                  speed: 20, aoeRadius: 0, team: unit.team, visual: 'orb',
+                  sourcePlayerId: unit.playerId, sourceUnitId: unit.id,
+                });
+                lastX = chainTgt.x; lastY = chainTgt.y;
+              }
+            } else {
+              state.projectiles.push({
+                id: genId(state), x: unit.x, y: unit.y,
+                targetId: target.id, damage: effDmg,
+                speed: 10, aoeRadius, team: unit.team, visual: 'circle',
+                sourcePlayerId: unit.playerId, sourceUnitId: unit.id,
+                extraBurnStacks: sp?.extraBurnStacks,
+                extraSlowStacks: sp?.extraSlowStacks,
+              });
+            }
           }
         } else if (isCaster) {
           // Demon caster: pure damage AoE, no support
@@ -4456,10 +4512,10 @@ function tickCombat(state: GameState): void {
             if (rbu.raceUpgrades['demon_ranged_1']) effDmg = Math.round(effDmg * 1.10);
             // Horde Bombardier: add AoE to ranged projectiles
             if (rbu.raceUpgrades['horde_ranged_2'] && rangedAoe === 0) { rangedAoe = 2.5; rangedSplashPct = 0.30; }
-            // Horde Berserker Howl: +15% ranged damage while hasted
-            if (rbu.raceUpgrades['horde_caster_2'] && unit.statusEffects.some(e => e.type === StatusType.Haste)) effDmg = Math.round(effDmg * 1.15);
-            // Deep Anchor Shot: +50% damage for siege units
-            if (rbu.raceUpgrades['deep_ranged_2'] && (sp?.isSiegeUnit ?? false)) effDmg = Math.round(effDmg * 1.50);
+            // Horde Berserker Howl: +25% ranged damage while hasted
+            if (rbu.raceUpgrades['horde_caster_2'] && unit.statusEffects.some(e => e.type === StatusType.Haste)) effDmg = Math.round(effDmg * 1.25);
+            // Deep Anchor Shot: +100% damage for siege units
+            if (rbu.raceUpgrades['deep_ranged_2'] && (sp?.isSiegeUnit ?? false)) effDmg = Math.round(effDmg * 2.00);
           }
           const isSiege = sp?.isSiegeUnit ?? false;
           state.projectiles.push({
@@ -4474,6 +4530,8 @@ function tickCombat(state: GameState): void {
             splashDamagePct: rangedSplashPct,
             lifestealPct: isSiege ? (sp?.lifestealPct) : (race === Race.Geists ? 0.1 : undefined),
             buildingDamageMult: isSiege ? (sp?.buildingDamageMult ?? 3.0) : undefined,
+            critChance: UNIT_STATS[race]?.[BuildingType.RangedSpawner]?.critChance,
+            critMult: UNIT_STATS[race]?.[BuildingType.RangedSpawner]?.critMult,
           });
           // Research: Crown Volley — fire extra projectile at 40% damage
           if (rbu?.raceUpgrades['crown_ranged_2']) {
@@ -4597,12 +4655,15 @@ function tickCombat(state: GameState): void {
           const mPlayer = state.players[unit.playerId];
           if (mPlayer) {
             const mbu = mPlayer.researchUpgrades;
-            // Horde Blood Rage: +20% when <50% HP
-            if (mbu.raceUpgrades['horde_melee_1'] && unit.hp < unit.maxHp * 0.5) meleeDmg = Math.round(meleeDmg * 1.20);
+            // Horde Blood Rage: up to +40% dmg based on missing HP (linear: 0% at full, 40% at 50% HP, 80% at 0 HP)
+            if (mbu.raceUpgrades['horde_melee_1'] && unit.hp < unit.maxHp) {
+              const missingPct = 1 - unit.hp / unit.maxHp; // 0 at full, 1 at 0 HP
+              meleeDmg = Math.round(meleeDmg * (1 + 0.80 * missingPct));
+            }
             // Demon Infernal Rage: +25% vs burning
             if (mbu.raceUpgrades['demon_melee_1'] && target.statusEffects.some(e => e.type === StatusType.Burn)) meleeDmg = Math.round(meleeDmg * 1.25);
-            // Deep Crushing Depths: +20% vs slowed
-            if (mbu.raceUpgrades['deep_melee_2'] && target.statusEffects.some(e => e.type === StatusType.Slow)) meleeDmg = Math.round(meleeDmg * 1.20);
+            // Deep Crushing Depths: +50% vs slowed
+            if (mbu.raceUpgrades['deep_melee_2'] && target.statusEffects.some(e => e.type === StatusType.Slow)) meleeDmg = Math.round(meleeDmg * 1.50);
             // Wild Pack Hunter: +5% per nearby ally, max +40%
             if (mbu.raceUpgrades['wild_melee_2']) {
               let nearAllies = 0;
@@ -4615,8 +4676,8 @@ function tickCombat(state: GameState): void {
             }
             // Wild Savage Frenzy: +10% extra damage during frenzy
             if (mbu.raceUpgrades['wild_melee_1'] && unit.statusEffects.some(e => e.type === StatusType.Frenzy)) meleeDmg = Math.round(meleeDmg * 1.10);
-            // Horde Berserker Howl: +15% damage while hasted
-            if (mbu.raceUpgrades['horde_caster_2'] && unit.statusEffects.some(e => e.type === StatusType.Haste)) meleeDmg = Math.round(meleeDmg * 1.15);
+            // Horde Berserker Howl: +25% damage while hasted
+            if (mbu.raceUpgrades['horde_caster_2'] && unit.statusEffects.some(e => e.type === StatusType.Haste)) meleeDmg = Math.round(meleeDmg * 1.25);
           }
           dealDamage(state, target, meleeDmg, meleeDmg >= 5, unit.playerId, unit.id);
           if (meleeHitSounds < 4) { addSound(state, 'melee_hit', unit.x, unit.y); meleeHitSounds++; }
@@ -4732,6 +4793,14 @@ function tickCombat(state: GameState): void {
       }
     } else {
       if (unit.attackTimer > 0) unit.attackTimer--;
+    }
+
+    // Horde War Drums: hasted units attack 20% faster (extra tick every 5th tick)
+    const warDrumPlayer = state.players[unit.playerId];
+    if (warDrumPlayer?.researchUpgrades.raceUpgrades['horde_caster_1']
+      && unit.statusEffects.some(e => e.type === StatusType.Haste)
+      && unit.attackTimer > 0 && state.tick % 5 === 0) {
+      unit.attackTimer--;
     }
   }
 
@@ -5130,8 +5199,14 @@ function tickProjectiles(state: GameState): void {
         continue;
       }
 
+      // Critical hit: roll crit chance using deterministic RNG
+      let hitDmg = p.damage;
+      if (p.critChance && p.critMult && state.rng() < p.critChance) {
+        hitDmg = Math.round(hitDmg * p.critMult);
+        addFloatingText(state, target.x, target.y - 0.5, 'CRIT!', '#ff4444', undefined, undefined, { ftType: 'status' });
+      }
       // Hit! Apply damage through shield
-      dealDamage(state, target, p.damage, true, p.sourcePlayerId, p.sourceUnitId, p.isTowerShot);
+      dealDamage(state, target, hitDmg, true, p.sourcePlayerId, p.sourceUnitId, p.isTowerShot);
       if (rangedHitSounds < 3) { addSound(state, 'ranged_hit', target.x, target.y); rangedHitSounds++; }
       addDeathParticles(state, target.x, target.y, '#ffaa00', 2);
 
@@ -5147,8 +5222,8 @@ function tickProjectiles(state: GameState): void {
         // Burn races: Demon, Geists, Wild, Goblins (Knifer poison)
         if (race === Race.Demon || race === Race.Geists || race === Race.Wild || race === Race.Goblins)
           applyStatus(target, StatusType.Burn, (p.aoeRadius > 0 ? 2 : 1) + extraBurn);
-        // Anti-heal: Wound on ranged/caster hits for Goblins, Demon, Geists, Wild, Horde
-        if (race === Race.Goblins || race === Race.Demon || race === Race.Geists || race === Race.Wild || race === Race.Horde)
+        // Anti-heal: Wound on ranged/caster hits for Goblins, Demon, Wild, Horde (Geists melee only)
+        if (race === Race.Goblins || race === Race.Demon || race === Race.Wild || race === Race.Horde)
           applyWound(target);
         // Geists Wraith Bow: ranged lifesteal
         if (p.lifestealPct && p.lifestealPct > 0) {
