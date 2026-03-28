@@ -10,11 +10,12 @@ import { SpriteLoader } from './rendering/SpriteLoader';
 import { UIAssets } from './rendering/UIAssets';
 import { Race, createSeededRng } from './simulation/types';
 import { BotDifficultyLevel } from './simulation/BotAI';
-import { getMapById } from './simulation/maps';
+import { getMapById, DUEL_MAP } from './simulation/maps';
 import { ProfileScene } from './profile/ProfileScene';
 import { loadProfile, updateProfileFromMatch, ACHIEVEMENTS } from './profile/ProfileData';
 import { SoundManager } from './audio/SoundManager';
 import { MusicPlayer } from './audio/MusicPlayer';
+import { getTutorialStep, finishMatchTutorial, isMenuTutorial } from './ui/TutorialManager';
 
 // Polyfill CanvasRenderingContext2D.roundRect for older browsers (Safari <15.4, Firefox <112)
 if (typeof CanvasRenderingContext2D !== 'undefined' && !CanvasRenderingContext2D.prototype.roundRect) {
@@ -101,10 +102,12 @@ uiReady.then(() => {
     } else if (titleScene.party) {
       titleScene.party.leaveParty();
     }
+    finishMatchTutorial();
     manager.switchTo('postMatch');
   });
 
   matchScene.setOnQuitGame(() => {
+    finishMatchTutorial();
     // Reset party to lobby if in a party game, so players stay together
     if (titleScene.party?.state) {
       titleScene.party.resetToWaiting();
@@ -217,7 +220,42 @@ uiReady.then(() => {
   manager.register('gallery', galleryScene);
   manager.register('profile', profileScene);
 
-  manager.start('title');
+  // First-time user: auto-start a tutorial 2v2 match
+  const tutorialStep = getTutorialStep();
+
+  // Safety: if player has played before but tutorial is stuck on a match step,
+  // skip past the match tutorial to avoid showing it in normal games
+  if (profile.gamesPlayed > 0 && tutorialStep !== 'complete' && !isMenuTutorial()) {
+    finishMatchTutorial();
+  }
+
+  if (profile.gamesPlayed === 0 && tutorialStep !== 'complete' && !isMenuTutorial()) {
+    const ppt = DUEL_MAP.playersPerTeam;
+    const tutorialBots: { [slot: string]: string } = {};
+    const tutorialBotRaces: { [slot: string]: string } = {};
+    // Slot 1 = ally Deep (medium so it builds reliably), enemies easy
+    tutorialBots['1'] = BotDifficultyLevel.Medium;
+    tutorialBotRaces['1'] = Race.Deep;
+    tutorialBots[String(ppt)] = BotDifficultyLevel.Easy;
+    tutorialBotRaces[String(ppt)] = Race.Goblins;
+    tutorialBots[String(ppt + 1)] = BotDifficultyLevel.Easy;
+    tutorialBotRaces[String(ppt + 1)] = Race.Horde;
+    matchScene.setPartyConfig({
+      humanPlayers: [{ slot: 0, race: Race.Crown }],
+      slotBots: tutorialBots,
+      slotBotRaces: tutorialBotRaces,
+      localSlot: 0,
+      seed: Math.floor(Math.random() * 2147483647),
+      partyCode: '',
+      botDifficulty: BotDifficultyLevel.Easy,
+      mapDef: DUEL_MAP,
+      slotNames: { '0': titleScene.name },
+      fogOfWar: true,
+    });
+    manager.start('match');
+  } else {
+    manager.start('title');
+  }
 
   // Fade out the loading overlay
   if (overlay) {

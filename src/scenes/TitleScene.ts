@@ -14,6 +14,7 @@ import { getAudioSettings, subscribeToAudioSettings, updateAudioSettings } from 
 import { drawSettingsButton, drawSettingsOverlay, getSettingsOverlayLayout, hitRect as hitOverlayRect, sliderValueFromPoint, handleVisualToggleClick, SettingsSliderDrag } from '../ui/SettingsOverlay';
 import { getSafeTop } from '../ui/SafeArea';
 import { loadPlayerName } from './TitlePlayerName';
+import { isMenuTutorial, advanceTutorial, skipTutorial, getMenuTutorialInfo, TUTORIAL_TIMEOUT_MS, refreshTutorialCache } from '../ui/TutorialManager';
 import { getElo, saveAllElo, updateTeamElo } from './TitleElo';
 import { LocalSetup, saveLocalSetup, loadLocalSetup, createDefaultLocalSetup, getLocalActiveSlots, canStartLocalSetup, canStartParty } from './TitleLocalSetup';
 import {
@@ -137,6 +138,11 @@ export class TitleScene implements Scene {
   onLocalStart: ((setup: LocalSetup) => void) | null = null;
   private localSetup: LocalSetup | null = null;
 
+  // Menu tutorial state
+  private menuTutorialActive = isMenuTutorial();
+  private menuTutorialStepStart = performance.now();
+  private menuTutorialSkipAllRect: { x: number; y: number; w: number; h: number } | null = null;
+
   setNowPlaying(name: string): void {
     this.nowPlayingName = name;
     this.nowPlayingStart = performance.now();
@@ -196,6 +202,12 @@ export class TitleScene implements Scene {
     // Reload profile and name (picks up changes from ProfileScene)
     this.profile = loadProfile();
     this.playerName = loadPlayerName();
+
+    // Re-derive tutorial state on scene re-entry (critical: state may have
+    // changed since construction, e.g. after finishing match tutorial)
+    refreshTutorialCache();
+    this.menuTutorialActive = isMenuTutorial();
+    this.menuTutorialStepStart = performance.now();
 
     // Sync profile changes to party (avatar, name) — picks up edits from ProfileScene
     if (this.party) {
@@ -1030,6 +1042,11 @@ export class TitleScene implements Scene {
       return;
     }
 
+    // Menu tutorial intercept (advances on any click, but doesn't block navigation)
+    if (this.menuTutorialActive && this.handleMenuTutorialClick(cx, cy)) {
+      return;
+    }
+
     // Profile button
     if (this.hitRect(cx, cy, this.profileBtnRect)) {
       this.manager.switchTo('profile');
@@ -1489,6 +1506,15 @@ export class TitleScene implements Scene {
     if (this.partyErrorTimer > 0) this.partyErrorTimer -= dtSec;
     if (this.copyFeedbackTimer > 0) this.copyFeedbackTimer--;
 
+    // Menu tutorial: refresh cache and handle timeout (before render)
+    refreshTutorialCache();
+    this.menuTutorialActive = isMenuTutorial();
+    if (this.menuTutorialActive && performance.now() - this.menuTutorialStepStart > TUTORIAL_TIMEOUT_MS) {
+      advanceTutorial();
+      this.menuTutorialStepStart = performance.now();
+      this.menuTutorialActive = isMenuTutorial();
+    }
+
     // Animate win announcement
     if (this.winTimer > 0) {
       this.winTimer -= dtSec;
@@ -1935,6 +1961,9 @@ export class TitleScene implements Scene {
       }
     }
 
+    // Menu tutorial overlay
+    this.drawMenuTutorial(ctx, w, h);
+
     // Version
     ctx.textAlign = 'center';
     ctx.textBaseline = 'alphabetic';
@@ -2017,6 +2046,147 @@ export class TitleScene implements Scene {
     ctx.fillStyle = '#fff';
     ctx.fillText(text, tx, ty);
     ctx.globalAlpha = 1;
+  }
+
+  // ─── Menu tutorial overlay ───
+
+  private getMenuTutorialTargetRect(_w: number, _h: number): { x: number; y: number; w: number; h: number } | null {
+    const info = getMenuTutorialInfo();
+    if (!info) return null;
+    const btns = this.getButtonLayout();
+    switch (info.target) {
+      case 'profile': return this.profileBtnRect;
+      case 'custom': return btns.create;
+      case 'gallery': return btns.gallery;
+      default: return null;
+    }
+  }
+
+  private drawMenuTutorial(ctx: CanvasRenderingContext2D, w: number, h: number): void {
+    if (!this.menuTutorialActive) return;
+
+    const info = getMenuTutorialInfo();
+    if (!info) return;
+
+    const targetRect = this.getMenuTutorialTargetRect(w, h);
+    const pad = 8;
+
+    // Dim overlay
+    ctx.save();
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+    ctx.fillRect(0, 0, w, h);
+    if (targetRect) {
+      ctx.globalCompositeOperation = 'destination-out';
+      ctx.beginPath();
+      ctx.roundRect(targetRect.x - pad, targetRect.y - pad,
+        targetRect.w + pad * 2, targetRect.h + pad * 2, 8);
+      ctx.fill();
+      ctx.globalCompositeOperation = 'source-over';
+      // Glow border
+      const pulse = 0.6 + 0.4 * Math.sin(performance.now() / 400);
+      ctx.strokeStyle = `rgba(255, 215, 64, ${pulse})`;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.roundRect(targetRect.x - pad, targetRect.y - pad,
+        targetRect.w + pad * 2, targetRect.h + pad * 2, 8);
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    // Popup bubble
+    const popupW = Math.min(320, w - 40);
+    const popupH = 100;
+    let popupX: number;
+    let popupY: number;
+    if (targetRect) {
+      // Position popup to the right of small targets (profile avatar), below large targets (swords)
+      if (targetRect.w < 100) {
+        popupX = targetRect.x + targetRect.w + 20;
+        popupY = targetRect.y;
+        if (popupX + popupW > w - 10) popupX = targetRect.x - popupW - 20;
+      } else {
+        popupX = (w - popupW) / 2;
+        popupY = targetRect.y + targetRect.h + 20;
+      }
+    } else {
+      popupX = (w - popupW) / 2;
+      popupY = h * 0.4;
+    }
+    popupY = Math.max(10, Math.min(popupY, h - popupH - 10));
+    popupX = Math.max(10, Math.min(popupX, w - popupW - 10));
+
+    // Background
+    ctx.fillStyle = 'rgba(20, 15, 10, 0.92)';
+    ctx.beginPath();
+    ctx.roundRect(popupX, popupY, popupW, popupH, 10);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(180, 150, 100, 0.6)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.roundRect(popupX, popupY, popupW, popupH, 10);
+    ctx.stroke();
+
+    // Title
+    ctx.fillStyle = '#ffd740';
+    ctx.font = 'bold 16px monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillText(info.title, popupX + popupW / 2, popupY + 26);
+
+    // Body
+    ctx.fillStyle = '#e0e0e0';
+    ctx.font = '13px monospace';
+    const lines = info.body.split('\n');
+    for (let i = 0; i < lines.length; i++) {
+      ctx.fillText(lines[i], popupX + popupW / 2, popupY + 48 + i * 17);
+    }
+
+    // "Next" button
+    const nextW = 56;
+    const nextH = 24;
+    const nextX = popupX + popupW - nextW - 8;
+    const nextY = popupY + 6;
+    ctx.fillStyle = 'rgba(255, 215, 64, 0.2)';
+    ctx.beginPath();
+    ctx.roundRect(nextX, nextY, nextW, nextH, 4);
+    ctx.fill();
+    ctx.fillStyle = '#ffd740';
+    ctx.font = 'bold 12px monospace';
+    ctx.fillText('Next', nextX + nextW / 2, nextY + 16);
+    // "Skip Tutorial" link
+    ctx.fillStyle = '#777';
+    ctx.font = '11px monospace';
+    ctx.fillText('Skip Tutorial', popupX + popupW / 2, popupY + popupH - 6);
+    const skipAllW = ctx.measureText('Skip Tutorial').width;
+    this.menuTutorialSkipAllRect = {
+      x: popupX + popupW / 2 - skipAllW / 2,
+      y: popupY + popupH - 18,
+      w: skipAllW,
+      h: 16,
+    };
+
+    ctx.textAlign = 'start';
+  }
+
+  private handleMenuTutorialClick(cx: number, cy: number): boolean {
+    if (!this.menuTutorialActive) return false;
+
+    // "Skip Tutorial" link (check first — most destructive)
+    if (this.menuTutorialSkipAllRect) {
+      const r = this.menuTutorialSkipAllRect;
+      if (cx >= r.x && cx < r.x + r.w && cy >= r.y && cy < r.y + r.h) {
+        skipTutorial();
+        this.menuTutorialActive = false;
+        return true;
+      }
+    }
+
+    // "Next" button or any other click advances to next step.
+    // This ensures the user is NEVER trapped — every click dismisses.
+    advanceTutorial();
+    this.menuTutorialStepStart = performance.now();
+    this.menuTutorialActive = isMenuTutorial();
+    return true;
   }
 
   // ─── Render: Player name tag ───

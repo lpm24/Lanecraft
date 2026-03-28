@@ -20,6 +20,11 @@ import { getSafeBottom, getSafeTop, getPopupSafeY } from './SafeArea';
 import { getAudioSettings, updateAudioSettings } from '../audio/AudioSettings';
 import { getVisualSettings, updateVisualSettings } from '../rendering/VisualSettings';
 import { tileToPixel, pixelToTile } from '../rendering/Projection';
+import {
+  getTutorialStep, advanceTutorial, skipTutorial,
+  isMatchTutorial, getMatchPopupInfo, TUTORIAL_TIMEOUT_MS,
+  refreshTutorialCache,
+} from './TutorialManager';
 
 interface BuildTrayItem {
   type: BuildingType;
@@ -105,8 +110,13 @@ export class InputHandler {
   private cameraFollowing = false;
   private followBtnRect: { x: number; y: number; w: number; h: number } | null = null;
   private hoveredUnitId: number | null = null;
-  private showTutorial = localStorage.getItem('lanecraft.hideTutorial') !== 'true';
+  private showTutorial = localStorage.getItem('lanecraft.hideTutorial') !== 'true' && !isMatchTutorial();
   private hideTutorialOnStart = localStorage.getItem('lanecraft.hideTutorial') === 'true';
+  // Guided tutorial state — re-derived from TutorialManager each frame
+  private matchTutorialActive = false;
+  private tutorialStepStartTime = performance.now();
+  private tutorialSkipRect: { x: number; y: number; w: number; h: number } | null = null;
+  private tutorialSkipAllRect: { x: number; y: number; w: number; h: number } | null = null;
   private tutorialCheckboxRect: { x: number; y: number; w: number; h: number } | null = null;
   private tutorialCloseRect: { x: number; y: number; w: number; h: number } | null = null;
   private devOverlayOpen = false;
@@ -262,7 +272,7 @@ export class InputHandler {
     try {
       const seen = window.localStorage.getItem(MOBILE_HINT_SEEN_KEY) === '1';
       const touchCapable = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
-      this.mobileHintVisible = touchCapable && !seen;
+      this.mobileHintVisible = touchCapable && !seen && !isMatchTutorial();
     } catch {
       this.mobileHintVisible = false;
     }
@@ -616,6 +626,9 @@ export class InputHandler {
   private setupKeyboard(): void {
     const sig = { signal: this.abortController.signal };
     window.addEventListener('keydown', (e) => {
+      // During guided tutorial, block all keyboard shortcuts except Escape (settings)
+      if (this.matchTutorialActive && e.key !== 'Escape') return;
+
       // Dev overlay
       if (e.key === '`') {
         this.devOverlayOpen = !this.devOverlayOpen;
@@ -832,11 +845,26 @@ export class InputHandler {
       if (this.showTutorial) { this.handleTutorialClick(e); return; }
       if (this.mobileHintVisible) this.dismissMobileHint();
 
+      // Guided tutorial click gate — blocks non-tutorial clicks.
+      // Settings panel is exempt: always process settings clicks first.
+      if (this.matchTutorialActive && isMatchTutorial()) {
+        if (this.settingsOpen) {
+          const sr = this.canvas.getBoundingClientRect();
+          const scx = e.clientX - sr.left;
+          const scy = e.clientY - sr.top;
+          if (this.handleSettingsPanelClick(scx, scy)) return;
+        }
+        const trect = this.canvas.getBoundingClientRect();
+        const tcx = e.clientX - trect.left;
+        const tcy = e.clientY - trect.top;
+        if (this.handleMatchTutorialClick(tcx, tcy)) return;
+      }
+
       // UI panels consume click first (before minimap, so popups overlapping minimap work)
       if (this.handleUIClick(e)) return;
 
-      // Minimap click → pan camera to that world position
-      if (this.currentRenderer) {
+      // Minimap click → pan camera to that world position (blocked during tutorial)
+      if (this.currentRenderer && !this.matchTutorialActive) {
         const rect = this.canvas.getBoundingClientRect();
         const hit = this.currentRenderer.minimapHitTest(e.clientX - rect.left, e.clientY - rect.top);
         if (hit) {
@@ -896,10 +924,13 @@ export class InputHandler {
             type: 'use_ability', playerId: this.pid,
             gridX: slot.gx, gridY: slot.gy,
           });
-          this.abilityPlacing = false;
-          this.selectedBuilding = null;
+          if (!e.shiftKey && !this.stickyBuildMode) {
+            this.abilityPlacing = false;
+            this.selectedBuilding = null;
+          }
         } else if (!this.abilityPlacing && slot.isHut && slot.hutSlot != null) {
           this.game.sendCommand({ type: 'build_hut', playerId: this.pid, hutSlot: slot.hutSlot });
+          this.checkTutorialPlaceAdvance();
           if (!e.shiftKey && !this.stickyBuildMode) {
             this.selectedBuilding = null;
           }
@@ -909,6 +940,7 @@ export class InputHandler {
             buildingType: this.selectedBuilding, gridX: slot.gx, gridY: slot.gy,
             ...(slot.isAlley ? { gridType: 'alley' as const } : {}),
           });
+          this.checkTutorialPlaceAdvance();
           if (!e.shiftKey && !this.stickyBuildMode) {
             this.selectedBuilding = null;
           }
@@ -918,6 +950,9 @@ export class InputHandler {
 
     this.canvas.addEventListener('contextmenu', (e) => {
       e.preventDefault();
+
+      // Block right-click during tutorial (prevents deselecting buildings)
+      if (this.matchTutorialActive) return;
 
       if (this.quickChatRadialActive) {
         this.quickChatRadialActive = false;
@@ -936,7 +971,7 @@ export class InputHandler {
     }, sig);
 
     this.canvas.addEventListener('auxclick', (e) => {
-      if (e.button !== 1 || this.showTutorial) return;
+      if (e.button !== 1 || this.showTutorial || this.matchTutorialActive) return;
       e.preventDefault();
       const world = this.eventToWorld(e as unknown as MouseEvent);
       const auxTile = this.worldToTile(world.x, world.y);
@@ -1323,6 +1358,255 @@ export class InputHandler {
     const cl = this.tutorialCloseRect;
     if (cl && cx >= cl.x && cx <= cl.x + cl.w && cy >= cl.y && cy <= cl.y + cl.h) {
       this.showTutorial = false;
+    }
+  }
+
+  // ── Guided match tutorial (step-by-step overlay) ──
+
+  private getMatchTutorialHighlightRect(): { x: number; y: number; w: number; h: number } | null {
+    const info = getMatchPopupInfo();
+    if (!info) return null;
+    const { milY, milH, milW } = this.getTrayLayout();
+
+    // Tray column highlight
+    if (info.trayCol >= 0) {
+      return { x: info.trayCol * milW, y: milY, w: milW, h: milH };
+    }
+    // Settings button highlight
+    if (info.arrowToSettings) {
+      return this.getSettingsButtonRect();
+    }
+    return null;
+  }
+
+  /** Per-frame tutorial state update — handles timeout auto-advance.
+   *  Called once at the start of render(), before any drawing. */
+  private updateMatchTutorial(): void {
+    if (!this.matchTutorialActive) return;
+    // Auto-advance after timeout so players can't get stuck
+    if (performance.now() - this.tutorialStepStartTime > TUTORIAL_TIMEOUT_MS) {
+      advanceTutorial();
+      this.tutorialStepStartTime = performance.now();
+      // Re-derive active state after advance
+      this.matchTutorialActive = isMatchTutorial();
+    }
+  }
+
+  private drawMatchTutorial(ctx: CanvasRenderingContext2D): void {
+    if (!this.matchTutorialActive) return;
+
+    const info = getMatchPopupInfo();
+    if (!info) return;
+
+    const W = this.canvas.clientWidth;
+    const H = this.canvas.clientHeight;
+    const highlightRect = this.getMatchTutorialHighlightRect();
+    const pad = 6;
+
+    // Draw cutout overlay
+    ctx.save();
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.65)';
+    ctx.fillRect(0, 0, W, H);
+    if (highlightRect) {
+      // Punch hole
+      ctx.globalCompositeOperation = 'destination-out';
+      ctx.beginPath();
+      (ctx as any).roundRect(highlightRect.x - pad, highlightRect.y - pad,
+        highlightRect.w + pad * 2, highlightRect.h + pad * 2, 8);
+      ctx.fill();
+      ctx.globalCompositeOperation = 'source-over';
+      // Glow border
+      const pulse = 0.6 + 0.4 * Math.sin(performance.now() / 400);
+      ctx.strokeStyle = `rgba(100, 200, 255, ${pulse})`;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      (ctx as any).roundRect(highlightRect.x - pad, highlightRect.y - pad,
+        highlightRect.w + pad * 2, highlightRect.h + pad * 2, 8);
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    // Popup bubble
+    const popupW = Math.min(320, W - 40);
+    const popupH = 120;
+    let popupX = (W - popupW) / 2;
+    let popupY: number;
+    if (highlightRect && highlightRect.y > H / 2) {
+      // Highlight is in bottom half — put popup above
+      popupY = highlightRect.y - popupH - 30;
+    } else if (highlightRect) {
+      // Highlight is in top half — put popup below
+      popupY = highlightRect.y + highlightRect.h + 20;
+    } else {
+      popupY = H * 0.35;
+    }
+    popupY = Math.max(10, Math.min(popupY, H - popupH - 10));
+
+    // Draw popup background
+    ctx.fillStyle = 'rgba(20, 15, 10, 0.92)';
+    ctx.beginPath();
+    (ctx as any).roundRect(popupX, popupY, popupW, popupH, 10);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(180, 150, 100, 0.6)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    (ctx as any).roundRect(popupX, popupY, popupW, popupH, 10);
+    ctx.stroke();
+
+    // Arrow pointing to highlight
+    if (highlightRect) {
+      const arrowX = Math.max(popupX + 20, Math.min(highlightRect.x + highlightRect.w / 2, popupX + popupW - 20));
+      const arrowY = highlightRect.y > H / 2 ? popupY + popupH : popupY;
+      const arrowDir = highlightRect.y > H / 2 ? 1 : -1;
+      ctx.fillStyle = 'rgba(20, 15, 10, 0.92)';
+      ctx.beginPath();
+      ctx.moveTo(arrowX - 10, arrowY);
+      ctx.lineTo(arrowX, arrowY + 12 * arrowDir);
+      ctx.lineTo(arrowX + 10, arrowY);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    // Title text
+    ctx.fillStyle = '#ffd740';
+    ctx.font = 'bold 18px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(info.title, popupX + popupW / 2, popupY + 28);
+
+    // Body text (multiline)
+    ctx.fillStyle = '#e0e0e0';
+    ctx.font = '14px monospace';
+    const lines = info.body.split('\n');
+    for (let i = 0; i < lines.length; i++) {
+      ctx.fillText(lines[i], popupX + popupW / 2, popupY + 52 + i * 18);
+    }
+
+    // Skip button (top-right of popup)
+    const skipW = 50;
+    const skipH = 22;
+    const skipX = popupX + popupW - skipW - 8;
+    const skipY = popupY + 6;
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.12)';
+    ctx.beginPath();
+    (ctx as any).roundRect(skipX, skipY, skipW, skipH, 4);
+    ctx.fill();
+    ctx.fillStyle = '#aaa';
+    ctx.font = '12px monospace';
+    ctx.fillText('Skip', skipX + skipW / 2, skipY + 15);
+    this.tutorialSkipRect = { x: skipX, y: skipY, w: skipW, h: skipH };
+
+    // Skip Tutorial link (bottom of popup)
+    ctx.fillStyle = '#777';
+    ctx.font = '11px monospace';
+    ctx.fillText('Skip Tutorial', popupX + popupW / 2, popupY + popupH - 8);
+    const skipAllTextW = ctx.measureText('Skip Tutorial').width;
+    this.tutorialSkipAllRect = {
+      x: popupX + popupW / 2 - skipAllTextW / 2,
+      y: popupY + popupH - 20,
+      w: skipAllTextW,
+      h: 16,
+    };
+
+    ctx.textAlign = 'start';
+  }
+
+  private handleMatchTutorialClick(cx: number, cy: number): boolean {
+    if (!this.matchTutorialActive || !isMatchTutorial()) return false;
+    const step = getTutorialStep();
+
+    // Skip button
+    if (this.tutorialSkipRect) {
+      const r = this.tutorialSkipRect;
+      if (cx >= r.x && cx < r.x + r.w && cy >= r.y && cy < r.y + r.h) {
+        advanceTutorial();
+        this.tutorialStepStartTime = performance.now();
+        this.matchTutorialActive = isMatchTutorial();
+        return true;
+      }
+    }
+    // Skip Tutorial link
+    if (this.tutorialSkipAllRect) {
+      const r = this.tutorialSkipAllRect;
+      if (cx >= r.x && cx < r.x + r.w && cy >= r.y && cy < r.y + r.h) {
+        skipTutorial();
+        this.matchTutorialActive = false;
+        return true;
+      }
+    }
+
+    // match_done: any click dismisses
+    if (step === 'match_done') {
+      advanceTutorial();
+      this.matchTutorialActive = false;
+      return true;
+    }
+
+    // For click_* steps: only allow clicking the highlighted tray button
+    // For place_* steps: allow clicking the grid + tray
+    const info = getMatchPopupInfo();
+    if (!info) return false;
+
+    if (info.trayCol >= 0) {
+      // Only allow clicking the highlighted tray column
+      const { milY, milH, milW } = this.getTrayLayout();
+      const colX = info.trayCol * milW;
+      if (cx >= colX && cx < colX + milW && cy >= milY && cy < milY + milH) {
+        return false; // Let normal tray click handler process it
+      }
+      return true; // Block all other clicks
+    }
+
+    if (info.highlightGrid !== 'none') {
+      // During placement steps, allow ONLY:
+      // 1. Build tray clicks (to re-select building type)
+      // 2. World area clicks (for grid placement)
+      // Block floating buttons (nuke, research, rally), minimap, popups.
+      const { milY, milH } = this.getTrayLayout();
+      if (cy >= milY && cy < milY + milH) {
+        return false; // Tray click — allow
+      }
+      if (cy < milY) {
+        // World area — but block floating buttons above tray.
+        // Floating buttons sit at milY - 76 to milY. Nuke/research/rally are all there.
+        const { nukeRect, researchRect, rallyLeftRect, rallyRandomRect, rallyRightRect } = this.getTrayLayout();
+        const inRect = (r: { x: number; y: number; w: number; h: number }) =>
+          cx >= r.x && cx < r.x + r.w && cy >= r.y && cy < r.y + r.h;
+        if (inRect(nukeRect) || inRect(researchRect) ||
+            inRect(rallyLeftRect) || inRect(rallyRandomRect) || inRect(rallyRightRect)) {
+          return true; // Block floating button clicks
+        }
+        return false; // World click — allow for grid placement
+      }
+      return true; // Below tray (safe area) — block
+    }
+
+    return true; // Block by default
+  }
+
+  /** Called after a tray button is successfully clicked during tutorial. */
+  private checkTutorialTrayAdvance(): void {
+    if (!this.matchTutorialActive) return;
+    const step = getTutorialStep();
+    if (step === 'click_builder' && this.selectedBuilding === BuildingType.HarvesterHut) {
+      advanceTutorial();
+      this.tutorialStepStartTime = performance.now();
+    } else if (step === 'click_melee' && this.selectedBuilding === BuildingType.MeleeSpawner) {
+      advanceTutorial();
+      this.tutorialStepStartTime = performance.now();
+    } else if (step === 'click_tower' && this.selectedBuilding === BuildingType.Tower) {
+      advanceTutorial();
+      this.tutorialStepStartTime = performance.now();
+    }
+  }
+
+  /** Called after a building is successfully placed during tutorial. */
+  private checkTutorialPlaceAdvance(): void {
+    if (!this.matchTutorialActive) return;
+    const step = getTutorialStep();
+    if (step === 'place_builder' || step === 'place_melee' || step === 'place_tower') {
+      advanceTutorial();
+      this.tutorialStepStartTime = performance.now();
+      if (!isMatchTutorial()) this.matchTutorialActive = false;
     }
   }
 
@@ -1784,6 +2068,7 @@ export class InputHandler {
         this.clearSelection();
         this.activateAbility(player);
       }
+      this.checkTutorialTrayAdvance();
       return true;
     }
 
@@ -1796,6 +2081,14 @@ export class InputHandler {
     if (!this.sprites) this.sprites = renderer.sprites;
     this.trayTick++;
     this.processQueuedQuickChat();
+
+    // Snapshot tutorial state once per frame to avoid mid-frame inconsistency
+    refreshTutorialCache();
+    this.matchTutorialActive = isMatchTutorial();
+    this.updateMatchTutorial();
+    // Suppress old tutorial popup when guided tutorial is active
+    if (this.matchTutorialActive) this.showTutorial = false;
+
     const ctx = renderer.ctx;
     ctx.setTransform(window.devicePixelRatio || 1, 0, 0, window.devicePixelRatio || 1, 0, 0);
     this.drawBuildTray(ctx);
@@ -1804,6 +2097,11 @@ export class InputHandler {
     if (this.showTutorial) {
       this.drawTutorial(ctx);
       return; // don't draw other overlays while tutorial is open
+    }
+
+    // Guided match tutorial overlay (drawn on top of tray, below other popups)
+    if (this.matchTutorialActive) {
+      this.drawMatchTutorial(ctx);
     }
 
     if (this.quickChatRadialActive) {
@@ -2037,7 +2335,7 @@ export class InputHandler {
       // Escalating tower cost: each tower after the first costs TOWER_COST_SCALE more
       let cost = baseCost;
       if (item.type === BuildingType.Tower && !isFirstTowerFree) {
-        const myTowers = this.game.state.buildings.filter(b => b.playerId === this.pid && b.type === BuildingType.Tower).length;
+        const myTowers = this.game.state.buildings.filter(b => b.playerId === this.pid && b.type === BuildingType.Tower && !b.isSeed).length;
         const mult = Math.pow(TOWER_COST_SCALE, Math.max(0, myTowers - 1));
         cost = {
           gold: Math.floor(baseCost.gold * mult),
