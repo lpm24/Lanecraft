@@ -17,7 +17,7 @@ export const RACE_BUILDING_COSTS: Record<Race, Record<BuildingType, { gold: numb
     [BuildingType.MeleeSpawner]:  { gold: 0,   wood: 0,  meat: 40, hp: 350 },
     [BuildingType.RangedSpawner]: { gold: 0,   wood: 40, meat: 0,  hp: 300 },
     [BuildingType.CasterSpawner]: { gold: 90,  wood: 0,  meat: 0,  hp: 250 },
-    [BuildingType.Tower]:         { gold: 50,  wood: 30, meat: 30, hp: 280 },
+    [BuildingType.Tower]:         { gold: 30,  wood: 20, meat: 20, hp: 280 },
     [BuildingType.HarvesterHut]:  { gold: 20,  wood: 13, meat: 0,  hp: 180 },
     [BuildingType.Research]:      { gold: 0,   wood: 0,  meat: 0,  hp: 500 },
   },
@@ -53,7 +53,7 @@ export const RACE_BUILDING_COSTS: Record<Race, Record<BuildingType, { gold: numb
     [BuildingType.MeleeSpawner]:  { gold: 55, wood: 20, meat: 0,  hp: 380 },
     [BuildingType.RangedSpawner]: { gold: 14, wood: 45, meat: 0,  hp: 300 },
     [BuildingType.CasterSpawner]: { gold: 40, wood: 40, meat: 0,  hp: 260 },
-    [BuildingType.Tower]:         { gold: 15, wood: 60, meat: 0,  hp: 280 },
+    [BuildingType.Tower]:         { gold: 14, wood: 45, meat: 0,  hp: 280 },
     [BuildingType.HarvesterHut]:  { gold: 20, wood: 16, meat: 0,  hp: 170 },
     [BuildingType.Research]:      { gold: 0,  wood: 0,  meat: 0,  hp: 500 },
   },
@@ -138,6 +138,19 @@ export function getRaceUsedResources(race: Race): { gold: boolean; wood: boolean
     if (t.gold > 0) gold = true;
     if (t.wood > 0) wood = true;
     if (t.meat > 0) meat = true;
+  }
+  // Also scan per-node upgrade tree costs (some races use extra resources only in branches)
+  const trees = UPGRADE_TREES[race];
+  if (trees) {
+    for (const nodes of Object.values(trees)) {
+      for (const node of Object.values(nodes as Record<string, UpgradeNodeDef>)) {
+        if (node.cost) {
+          if (node.cost.gold > 0) gold = true;
+          if (node.cost.wood > 0) wood = true;
+          if (node.cost.meat > 0) meat = true;
+        }
+      }
+    }
   }
   return { gold, wood, meat };
 }
@@ -224,7 +237,7 @@ export const UNIT_STATS: Record<Race, RaceUnits> = {
   // === HORDE (Orcs) — Brute Force ===
   [Race.Horde]: {
     [BuildingType.MeleeSpawner]: {
-      name: 'Brute', hp: 110, damage: 14, attackSpeed: 1.1, moveSpeed: 3.2, range: 1, ascii: '[#]',
+      name: 'Brute', hp: 120, damage: 14, attackSpeed: 1.1, moveSpeed: 3.2, range: 1, ascii: '[#]',
     },
     [BuildingType.RangedSpawner]: {
       name: 'Bowcleaver', hp: 71, damage: 18, attackSpeed: 1.3, moveSpeed: 3.0, range: 7, ascii: '=>',
@@ -260,13 +273,13 @@ export const UNIT_STATS: Record<Race, RaceUnits> = {
   // === DEMON — Glass Cannon Chaos ===
   [Race.Demon]: {
     [BuildingType.MeleeSpawner]: {
-      name: 'Smasher', hp: 85, damage: 12, attackSpeed: 1.0, moveSpeed: 4.2, range: 1, ascii: '/X\\',
+      name: 'Smasher', hp: 90, damage: 12, attackSpeed: 1.0, moveSpeed: 4.62, range: 1, ascii: '/X\\',
     },
     [BuildingType.RangedSpawner]: {
       name: 'Eye Sniper', hp: 38, damage: 16, attackSpeed: 1.4, moveSpeed: 3.5, range: 8, ascii: '@>', critChance: 0.20, critMult: 1.75,
     },
     [BuildingType.CasterSpawner]: {
-      name: 'Overlord', hp: 52, damage: 19, attackSpeed: 2.0, moveSpeed: 2.5, range: 7, ascii: '{D}',
+      name: 'Overlord', hp: 52, damage: 20, attackSpeed: 2.0, moveSpeed: 2.5, range: 7, ascii: '{D}',
     },
   },
   // === DEEP (Aquatic) — Control & Attrition ===
@@ -275,10 +288,10 @@ export const UNIT_STATS: Record<Race, RaceUnits> = {
       name: 'Shell Guard', hp: 190, damage: 8, attackSpeed: 1.2, moveSpeed: 2.5, range: 1, ascii: '|W|',
     },
     [BuildingType.RangedSpawner]: {
-      name: 'Harpooner', hp: 55, damage: 16, attackSpeed: 1.3, moveSpeed: 3.2, range: 7, ascii: '->',
+      name: 'Harpooner', hp: 55, damage: 17, attackSpeed: 1.3, moveSpeed: 3.2, range: 7, ascii: '->',
     },
     [BuildingType.CasterSpawner]: {
-      name: 'Tidecaller', hp: 59, damage: 17, attackSpeed: 2.4, moveSpeed: 3.0, range: 7, ascii: '{~}',
+      name: 'Tidecaller', hp: 59, damage: 17, attackSpeed: 2.4, moveSpeed: 3.0, range: 8, ascii: '{~}',
     },
   },
   // === WILD (Beasts) — Aggression & Poison ===
@@ -299,7 +312,7 @@ export const UNIT_STATS: Record<Race, RaceUnits> = {
       name: 'Bone Knight', hp: 88, damage: 8, attackSpeed: 1.1, moveSpeed: 3.5, range: 1, ascii: '~^',
     },
     [BuildingType.RangedSpawner]: {
-      name: 'Wraith Bow', hp: 25, damage: 13, attackSpeed: 1.2, moveSpeed: 3.8, range: 7, ascii: '~>',
+      name: 'Wraith Bow', hp: 25, damage: 12, attackSpeed: 1.2, moveSpeed: 3.8, range: 7, ascii: '~>',
     },
     [BuildingType.CasterSpawner]: {
       name: 'Necromancer', hp: 27, damage: 15, attackSpeed: 2.4, moveSpeed: 3.0, range: 7, ascii: '{V}',
@@ -308,10 +321,10 @@ export const UNIT_STATS: Record<Race, RaceUnits> = {
   // === TENDERS (Nature/Fey) — Sustain & Healing ===
   [Race.Tenders]: {
     [BuildingType.MeleeSpawner]: {
-      name: 'Treant', hp: 135, damage: 9, attackSpeed: 1.2, moveSpeed: 2.8, range: 1, ascii: '|T|',
+      name: 'Treant', hp: 135, damage: 8, attackSpeed: 1.2, moveSpeed: 2.8, range: 1, ascii: '|T|',
     },
     [BuildingType.RangedSpawner]: {
-      name: 'Tinker', hp: 33, damage: 13, attackSpeed: 1.1, moveSpeed: 4.0, range: 7, ascii: '.>',
+      name: 'Tinker', hp: 33, damage: 12, attackSpeed: 1.1, moveSpeed: 4.0, range: 7, ascii: '.>',
     },
     [BuildingType.CasterSpawner]: {
       name: 'Grove Keeper', hp: 50, damage: 11, attackSpeed: 2.2, moveSpeed: 3.0, range: 7, ascii: '{Y}',
@@ -325,7 +338,7 @@ export const TOWER_STATS: Record<Race, { hp: number; damage: number; attackSpeed
   [Race.Horde]:    { hp: 1100, damage: 14, attackSpeed: 1.5, range: 6, ascii: '[HH]' },
   [Race.Goblins]:  { hp: 660,  damage: 10, attackSpeed: 1.1, range: 6, ascii: '[gg]' },
   [Race.Oozlings]: { hp: 748,  damage: 8,  attackSpeed: 0.9, range: 6, ascii: '[oo]' },
-  [Race.Demon]:    { hp: 704,  damage: 18, attackSpeed: 2.0, range: 7, ascii: '<F>' },
+  [Race.Demon]:    { hp: 800,  damage: 20, attackSpeed: 2.0, range: 7, ascii: '<F>' },
   [Race.Deep]:     { hp: 1232, damage: 8,  attackSpeed: 1.1, range: 6, ascii: '(@)' },
   [Race.Wild]:     { hp: 880,  damage: 10, attackSpeed: 1.1, range: 6, ascii: '[*]' },
   [Race.Geists]:   { hp: 792,  damage: 12, attackSpeed: 1.3, range: 7, ascii: '{~}' },
@@ -642,20 +655,20 @@ export const UPGRADE_TREES: Record<Race, Partial<Record<BuildingType, Record<Upg
       G: { name: 'Frog Titan', desc: '+50% dmg, regen 3/s, hop attack', damageMult: 1.50, special: { regenPerSec: 3, hopAttack: true }, spawnSpeedMult: 0.85 },
     },
     [BuildingType.RangedSpawner]: {
-      B: { name: 'Reef Shark', desc: '+30% HP, +30% dmg', hpMult: 1.30, damageMult: 1.30, spawnSpeedMult: 0.90 },
+      B: { name: 'Reef Shark', desc: 'Faster atk, +1 slow', attackSpeedMult: 0.85, special: { extraSlowStacks: 1 }, spawnSpeedMult: 0.90 },
       C: { name: 'Spray Crab', desc: 'Faster atk, +2 slow', attackSpeedMult: 0.80, special: { extraSlowStacks: 2 }, spawnSpeedMult: 0.90 },
-      D: { name: 'Hammerhead', desc: '+45% dmg, splash 2t', damageMult: 1.45, special: { splashRadius: 2, splashDamagePct: 0.50 }, spawnSpeedMult: 0.85 },
-      E: { name: 'Great White', desc: '+35% dmg, +3 slow', damageMult: 1.35, special: { extraSlowStacks: 3 }, spawnSpeedMult: 0.85 },
+      D: { name: 'Hammerhead', desc: '+40% dmg, faster atk, +2 slow', damageMult: 1.40, attackSpeedMult: 0.85, special: { extraSlowStacks: 2 }, spawnSpeedMult: 0.85 },
+      E: { name: 'Great White', desc: '+30% dmg, +25% range, +3 slow', damageMult: 1.30, rangeMult: 1.25, special: { extraSlowStacks: 3 }, spawnSpeedMult: 0.85 },
       F: { name: 'Depth Charge', desc: 'SIEGE: 13 range, slow, devastating vs buildings + slows', hpMult: 0.50, damageMult: 2.04, attackSpeedMult: 3.40, moveSpeedMult: 0.40, rangeMult: 1.85, spawnSpeedMult: 0.85, special: { isSiegeUnit: true, buildingDamageMult: 4.0, splashRadius: 3.5, splashDamagePct: 0.65, extraSlowStacks: 3 } },
       G: { name: 'King Crab', desc: '+35% dmg, splash 3t', damageMult: 1.35, special: { splashRadius: 3, splashDamagePct: 0.45 }, spawnSpeedMult: 0.85 },
     },
     [BuildingType.CasterSpawner]: {
       B: { name: 'Sea Star', desc: '+30% HP, cleanse +3', hpMult: 1.30, special: { healBonus: 3 }, spawnSpeedMult: 0.90 },
       C: { name: 'Snap Clam', desc: '+1 AoE, faster atk', special: { aoeRadiusBonus: 1 }, attackSpeedMult: 0.80, spawnSpeedMult: 0.90 },
-      D: { name: 'Crown Star', desc: '+35% dmg, cleanse +4, +2 slow', damageMult: 1.35, special: { healBonus: 4, extraSlowStacks: 2 }, spawnSpeedMult: 0.85 },
-      E: { name: 'Star Lord', desc: '+45% dmg, +2 AoE', damageMult: 1.45, special: { aoeRadiusBonus: 2 }, spawnSpeedMult: 0.85 },
-      F: { name: 'Giant Clam', desc: 'Very fast, cleanse +4', attackSpeedMult: 0.65, special: { healBonus: 4 }, spawnSpeedMult: 0.85 },
-      G: { name: 'Pearl Maw', desc: '+40% dmg, +35% range', damageMult: 1.40, rangeMult: 1.35, spawnSpeedMult: 0.85 },
+      D: { name: 'Crown Star', desc: '+30% dmg, +3 slow', damageMult: 1.30, special: { extraSlowStacks: 3 }, spawnSpeedMult: 0.85 },
+      E: { name: 'Star Lord', desc: 'Cleanse +6, +25% range', rangeMult: 1.25, special: { healBonus: 6 }, spawnSpeedMult: 0.85 },
+      F: { name: 'Giant Clam', desc: '+60% HP, +40% dmg', hpMult: 1.60, damageMult: 1.40, spawnSpeedMult: 0.85 },
+      G: { name: 'Pearl Maw', desc: '+35% dmg, +3 AoE', damageMult: 1.35, special: { aoeRadiusBonus: 3 }, spawnSpeedMult: 0.85 },
     },
     [BuildingType.Tower]: {
       B: { name: 'Tidal Pool', desc: '+50% HP, +35% dmg', hpMult: 1.50, damageMult: 1.35 },
@@ -818,7 +831,7 @@ export const RACE_ABILITY_DEFS: Record<Race, RaceAbilityDef> = {
   [Race.Demon]: {
     race: Race.Demon, name: 'Fireball',
     targetMode: AbilityTargetMode.Targeted,
-    baseCooldownTicks: 30 * TICK_RATE,
+    baseCooldownTicks: 60 * TICK_RATE,
     baseCost: { mana: 50 },
     requiresVision: true,
     aoeRadius: 6,
@@ -827,7 +840,7 @@ export const RACE_ABILITY_DEFS: Record<Race, RaceAbilityDef> = {
     race: Race.Deep, name: 'Deluge',
     targetMode: AbilityTargetMode.Instant,
     baseCooldownTicks: 45 * TICK_RATE,
-    baseCost: { wood: 100, gold: 50 },
+    baseCost: { wood: 50, gold: 25 },
     costGrowthFactor: 1.3,
   },
   [Race.Wild]: {

@@ -1412,12 +1412,11 @@ const UNIT_ABILITY_VALUE: Record<Race, Record<string, { survMult: number; dmgMul
   [Race.Deep]: {
     // Shell Guard: slow on melee hit. 190 HP tank wall.
     melee:  { survMult: 1.25, dmgMult: 1.10 },
-    // Harpooner: 2 slow stacks on ranged hit. Slows enemy approach + attack speed.
-    // With Frozen Harpoons: +1 slow = 3 stacks. Control machine.
-    ranged: { survMult: 1.10, dmgMult: 1.25 },
-    // Tidecaller: cleanses burn from allies. With Abyssal Ward: shields 3 allies.
-    // Defensive support — anti-burn, army sustain.
-    caster: { survMult: 1.10, dmgMult: 1.7 },
+    // Harpooner: 2 slow stacks on ranged hit. Shark path = fast single-target slow machine.
+    // With Frozen Harpoons + Crushing Depths (+50% vs slowed) = devastating combo.
+    ranged: { survMult: 1.10, dmgMult: 1.30 },
+    // Tidecaller: cleanses burn + haste allies (Purifying Tide). Star side = support, Clam side = DPS AoE.
+    caster: { survMult: 1.10, dmgMult: 1.9 },
   },
   [Race.Wild]: {
     // Lurker: burn (poison) on melee hit. On kill: heal 15% maxHP, frenzy+haste to nearby allies.
@@ -1431,9 +1430,9 @@ const UNIT_ABILITY_VALUE: Record<Race, Record<string, { survMult: number; dmgMul
     caster: { survMult: 1.00, dmgMult: 2.2 },
   },
   [Race.Geists]: {
-    // Bone Knight: 20% melee lifesteal + burn + wound on hit. With Death Grip: 25% lifesteal.
-    // 20% lifesteal on a melee unit = ~25% effective HP increase in sustained combat.
-    melee:  { survMult: 1.35, dmgMult: 1.20 },
+    // Bone Knight: 10% melee lifesteal + burn + wound on hit. With Death Grip: 15% lifesteal.
+    // Lifesteal sustain on 88 HP body — still effective but squishier now.
+    melee:  { survMult: 1.25, dmgMult: 1.20 },
     // Wraith Bow: 20% ranged lifesteal + burn on hit (via projectile).
     // Lifesteal sustain keeps ranged alive in extended fights.
     ranged: { survMult: 1.15, dmgMult: 1.20 },
@@ -1442,7 +1441,7 @@ const UNIT_ABILITY_VALUE: Record<Race, Record<string, { survMult: number; dmgMul
     caster: { survMult: 1.10, dmgMult: 1.8 },
   },
   [Race.Tenders]: {
-    // Treant: innate 1 HP/s regen. 154 HP = regen is ~0.6%/s sustained healing.
+    // Treant: innate 1 HP/s regen. 135 HP = regen is ~0.7%/s sustained healing.
     // With Bark Skin: regen doubles to 2 HP/s. Massive in long fights.
     melee:  { survMult: 1.30, dmgMult: 1.00 },
     // Tinker: with Healing Sap: heals ally 15% of dmg dealt. With Root Snare: 20% slow.
@@ -1524,6 +1523,8 @@ function detectPowerSpike(
   if (s.reviveHpPct) return 0.25;
   // Dodge = effective HP multiplier
   if (s.dodgeChance && s.dodgeChance >= 0.25) return 0.20;
+  // Heavy slow stacking = force multiplier (enemies can't close or retreat)
+  if (s.extraSlowStacks && s.extraSlowStacks >= 2) return 0.15;
   return 0;
 }
 
@@ -2143,7 +2144,7 @@ function runSingleBotAI(state: GameState, ctx: BotContext, playerId: number, emi
   const rangedCount = myBuildings.filter(b => b.type === BuildingType.RangedSpawner).length;
   const casterCount = myBuildings.filter(b => b.type === BuildingType.CasterSpawner).length;
   const towerCount = myBuildings.filter(b => b.type === BuildingType.Tower && b.buildGrid === 'military').length;
-  const alleyTowerCount = myBuildings.filter(b => b.type === BuildingType.Tower && b.buildGrid === 'alley').length;
+  const alleyTowerCount = myBuildings.filter(b => b.type === BuildingType.Tower && b.buildGrid === 'alley' && !b.isSeed).length;
   const hutCount = myBuildings.filter(b => b.type === BuildingType.HarvesterHut).length;
 
   const gameMinutes = state.tick / (20 * 60);
@@ -2579,9 +2580,12 @@ function botValueBasedBuild(
   if (!bestAffordable) return false;
 
   // Mistake: occasionally pick 2nd or 3rd best
+  // Always consume 2 RNG values to keep sequence stable
   let pick = bestAffordable;
-  if (diff.mistakeRate > 0 && affordableOptions.length > 1 && state.rng() < diff.mistakeRate) {
-    pick = affordableOptions[Math.min(1 + Math.floor(state.rng() * 2), affordableOptions.length - 1)];
+  { const roll = state.rng(), idx = state.rng();
+    if (diff.mistakeRate > 0 && affordableOptions.length > 1 && roll < diff.mistakeRate) {
+      pick = affordableOptions[Math.min(1 + Math.floor(idx * 2), affordableOptions.length - 1)];
+    }
   }
 
   switch (pick.action) {
@@ -2983,7 +2987,10 @@ function botPickUpgrade(
     const biasBonus = 2;
     const adjustedB = scoreB + (bias === 'B' ? biasBonus : 0);
     const adjustedC = scoreC + (bias === 'C' ? biasBonus : 0);
-    if (diff.mistakeRate > 0 && state.rng() < diff.mistakeRate) return state.rng() < 0.5 ? 'B' : 'C';
+    { // Always consume 2 RNG values to keep sequence stable
+      const roll = state.rng(), flip = state.rng();
+      if (diff.mistakeRate > 0 && roll < diff.mistakeRate) return flip < 0.5 ? 'B' : 'C';
+    }
     return adjustedB >= adjustedC ? 'B' : 'C';
   }
 
@@ -3003,7 +3010,10 @@ function botPickUpgrade(
   const defenseBonus = (intel?.armyAdvantage ?? 1) < 0.7 ? 2 : 0;
   const adj1 = score1 + defenseBonus;
   const adj2 = score2 + offenseBonus;
-  if (diff.mistakeRate > 0 && state.rng() < diff.mistakeRate) return state.rng() < 0.5 ? opt1 : opt2;
+  { // Always consume 2 RNG values to keep sequence stable
+    const roll = state.rng(), flip = state.rng();
+    if (diff.mistakeRate > 0 && roll < diff.mistakeRate) return flip < 0.5 ? opt1 : opt2;
+  }
   return adj1 >= adj2 ? opt1 : opt2;
 }
 
@@ -3029,11 +3039,14 @@ function botEvaluateLanes(
       b.type === BuildingType.CasterSpawner
     );
     if (spawners.length === 0) return;
-    if (state.rng() < 0.15) {
-      const lane = state.rng() < 0.5 ? Lane.Left : Lane.Right;
-      if (lane !== spawners[0].lane) {
-        emit({ type: 'toggle_all_lanes', playerId, lane });
-        ctx.currentLane[playerId] = lane;
+    { // Always consume 2 RNG values to keep sequence stable
+      const roll = state.rng(), flip = state.rng();
+      if (roll < 0.15) {
+        const lane = flip < 0.5 ? Lane.Left : Lane.Right;
+        if (lane !== spawners[0].lane) {
+          emit({ type: 'toggle_all_lanes', playerId, lane });
+          ctx.currentLane[playerId] = lane;
+        }
       }
     }
     return;
@@ -3363,14 +3376,16 @@ function botQuickChat(
 ): void {
   const lastChat = ctx.lastChatTick[playerId] ?? 0;
   if (state.tick - lastChat < 600) return;
-  if (state.rng() > 0.2) return;
+  // Always consume 2 RNG values to keep sequence stable
+  const chatRoll = state.rng(), chatRoll2 = state.rng();
+  if (chatRoll > 0.2) return;
 
   let message: string | null = null;
   if (myHqHp < HQ_HP * 0.5) {
     message = 'Defend';
   } else if (state.diamond.exposed && state.diamond.state === 'exposed' && gameMinutes > 3) {
     message = 'Get Diamond';
-  } else if (state.rng() < 0.3) {
+  } else if (chatRoll2 < 0.3) {
     const mySpawners = state.buildings.filter(b =>
       b.playerId === playerId &&
       b.type !== BuildingType.Tower &&
