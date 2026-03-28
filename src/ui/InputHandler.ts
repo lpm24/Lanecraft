@@ -1401,51 +1401,49 @@ export class InputHandler {
     const W = this.canvas.clientWidth;
     const H = this.canvas.clientHeight;
     const highlightRect = this.getMatchTutorialHighlightRect();
+    const isPlacementStep = info.highlightGrid !== 'none';
     const pad = 6;
 
-    // Draw dim overlay with a spotlight cutout around the highlighted element.
-    // We draw four rects around the hole instead of using composite operations
-    // (destination-out erases the game canvas underneath, not just our overlay).
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.65)';
-    if (highlightRect) {
-      const hx = highlightRect.x - pad;
-      const hy = highlightRect.y - pad;
-      const hw = highlightRect.w + pad * 2;
-      const hh = highlightRect.h + pad * 2;
-      // Top strip
-      if (hy > 0) ctx.fillRect(0, 0, W, hy);
-      // Bottom strip
-      if (hy + hh < H) ctx.fillRect(0, hy + hh, W, H - (hy + hh));
-      // Left strip (between top and bottom)
-      if (hx > 0) ctx.fillRect(0, hy, hx, hh);
-      // Right strip (between top and bottom)
-      if (hx + hw < W) ctx.fillRect(hx + hw, hy, W - (hx + hw), hh);
-      // Glow border around the spotlight
-      const pulse = 0.6 + 0.4 * Math.sin(performance.now() / 400);
-      ctx.strokeStyle = `rgba(100, 200, 255, ${pulse})`;
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      (ctx as any).roundRect(hx, hy, hw, hh, 8);
-      ctx.stroke();
-    } else {
-      ctx.fillRect(0, 0, W, H);
+    // During placement steps (place_builder/melee/tower), skip the dark overlay
+    // so the player can see the game world and grid slots.
+    // For UI-targeted steps (click_builder/melee/tower, match_done), spotlight the element.
+    if (!isPlacementStep) {
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.65)';
+      if (highlightRect) {
+        const hx = highlightRect.x - pad;
+        const hy = highlightRect.y - pad;
+        const hw = highlightRect.w + pad * 2;
+        const hh = highlightRect.h + pad * 2;
+        if (hy > 0) ctx.fillRect(0, 0, W, hy);
+        if (hy + hh < H) ctx.fillRect(0, hy + hh, W, H - (hy + hh));
+        if (hx > 0) ctx.fillRect(0, hy, hx, hh);
+        if (hx + hw < W) ctx.fillRect(hx + hw, hy, W - (hx + hw), hh);
+        const pulse = 0.6 + 0.4 * Math.sin(performance.now() / 400);
+        ctx.strokeStyle = `rgba(100, 200, 255, ${pulse})`;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        (ctx as any).roundRect(hx, hy, hw, hh, 8);
+        ctx.stroke();
+      } else {
+        ctx.fillRect(0, 0, W, H);
+      }
     }
 
-    // Popup bubble
-    const popupW = Math.min(320, W - 40);
-    const popupH = 120;
+    // Popup bubble — anchored at top during placement so it doesn't cover the build grid
+    const popupW = Math.min(300, W - 40);
+    const popupH = isPlacementStep ? 70 : 120;
     let popupX = (W - popupW) / 2;
     let popupY: number;
-    if (highlightRect && highlightRect.y > H / 2) {
-      // Highlight is in bottom half — put popup above
+    if (isPlacementStep) {
+      popupY = getSafeTop() + 8;
+    } else if (highlightRect && highlightRect.y > H / 2) {
       popupY = highlightRect.y - popupH - 30;
     } else if (highlightRect) {
-      // Highlight is in top half — put popup below
       popupY = highlightRect.y + highlightRect.h + 20;
     } else {
       popupY = H * 0.35;
     }
-    popupY = Math.max(10, Math.min(popupY, H - popupH - 10));
+    popupY = Math.max(getSafeTop() + 4, Math.min(popupY, H - popupH - 10));
 
     // Draw popup background
     ctx.fillStyle = 'rgba(20, 15, 10, 0.92)';
@@ -1458,8 +1456,8 @@ export class InputHandler {
     (ctx as any).roundRect(popupX, popupY, popupW, popupH, 10);
     ctx.stroke();
 
-    // Arrow pointing to highlight
-    if (highlightRect) {
+    // Arrow pointing to highlight (not during placement steps)
+    if (highlightRect && !isPlacementStep) {
       const arrowX = Math.max(popupX + 20, Math.min(highlightRect.x + highlightRect.w / 2, popupX + popupW - 20));
       const arrowY = highlightRect.y > H / 2 ? popupY + popupH : popupY;
       const arrowDir = highlightRect.y > H / 2 ? 1 : -1;
@@ -1472,18 +1470,21 @@ export class InputHandler {
       ctx.fill();
     }
 
-    // Title text
-    ctx.fillStyle = '#ffd740';
-    ctx.font = 'bold 18px monospace';
-    ctx.textAlign = 'center';
-    ctx.fillText(info.title, popupX + popupW / 2, popupY + 28);
+    // Title + body — compact layout for placement steps
+    const titleY = isPlacementStep ? popupY + 22 : popupY + 28;
+    const bodyStartY = isPlacementStep ? popupY + 40 : popupY + 52;
+    const bodyLineH = isPlacementStep ? 15 : 18;
 
-    // Body text (multiline)
+    ctx.fillStyle = '#ffd740';
+    ctx.font = isPlacementStep ? 'bold 15px monospace' : 'bold 18px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(info.title, popupX + popupW / 2, titleY);
+
     ctx.fillStyle = '#e0e0e0';
-    ctx.font = '14px monospace';
+    ctx.font = isPlacementStep ? '12px monospace' : '14px monospace';
     const lines = info.body.split('\n');
     for (let i = 0; i < lines.length; i++) {
-      ctx.fillText(lines[i], popupX + popupW / 2, popupY + 52 + i * 18);
+      ctx.fillText(lines[i], popupX + popupW / 2, bodyStartY + i * bodyLineH);
     }
 
     // Skip button (top-right of popup)
