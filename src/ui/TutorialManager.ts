@@ -13,6 +13,7 @@ export type TutorialStep =
   | 'click_builder' | 'place_builder'
   | 'click_melee' | 'place_melee'
   | 'click_tower' | 'place_tower'
+  | 'show_research' | 'show_nuke'
   | 'match_done'
   | 'menu_profile' | 'menu_solo' | 'menu_find' | 'menu_custom'
   | 'menu_join' | 'menu_gallery' | 'menu_duel'
@@ -22,6 +23,7 @@ const STEP_ORDER: TutorialStep[] = [
   'click_builder', 'place_builder',
   'click_melee', 'place_melee',
   'click_tower', 'place_tower',
+  'show_research', 'show_nuke',
   'match_done',
   'menu_profile', 'menu_solo', 'menu_find', 'menu_custom',
   'menu_join', 'menu_gallery', 'menu_duel',
@@ -32,6 +34,7 @@ const MATCH_STEPS: Set<TutorialStep> = new Set([
   'click_builder', 'place_builder',
   'click_melee', 'place_melee',
   'click_tower', 'place_tower',
+  'show_research', 'show_nuke',
   'match_done',
 ]);
 
@@ -114,6 +117,8 @@ export interface TutorialPopupInfo {
   highlightGrid: 'hut' | 'build' | 'alley' | 'none';
   /** Point arrow at settings button? */
   arrowToSettings: boolean;
+  /** Highlight a floating button above the tray. */
+  floatingButton?: 'nuke' | 'research';
 }
 
 const POPUP_INFO: Record<TutorialStep, TutorialPopupInfo | null> = {
@@ -158,6 +163,22 @@ const POPUP_INFO: Record<TutorialStep, TutorialPopupInfo | null> = {
     trayCol: -1,
     highlightGrid: 'alley',
     arrowToSettings: false,
+  },
+  show_research: {
+    title: 'Research',
+    body: 'Upgrade your units here once you\nhave enough buildings.',
+    trayCol: -1,
+    highlightGrid: 'none',
+    arrowToSettings: false,
+    floatingButton: 'research' as const,
+  },
+  show_nuke: {
+    title: 'Nuke',
+    body: 'A powerful one-time strike.\nUnlocks after 60 seconds.',
+    trayCol: -1,
+    highlightGrid: 'none',
+    arrowToSettings: false,
+    floatingButton: 'nuke' as const,
   },
   match_done: {
     title: 'Good Luck!',
@@ -214,7 +235,7 @@ export function getMenuTutorialInfo(): MenuTutorialInfo | null {
     case 'menu_gallery': return {
       target: 'gallery',
       title: 'Unit Gallery',
-      body: 'Watch different units fight\nand compare their abilities.',
+      body: 'Browse every unit in the game\nand learn about their abilities.',
     };
     case 'menu_duel': return {
       target: 'duel',

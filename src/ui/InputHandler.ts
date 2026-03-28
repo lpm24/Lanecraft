@@ -1366,12 +1366,15 @@ export class InputHandler {
   private getMatchTutorialHighlightRect(): { x: number; y: number; w: number; h: number } | null {
     const info = getMatchPopupInfo();
     if (!info) return null;
-    const { milY, milH, milW } = this.getTrayLayout();
+    const { milY, milH, milW, nukeRect, researchRect } = this.getTrayLayout();
 
     // Tray column highlight
     if (info.trayCol >= 0) {
       return { x: info.trayCol * milW, y: milY, w: milW, h: milH };
     }
+    // Floating button highlight
+    if (info.floatingButton === 'nuke') return nukeRect;
+    if (info.floatingButton === 'research') return researchRect;
     // Settings button highlight
     if (info.arrowToSettings) {
       return this.getSettingsButtonRect();
@@ -1540,10 +1543,11 @@ export class InputHandler {
       }
     }
 
-    // match_done: any click dismisses
-    if (step === 'match_done') {
+    // Info steps (show_research, show_nuke, match_done): any click dismisses
+    if (step === 'show_research' || step === 'show_nuke' || step === 'match_done') {
       advanceTutorial();
-      this.matchTutorialActive = false;
+      this.tutorialStepStartTime = performance.now();
+      this.matchTutorialActive = isMatchTutorial();
       return true;
     }
 
