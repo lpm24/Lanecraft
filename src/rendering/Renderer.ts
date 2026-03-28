@@ -123,7 +123,7 @@ export class Renderer {
   // Visual effects systems
   private dayNight: DayNightState = getDayNight(0);
   screenShake = new ScreenShake();
-  private weather = new WeatherSystem();
+  weather = new WeatherSystem();
   private ambientParticles = new AmbientParticles();
   private projectileTrails = new ProjectileTrails();
   private constructionAnims = new ConstructionAnims();
@@ -374,6 +374,7 @@ export class Renderer {
     this.mapH = state.mapDef.height;
     this.weather.mapW = this.mapW;
     this.weather.mapH = this.mapH;
+    this.weather.biome = state.mapDef.biome ?? 'temperate';
 
     const now = Date.now();
     const dt = Math.min((now - this.lastFrameTime) / 1000, 0.1);
@@ -396,11 +397,18 @@ export class Renderer {
       this.dayNight = getDayNight(dnInput);
     }
     if (vfxPrefs.screenShake) this.screenShake.update(dt); else { this.screenShake.offsetX = 0; this.screenShake.offsetY = 0; }
-    if (vfxPrefs.weather) this.weather.update(dt, elapsedSec, this.dayNight.phase, this.dayNight.brightness);
+    if (vfxPrefs.weather) {
+      this.weather.setViewport(
+        this.camera.x, this.camera.y,
+        this.canvas.clientWidth / this.camera.zoom,
+        this.canvas.clientHeight / this.camera.zoom,
+      );
+      this.weather.update(dt, elapsedSec, this.dayNight.phase, this.dayNight.brightness);
+    }
     // Force heavy rain during Deep deluge ability
     const hasDeluge = state.abilityEffects.some(e => e.type === 'deep_rain');
-    if (hasDeluge && this.weather.type !== 'rain') {
-      this.weather.type = 'rain';
+    if (hasDeluge && this.weather.type !== 'storm') {
+      this.weather.type = 'storm';
     }
     // Screen shake for fireball impact
     const hasFireball = state.abilityEffects.some(e => e.type === 'demon_fireball' && e.duration > 0.6 * TICK_RATE);
@@ -501,6 +509,10 @@ export class Renderer {
     this.drawBuildGrids(ctx, state);
     this.drawHutZones(ctx, state);
     this.drawTowerAlleys(ctx, state);
+
+    // Weather far/mid particles (layers 0-1) — behind units for depth
+    if (vfxPrefs.weather) this.weather.drawWorldBehind(ctx);
+
     this.drawYSorted(ctx, state);
     this.drawDiamondObjective(ctx, state);
     this.drawNukeTelegraphs(ctx, state);
@@ -515,13 +527,13 @@ export class Renderer {
     this.drawNukeEffects(ctx, state);
     this.drawAbilityEffects(ctx, state);
 
+    // Weather near particles (layer 2) — in front of units for depth
+    if (vfxPrefs.weather) this.weather.drawWorldFront(ctx);
+
     // Fog of war overlay (world-space, after entities, before day/night)
     if (state.fogOfWar) {
       this.drawFogOfWar(ctx, state, dt);
     }
-
-    // Weather particles (world-space)
-    if (vfxPrefs.weather) this.weather.drawWorld(ctx);
 
     // Day/night tint overlay (world-space)
     if (vfxPrefs.dayNight && this.dayNight.tintAlpha > 0.005) {
@@ -747,10 +759,61 @@ export class Renderer {
       }
     }
 
-    // 2. Autotiled grass with proper edge tiles (9-patch from tilemap)
-    //    Uses tilemap2 for ~25% of center tiles to create organic grass patches
+    // 2. Autotiled grass with proper edge tiles + inner corners
+    //    Uses all 5 tilemap color variants with noise-driven cluster selection
     const tilemap2Data = this.sprites.getTerrainSprite('tilemap2');
-    const tilemap2Img = tilemap2Data ? tilemap2Data[0] : null;
+    const tilemap3Data = this.sprites.getTerrainSprite('tilemap3');
+    const tilemap4Data = this.sprites.getTerrainSprite('tilemap4');
+    const tilemap5Data = this.sprites.getTerrainSprite('tilemap5');
+    const tilemapImgs: (HTMLImageElement | null)[] = [
+      tilemap,
+      tilemap2Data ? tilemap2Data[0] : null,
+      tilemap3Data ? tilemap3Data[0] : null,
+      tilemap4Data ? tilemap4Data[0] : null,
+      tilemap5Data ? tilemap5Data[0] : null,
+    ];
+
+    // Simple 2D value noise for organic patch selection (deterministic)
+    const noiseW = Math.ceil(mW / 4) + 2;
+    const noiseH = Math.ceil(mH / 4) + 2;
+    const noiseRand = seededRand(137);
+    const noiseGrid: number[] = new Array(noiseW * noiseH);
+    for (let i = 0; i < noiseGrid.length; i++) noiseGrid[i] = noiseRand();
+    const sampleNoise = (tx: number, ty: number): number => {
+      const fx = tx / 4, fy = ty / 4;
+      const ix = Math.min(Math.floor(fx), noiseW - 2);
+      const iy = Math.min(Math.floor(fy), noiseH - 2);
+      const dx = fx - ix, dy = fy - iy;
+      const a = noiseGrid[iy * noiseW + ix], b = noiseGrid[iy * noiseW + ix + 1];
+      const c = noiseGrid[(iy + 1) * noiseW + ix], d = noiseGrid[(iy + 1) * noiseW + ix + 1];
+      return a * (1 - dx) * (1 - dy) + b * dx * (1 - dy) + c * (1 - dx) * dy + d * dx * dy;
+    };
+    // Second noise layer at different frequency (needs its own grid for scale 6)
+    const noise2W = Math.ceil(mW / 6) + 2;
+    const noise2H = Math.ceil(mH / 6) + 2;
+    const noiseRand2 = seededRand(293);
+    const noiseGrid2: number[] = new Array(noise2W * noise2H);
+    for (let i = 0; i < noiseGrid2.length; i++) noiseGrid2[i] = noiseRand2();
+    const sampleNoise2 = (tx: number, ty: number): number => {
+      const fx = tx / 6, fy = ty / 6;
+      const ix = Math.min(Math.floor(fx), noise2W - 2);
+      const iy = Math.min(Math.floor(fy), noise2H - 2);
+      const dx = fx - ix, dy = fy - iy;
+      const a = noiseGrid2[iy * noise2W + ix], b = noiseGrid2[iy * noise2W + ix + 1];
+      const c = noiseGrid2[(iy + 1) * noise2W + ix], d = noiseGrid2[(iy + 1) * noise2W + ix + 1];
+      return a * (1 - dx) * (1 - dy) + b * dx * (1 - dy) + c * (1 - dx) * dy + d * dx * dy;
+    };
+
+    // Pick tilemap variant based on combined noise (organic clusters)
+    const pickTilemap = (tx: number, ty: number): HTMLImageElement => {
+      const combined = sampleNoise(tx, ty) * 0.6 + sampleNoise2(tx, ty) * 0.4;
+      if (combined < 0.30) return tilemapImgs[0]!;                     // color1 (30%)
+      if (combined < 0.50) return tilemapImgs[1] ?? tilemapImgs[0]!;   // color2 (20%)
+      if (combined < 0.68) return tilemapImgs[2] ?? tilemapImgs[0]!;   // color3 (18%)
+      if (combined < 0.84) return tilemapImgs[3] ?? tilemapImgs[0]!;   // color4 (16%)
+      return tilemapImgs[4] ?? tilemapImgs[0]!;                        // color5 (16%)
+    };
+
     const OV = 3; // pixel overhang for edge tiles
     for (let y = 0; y < mH; y++) {
       for (let x = 0; x < mW; x++) {
@@ -774,10 +837,9 @@ export class Renderer {
         else if (!e)       { gsx = 2 * S; gsy = S; }      // right edge
         else               { gsx = S;     gsy = S; edge = false; } // center
 
-        // For center tiles, use tilemap2 for clustered color patches (~25%)
-        const hash = ((Math.sin(x * 12.9898 + y * 78.233) * 43758.5453) % 1 + 1) % 1;
-        const useAlt = !edge && tilemap2Img && hash < 0.25;
-        const srcImg = useAlt ? tilemap2Img : tilemap;
+        // Noise-driven tilemap variant for organic color clusters
+        // Edge tiles also use noise variant to avoid color seams with adjacent center tiles
+        const srcImg = pickTilemap(x, y);
 
         if (edge) {
           tctx.drawImage(srcImg, gsx, gsy, S, S,
@@ -788,23 +850,47 @@ export class Renderer {
       }
     }
 
-    // 2b. Low-frequency warm/cool color zones (sampled every 4 tiles, then per-tile noise)
+    // 2a. Inner corner tiles (concave notches where diagonal is missing but cardinals present)
+    // Inner corners from tilemap right section: 2x2 block starting at (320,0)
     for (let y = 0; y < mH; y++) {
       for (let x = 0; x < mW; x++) {
         if (!isLand(x, y)) continue;
-        // Low-freq zone color: smooth sine-based field sampled at ~4-tile scale
+        if (!isLand(x, y - 1) || !isLand(x, y + 1) || !isLand(x + 1, y) || !isLand(x - 1, y)) continue;
+
+        const nw = isLand(x - 1, y - 1);
+        const ne = isLand(x + 1, y - 1);
+        const sw = isLand(x - 1, y + 1);
+        const se = isLand(x + 1, y + 1);
+        if (nw && ne && sw && se) continue; // no inner corners needed
+
+        const px = x * T, py = y * T;
+        const half = Math.ceil(T / 2);
+        const HS = S / 2; // half source tile (32px)
+        // Each inner corner tile is 64x64; sample the quadrant containing the notch
+        // NW inner=(320,0): notch at its TL quadrant
+        if (!nw) tctx.drawImage(tilemap, 320, 0, HS, HS, px - 1, py - 1, half + 2, half + 2);
+        // NE inner=(384,0): notch at its TR quadrant
+        if (!ne) tctx.drawImage(tilemap, 384 + HS, 0, HS, HS, px + half - 1, py - 1, half + 2, half + 2);
+        // SW inner=(320,64): notch at its BL quadrant
+        if (!sw) tctx.drawImage(tilemap, 320, S + HS, HS, HS, px - 1, py + half - 1, half + 2, half + 2);
+        // SE inner=(384,64): notch at its BR quadrant
+        if (!se) tctx.drawImage(tilemap, 384 + HS, S + HS, HS, HS, px + half - 1, py + half - 1, half + 2, half + 2);
+      }
+    }
+
+    // 2b. Low-frequency warm/cool color zones + per-tile noise
+    for (let y = 0; y < mH; y++) {
+      for (let x = 0; x < mW; x++) {
+        if (!isLand(x, y)) continue;
         const zoneVal = Math.sin(x * 0.25 + 1.7) * Math.sin(y * 0.19 + 0.3)
                       + Math.sin(x * 0.13 - y * 0.11 + 2.5) * 0.5;
         if (zoneVal > 0.3) {
-          // Warm sunlit zone (slight golden tint)
           tctx.fillStyle = `rgba(255,230,140,${(0.025 * Math.min(1, (zoneVal - 0.3) / 0.7)).toFixed(4)})`;
           tctx.fillRect(x * T, y * T, T, T);
         } else if (zoneVal < -0.3) {
-          // Cool shaded zone (slight blue-green tint)
           tctx.fillStyle = `rgba(100,180,160,${(0.03 * Math.min(1, (-zoneVal - 0.3) / 0.7)).toFixed(4)})`;
           tctx.fillRect(x * T, y * T, T, T);
         }
-        // Per-tile noise on top
         const h = ((Math.sin(x * 7.137 + y * 11.921) * 23421.631) % 1 + 1) % 1;
         if (h < 0.15) {
           tctx.fillStyle = 'rgba(0,0,0,0.04)';
@@ -816,15 +902,79 @@ export class Renderer {
       }
     }
 
-    // 2c. Cliff-edge shadow on grass tiles above south-facing cliffs
-    //     + light highlight on grass tiles above north-facing water (top-left light)
+    // 2c. Noise overlay for organic grain (breaks tile grid repetition)
+    {
+      const nCanvas = document.createElement('canvas');
+      nCanvas.width = mW * T;
+      nCanvas.height = mH * T;
+      const nctx = nCanvas.getContext('2d')!;
+      const imgData = nctx.createImageData(nCanvas.width, nCanvas.height);
+      const pixels = imgData.data;
+      const grainScale = 8;
+      const gW = Math.ceil(nCanvas.width / grainScale) + 2;
+      const gH = Math.ceil(nCanvas.height / grainScale) + 2;
+      const grainRand = seededRand(571);
+      const grain: number[] = new Array(gW * gH);
+      for (let i = 0; i < grain.length; i++) grain[i] = grainRand();
+      // Iterate tile-by-tile, skip water tiles entirely for performance
+      for (let ty = 0; ty < mH; ty++) {
+        for (let tx = 0; tx < mW; tx++) {
+          if (!isLand(tx, ty)) continue;
+          const tileX0 = tx * T, tileY0 = ty * T;
+          for (let dy = 0; dy < T; dy++) {
+            const py = tileY0 + dy;
+            for (let dx = 0; dx < T; dx++) {
+              const px = tileX0 + dx;
+              const fx = px / grainScale, fy = py / grainScale;
+              const ix = Math.min(Math.floor(fx), gW - 2);
+              const iy = Math.min(Math.floor(fy), gH - 2);
+              const ddx = fx - ix, ddy = fy - iy;
+              const val = grain[iy * gW + ix] * (1 - ddx) * (1 - ddy)
+                        + grain[iy * gW + ix + 1] * ddx * (1 - ddy)
+                        + grain[(iy + 1) * gW + ix] * (1 - ddx) * ddy
+                        + grain[(iy + 1) * gW + ix + 1] * ddx * ddy;
+              const idx = (py * nCanvas.width + px) * 4;
+              const gray = Math.floor(val * 255);
+              pixels[idx] = gray;
+              pixels[idx + 1] = gray;
+              pixels[idx + 2] = gray;
+              pixels[idx + 3] = 255;
+            }
+          }
+        }
+      }
+      nctx.putImageData(imgData, 0, 0);
+      tctx.save();
+      tctx.globalCompositeOperation = 'overlay';
+      tctx.globalAlpha = 0.06;
+      tctx.drawImage(nCanvas, 0, 0);
+      tctx.restore();
+    }
+
+    // 2d. Shadow sprites at south-facing cliff edges
+    const shadowData = this.sprites.getTerrainSprite('shadow');
+    if (shadowData) {
+      const [shadowImg] = shadowData;
+      tctx.save();
+      tctx.globalAlpha = 0.3;
+      for (const edge of this.waterEdges) {
+        if (!(edge.dirs & 1)) continue; // only south-facing cliffs
+        const landY = edge.y - 1;
+        if (landY < 0 || !isLand(edge.x, landY)) continue;
+        const px = edge.x * T;
+        const py = landY * T;
+        tctx.drawImage(shadowImg, px - T * 0.25, py + T * 0.35, T * 1.5, T * 1.1);
+      }
+      tctx.restore();
+    }
+
+    // 2e. Cliff-edge programmatic shadow + highlight (top-left light)
     for (let y = 0; y < mH; y++) {
       for (let x = 0; x < mW; x++) {
         if (!isLand(x, y)) continue;
         const px = x * T;
         const py = y * T;
         if (!isLand(x, y + 1)) {
-          // South cliff shadow
           const grad = tctx.createLinearGradient(px, py + T * 0.5, px, py + T);
           grad.addColorStop(0, 'rgba(0,0,0,0)');
           grad.addColorStop(1, 'rgba(0,30,20,0.15)');
@@ -832,7 +982,6 @@ export class Renderer {
           tctx.fillRect(px, py + T * 0.5, T, T * 0.5);
         }
         if (!isLand(x, y - 1)) {
-          // North edge highlight (light from above)
           const grad = tctx.createLinearGradient(px, py, px, py + T * 0.4);
           grad.addColorStop(0, 'rgba(255,255,220,0.06)');
           grad.addColorStop(1, 'rgba(255,255,220,0)');
@@ -840,7 +989,6 @@ export class Renderer {
           tctx.fillRect(px, py, T, T * 0.4);
         }
         if (!isLand(x - 1, y)) {
-          // West edge highlight (light from left)
           const grad = tctx.createLinearGradient(px, py, px + T * 0.3, py);
           grad.addColorStop(0, 'rgba(255,255,220,0.04)');
           grad.addColorStop(1, 'rgba(255,255,220,0)');
@@ -852,7 +1000,6 @@ export class Renderer {
 
     // 3. Subtle zone tinting over grass (team base areas)
     if (mapDef.shapeAxis === 'y') {
-      // Portrait map: horizontal bands for top/bottom bases
       const drawZoneTint = (startRow: number, endRow: number, color: string) => {
         tctx.fillStyle = color;
         for (let y = startRow; y < endRow; y++) {
@@ -863,8 +1010,7 @@ export class Renderer {
       drawZoneTint(ZONES.TOP_BASE.start, ZONES.TOP_BASE.end, 'rgba(200, 0, 0, 0.06)');
       drawZoneTint(ZONES.BOTTOM_BASE.start, ZONES.BOTTOM_BASE.end, 'rgba(0, 80, 200, 0.06)');
     } else {
-      // Landscape map: vertical bands for left/right bases
-      const baseDepth = 18; // matches SK_BASE_DEPTH
+      const baseDepth = 18;
       const teamColors = ['rgba(0, 80, 200, 0.06)', 'rgba(200, 0, 0, 0.06)'];
       const xRanges = [[0, baseDepth], [mW - baseDepth, mW]];
       for (let t = 0; t < 2; t++) {
@@ -897,7 +1043,6 @@ export class Renderer {
         const by = Math.floor(rand() * mH);
         if (!mapDef.isPlayable(bx, by)) continue;
         if (!mapDef.isPlayable(bx - 2, by) || !mapDef.isPlayable(bx + 2, by)) continue;
-        // Density gradient: 80% chance near coast (dist 2-4), 30% chance deep inland
         const dist = distToWater(bx, by);
         const placePct = dist <= 4 ? 0.8 : 0.3;
         if (rand() > placePct) continue;
@@ -930,6 +1075,56 @@ export class Renderer {
         const s = T * (0.5 + rand() * 0.4);
         tctx.globalAlpha = 0.5 + rand() * 0.3;
         tctx.drawImage(rImg, rx * T - s / 2 + rand() * T * 0.3, ry * T - s / 2 + rand() * T * 0.3, s, s);
+      }
+      tctx.globalAlpha = 1;
+    }
+
+    // 6. Grass tufts and tiny flowers (noise-driven density zones)
+    {
+      const scatterRand = seededRand(839);
+      const scatterCount = Math.floor(mW * mH * 0.012);
+      for (let i = 0; i < scatterCount; i++) {
+        const sx = Math.floor(scatterRand() * mW);
+        const sy = Math.floor(scatterRand() * mH);
+        if (!isLand(sx, sy)) continue;
+        const dist = distToWater(sx, sy);
+        if (dist <= 1) continue;
+
+        const density = sampleNoise(sx, sy);
+        // Keep scatter within the tile to avoid bleeding into water
+        const tileMinX = sx * T, tileMaxX = (sx + 1) * T - 1;
+        const tileMinY = sy * T, tileMaxY = (sy + 1) * T - 1;
+        const px = tileMinX + scatterRand() * (T - 2) + 1;
+        const py = tileMinY + scatterRand() * (T - 2) + 1;
+
+        if (density > 0.55) {
+          // Lush zone: tiny flower clusters (2-3 dots)
+          const flowerColors = ['#e8c34a', '#d4726a', '#c4a0d4', '#e8e0a0', '#a8d4a0'];
+          const color = flowerColors[Math.floor(scatterRand() * flowerColors.length)];
+          tctx.fillStyle = color;
+          tctx.globalAlpha = 0.5 + scatterRand() * 0.3;
+          const count = 2 + Math.floor(scatterRand() * 2);
+          for (let j = 0; j < count; j++) {
+            const fx = Math.max(tileMinX, Math.min(tileMaxX, Math.floor(px + (scatterRand() - 0.5) * T * 0.4)));
+            const fy = Math.max(tileMinY, Math.min(tileMaxY, Math.floor(py + (scatterRand() - 0.5) * T * 0.3)));
+            tctx.fillRect(fx, fy, 1, 1);
+          }
+        } else if (density > 0.3) {
+          // Medium zone: grass tufts (small dark-green lines)
+          tctx.globalAlpha = 0.25 + scatterRand() * 0.2;
+          const tufts = 2 + Math.floor(scatterRand() * 3);
+          for (let j = 0; j < tufts; j++) {
+            const gx = Math.max(tileMinX, Math.min(tileMaxX, Math.floor(px + (scatterRand() - 0.5) * T * 0.5)));
+            const gy = Math.max(tileMinY, Math.min(tileMaxY - 1, Math.floor(py + (scatterRand() - 0.5) * T * 0.3)));
+            tctx.fillStyle = `rgba(${40 + Math.floor(scatterRand() * 30)},${80 + Math.floor(scatterRand() * 40)},${30 + Math.floor(scatterRand() * 20)},1)`;
+            tctx.fillRect(gx, gy, 1, 2);
+          }
+        } else if (scatterRand() < 0.3) {
+          // Sparse zone: occasional dirt speck
+          tctx.globalAlpha = 0.15 + scatterRand() * 0.1;
+          tctx.fillStyle = '#8b7355';
+          tctx.fillRect(Math.floor(px), Math.floor(py), 1, 1);
+        }
       }
       tctx.globalAlpha = 1;
     }

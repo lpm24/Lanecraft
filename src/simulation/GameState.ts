@@ -339,6 +339,9 @@ const _combatOrder: UnitState[] = [];
 const _spawnOrder: GameState['buildings'] = [];
 const _moveOrder: UnitState[] = [];
 const _projectileRemoveSet = new Set<number>();
+// Cached alley buildings per team — rebuilt once per tick for unit movement stop check
+const _alleyBuildingsBottom: Array<{ x: number; y: number }> = [];
+const _alleyBuildingsTop: Array<{ x: number; y: number }> = [];
 
 // Diamond cell map — rebuilt once per tick in simulateTick, integer keys for hot-path collision lookups
 let _diamondCellMapInt = new Map<number, GoldCell>();
@@ -2695,6 +2698,18 @@ function getEffectiveDamage(unit: UnitState, state?: GameState): number {
 }
 
 function tickUnitMovement(state: GameState): void {
+  // Pre-filter alley buildings per team once (avoids O(units × buildings) inner loop)
+  _alleyBuildingsBottom.length = 0;
+  _alleyBuildingsTop.length = 0;
+  for (const b of state.buildings) {
+    if (b.buildGrid !== 'alley' || b.hp <= 0) continue;
+    const bp = state.players[b.playerId];
+    if (!bp) continue;
+    const entry = { x: b.worldX + 0.5, y: b.worldY + 0.5 };
+    if (bp.team === Team.Bottom) _alleyBuildingsBottom.push(entry);
+    else _alleyBuildingsTop.push(entry);
+  }
+
   // Shuffle movement order to prevent first-mover positional advantage
   _moveOrder.length = 0;
   for (const u of state.units) _moveOrder.push(u);
@@ -2710,13 +2725,13 @@ function tickUnitMovement(state: GameState): void {
     // Siege units skip this; they have their own building-targeting logic.
     if (!unit.upgradeSpecial?.isSiegeUnit) {
       const tRange = unit.range + 1.5;
+      const tRange2 = tRange * tRange;
       let stopForBuilding = false;
-      for (const b of state.buildings) {
-        if (b.buildGrid !== 'alley' || b.hp <= 0) continue;
-        const bp = state.players[b.playerId];
-        if (!bp || bp.team === unit.team) continue;
-        const td = Math.sqrt((b.worldX + 0.5 - unit.x) ** 2 + (b.worldY + 0.5 - unit.y) ** 2);
-        if (td <= tRange) { stopForBuilding = true; break; }
+      // Check only enemy team's alley buildings (pre-filtered)
+      const enemyAlleyBuildings = unit.team === Team.Bottom ? _alleyBuildingsTop : _alleyBuildingsBottom;
+      for (const ab of enemyAlleyBuildings) {
+        const dx = ab.x - unit.x, dy = ab.y - unit.y;
+        if (dx * dx + dy * dy <= tRange2) { stopForBuilding = true; break; }
       }
       if (!stopForBuilding) {
         // Also stop for enemy HQ
@@ -2725,8 +2740,9 @@ function tickUnitMovement(state: GameState): void {
         const hqCx = hq.x + HQ_WIDTH / 2;
         const hqCy = hq.y + HQ_HEIGHT / 2;
         const hqRadius = Math.max(HQ_WIDTH, HQ_HEIGHT) * 0.5;
-        const distToHq = Math.sqrt((unit.x - hqCx) ** 2 + (unit.y - hqCy) ** 2);
-        if (distToHq <= unit.range + hqRadius) stopForBuilding = true;
+        const hqDist2 = (unit.x - hqCx) ** 2 + (unit.y - hqCy) ** 2;
+        const hqThresh = unit.range + hqRadius;
+        if (hqDist2 <= hqThresh * hqThresh) stopForBuilding = true;
       }
       if (stopForBuilding) continue;
     }
@@ -2966,7 +2982,8 @@ function tickPotionPickups(state: GameState): void {
     if (potTeamPlayers.some(p => p.researchUpgrades.raceUpgrades['goblins_ability_1'])) {
       let closestDist = 16; // 4 tiles squared
       let closestUnit: UnitState | null = null;
-      for (const u of state.units) {
+      const potNearby = _combatGrid.getNearby(potion.x, potion.y, 4);
+      for (const u of potNearby) {
         if (u.hp <= 0 || u.team !== potion.team) continue;
         const d2 = (u.x - potion.x) ** 2 + (u.y - potion.y) ** 2;
         if (d2 < closestDist || (d2 === closestDist && closestUnit && u.id < closestUnit.id)) { closestDist = d2; closestUnit = u; }
@@ -2982,8 +2999,9 @@ function tickPotionPickups(state: GameState): void {
       }
     }
 
-    // Check if any allied unit walks over this potion
-    for (const u of state.units) {
+    // Check if any allied unit walks over this potion (spatial grid lookup)
+    const pickupNearby = _combatGrid.getNearby(potion.x, potion.y, POTION_PICKUP_RADIUS);
+    for (const u of pickupNearby) {
       if (u.hp <= 0 || u.team !== potion.team) continue;
       const d2 = (u.x - potion.x) ** 2 + (u.y - potion.y) ** 2;
       if (d2 <= POTION_PICKUP_RADIUS * POTION_PICKUP_RADIUS) {
@@ -3313,7 +3331,8 @@ function dealDamage(state: GameState, target: UnitState, amount: number, showFlo
             const frenzyRadius = wildPlayer?.researchUpgrades.raceUpgrades['wild_ability_2'] ? 12 : 6;
             applyStatus(killer, StatusType.Frenzy, 1);
             applyStatus(killer, StatusType.Haste, 1);
-            for (const ally of state.units) {
+            const frenzyNearby = _combatGrid.getNearby(killer.x, killer.y, frenzyRadius);
+            for (const ally of frenzyNearby) {
               if (ally.team !== killer.team || ally.id === killer.id || ally.hp <= 0) continue;
               if (state.players[ally.playerId]?.race !== Race.Wild) continue;
               const dx = ally.x - killer.x, dy = ally.y - killer.y;

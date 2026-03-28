@@ -318,6 +318,10 @@ import bush2 from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pa
 import bush3 from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Terrain/Decorations/Bushes/Bushe3.png?url';
 import bush4 from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Terrain/Decorations/Bushes/Bushe4.png?url';
 import tilemapColor2 from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Terrain/Tileset/Tilemap_color2.png?url';
+import tilemapColor3 from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Terrain/Tileset/Tilemap_color3.png?url';
+import tilemapColor4 from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Terrain/Tileset/Tilemap_color4.png?url';
+import tilemapColor5 from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Terrain/Tileset/Tilemap_color5.png?url';
+import terrainShadow from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Terrain/Tileset/Shadow.png?url';
 import rock2 from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Terrain/Decorations/Rocks/Rock2.png?url';
 import rock3 from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Terrain/Decorations/Rocks/Rock3.png?url';
 import rock4 from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Terrain/Decorations/Rocks/Rock4.png?url';
@@ -1009,13 +1013,13 @@ const RACE_BUILDING_SPRITES: Record<string, string | undefined> = {
   'crown:tower:D': H(61), 'crown:tower:E': H(62), 'crown:tower:F': H(63), 'crown:tower:G': H(64),
 
   // === GOBLINS (Human Pack) ===
-  'goblins:research:A': H(18), 'goblins:hut:A': O(52), 'goblins:potionshop:A': H(48),
-  'goblins:melee:A': H(29), 'goblins:melee:B': H(34), 'goblins:melee:C': H(3),
-  'goblins:melee:D': H(12), 'goblins:melee:E': H(5), 'goblins:melee:F': H(10), 'goblins:melee:G': H(4),
-  'goblins:ranged:A': H(14), 'goblins:ranged:B': H(31), 'goblins:ranged:C': H(30),
-  'goblins:ranged:D': H(2), 'goblins:ranged:E': H(26), 'goblins:ranged:F': H(25), 'goblins:ranged:G': H(49),
-  'goblins:caster:A': H(57), 'goblins:caster:B': H(7), 'goblins:caster:C': H(16),
-  'goblins:caster:D': H(9), 'goblins:caster:E': H(23), 'goblins:caster:F': H(45), 'goblins:caster:G': H(46),
+  'goblins:research:A': H(18), 'goblins:hut:A': H(79), 'goblins:potionshop:A': H(87),
+  'goblins:melee:A': H(80), 'goblins:melee:B': H(81), 'goblins:melee:C': H(82),
+  'goblins:melee:D': H(83), 'goblins:melee:E': H(84), 'goblins:melee:F': H(85), 'goblins:melee:G': H(86),
+  'goblins:ranged:A': H(88), 'goblins:ranged:B': H(89), 'goblins:ranged:C': H(90),
+  'goblins:ranged:D': H(91), 'goblins:ranged:E': H(92), 'goblins:ranged:F': H(93), 'goblins:ranged:G': H(94),
+  'goblins:caster:A': H(72), 'goblins:caster:B': H(73), 'goblins:caster:C': H(74),
+  'goblins:caster:D': H(75), 'goblins:caster:E': H(76), 'goblins:caster:F': H(77), 'goblins:caster:G': H(78),
   'goblins:tower:A': H(65), 'goblins:tower:B': H(66), 'goblins:tower:C': H(67),
   'goblins:tower:D': H(68), 'goblins:tower:E': H(69), 'goblins:tower:F': H(70), 'goblins:tower:G': H(71),
 
@@ -1163,6 +1167,10 @@ export const TERRAIN_SPRITES = {
   bush3: tsSheet(bush3, 1024, 128),
   bush4: tsSheet(bush4, 1024, 128),
   tilemap2: singleFrame(tilemapColor2, 576, 384),
+  tilemap3: singleFrame(tilemapColor3, 576, 384),
+  tilemap4: singleFrame(tilemapColor4, 576, 384),
+  tilemap5: singleFrame(tilemapColor5, 576, 384),
+  shadow: singleFrame(terrainShadow, 128, 128),
   rock2: singleFrame(rock2, 64, 64),
   rock3: singleFrame(rock3, 64, 64),
   rock4: singleFrame(rock4, 64, 64),

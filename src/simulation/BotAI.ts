@@ -701,24 +701,29 @@ function botUpdateIntelligence(
   else if (gameMinutes < 5) intel.gamePhase = 'mid';
   else intel.gamePhase = 'late';
 
-  // --- Combat telemetry: scan all units ---
+  // --- Combat telemetry + army value: single pass over all units ---
   const myPerf = emptyPerf();
   const enemyPerf = emptyPerf();
   const currentMyIds = new Set<number>();
+  let myValue = 0, enemyValue = 0;
 
   for (const u of state.units) {
     const cat = u.category as 'melee' | 'ranged' | 'caster';
+    const dps = u.damage / Math.max(0.5, u.attackSpeed);
+    const value = u.hp * dps;
     if (u.team === myTeam) {
       const p = myPerf[cat];
       p.alive++;
       p.avgHpPct += u.hp / u.maxHp;
       p.totalKills += u.kills;
       currentMyIds.add(u.id);
+      myValue += value;
     } else {
       const p = enemyPerf[cat];
       p.alive++;
       p.avgHpPct += u.hp / u.maxHp;
       p.totalKills += u.kills;
+      enemyValue += value;
     }
   }
 
@@ -803,15 +808,7 @@ function botUpdateIntelligence(
   intel.myPerf = myPerf;
   intel.enemyPerf = enemyPerf;
 
-  // --- Army advantage ---
-  // Army value = sum of (hp * dps) for all units, where dps = damage / attackSpeed
-  let myValue = 0, enemyValue = 0;
-  for (const u of state.units) {
-    const dps = u.damage / Math.max(0.5, u.attackSpeed);
-    const value = u.hp * dps;
-    if (u.team === myTeam) myValue += value;
-    else enemyValue += value;
-  }
+  // --- Army advantage (computed in single pass above) ---
   intel.armyValueMy = myValue;
   intel.armyValueEnemy = enemyValue;
   intel.armyAdvantage = enemyValue > 0 ? myValue / enemyValue : (myValue > 0 ? 5 : 1);
@@ -2139,13 +2136,24 @@ function runSingleBotAI(state: GameState, ctx: BotContext, playerId: number, emi
     ?? ctx.selectedProfile[playerId]
     ?? RACE_PROFILES[player.race];
 
-  const myBuildings = state.buildings.filter(b => b.playerId === playerId);
-  const meleeCount = myBuildings.filter(b => b.type === BuildingType.MeleeSpawner).length;
-  const rangedCount = myBuildings.filter(b => b.type === BuildingType.RangedSpawner).length;
-  const casterCount = myBuildings.filter(b => b.type === BuildingType.CasterSpawner).length;
-  const towerCount = myBuildings.filter(b => b.type === BuildingType.Tower && b.buildGrid === 'military').length;
-  const alleyTowerCount = myBuildings.filter(b => b.type === BuildingType.Tower && b.buildGrid === 'alley' && !b.isSeed).length;
-  const hutCount = myBuildings.filter(b => b.type === BuildingType.HarvesterHut).length;
+  // Single-pass building count (replaces 7 separate .filter() calls)
+  const myBuildings: typeof state.buildings = [];
+  let meleeCount = 0, rangedCount = 0, casterCount = 0;
+  let towerCount = 0, alleyTowerCount = 0, hutCount = 0;
+  for (const b of state.buildings) {
+    if (b.playerId !== playerId) continue;
+    myBuildings.push(b);
+    switch (b.type) {
+      case BuildingType.MeleeSpawner: meleeCount++; break;
+      case BuildingType.RangedSpawner: rangedCount++; break;
+      case BuildingType.CasterSpawner: casterCount++; break;
+      case BuildingType.Tower:
+        if (b.buildGrid === 'military') towerCount++;
+        else if (b.buildGrid === 'alley' && !b.isSeed) alleyTowerCount++;
+        break;
+      case BuildingType.HarvesterHut: hutCount++; break;
+    }
+  }
 
   const gameMinutes = state.tick / (20 * 60);
   const myTeam = botTeam(playerId, state);
@@ -2155,10 +2163,15 @@ function runSingleBotAI(state: GameState, ctx: BotContext, playerId: number, emi
   // --- Intelligence system: initialize and update ---
   if (!ctx.intelligence[playerId]) {
     ctx.intelligence[playerId] = createBotIntelligence(enemyRaces);
+    // Stagger initial ticks per bot so 7 bots don't all fire analysis on the same tick
+    ctx.intelligence[playerId].lastAnalysisTick = -(playerId * 6);
+    ctx.intelligence[playerId].lastResourcePlanTick = -(playerId * 6);
   }
   const intel = ctx.intelligence[playerId];
 
-  // Run analysis every ~2 seconds (40 ticks) — no per-player stagger to avoid asymmetry
+  // Run analysis every ~2 seconds (40 ticks), staggered per bot to spread CPU load.
+  // Each bot still runs at the same frequency — the offset just prevents all 7 bots
+  // from firing on the same tick. State is identical at any point within a tick.
   const analysisInterval = 40;
   if (state.tick - intel.lastAnalysisTick >= analysisInterval) {
     botUpdateIntelligence(state, ctx, playerId);
@@ -2419,9 +2432,9 @@ function botValueBasedBuild(
         const matchupBonus = scoreUpgradeNode(race, b.type, choice, threats) / 40;
 
         // Volume bonus: more buildings of this type = upgrade benefits more production
-        const sameTypeCount = state.buildings.filter(
-          sb => sb.playerId === playerId && sb.type === b.type
-        ).length;
+        const sameTypeCount = b.type === BuildingType.MeleeSpawner ? meleeCount
+          : b.type === BuildingType.RangedSpawner ? rangedCount
+          : b.type === BuildingType.CasterSpawner ? casterCount : 1;
         const volumeBonus = Math.max(1, sameTypeCount * 0.6);
 
         uv = (throughputDelta * (1 + spikeBonus + matchupBonus) * volumeBonus) / totalCost;

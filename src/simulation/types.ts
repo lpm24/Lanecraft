@@ -207,6 +207,8 @@ export interface MapDef {
   shapeAxis: 'y' | 'x';
   /** Multiplier for wood/meat harvester deposits. Default 1. */
   resourceYield?: number;
+  /** Weather biome — determines which weather types can appear. Default 'temperate'. */
+  biome?: 'temperate' | 'arctic' | 'desert' | 'swamp' | 'volcanic';
 }
 
 // === Enums ===

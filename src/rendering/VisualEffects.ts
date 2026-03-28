@@ -120,7 +120,31 @@ export class ScreenShake {
 
 // ─── Weather System ──────────────────────────────────────────
 
-export type WeatherType = 'clear' | 'rain' | 'snow' | 'fog';
+export type WeatherType = 'clear' | 'overcast' | 'rain' | 'storm' | 'snow' | 'blizzard' | 'fog' | 'sandstorm';
+
+/** Biome determines which weather types a map can produce */
+export type WeatherBiome = 'temperate' | 'arctic' | 'desert' | 'swamp' | 'volcanic';
+
+/** Valid transitions — weather can only move to adjacent states */
+const WEATHER_TRANSITIONS: Record<WeatherType, WeatherType[]> = {
+  'clear':     ['clear', 'overcast', 'fog'],
+  'overcast':  ['clear', 'rain', 'snow', 'fog', 'overcast'],
+  'rain':      ['overcast', 'storm', 'rain'],
+  'storm':     ['rain', 'overcast'],
+  'snow':      ['overcast', 'blizzard', 'snow'],
+  'blizzard':  ['snow', 'overcast'],
+  'fog':       ['clear', 'overcast'],
+  'sandstorm': ['clear', 'overcast', 'sandstorm'],
+};
+
+/** Biome-specific weather weights — higher = more likely */
+const BIOME_WEIGHTS: Record<WeatherBiome, Partial<Record<WeatherType, number>>> = {
+  temperate: { clear: 5, overcast: 3, rain: 2, storm: 1, snow: 1, fog: 2 },
+  arctic:    { clear: 1, overcast: 3, snow: 4, blizzard: 2, fog: 2 },
+  desert:    { clear: 6, overcast: 1, sandstorm: 3 },
+  swamp:     { clear: 1, overcast: 2, rain: 3, fog: 4, storm: 1 },
+  volcanic:  { clear: 2, overcast: 4, storm: 2, fog: 1 },
+};
 
 interface WeatherDrop {
   x: number;
@@ -141,8 +165,23 @@ interface RainSplash {
   size: number;
 }
 
+/** Camera viewport for particle culling */
+interface WeatherViewport {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** Returns true if a drop uses particles (not just overlay) */
+function isParticleWeather(type: WeatherType): boolean {
+  return type === 'rain' || type === 'snow' || type === 'storm' || type === 'blizzard' || type === 'sandstorm';
+}
+
 export class WeatherSystem {
   type: WeatherType = 'clear';
+  /** Current biome — set by Renderer from map definition */
+  biome: WeatherBiome = 'temperate';
   private drops: WeatherDrop[] = [];
   private fadingDrops: WeatherDrop[] = []; // old drops fading out during transitions
   private fadingType: WeatherType = 'clear'; // what the fading drops were
@@ -152,60 +191,93 @@ export class WeatherSystem {
   private targetAlpha = 0;
   private nextChangeTime = 0;
   private fogPhase = 0;
-  private windStrength = 0;
+  windStrength = 0;
   private windTarget = 0;
-  private lightningFlash = 0; // 0-1 flash intensity, decays rapidly
+  private preWeatherWindTimer = 0; // seconds remaining for pre-weather wind cue
+  lightningFlash = 0; // 0-1 flash intensity, decays rapidly
   private lightningCooldown = 0;
-  private brightness = 1; // current ambient brightness from day/night
-  /** Set by Renderer to match current map dimensions (in tiles). */
+  private brightness = 1;
   mapW = MAP_WIDTH;
   mapH = MAP_HEIGHT;
-  /** Callback for lightning screen shake — set by Renderer */
   onLightning: (() => void) | null = null;
+  private readonly _viewport: WeatherViewport = { x: 0, y: 0, w: 0, h: 0 };
+  private viewportSet = false;
+
+  /** Update camera viewport for particle culling (mutates in place) */
+  setViewport(x: number, y: number, w: number, h: number): void {
+    this._viewport.x = x; this._viewport.y = y;
+    this._viewport.w = w; this._viewport.h = h;
+    this.viewportSet = true;
+  }
 
   // Fog gradient cache
   private fogGradCache: CanvasGradient[] = [];
   private fogGradMapW = 0;
   private fogGradMapH = 0;
   private fogGradBandYs: number[] = [];
+  private fogGradType: WeatherType = 'clear'; // track type for cache invalidation
+
+  // Vignette gradient cache
+  private vignetteCache: CanvasGradient | null = null;
+  private vignetteCacheW = 0;
+  private vignetteCacheH = 0;
+  private vignetteCacheType: WeatherType = 'clear';
 
   /** Call once per frame with dt in seconds */
   update(dt: number, elapsedSec: number, dayPhase: number, brightness = 1): void {
     this.brightness = brightness;
 
-    // Auto-change weather every 60–120 seconds
+    // Auto-change weather every 45–100 seconds
     if (elapsedSec >= this.nextChangeTime) {
       this.pickWeather(dayPhase);
-      this.nextChangeTime = elapsedSec + 60 + Math.random() * 60;
+      this.nextChangeTime = elapsedSec + 45 + Math.random() * 55;
     }
 
-    // Smooth transition
-    this.targetAlpha = this.type === 'clear' ? 0 : 1;
-    this.transitionAlpha += (this.targetAlpha - this.transitionAlpha) * dt * 2;
+    // Smooth transition — slower for more gradual feel
+    this.targetAlpha = this.type === 'clear' ? 0 : (this.type === 'overcast' ? 0.6 : 1);
+    this.transitionAlpha += (this.targetAlpha - this.transitionAlpha) * dt * 0.3;
+    // Snap when very close
+    if (Math.abs(this.transitionAlpha - this.targetAlpha) < 0.005) this.transitionAlpha = this.targetAlpha;
 
     // Fade out old drops during transitions
     if (this.fadingAlpha > 0.01) {
-      this.fadingAlpha = Math.max(0, this.fadingAlpha - dt * 0.4); // ~2.5s fade
-      this.updateDropList(this.fadingDrops, dt, this.fadingType === 'rain');
+      this.fadingAlpha = Math.max(0, this.fadingAlpha - dt * 0.3);
+      this.updateDropList(this.fadingDrops, dt, this.fadingType);
       if (this.fadingAlpha <= 0.01) {
         this.fadingDrops = [];
         this.fadingAlpha = 0;
       }
     }
 
+    // Count down pre-weather wind timer
+    if (this.preWeatherWindTimer > 0) this.preWeatherWindTimer = Math.max(0, this.preWeatherWindTimer - dt);
+
     // Wind gusts — slowly drift toward random targets
-    if (Math.random() < dt * 0.3) this.windTarget = (Math.random() - 0.5) * 60;
+    if (this.preWeatherWindTimer > 0) {
+      this.windTarget = (Math.random() > 0.5 ? 1 : -1) * (40 + Math.random() * 30);
+    } else if (this.type === 'storm' || this.type === 'blizzard') {
+      // Strong sustained wind during heavy weather
+      if (Math.random() < dt * 0.5) this.windTarget = (Math.random() - 0.5) * 120;
+    } else if (this.type === 'sandstorm') {
+      // Very strong lateral wind for sandstorms
+      if (Math.random() < dt * 0.4) this.windTarget = 60 + Math.random() * 80; // always blows right
+    } else {
+      if (Math.random() < dt * 0.3) this.windTarget = (Math.random() - 0.5) * 60;
+    }
     this.windStrength += (this.windTarget - this.windStrength) * dt * 0.8;
 
     if (this.type === 'fog') this.fogPhase += dt * 0.3;
-    if (this.type === 'rain' || this.type === 'snow') this.updateDropList(this.drops, dt, this.type === 'rain');
+    if (isParticleWeather(this.type)) this.updateDropList(this.drops, dt, this.type);
 
-    // Lightning during rain
-    if (this.type === 'rain') {
+    // Lightning during rain/storm (more frequent in storms)
+    if (this.type === 'rain' || this.type === 'storm') {
       this.lightningCooldown -= dt;
-      if (this.lightningCooldown <= 0 && Math.random() < dt * 0.08) {
+      const lightningRate = this.type === 'storm' ? 0.2 : 0.08;
+      const minCooldown = this.type === 'storm' ? 1.5 : 3;
+      const cooldownRange = this.type === 'storm' ? 4 : 8;
+      if (this.lightningCooldown <= 0 && Math.random() < dt * lightningRate) {
         this.lightningFlash = 0.8 + Math.random() * 0.2;
-        this.lightningCooldown = 3 + Math.random() * 8;
+        this.lightningCooldown = minCooldown + Math.random() * cooldownRange;
         this.onLightning?.();
       }
     }
@@ -221,54 +293,119 @@ export class WeatherSystem {
 
   private pickWeather(dayPhase: number): void {
     const prevType = this.type;
-    const rand = Math.random();
-    if (dayPhase > 0.5 && dayPhase < 0.95) {
-      if (rand < 0.3) this.type = 'fog';
-      else if (rand < 0.5) this.type = 'rain';
-      else this.type = 'clear';
+
+    // Get valid transitions from current state
+    const candidates = WEATHER_TRANSITIONS[this.type] || ['clear'];
+
+    // Get biome weights
+    const weights = BIOME_WEIGHTS[this.biome];
+
+    // Night bias: prefer fog/snow over rain during night
+    const nightBias = (dayPhase > 0.5 && dayPhase < 0.95) ? true : false;
+
+    // Build weighted candidate list
+    let totalWeight = 0;
+    const weightedCandidates: { type: WeatherType; weight: number }[] = [];
+    for (const c of candidates) {
+      let w = weights[c] ?? 0;
+      if (w <= 0) continue;
+      // Night adjustments
+      if (nightBias) {
+        if (c === 'fog' || c === 'snow' || c === 'blizzard') w *= 1.5;
+        if (c === 'clear') w *= 0.5;
+      }
+      weightedCandidates.push({ type: c, weight: w });
+      totalWeight += w;
+    }
+
+    // Fallback if no valid candidates
+    if (weightedCandidates.length === 0 || totalWeight <= 0) {
+      this.type = 'clear';
     } else {
-      if (rand < 0.15) this.type = 'rain';
-      else if (rand < 0.22) this.type = 'snow';
-      else if (rand < 0.28) this.type = 'fog';
-      else this.type = 'clear';
+      // Weighted random pick
+      let roll = Math.random() * totalWeight;
+      this.type = weightedCandidates[weightedCandidates.length - 1].type;
+      for (const wc of weightedCandidates) {
+        roll -= wc.weight;
+        if (roll <= 0) { this.type = wc.type; break; }
+      }
+    }
+
+    // Pre-weather wind cue: if transitioning TO precipitation, start wind early
+    if (!isParticleWeather(prevType) && isParticleWeather(this.type)) {
+      this.preWeatherWindTimer = 3; // 3 seconds of wind buildup
     }
 
     // Graduated transition: move old drops to fading list instead of deleting
-    if (this.drops.length > 0 && (prevType === 'rain' || prevType === 'snow')) {
+    if (this.drops.length > 0 && isParticleWeather(prevType)) {
       this.fadingDrops = this.drops;
       this.fadingType = prevType;
-      this.fadingAlpha = this.transitionAlpha; // start fading from current opacity
+      this.fadingAlpha = this.transitionAlpha;
     }
 
-    if (this.type === 'rain' || this.type === 'snow') {
-      this.drops = [];
-      this.splashes = [];
-      this.spawnDrops(this.type === 'rain' ? 600 : 300);
-    } else {
-      this.drops = [];
-      this.splashes = [];
+    this.drops = [];
+    this.splashes = [];
+    if (isParticleWeather(this.type)) {
+      this.spawnDrops(this.type);
     }
   }
 
-  private spawnDrops(count: number): void {
+  private spawnDrops(weatherType: WeatherType): void {
     const worldW = this.mapW * T;
     const worldH = this.mapH * T;
-    const isRain = this.type === 'rain';
+
+    let count: number;
+    switch (weatherType) {
+      case 'rain':      count = 600; break;
+      case 'storm':     count = 900; break;
+      case 'snow':      count = 300; break;
+      case 'blizzard':  count = 700; break;
+      case 'sandstorm': count = 500; break;
+      default:          count = 300;
+    }
+
     for (let i = 0; i < count; i++) {
       const layer = i < count * 0.3 ? 0 : i < count * 0.7 ? 1 : 2;
-      const depthScale = 0.5 + layer * 0.25; // 0.5, 0.75, 1.0
+      const depthScale = 0.5 + layer * 0.25;
+
+      let speed: number, size: number, drift: number;
+
+      switch (weatherType) {
+        case 'rain':
+          speed = (250 + Math.random() * 200) * depthScale;
+          size = (0.8 + Math.random() * 1.5) * depthScale;
+          drift = -40 + Math.random() * 15;
+          break;
+        case 'storm':
+          speed = (350 + Math.random() * 250) * depthScale;
+          size = (1.0 + Math.random() * 2.0) * depthScale;
+          drift = -60 + Math.random() * 20;
+          break;
+        case 'snow':
+          speed = (15 + Math.random() * 25) * depthScale;
+          size = (1.5 + Math.random() * 2.5) * depthScale;
+          drift = (Math.random() - 0.5) * 15;
+          break;
+        case 'blizzard':
+          speed = (30 + Math.random() * 45) * depthScale;
+          size = (2.0 + Math.random() * 3.0) * depthScale;
+          drift = -50 + Math.random() * 20; // strong diagonal
+          break;
+        case 'sandstorm':
+          speed = (20 + Math.random() * 40) * depthScale; // slow fall
+          size = (1.5 + Math.random() * 3.5) * depthScale;
+          drift = 80 + Math.random() * 60; // strong horizontal
+          break;
+        default:
+          speed = (15 + Math.random() * 25) * depthScale;
+          size = (1.5 + Math.random() * 2.5) * depthScale;
+          drift = (Math.random() - 0.5) * 15;
+      }
+
       this.drops.push({
         x: Math.random() * worldW * 1.3 - worldW * 0.15,
         y: Math.random() * worldH,
-        speed: isRain
-          ? (250 + Math.random() * 200) * depthScale
-          : (15 + Math.random() * 25) * depthScale,
-        size: isRain
-          ? (0.8 + Math.random() * 1.5) * depthScale
-          : (1.5 + Math.random() * 2.5) * depthScale,
-        drift: isRain
-          ? -40 + Math.random() * 15
-          : (Math.random() - 0.5) * 15,
+        speed, size, drift,
         alpha: (0.2 + Math.random() * 0.4) * depthScale,
         layer,
         phase: Math.random() * Math.PI * 2,
@@ -277,18 +414,28 @@ export class WeatherSystem {
   }
 
   /** Shared drop update for both active and fading drop lists */
-  private updateDropList(drops: WeatherDrop[], dt: number, isRain: boolean): void {
+  private updateDropList(drops: WeatherDrop[], dt: number, weatherType: WeatherType): void {
     const worldH = this.mapH * T;
     const worldW = this.mapW * T;
+    const isRainLike = weatherType === 'rain' || weatherType === 'storm';
+    const isSand = weatherType === 'sandstorm';
+
     for (const d of drops) {
       d.y += d.speed * dt;
       const windEffect = this.windStrength * (0.5 + d.layer * 0.25);
       d.x += (d.drift + windEffect) * dt;
-      if (!isRain) {
+
+      // Snow/blizzard flutter
+      if (!isRainLike && !isSand) {
         d.x += Math.sin(d.phase + d.y * 0.008) * 12 * dt;
       }
+      // Sand flutter — horizontal wobble
+      if (isSand) {
+        d.y += Math.sin(d.phase + d.x * 0.005) * 8 * dt;
+      }
+
       if (d.y > worldH) {
-        if (isRain && d.layer >= 1 && Math.random() < 0.3) {
+        if (isRainLike && d.layer >= 1 && Math.random() < 0.3) {
           this.splashes.push({
             x: d.x, y: worldH - Math.random() * 20,
             age: 0, maxAge: 0.15 + Math.random() * 0.1,
@@ -298,137 +445,260 @@ export class WeatherSystem {
         d.y = -10 - Math.random() * 40;
         d.x = Math.random() * worldW * 1.3 - worldW * 0.15;
       }
+      // Sandstorm: wrap horizontally too
+      if (isSand && d.x > worldW * 1.2) {
+        d.x = -worldW * 0.15;
+        d.y = Math.random() * worldH;
+      }
     }
   }
 
   /** Get brightness-adjusted rain color per layer */
-  private rainColor(layer: number): string {
+  private rainColor(layer: number, isStorm = false): string {
     const br = this.brightness;
     if (br > 0.7) {
-      // Day rain: blue-white
-      return `rgba(180, 200, 255, ${[0.4, 0.5, 0.7][layer]})`;
+      const a = isStorm ? [0.5, 0.6, 0.8][layer] : [0.4, 0.5, 0.7][layer];
+      return `rgba(180, 200, 255, ${a})`;
     }
-    // Night rain: darker blue-grey, less contrast so it doesn't obscure
     const f = Math.max(0.3, br);
     const r = Math.round(100 * f);
     const g = Math.round(130 * f);
     const b = Math.round(200 * f);
-    return `rgba(${r}, ${g}, ${b}, ${[0.35, 0.45, 0.6][layer]})`;
+    const a = isStorm ? [0.45, 0.55, 0.7][layer] : [0.35, 0.45, 0.6][layer];
+    return `rgba(${r}, ${g}, ${b}, ${a})`;
   }
 
   /** Get brightness-adjusted snow color per layer */
-  private snowColor(layer: number): string {
+  private snowColor(layer: number, isBlizzard = false): string {
     if (this.brightness > 0.7) {
+      if (isBlizzard) return layer < 2 ? 'rgba(230, 235, 250, 0.85)' : '#fff';
       return layer < 2 ? 'rgba(220, 230, 245, 0.8)' : '#fff';
     }
-    // Night snow: blue-tinted
     const f = Math.max(0.5, this.brightness);
     const r = Math.round(180 * f + 20);
     const g = Math.round(190 * f + 20);
     const b = Math.round(220 * f + 30);
-    return `rgba(${r}, ${g}, ${b}, ${layer < 2 ? 0.7 : 0.85})`;
+    const a = isBlizzard ? (layer < 2 ? 0.8 : 0.9) : (layer < 2 ? 0.7 : 0.85);
+    return `rgba(${r}, ${g}, ${b}, ${a})`;
   }
 
-  /** Draw a set of rain drops */
-  private drawRainDrops(ctx: CanvasRenderingContext2D, drops: WeatherDrop[], alpha: number): void {
-    for (let layer = 0; layer < 3; layer++) {
+  /** Sand particle color per layer */
+  private sandColor(layer: number): string {
+    const br = Math.max(0.4, this.brightness);
+    const r = Math.round(200 * br + 20);
+    const g = Math.round(160 * br + 15);
+    const b = Math.round(80 * br + 10);
+    const a = [0.3, 0.45, 0.6][layer];
+    return `rgba(${r}, ${g}, ${b}, ${a})`;
+  }
+
+  private isVisible(d: { x: number; y: number }, margin = 100): boolean {
+    if (!this.viewportSet) return true;
+    const v = this._viewport;
+    return d.x > v.x - margin && d.x < v.x + v.w + margin &&
+           d.y > v.y - margin && d.y < v.y + v.h + margin;
+  }
+
+  /** Draw a set of rain/storm drops — only specified layers */
+  private drawRainDrops(ctx: CanvasRenderingContext2D, drops: WeatherDrop[], alpha: number, isStorm: boolean, layerFilter?: number[]): void {
+    const layers = layerFilter ?? [0, 1, 2];
+    for (const layer of layers) {
       const layerAlpha = [0.2, 0.35, 0.5][layer];
       ctx.globalAlpha = alpha * layerAlpha;
-      ctx.lineWidth = [0.5, 1, 1.5][layer];
-      ctx.strokeStyle = this.rainColor(layer);
+      ctx.lineWidth = isStorm ? [0.7, 1.2, 2.0][layer] : [0.5, 1, 1.5][layer];
+      ctx.strokeStyle = this.rainColor(layer, isStorm);
       ctx.beginPath();
       for (const d of drops) {
         if (d.layer !== layer) continue;
+        if (!this.isVisible(d)) continue;
         const len = d.size * [4, 6, 8][layer];
-        ctx.moveTo(d.x, d.y);
-        ctx.lineTo(d.x + (d.drift + this.windStrength) * 0.025, d.y - len);
+        const dx = d.x | 0;
+        const dy = d.y | 0;
+        ctx.moveTo(dx, dy);
+        ctx.lineTo(dx + ((d.drift + this.windStrength) * 0.025) | 0, dy - len);
       }
       ctx.stroke();
     }
   }
 
-  /** Draw a set of snow drops */
-  private drawSnowDrops(ctx: CanvasRenderingContext2D, drops: WeatherDrop[], alpha: number): void {
-    for (let layer = 0; layer < 3; layer++) {
-      const layerAlpha = [0.3, 0.5, 0.7][layer];
+  /** Draw a set of snow/blizzard drops — only specified layers */
+  private drawSnowDrops(ctx: CanvasRenderingContext2D, drops: WeatherDrop[], alpha: number, isBlizzard: boolean, layerFilter?: number[]): void {
+    const layers = layerFilter ?? [0, 1, 2];
+    for (const layer of layers) {
+      const layerAlpha = isBlizzard ? [0.4, 0.6, 0.8][layer] : [0.3, 0.5, 0.7][layer];
       ctx.globalAlpha = alpha * layerAlpha;
-      ctx.fillStyle = this.snowColor(layer);
+      ctx.fillStyle = this.snowColor(layer, isBlizzard);
       ctx.beginPath();
       for (const d of drops) {
         if (d.layer !== layer) continue;
-        ctx.moveTo(d.x + d.size, d.y);
-        ctx.arc(d.x, d.y, d.size, 0, Math.PI * 2);
+        if (!this.isVisible(d)) continue;
+        const dx = d.x | 0;
+        const dy = d.y | 0;
+        ctx.moveTo(dx + d.size, dy);
+        ctx.arc(dx, dy, d.size, 0, Math.PI * 2);
       }
       ctx.fill();
     }
   }
 
-  /** Draw weather effects onto the world-space canvas (camera-transformed) */
-  drawWorld(ctx: CanvasRenderingContext2D): void {
-    // Draw fading-out old particles first (behind new ones)
+  /** Draw sandstorm particles — horizontal streaks — only specified layers */
+  private drawSandDrops(ctx: CanvasRenderingContext2D, drops: WeatherDrop[], alpha: number, layerFilter?: number[]): void {
+    const layers = layerFilter ?? [0, 1, 2];
+    for (const layer of layers) {
+      const layerAlpha = [0.25, 0.4, 0.55][layer];
+      ctx.globalAlpha = alpha * layerAlpha;
+      ctx.strokeStyle = this.sandColor(layer);
+      ctx.lineWidth = [1, 1.5, 2.5][layer];
+      ctx.beginPath();
+      for (const d of drops) {
+        if (d.layer !== layer) continue;
+        if (!this.isVisible(d)) continue;
+        const len = d.size * [3, 5, 7][layer];
+        const dx = d.x | 0;
+        const dy = d.y | 0;
+        // Horizontal streaks instead of vertical
+        ctx.moveTo(dx, dy);
+        ctx.lineTo(dx - len, dy + (d.speed * 0.01) | 0);
+      }
+      ctx.stroke();
+    }
+  }
+
+  /** Draw drops of any type for a specified layer range */
+  private drawDropsByType(ctx: CanvasRenderingContext2D, drops: WeatherDrop[], alpha: number, weatherType: WeatherType, layerFilter?: number[]): void {
+    switch (weatherType) {
+      case 'rain':       this.drawRainDrops(ctx, drops, alpha, false, layerFilter); break;
+      case 'storm':      this.drawRainDrops(ctx, drops, alpha, true, layerFilter); break;
+      case 'snow':       this.drawSnowDrops(ctx, drops, alpha, false, layerFilter); break;
+      case 'blizzard':   this.drawSnowDrops(ctx, drops, alpha, true, layerFilter); break;
+      case 'sandstorm':  this.drawSandDrops(ctx, drops, alpha, layerFilter); break;
+    }
+  }
+
+  /** Draw far/mid weather particles (layers 0-1) — call BEFORE units for depth */
+  drawWorldBehind(ctx: CanvasRenderingContext2D): void {
+    // Fading particles behind
     if (this.fadingAlpha > 0.01 && this.fadingDrops.length > 0) {
-      if (this.fadingType === 'rain') this.drawRainDrops(ctx, this.fadingDrops, this.fadingAlpha);
-      else if (this.fadingType === 'snow') this.drawSnowDrops(ctx, this.fadingDrops, this.fadingAlpha);
+      this.drawDropsByType(ctx, this.fadingDrops, this.fadingAlpha, this.fadingType, [0, 1]);
+      ctx.globalAlpha = 1;
+    }
+    if (this.transitionAlpha < 0.01) return;
+
+    if (isParticleWeather(this.type)) {
+      this.drawDropsByType(ctx, this.drops, this.transitionAlpha, this.type, [0, 1]);
       ctx.globalAlpha = 1;
     }
 
+    // Fog draws entirely in behind pass (it's background atmosphere)
+    if (this.type === 'fog' || this.type === 'overcast') {
+      this.drawFogBands(ctx);
+    }
+  }
+
+  /** Draw near weather particles (layer 2) + splashes — call AFTER units for depth */
+  drawWorldFront(ctx: CanvasRenderingContext2D): void {
+    // Fading particles in front
+    if (this.fadingAlpha > 0.01 && this.fadingDrops.length > 0) {
+      this.drawDropsByType(ctx, this.fadingDrops, this.fadingAlpha, this.fadingType, [2]);
+      ctx.globalAlpha = 1;
+    }
     if (this.transitionAlpha < 0.01) return;
     const ta = this.transitionAlpha;
 
-    if (this.type === 'rain') {
-      this.drawRainDrops(ctx, this.drops, ta);
-      // Splashes
-      if (this.splashes.length > 0) {
+    if (isParticleWeather(this.type)) {
+      this.drawDropsByType(ctx, this.drops, ta, this.type, [2]);
+
+      // Splashes for rain/storm
+      if ((this.type === 'rain' || this.type === 'storm') && this.splashes.length > 0) {
         ctx.globalAlpha = ta * 0.4;
         ctx.strokeStyle = 'rgba(200, 220, 255, 0.6)';
         ctx.lineWidth = 0.5;
         for (const s of this.splashes) {
+          if (!this.isVisible(s, 50)) continue;
           const t = s.age / s.maxAge;
           const r = s.size * (1 + t * 3);
           ctx.beginPath();
-          ctx.arc(s.x, s.y, r, Math.PI * 1.15, Math.PI * 1.85);
+          ctx.arc(s.x | 0, s.y | 0, r, Math.PI * 1.15, Math.PI * 1.85);
           ctx.stroke();
         }
       }
       ctx.globalAlpha = 1;
     }
+  }
 
-    if (this.type === 'snow') {
-      this.drawSnowDrops(ctx, this.drops, ta);
-      ctx.globalAlpha = 1;
-    }
+  /** Legacy single-pass draw — still works if Renderer doesn't use split calls */
+  drawWorld(ctx: CanvasRenderingContext2D): void {
+    this.drawWorldBehind(ctx);
+    this.drawWorldFront(ctx);
+  }
 
-    if (this.type === 'fog') {
-      const worldW = this.mapW * T;
-      const worldH = this.mapH * T;
-      const FOG_SPEEDS = [0.07, -0.05, 0.09, -0.04, 0.06, -0.08, 0.03, -0.06];
-      const FOG_ALPHAS = [0.08, 0.12, 0.06, 0.1, 0.09, 0.07, 0.11, 0.05];
-      const needsRebuild = this.fogGradMapW !== worldW || this.fogGradMapH !== worldH;
+  /** Draw fog gradient bands (used by both fog and overcast) */
+  private drawFogBands(ctx: CanvasRenderingContext2D): void {
+    const worldW = this.mapW * T;
+    const worldH = this.mapH * T;
+    const ta = this.transitionAlpha;
+    const isOvercast = this.type === 'overcast';
+    const bandCount = isOvercast ? 4 : 8;
+    const FOG_SPEEDS = [0.07, -0.05, 0.09, -0.04, 0.06, -0.08, 0.03, -0.06];
+    const FOG_ALPHAS_NORMAL = [0.08, 0.12, 0.06, 0.1, 0.09, 0.07, 0.11, 0.05];
+    const FOG_ALPHAS_OVERCAST = [0.04, 0.06, 0.03, 0.05]; // lighter for overcast
+    const typeChanged = this.fogGradType !== this.type;
+    const needsRebuild = this.fogGradMapW !== worldW || this.fogGradMapH !== worldH || typeChanged;
 
-      for (let i = 0; i < 8; i++) {
-        const baseY = worldH * (i * 0.13 + 0.02);
-        const wrapH = worldH * 1.2;
-        const bandY = ((baseY + this.fogPhase * worldH * FOG_SPEEDS[i]) % wrapH + wrapH) % wrapH - worldH * 0.1;
-        const bandH = worldH * (0.1 + (i % 3) * 0.04);
-        const layerAlpha = ta * FOG_ALPHAS[i];
-        ctx.globalAlpha = layerAlpha;
+    const fogAlphas = isOvercast ? FOG_ALPHAS_OVERCAST : FOG_ALPHAS_NORMAL;
+    // Overcast fog color: greyer, less blue
+    const fogR = isOvercast ? 170 : 190;
+    const fogG = isOvercast ? 175 : 200;
+    const fogB = isOvercast ? 185 : 215;
 
-        // Cache gradients — only rebuild when map size changes or band moves
-        if (needsRebuild || !this.fogGradCache[i] || Math.abs(this.fogGradBandYs[i] - bandY) > 2) {
-          const grad = ctx.createLinearGradient(0, bandY, 0, bandY + bandH);
-          grad.addColorStop(0, 'rgba(190, 200, 215, 0)');
-          grad.addColorStop(0.3, 'rgba(200, 210, 220, 1)');
-          grad.addColorStop(0.7, 'rgba(195, 205, 218, 1)');
-          grad.addColorStop(1, 'rgba(190, 200, 215, 0)');
-          this.fogGradCache[i] = grad;
-          this.fogGradBandYs[i] = bandY;
-        }
-        ctx.fillStyle = this.fogGradCache[i];
-        ctx.fillRect(0, bandY, worldW, bandH);
+    for (let i = 0; i < bandCount; i++) {
+      const baseY = worldH * (i * 0.13 + 0.02);
+      const wrapH = worldH * 1.2;
+      const speed = FOG_SPEEDS[i % FOG_SPEEDS.length];
+      const bandY = ((baseY + this.fogPhase * worldH * speed) % wrapH + wrapH) % wrapH - worldH * 0.1;
+      const bandH = worldH * (0.1 + (i % 3) * 0.04);
+      const layerAlpha = ta * fogAlphas[i];
+      ctx.globalAlpha = layerAlpha;
+
+      if (needsRebuild || !this.fogGradCache[i] || Math.abs(this.fogGradBandYs[i] - bandY) > 2) {
+        const grad = ctx.createLinearGradient(0, bandY, 0, bandY + bandH);
+        grad.addColorStop(0, `rgba(${fogR}, ${fogG}, ${fogB}, 0)`);
+        grad.addColorStop(0.3, `rgba(${fogR + 10}, ${fogG + 10}, ${fogB + 5}, 1)`);
+        grad.addColorStop(0.7, `rgba(${fogR + 5}, ${fogG + 5}, ${fogB + 3}, 1)`);
+        grad.addColorStop(1, `rgba(${fogR}, ${fogG}, ${fogB}, 0)`);
+        this.fogGradCache[i] = grad;
+        this.fogGradBandYs[i] = bandY;
       }
-      if (needsRebuild) { this.fogGradMapW = worldW; this.fogGradMapH = worldH; }
-      ctx.globalAlpha = 1;
+      ctx.fillStyle = this.fogGradCache[i];
+      ctx.fillRect(0, bandY, worldW, bandH);
     }
+    if (needsRebuild) { this.fogGradMapW = worldW; this.fogGradMapH = worldH; this.fogGradType = this.type; }
+    ctx.globalAlpha = 1;
+  }
+
+  /** Get or create a cached vignette gradient */
+  private getVignetteGrad(ctx: CanvasRenderingContext2D, w: number, h: number): CanvasGradient {
+    if (this.vignetteCache && this.vignetteCacheW === w && this.vignetteCacheH === h && this.vignetteCacheType === this.type) {
+      return this.vignetteCache;
+    }
+    let innerR: number, outerR: number, r: number, g: number, b: number;
+    switch (this.type) {
+      case 'storm':     innerR = 0.3; outerR = 0.7; r = 20; g = 20; b = 40; break;
+      case 'blizzard':  innerR = 0.25; outerR = 0.65; r = 200; g = 210; b = 230; break;
+      case 'sandstorm': innerR = 0.3; outerR = 0.6; r = 100; g = 70; b = 20; break;
+      default:          innerR = 0.3; outerR = 0.7; r = 0; g = 0; b = 0;
+    }
+    const grad = ctx.createRadialGradient(
+      w / 2, h / 2, Math.min(w, h) * innerR,
+      w / 2, h / 2, Math.max(w, h) * outerR
+    );
+    grad.addColorStop(0, `rgba(${r},${g},${b},0)`);
+    grad.addColorStop(1, `rgba(${r},${g},${b},1)`);
+    this.vignetteCache = grad;
+    this.vignetteCacheW = w;
+    this.vignetteCacheH = h;
+    this.vignetteCacheType = this.type;
+    return grad;
   }
 
   /** Draw screen-space weather overlay */
@@ -442,19 +712,60 @@ export class WeatherSystem {
       ctx.fillStyle = `rgba(220, 230, 255, ${flashAlpha})`;
       ctx.fillRect(0, 0, w, h);
     }
-    if (this.type === 'rain' && ta > 0.1) {
-      // Night rain: lighter overlay to avoid stacking with night tint
-      const rainAlpha = br < 0.6 ? 0.03 * ta : 0.07 * ta;
-      ctx.fillStyle = `rgba(80, 100, 130, ${rainAlpha})`;
-      ctx.fillRect(0, 0, w, h);
-    }
-    if (this.type === 'snow' && ta > 0.1) {
-      ctx.fillStyle = `rgba(200, 210, 230, ${0.04 * ta})`;
-      ctx.fillRect(0, 0, w, h);
-    }
-    if (this.type === 'fog' && ta > 0.1) {
-      ctx.fillStyle = `rgba(180, 190, 210, ${0.06 * ta})`;
-      ctx.fillRect(0, 0, w, h);
+
+    if (ta <= 0.1) return;
+
+    switch (this.type) {
+      case 'rain': {
+        const rainAlpha = br < 0.6 ? 0.03 * ta : 0.07 * ta;
+        ctx.fillStyle = `rgba(80, 100, 130, ${rainAlpha})`;
+        ctx.fillRect(0, 0, w, h);
+        break;
+      }
+      case 'storm': {
+        const stormAlpha = br < 0.6 ? 0.06 * ta : 0.12 * ta;
+        ctx.fillStyle = `rgba(50, 60, 90, ${stormAlpha})`;
+        ctx.fillRect(0, 0, w, h);
+        ctx.globalAlpha = 0.15 * ta;
+        ctx.fillStyle = this.getVignetteGrad(ctx, w, h);
+        ctx.fillRect(0, 0, w, h);
+        ctx.globalAlpha = 1;
+        break;
+      }
+      case 'snow': {
+        ctx.fillStyle = `rgba(200, 210, 230, ${0.04 * ta})`;
+        ctx.fillRect(0, 0, w, h);
+        break;
+      }
+      case 'blizzard': {
+        ctx.fillStyle = `rgba(220, 225, 240, ${0.1 * ta})`;
+        ctx.fillRect(0, 0, w, h);
+        ctx.globalAlpha = 0.12 * ta;
+        ctx.fillStyle = this.getVignetteGrad(ctx, w, h);
+        ctx.fillRect(0, 0, w, h);
+        ctx.globalAlpha = 1;
+        break;
+      }
+      case 'fog': {
+        ctx.fillStyle = `rgba(180, 190, 210, ${0.06 * ta})`;
+        ctx.fillRect(0, 0, w, h);
+        break;
+      }
+      case 'overcast': {
+        // Subtle grey dimming
+        ctx.fillStyle = `rgba(140, 145, 155, ${0.04 * ta})`;
+        ctx.fillRect(0, 0, w, h);
+        break;
+      }
+      case 'sandstorm': {
+        ctx.fillStyle = `rgba(180, 140, 70, ${0.08 * ta})`;
+        ctx.fillRect(0, 0, w, h);
+        ctx.globalAlpha = 0.12 * ta;
+        ctx.fillStyle = this.getVignetteGrad(ctx, w, h);
+        ctx.fillRect(0, 0, w, h);
+        ctx.globalAlpha = 1;
+        break;
+      }
     }
   }
 }
@@ -826,14 +1137,31 @@ export class ProjectileTrails {
 
   /** Add a trail point at world-pixel coordinates. */
   addPointPx(px: number, py: number, color: string): void {
-    this.trails.push({ x: px, y: py, age: 0, color });
-    if (this.trails.length > 500) this.trails.shift();
+    if (this.trails.length >= 500) {
+      // Reuse oldest slot instead of shift() which is O(n)
+      // Find oldest trail point and overwrite it
+      let oldestIdx = 0, oldestAge = 0;
+      for (let i = 0; i < this.trails.length; i++) {
+        if (this.trails[i].age > oldestAge) { oldestAge = this.trails[i].age; oldestIdx = i; }
+      }
+      const t = this.trails[oldestIdx];
+      t.x = px; t.y = py; t.age = 0; t.color = color;
+    } else {
+      this.trails.push({ x: px, y: py, age: 0, color });
+    }
   }
 
   update(dt: number): void {
-    for (let i = this.trails.length - 1; i >= 0; i--) {
+    // Swap-and-pop removal to avoid O(n) splice per removal
+    let i = 0;
+    while (i < this.trails.length) {
       this.trails[i].age += dt;
-      if (this.trails[i].age > 0.3) this.trails.splice(i, 1);
+      if (this.trails[i].age > 0.3) {
+        this.trails[i] = this.trails[this.trails.length - 1];
+        this.trails.length--;
+      } else {
+        i++;
+      }
     }
   }
 
