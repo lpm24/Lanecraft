@@ -1403,28 +1403,33 @@ export class InputHandler {
     const highlightRect = this.getMatchTutorialHighlightRect();
     const pad = 6;
 
-    // Draw cutout overlay
-    ctx.save();
+    // Draw dim overlay with a spotlight cutout around the highlighted element.
+    // We draw four rects around the hole instead of using composite operations
+    // (destination-out erases the game canvas underneath, not just our overlay).
     ctx.fillStyle = 'rgba(0, 0, 0, 0.65)';
-    ctx.fillRect(0, 0, W, H);
     if (highlightRect) {
-      // Punch hole
-      ctx.globalCompositeOperation = 'destination-out';
-      ctx.beginPath();
-      (ctx as any).roundRect(highlightRect.x - pad, highlightRect.y - pad,
-        highlightRect.w + pad * 2, highlightRect.h + pad * 2, 8);
-      ctx.fill();
-      ctx.globalCompositeOperation = 'source-over';
-      // Glow border
+      const hx = highlightRect.x - pad;
+      const hy = highlightRect.y - pad;
+      const hw = highlightRect.w + pad * 2;
+      const hh = highlightRect.h + pad * 2;
+      // Top strip
+      if (hy > 0) ctx.fillRect(0, 0, W, hy);
+      // Bottom strip
+      if (hy + hh < H) ctx.fillRect(0, hy + hh, W, H - (hy + hh));
+      // Left strip (between top and bottom)
+      if (hx > 0) ctx.fillRect(0, hy, hx, hh);
+      // Right strip (between top and bottom)
+      if (hx + hw < W) ctx.fillRect(hx + hw, hy, W - (hx + hw), hh);
+      // Glow border around the spotlight
       const pulse = 0.6 + 0.4 * Math.sin(performance.now() / 400);
       ctx.strokeStyle = `rgba(100, 200, 255, ${pulse})`;
       ctx.lineWidth = 3;
       ctx.beginPath();
-      (ctx as any).roundRect(highlightRect.x - pad, highlightRect.y - pad,
-        highlightRect.w + pad * 2, highlightRect.h + pad * 2, 8);
+      (ctx as any).roundRect(hx, hy, hw, hh, 8);
       ctx.stroke();
+    } else {
+      ctx.fillRect(0, 0, W, H);
     }
-    ctx.restore();
 
     // Popup bubble
     const popupW = Math.min(320, W - 40);

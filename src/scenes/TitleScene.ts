@@ -2050,14 +2050,23 @@ export class TitleScene implements Scene {
 
   // ─── Menu tutorial overlay ───
 
-  private getMenuTutorialTargetRect(_w: number, _h: number): { x: number; y: number; w: number; h: number } | null {
+  private getMenuTutorialTargetRect(w: number, h: number): { x: number; y: number; w: number; h: number } | null {
     const info = getMenuTutorialInfo();
     if (!info) return null;
     const btns = this.getButtonLayout();
     switch (info.target) {
       case 'profile': return this.profileBtnRect;
+      case 'solo': return btns.solo;
+      case 'findGame': return btns.findGame;
       case 'custom': return btns.create;
+      case 'join': return btns.join;
       case 'gallery': return btns.gallery;
+      case 'duel': {
+        // Duel area = the bottom portion of the screen where units fight
+        const groundY = h * 0.82;
+        const margin = w * 0.08;
+        return { x: margin, y: groundY - 60, w: w - margin * 2, h: h - (groundY - 60) };
+      }
       default: return null;
     }
   }
@@ -2071,42 +2080,50 @@ export class TitleScene implements Scene {
     const targetRect = this.getMenuTutorialTargetRect(w, h);
     const pad = 8;
 
-    // Dim overlay
-    ctx.save();
+    // Dim overlay with spotlight cutout (four rects around the hole)
     ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
-    ctx.fillRect(0, 0, w, h);
     if (targetRect) {
-      ctx.globalCompositeOperation = 'destination-out';
-      ctx.beginPath();
-      ctx.roundRect(targetRect.x - pad, targetRect.y - pad,
-        targetRect.w + pad * 2, targetRect.h + pad * 2, 8);
-      ctx.fill();
-      ctx.globalCompositeOperation = 'source-over';
+      const hx = targetRect.x - pad;
+      const hy = targetRect.y - pad;
+      const hw = targetRect.w + pad * 2;
+      const hh = targetRect.h + pad * 2;
+      if (hy > 0) ctx.fillRect(0, 0, w, hy);
+      if (hy + hh < h) ctx.fillRect(0, hy + hh, w, h - (hy + hh));
+      if (hx > 0) ctx.fillRect(0, hy, hx, hh);
+      if (hx + hw < w) ctx.fillRect(hx + hw, hy, w - (hx + hw), hh);
       // Glow border
       const pulse = 0.6 + 0.4 * Math.sin(performance.now() / 400);
       ctx.strokeStyle = `rgba(255, 215, 64, ${pulse})`;
       ctx.lineWidth = 3;
       ctx.beginPath();
-      ctx.roundRect(targetRect.x - pad, targetRect.y - pad,
-        targetRect.w + pad * 2, targetRect.h + pad * 2, 8);
+      ctx.roundRect(hx, hy, hw, hh, 8);
       ctx.stroke();
+    } else {
+      ctx.fillRect(0, 0, w, h);
     }
-    ctx.restore();
 
-    // Popup bubble
-    const popupW = Math.min(320, w - 40);
-    const popupH = 100;
+    // Popup bubble — positioned so it never overlaps the highlighted element
+    const popupW = Math.min(280, w - 40);
+    const popupH = 90;
     let popupX: number;
     let popupY: number;
     if (targetRect) {
-      // Position popup to the right of small targets (profile avatar), below large targets (swords)
-      if (targetRect.w < 100) {
-        popupX = targetRect.x + targetRect.w + 20;
-        popupY = targetRect.y;
-        if (popupX + popupW > w - 10) popupX = targetRect.x - popupW - 20;
-      } else {
-        popupX = (w - popupW) / 2;
-        popupY = targetRect.y + targetRect.h + 20;
+      const targetCx = targetRect.x + targetRect.w / 2;
+      // Default: place to the right of the target
+      popupX = targetRect.x + targetRect.w + 16;
+      popupY = targetRect.y + (targetRect.h - popupH) / 2;
+      // If it doesn't fit on the right, try left
+      if (popupX + popupW > w - 10) {
+        popupX = targetRect.x - popupW - 16;
+      }
+      // If it doesn't fit on either side (wide targets like duel area), go above
+      if (popupX < 10) {
+        popupX = targetCx - popupW / 2;
+        popupY = targetRect.y - popupH - 16;
+      }
+      // If above doesn't fit, go below
+      if (popupY < 10) {
+        popupY = targetRect.y + targetRect.h + 16;
       }
     } else {
       popupX = (w - popupW) / 2;

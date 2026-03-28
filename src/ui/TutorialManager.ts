@@ -14,7 +14,8 @@ export type TutorialStep =
   | 'click_melee' | 'place_melee'
   | 'click_tower' | 'place_tower'
   | 'match_done'
-  | 'menu_profile' | 'menu_custom' | 'menu_gallery'
+  | 'menu_profile' | 'menu_solo' | 'menu_find' | 'menu_custom'
+  | 'menu_join' | 'menu_gallery' | 'menu_duel'
   | 'complete';
 
 const STEP_ORDER: TutorialStep[] = [
@@ -22,7 +23,8 @@ const STEP_ORDER: TutorialStep[] = [
   'click_melee', 'place_melee',
   'click_tower', 'place_tower',
   'match_done',
-  'menu_profile', 'menu_custom', 'menu_gallery',
+  'menu_profile', 'menu_solo', 'menu_find', 'menu_custom',
+  'menu_join', 'menu_gallery', 'menu_duel',
   'complete',
 ];
 
@@ -34,7 +36,8 @@ const MATCH_STEPS: Set<TutorialStep> = new Set([
 ]);
 
 const MENU_STEPS: Set<TutorialStep> = new Set([
-  'menu_profile', 'menu_custom', 'menu_gallery',
+  'menu_profile', 'menu_solo', 'menu_find', 'menu_custom',
+  'menu_join', 'menu_gallery', 'menu_duel',
 ]);
 
 // ── Per-frame cache ──
@@ -130,7 +133,7 @@ const POPUP_INFO: Record<TutorialStep, TutorialPopupInfo | null> = {
   },
   click_melee: {
     title: 'Train Soldiers',
-    body: 'Barracks spawn melee fighters.\nClick the Swordsmen button!',
+    body: 'Barracks spawn melee fighters.\nClick the Melee button!',
     trayCol: 1,
     highlightGrid: 'none',
     arrowToSettings: false,
@@ -144,14 +147,14 @@ const POPUP_INFO: Record<TutorialStep, TutorialPopupInfo | null> = {
   },
   click_tower: {
     title: 'Build a Tower',
-    body: 'Towers defend your lanes.\nClick the Tower button!',
+    body: 'Your first tower is free!\nClick the Tower button.',
     trayCol: 4,
     highlightGrid: 'none',
     arrowToSettings: false,
   },
   place_tower: {
     title: 'Place Your Tower',
-    body: 'Click a slot in the tower alley\n(the strip between the two bases).',
+    body: 'Click a slot in the middle strip\nbetween the two bases.',
     trayCol: -1,
     highlightGrid: 'alley',
     arrowToSettings: false,
@@ -163,10 +166,9 @@ const POPUP_INFO: Record<TutorialStep, TutorialPopupInfo | null> = {
     highlightGrid: 'none',
     arrowToSettings: true,
   },
-  menu_profile: null,
-  menu_custom: null,
-  menu_gallery: null,
-  complete: null,
+  menu_profile: null, menu_solo: null, menu_find: null,
+  menu_custom: null, menu_join: null, menu_gallery: null,
+  menu_duel: null, complete: null,
 };
 
 export function getMatchPopupInfo(): TutorialPopupInfo | null {
@@ -176,8 +178,7 @@ export function getMatchPopupInfo(): TutorialPopupInfo | null {
 // ── Menu tutorial text ──
 
 export interface MenuTutorialInfo {
-  /** Which element to highlight: 'profile' | 'custom' | 'gallery' */
-  target: 'profile' | 'custom' | 'gallery';
+  target: 'profile' | 'solo' | 'findGame' | 'custom' | 'join' | 'gallery' | 'duel';
   title: string;
   body: string;
 }
@@ -187,18 +188,38 @@ export function getMenuTutorialInfo(): MenuTutorialInfo | null {
   switch (step) {
     case 'menu_profile': return {
       target: 'profile',
-      title: 'Your Profile',
-      body: 'Change your avatar, see achievements\nand stats.',
+      title: 'Profile',
+      body: 'Change your avatar, view your stats\nand unlock achievements.',
+    };
+    case 'menu_solo': return {
+      target: 'solo',
+      title: 'Play Solo',
+      body: 'Pick a race, difficulty, and team size\nto battle against bots.',
+    };
+    case 'menu_find': return {
+      target: 'findGame',
+      title: 'Find Game',
+      body: 'Queue up for an online match\nagainst other players.',
     };
     case 'menu_custom': return {
       target: 'custom',
       title: 'Custom Game',
-      body: 'Create multiplayer lobbies\nand play with friends.',
+      body: 'Create a private lobby and invite\nfriends to play together.',
+    };
+    case 'menu_join': return {
+      target: 'join',
+      title: 'Join Party',
+      body: 'Enter a party code to join\na friend\'s lobby.',
     };
     case 'menu_gallery': return {
       target: 'gallery',
       title: 'Unit Gallery',
-      body: 'Watch different units fight\nand learn their abilities.',
+      body: 'Watch different units fight\nand compare their abilities.',
+    };
+    case 'menu_duel': return {
+      target: 'duel',
+      title: 'Duel Arena',
+      body: 'Units from different races fight here.\nWatch and learn who beats who!',
     };
     default: return null;
   }
