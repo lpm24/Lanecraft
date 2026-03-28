@@ -1056,15 +1056,17 @@ const RACE_BUILDING_SPRITES: Record<string, string | undefined> = {
   // E inherits B=E(18), F inherits C=E(19)
 
   // === WILD (Elf Pack — feral/aggressive) ===
-  'wild:research:A': E(2), 'wild:hut:A': E(38),
-  'wild:melee:A': E(29), 'wild:melee:B': E(20), 'wild:melee:C': E(28),
-  'wild:melee:D': E(21), 'wild:melee:E': E(17),
+  'wild:research:A': E(2), 'wild:hut:A': E(61),
+  'wild:melee:A': E(62), 'wild:melee:B': E(63), 'wild:melee:C': E(64),
+  'wild:melee:D': E(65), 'wild:melee:E': E(66), 'wild:melee:F': E(67), 'wild:melee:G': E(68),
   // F inherits C=E(28), G inherits C=E(28)
-  'wild:ranged:A': E(3), 'wild:ranged:B': E(31), 'wild:ranged:C': E(30),
-  'wild:ranged:D': E(32), 'wild:ranged:E': E(36), 'wild:ranged:F': E(45), 'wild:ranged:G': E(40),
-  'wild:caster:A': E(25), 'wild:caster:B': E(23), 'wild:caster:C': E(44),
+  'wild:ranged:A': E(69), 'wild:ranged:B': E(70), 'wild:ranged:C': E(71),
+  'wild:ranged:D': E(72), 'wild:ranged:E': E(73), 'wild:ranged:F': E(74), 'wild:ranged:G': E(75),
+  'wild:caster:A': E(54), 'wild:caster:B': E(55), 'wild:caster:C': E(56),
+  'wild:caster:D': E(57), 'wild:caster:E': E(58), 'wild:caster:F': E(59), 'wild:caster:G': E(60),
   // D/E inherit B=E(23), F/G inherit C=E(44)
-  'wild:tower:A': E(21), // thorny platform — tower-like, shared with melee:D (acceptable: prefer thematic over Tiny Swords fallback)
+  'wild:tower:A': E(76), 'wild:tower:B': E(77), 'wild:tower:C': E(78),
+  'wild:tower:D': E(79), 'wild:tower:E': E(80), 'wild:tower:F': E(81), 'wild:tower:G': E(82),
 
   // === DEEP (NightElf Pack — teal/aquatic) ===
   'deep:research:A': N(22), 'deep:hut:A': N(34),
