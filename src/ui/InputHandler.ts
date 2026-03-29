@@ -92,6 +92,8 @@ export class InputHandler {
   private settingsOpen = false;
   private settingsSliderDrag: 'music' | 'sfx' | null = null;
   private activeTouchPointers = new Set<number>();
+  private touchHoldTimer: ReturnType<typeof setTimeout> | null = null;
+  private touchHoldStart: { x: number; y: number; id: number } | null = null;
   private laneToggleMode: 'double' | 'single' = 'double';
   private radialArmMs = 320;
   private radialSize = 74;
@@ -204,6 +206,7 @@ export class InputHandler {
   }
 
   destroy(): void {
+    this.cancelTouchHold();
     this.abortController.abort();
   }
 
@@ -732,6 +735,7 @@ export class InputHandler {
         if (this.showTutorial) { this.showTutorial = false; return; }
         this.quickChatRadialActive = false;
         this.quickChatRadialCenter = null;
+        this.camera.dragDisabled = false;
         this.settingsOpen = false;
         this.settingsSliderDrag = null;
         this.selectedBuilding = null;
@@ -755,7 +759,18 @@ export class InputHandler {
       const msg = this.getQuickChatChoiceFromPointer();
       this.quickChatRadialActive = false;
       this.quickChatRadialCenter = null;
-      if (msg) this.sendQuickChat(msg);
+      this.camera.dragDisabled = false;
+      if (msg) {
+        if (msg === 'Ping') {
+          const wx = this.camera.x + this.canvas.clientWidth / (2 * this.camera.zoom);
+          const wy = this.camera.y + this.canvas.clientHeight / (2 * this.camera.zoom);
+          const pingTile = this.worldToTile(wx, wy);
+          this.game.sendCommand({ type: 'ping', playerId: this.pid, x: pingTile.tileX, y: pingTile.tileY });
+          this.quickChatToast = { text: 'Sent: Ping', until: Date.now() + 700 };
+        } else {
+          this.sendQuickChat(msg);
+        }
+      }
     }, sig);
   }
 
@@ -877,7 +892,18 @@ export class InputHandler {
         const msg = this.getQuickChatChoiceFromPointer();
         this.quickChatRadialActive = false;
         this.quickChatRadialCenter = null;
-        if (msg) this.sendQuickChat(msg);
+        this.camera.dragDisabled = false;
+        if (msg) {
+          if (msg === 'Ping') {
+            const wx = this.camera.x + this.canvas.clientWidth / (2 * this.camera.zoom);
+            const wy = this.camera.y + this.canvas.clientHeight / (2 * this.camera.zoom);
+            const pingTile = this.worldToTile(wx, wy);
+            this.game.sendCommand({ type: 'ping', playerId: this.pid, x: pingTile.tileX, y: pingTile.tileY });
+            this.quickChatToast = { text: 'Sent: Ping', until: Date.now() + 700 };
+          } else {
+            this.sendQuickChat(msg);
+          }
+        }
         return;
       }
 
@@ -957,6 +983,7 @@ export class InputHandler {
       if (this.quickChatRadialActive) {
         this.quickChatRadialActive = false;
         this.quickChatRadialCenter = null;
+        this.camera.dragDisabled = false;
         return;
       }
 
@@ -981,20 +1008,112 @@ export class InputHandler {
       });
     }, sig);
 
-    // Touch radial (emote wheel) disabled on mobile — was conflicting with map drag.
-    // Quick chat still accessible via Q key on desktop.
+    // Touch long-press opens quick-chat radial on mobile.
+    // Cancelled if finger moves (drag) or second finger arrives (pinch).
+    const TOUCH_HOLD_MS = 400;
+    const TOUCH_MOVE_THRESHOLD = 12; // px — cancel if finger drifts further
+
     this.canvas.addEventListener('pointerdown', (e) => {
       if (e.pointerType !== 'touch') return;
       this.activeTouchPointers.add(e.pointerId);
+
+      // Only start hold timer for single-finger touch, and not during UI interactions
+      // Skip if touch is in the bottom tray area (build buttons, nuke, research, rally)
+      const rect = this.canvas.getBoundingClientRect();
+      const touchY = e.clientY - rect.top;
+      const { milY: trayTop, nukeRect: nr } = this.getTrayLayout();
+      const uiTop = Math.min(trayTop, nr.y); // top of nuke/research buttons
+      const touchInUI = touchY >= uiTop;
+      if (this.activeTouchPointers.size === 1 && !this.quickChatRadialActive
+        && !touchInUI
+        && !this.nukeTargeting && !this.abilityTargeting && !this.abilityPlacing
+        && !this.settingsOpen && !this.showTutorial && !this.matchTutorialActive
+        && !this.buildingPopup.isOpen() && !this.hutPopup.isOpen()
+        && !this.researchPopup.isOpen() && !this.seedPopup.isOpen()) {
+        this.touchHoldStart = { x: e.clientX, y: e.clientY, id: e.pointerId };
+        this.touchHoldTimer = setTimeout(() => {
+          if (this.touchHoldStart && this.activeTouchPointers.size === 1) {
+            this.quickChatRadialActive = true;
+            // Clamp radial center so all 8 labels stay on screen
+            const margin = this.radialSize + (this.radialAccessibility ? 50 : 66);
+            const cw = this.canvas.clientWidth;
+            const ch = this.canvas.clientHeight;
+            const clampedX = Math.max(margin, Math.min(cw - margin, this.touchHoldStart.x));
+            const clampedY = Math.max(margin, Math.min(ch - margin, this.touchHoldStart.y));
+            this.quickChatRadialCenter = { x: clampedX, y: clampedY };
+            this.pointerX = clampedX;
+            this.pointerY = clampedY;
+            this.camera.dragDisabled = true;
+            // Suppress the click that would fire on release
+            this.suppressClicksUntil = Date.now() + 300;
+            this.quickChatFeedback(true);
+          }
+          this.touchHoldTimer = null;
+        }, TOUCH_HOLD_MS);
+      } else {
+        // Second finger = pinch, cancel hold and dismiss radial if open
+        this.cancelTouchHold();
+        if (this.quickChatRadialActive) {
+          this.quickChatRadialActive = false;
+          this.quickChatRadialCenter = null;
+          this.camera.dragDisabled = false;
+        }
+      }
+    }, sig);
+
+    this.canvas.addEventListener('pointermove', (e) => {
+      if (e.pointerType !== 'touch') return;
+      // If radial is open, update pointer for selection tracking
+      if (this.quickChatRadialActive && this.quickChatRadialCenter) {
+        this.pointerX = e.clientX;
+        this.pointerY = e.clientY;
+        return;
+      }
+      // Cancel hold timer if finger drifts
+      if (this.touchHoldStart && e.pointerId === this.touchHoldStart.id) {
+        const dx = e.clientX - this.touchHoldStart.x;
+        const dy = e.clientY - this.touchHoldStart.y;
+        if (Math.abs(dx) > TOUCH_MOVE_THRESHOLD || Math.abs(dy) > TOUCH_MOVE_THRESHOLD) {
+          this.cancelTouchHold();
+        }
+      }
     }, sig);
 
     this.canvas.addEventListener('pointerup', (e) => {
       if (e.pointerType !== 'touch') return;
       this.activeTouchPointers.delete(e.pointerId);
+      this.cancelTouchHold();
+      // If radial is open, send the selected message on release
+      if (this.quickChatRadialActive) {
+        const msg = this.getQuickChatChoiceFromPointer();
+        this.quickChatRadialActive = false;
+        this.quickChatRadialCenter = null;
+        this.camera.dragDisabled = false;
+        // Suppress the synthetic click that mobile browsers fire after touchend
+        this.suppressClicksUntil = Date.now() + 400;
+        if (msg) {
+          if (msg === 'Ping') {
+            // Send a ping at screen center
+            const wx = this.camera.x + this.canvas.clientWidth / (2 * this.camera.zoom);
+            const wy = this.camera.y + this.canvas.clientHeight / (2 * this.camera.zoom);
+            const pingTile = this.worldToTile(wx, wy);
+            this.game.sendCommand({ type: 'ping', playerId: this.pid, x: pingTile.tileX, y: pingTile.tileY });
+            this.quickChatToast = { text: 'Sent: Ping', until: Date.now() + 700 };
+          } else {
+            this.sendQuickChat(msg);
+          }
+        }
+      }
     }, sig);
 
     this.canvas.addEventListener('pointercancel', () => {
       this.activeTouchPointers.clear();
+      this.cancelTouchHold();
+      if (this.quickChatRadialActive) {
+        this.quickChatRadialActive = false;
+        this.quickChatRadialCenter = null;
+        this.camera.dragDisabled = false;
+      }
     }, sig);
   }
 
@@ -1167,8 +1286,24 @@ export class InputHandler {
     const dy = this.pointerY - this.quickChatRadialCenter.y;
     const dist = Math.sqrt(dx * dx + dy * dy);
     if (dist < 18) return 'Defend';
-    if (Math.abs(dx) > Math.abs(dy)) return dx < 0 ? 'Attack Left' : 'Attack Right';
-    return dy < 0 ? 'Get Diamond' : 'Defend';
+    // 8-sector radial: use angle to determine sector
+    const angle = Math.atan2(dy, dx); // -PI to PI
+    // Sectors: right=0, down-right=PI/4, down=PI/2, etc.
+    // Normalize to 0..2PI
+    const a = angle < 0 ? angle + Math.PI * 2 : angle;
+    const sector = Math.round(a / (Math.PI / 4)) % 8;
+    // 0=right, 1=down-right, 2=down, 3=down-left, 4=left, 5=up-left, 6=up, 7=up-right
+    switch (sector) {
+      case 0: return 'Attack Right';
+      case 1: return 'Sending Now';
+      case 2: return 'Defend';
+      case 3: return 'Save Us';
+      case 4: return 'Attack Left';
+      case 5: return 'Random';
+      case 6: return 'Get Diamond';
+      case 7: return 'Ping';
+      default: return 'Defend';
+    }
   }
 
   private sendQuickChat(message: string): boolean {
@@ -1810,6 +1945,14 @@ export class InputHandler {
     return { W, H, milH, milY, milW, safeBottom, nukeRect, researchRect, rallyLeftRect, rallyRandomRect, rallyRightRect };
   }
 
+  private cancelTouchHold(): void {
+    if (this.touchHoldTimer !== null) {
+      clearTimeout(this.touchHoldTimer);
+      this.touchHoldTimer = null;
+    }
+    this.touchHoldStart = null;
+  }
+
   private processQueuedQuickChat(): void {
     if (!this.queuedQuickChat) return;
     const now = Date.now();
@@ -2269,7 +2412,7 @@ export class InputHandler {
         // Use race-specific building sprite for harvester hut (cached)
         const cacheKey = `hut:${race}`;
         let hutImg = this.trayBldgSpriteCache.get(cacheKey);
-        if (hutImg === undefined) { hutImg = this.sprites?.getBuildingSprite(BuildingType.HarvesterHut, 0, false, race) ?? null; if (hutImg) this.trayBldgSpriteCache.set(cacheKey, hutImg); }
+        if (hutImg === undefined) { hutImg = this.sprites?.getBuildingSprite(BuildingType.HarvesterHut, 0, true, race) ?? null; if (hutImg) this.trayBldgSpriteCache.set(cacheKey, hutImg); }
         if (hutImg) {
           const aspect = hutImg.width / hutImg.height;
           const dh = spriteSize;
@@ -2835,7 +2978,8 @@ export class InputHandler {
     // Building popup (in-world)
     if (this.buildingPopup.isOpen()) {
       this.buildingPopup.draw(ctx, this.camera, this.game.state, this.ui,
-        W, this.canvas.clientHeight, player.gold, player.wood, player.meat, this.sprites);
+        W, this.canvas.clientHeight, player.gold, player.wood, player.meat, this.sprites,
+        this.pointerX, this.pointerY);
     }
 
     // Hut popup (in-world)
@@ -4163,7 +4307,7 @@ export class InputHandler {
     const cy = this.quickChatRadialCenter.y;
     const selected = this.getQuickChatChoiceFromPointer();
 
-    ctx.fillStyle = 'rgba(0,0,0,0.2)';
+    ctx.fillStyle = 'rgba(0,0,0,0.35)';
     ctx.fillRect(0, 0, this.canvas.clientWidth, this.canvas.clientHeight);
     ctx.fillStyle = this.radialAccessibility ? 'rgba(0,0,0,0.95)' : 'rgba(10,10,10,0.9)';
     const radius = this.radialSize + (this.radialAccessibility ? 16 : 0);
@@ -4190,20 +4334,31 @@ export class InputHandler {
       ctx.fillText(label, x, y + (this.radialAccessibility ? 5 : 4));
     };
 
-    drawOption(cx - optionOffset, cy, 'Left', selected === 'Attack Left');
-    drawOption(cx + optionOffset, cy, 'Right', selected === 'Attack Right');
-    drawOption(cx, cy - optionOffset, 'Diamond', selected === 'Get Diamond');
-    drawOption(cx, cy + optionOffset, 'Defend', selected === 'Defend');
+    // 8 directions: cardinal + diagonal
+    const diag = optionOffset * 0.707; // cos(45°)
+    drawOption(cx - optionOffset, cy, 'Atk Left', selected === 'Attack Left');        // left
+    drawOption(cx + optionOffset, cy, 'Atk Right', selected === 'Attack Right');       // right
+    drawOption(cx, cy - optionOffset, 'Diamond', selected === 'Get Diamond');           // up
+    drawOption(cx, cy + optionOffset, 'Defend', selected === 'Defend');                 // down
+    drawOption(cx + diag, cy + diag, 'Sending', selected === 'Sending Now');            // down-right
+    drawOption(cx - diag, cy + diag, 'Save Us', selected === 'Save Us');                // down-left
+    drawOption(cx - diag, cy - diag, 'Random', selected === 'Random');                  // up-left
+    drawOption(cx + diag, cy - diag, 'Ping', selected === 'Ping');                      // up-right
 
+    // Pointer indicator
     ctx.beginPath();
     ctx.arc(this.pointerX, this.pointerY, 4, 0, Math.PI * 2);
     ctx.fillStyle = '#fff';
     ctx.fill();
 
-    ctx.fillStyle = this.radialAccessibility ? '#ffffff' : '#ccc';
-    ctx.font = this.radialAccessibility ? 'bold 12px monospace' : '11px monospace';
-    if (!this.isTouchDevice) {
-      ctx.fillText('Hold Q, aim, release (tap Q = Defend)', cx, cy + 4);
+    // Center label
+    ctx.fillStyle = this.radialAccessibility ? '#ffffff' : '#aaa';
+    ctx.font = this.radialAccessibility ? 'bold 12px monospace' : '10px monospace';
+    ctx.textAlign = 'center';
+    if (this.isTouchDevice) {
+      ctx.fillText('Drag & release', cx, cy + 4);
+    } else {
+      ctx.fillText('Hold Q, aim, release', cx, cy + 4);
     }
     ctx.textAlign = 'start';
   }
