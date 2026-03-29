@@ -1305,7 +1305,7 @@ export class SpriteLoader {
     return false;
   }
 
-  getBuildingSprite(type: BuildingType, playerId: number, isometric = false, race?: Race, upgradePath?: string[]): HTMLImageElement | null {
+  getBuildingSprite(type: BuildingType, playerId: number, _isometric = false, race?: Race, upgradePath?: string[]): HTMLImageElement | null {
     const bKey = BUILDING_KEY[type];
     if (!bKey) return null;
 
