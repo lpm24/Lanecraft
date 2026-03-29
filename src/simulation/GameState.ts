@@ -1898,12 +1898,10 @@ function tickAbilityEffects(state: GameState): void {
         } else {
           // Grant a stack and reset cooldown
           p.abilityStacks++;
-          if (p.abilityStacks < 10) {
-            let seedCd = RACE_ABILITY_DEFS[Race.Tenders].baseCooldownTicks;
-            // Tenders Quick Seeds: -40% cooldown
-            if (p.researchUpgrades.raceUpgrades['tenders_ability_2']) seedCd = Math.round(seedCd * 0.7);
-            p.abilityCooldown = seedCd;
-          }
+          let seedCd = RACE_ABILITY_DEFS[Race.Tenders].baseCooldownTicks;
+          // Tenders Quick Seeds: -40% cooldown
+          if (p.researchUpgrades.raceUpgrades['tenders_ability_2']) seedCd = Math.round(seedCd * 0.7);
+          p.abilityCooldown = seedCd;
         }
       }
     } else {
@@ -2071,10 +2069,12 @@ function tickAbilityEffects(state: GameState): void {
 
       // Tenders seed: count down and spawn a random unit when ready
       if (b.isSeed && b.seedTimer != null) {
-        // Tenders Fast Growth: seeds grow 40% faster
+        // Tenders Fast Growth: seeds grow 40% faster (bonus tick 2 out of every 5 ticks)
         const seedOwner = state.players[b.playerId];
-        const growthRate = (seedOwner?.researchUpgrades.raceUpgrades['tenders_ability_1']) ? Math.round(TICK_RATE * 1.4) : TICK_RATE;
-        b.seedTimer -= growthRate;
+        b.seedTimer--;
+        if (seedOwner?.researchUpgrades.raceUpgrades['tenders_ability_1'] && state.tick % 5 < 2) {
+          b.seedTimer--;
+        }
         if (b.seedTimer <= 0) {
           const owner = seedOwner;
           if (owner && !owner.isEmpty) {

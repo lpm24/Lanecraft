@@ -12,7 +12,7 @@ import {
   type BuildingState, type UnitState, type HarvesterState, type ProjectileState,
 } from '../simulation/types';
 import { DUEL_MAP } from '../simulation/maps';
-import { getHQPosition, getBuildGridOrigin, getHutGridOrigin, getTeamAlleyOrigin, getBaseGoldPosition, getUnitUpgradeMultipliers } from '../simulation/GameState';
+import { getHQPosition, getBuildGridOrigin, getHutGridOrigin, getTeamAlleyOrigin, getBaseGoldPosition, getUnitUpgradeMultipliers, SEED_GROW_TIMES } from '../simulation/GameState';
 import { RACE_COLORS, TOWER_STATS, PLAYER_COLORS, getRaceUsedResources } from '../simulation/data';
 import {
   getDayNight, DayNightState,
@@ -2291,7 +2291,7 @@ export class Renderer {
           }
           // Seed progress bar (color by tier)
           if (b.seedTimer != null) {
-            const seedGrowTimes = [30 * TICK_RATE, 60 * TICK_RATE, 120 * TICK_RATE];
+            const seedGrowTimes = SEED_GROW_TIMES;
             const maxTime = seedGrowTimes[tier];
             const pct = 1 - b.seedTimer / maxTime;
             const barW = drawW * 0.8;

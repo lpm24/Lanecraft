@@ -808,7 +808,11 @@ export class InputHandler {
           );
           if (building) {
             this.hoveredBuildingId = building.id;
-            this.tooltip = { text: this.getBuildingTooltip(building), x: e.clientX, y: e.clientY - 20 };
+            // Don't show tooltip if a popup is open — it overlaps the menu
+            const popupOpen = this.buildingPopup.isOpen() || this.hutPopup.isOpen() || this.seedPopup.isOpen() || this.researchPopup.isOpen();
+            if (!popupOpen) {
+              this.tooltip = { text: this.getBuildingTooltip(building), x: e.clientX, y: e.clientY - 20 };
+            }
           }
         }
       }

@@ -1448,6 +1448,7 @@ export class TitleScene implements Scene {
     this.partyErrorTimer = 3;
   }
 
+  // Max ~20 characters per subtitle to fit the blue ribbon banner
   private static readonly SUBTITLES = [
     'Spawn Glory',
     'To Arms!', 'No Mercy', 'Glory Awaits', 'Hold Nothing Back',
@@ -1458,7 +1459,7 @@ export class TitleScene implements Scene {
     'Choose Your Race', 'Command the Field', 'Raise Your Army',
     // Easter eggs
     'A Krool World', 'GG No Re', 'Touch Grass Later',
-    'Skill Issue Incoming', 'Nerf This', 'Press F to Pay Respects',
+    'Skill Issue Incoming', 'Nerf This', 'Press F for Respects',
     'Perfectly Balanced', 'RNG Be Kind', 'Git Gud',
     'Leeeroy!', 'Do a Barrel Roll', 'It\'s Super Effective',
   ];
@@ -1945,7 +1946,7 @@ export class TitleScene implements Scene {
     ctx.fillText('LANECRAFT', w / 2, bannerY + bannerH * 0.45);
 
     // Subtitle
-    const subW = Math.min(w * 0.55, 360);
+    const subW = Math.min(w * 0.62, 420);
     const subH = Math.min(h * 0.055, 40);
     const subX = (w - subW) / 2;
     const subY = bannerY + bannerH - subH * 0.2;

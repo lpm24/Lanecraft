@@ -1098,9 +1098,10 @@ function botPlanResources(
     idealWood = Math.max(woodNeeded > 10 ? 1 : 0, Math.round(woodPct * totalHarvesters));
     idealMeat = Math.max(meatNeeded > 10 ? 1 : 0, Math.round(meatPct * totalHarvesters));
 
-    // If race likes diamond and game is late enough, dedicate 1 to center
-    if (RACE_LIKES_DIAMOND[race] && gameMinutes > 3 && totalHarvesters >= 3) {
-      idealCenter = 1;
+    // If race likes diamond and game is late enough, dedicate 2 to center (or none)
+    // Sending 1 worker alone to diamond is wasteful — they need to contest it
+    if (RACE_LIKES_DIAMOND[race] && gameMinutes > 3 && totalHarvesters >= 5) {
+      idealCenter = 2;
     }
 
     // Normalize to total harvesters
@@ -3283,7 +3284,7 @@ function botManageHarvesters(
     }
   }
 
-  // --- Demon: assign at least one harvester to Mana if we have 2+ harvesters ---
+  // --- Demon: assign exactly 1 harvester to Mana (never more) if we have 2+ harvesters ---
   if (player.race === Race.Demon && myHarvesters.length >= 2) {
     const manaCount = assignments.filter(a => a === HarvesterAssignment.Mana).length;
     if (manaCount === 0) {
@@ -3292,6 +3293,15 @@ function botManageHarvesters(
         if (assignments[i] !== HarvesterAssignment.Center) {
           assignments[i] = HarvesterAssignment.Mana;
           break;
+        }
+      }
+    } else if (manaCount > 1) {
+      // Cap at 1 mana worker — convert extras back to bottleneck resource
+      let found = 0;
+      for (let i = 0; i < assignments.length; i++) {
+        if (assignments[i] === HarvesterAssignment.Mana) {
+          found++;
+          if (found > 1) assignments[i] = plan?.bottleneck ?? HarvesterAssignment.Wood;
         }
       }
     }
@@ -3305,6 +3315,13 @@ function botManageHarvesters(
     if (h.state === 'mining' || h.state === 'walking_home') continue;
 
     const desired = assignments[i];
+
+    // Hysteresis: don't reassign if harvester was recently assigned (prevent toggling)
+    if (h.assignment === desired) continue;
+    const lastAssignTick = (ctx as any)._harvAssignTick?.[h.id] ?? 0;
+    if (state.tick - lastAssignTick < 10 * TICK_RATE) continue;  // 10s cooldown between reassignments
+    if (!(ctx as any)._harvAssignTick) (ctx as any)._harvAssignTick = {};
+    (ctx as any)._harvAssignTick[h.id] = state.tick;
     if (desired !== undefined && h.assignment !== desired) {
       const hut = state.buildings.find(b => b.id === h.hutId);
       if (hut) {

@@ -764,15 +764,8 @@ export class PostMatchScene implements Scene {
         ctx.fillStyle = stripeColor + 'bb';
         ctx.fillRect(innerL, rowTop, 5, rowH);
 
-        const isBot = !!this.stats?.slotBotDifficulties?.[String(i)];
         const raceColor = RACE_COLORS[p.race]?.primary ?? '#888';
-        const iconSz = tableFontSize * 1.0;
         let textX = colPositions[0] + 8;
-
-        if (isBot) {
-          this.ui.drawIcon(ctx, 'settings', textX, y - iconSz + 2, iconSz);
-          textX += iconSz + 2;
-        }
 
         ctx.fillStyle = raceColor;
         const dotR = tableFontSize * 0.32;
@@ -1056,10 +1049,10 @@ export class PostMatchScene implements Scene {
     ctx.roundRect(heroCardX, y, heroCardW, 3, [6, 6, 0, 0]);
     ctx.fill();
 
-    // Animated sprite — flush to left edge of card
+    // Fixed-width sprite column so all hero cards have consistent text layout
     const maxSpriteH = heroCardH - gap * 2;
     const spriteSize = Math.min(fontSize * 3.5, maxSpriteH);
-    let spriteDrawW = 0;
+    const spriteColW = Math.round(spriteSize * 1.1);
     const spriteResult = this.sprites.getUnitSprite(
       hero.race, hero.category, hero.playerId, false, hero.upgradeNode,
     );
@@ -1073,14 +1066,14 @@ export class PostMatchScene implements Scene {
       const baseH = spriteSize * scale;
       const dw = baseH * aspect;
       const dh = baseH * (def.heightScale ?? 1.0);
-      const spriteX = heroCardX + 2;
+      // Center sprite within the fixed column
+      const spriteX = heroCardX + Math.max(0, (spriteColW - dw) / 2);
       const spriteY = y + (heroCardH - dh) / 2;
       ctx.drawImage(img, sx, 0, def.frameW, def.frameH, spriteX, spriteY, dw, dh);
-      spriteDrawW = dw + 2;
     }
 
-    const textL = heroCardX + spriteDrawW + gap * 0.5;
-    const textAvailW = heroCardW - spriteDrawW - gap;
+    const textL = heroCardX + spriteColW + gap * 0.5;
+    const textAvailW = heroCardW - spriteColW - gap;
     const textCenterX = textL + textAvailW / 2;
 
     const contentH = lineH * 4.2;
@@ -1128,11 +1121,7 @@ export class PostMatchScene implements Scene {
     } else if (buffsApplied > 0 && title === 'BATTLE SAGE') {
       parts.push(`${buffsApplied} buffs`);
     } else {
-      if (hero.kills > 0) parts.push(`${hero.kills} kills`);
-      const dmgStr = hero.damageDone >= 1000
-        ? `${(hero.damageDone / 1000).toFixed(1)}k dmg`
-        : `${hero.damageDone} dmg`;
-      parts.push(dmgStr);
+      parts.push(`${hero.kills} kills`);
     }
     const statsLine = parts.join(' \u00b7 ');
     const killIconSz = fontSize * 0.6;
@@ -1278,7 +1267,12 @@ export class PostMatchScene implements Scene {
     const name = this.stats?.slotNames?.[String(slotId)];
     if (name) return name;
     const diff = this.stats?.slotBotDifficulties?.[String(slotId)];
-    if (diff) return `Bot ${diff.charAt(0).toUpperCase() + diff.slice(1)}`;
+    if (diff) {
+      const ABBREV: Record<string, string> = {
+        medium: 'Med', nightmare: 'NM',
+      };
+      return `Bot ${ABBREV[diff] ?? diff.charAt(0).toUpperCase() + diff.slice(1)}`;
+    }
     return `P${slotId + 1}`;
   }
 
