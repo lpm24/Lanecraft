@@ -237,10 +237,10 @@ export const UNIT_STATS: Record<Race, RaceUnits> = {
   // === HORDE (Orcs) — Brute Force ===
   [Race.Horde]: {
     [BuildingType.MeleeSpawner]: {
-      name: 'Brute', hp: 120, damage: 14, attackSpeed: 1.1, moveSpeed: 3.2, range: 1, ascii: '[#]',
+      name: 'Brute', hp: 130, damage: 14, attackSpeed: 1.1, moveSpeed: 3.2, range: 1, ascii: '[#]',
     },
     [BuildingType.RangedSpawner]: {
-      name: 'Bowcleaver', hp: 71, damage: 18, attackSpeed: 1.3, moveSpeed: 3.0, range: 7, ascii: '=>',
+      name: 'Bowcleaver', hp: 76, damage: 18, attackSpeed: 1.3, moveSpeed: 3.0, range: 7, ascii: '=>',
     },
     [BuildingType.CasterSpawner]: {
       name: 'War Chanter', hp: 56, damage: 15, attackSpeed: 2.0, moveSpeed: 3.2, range: 7, ascii: '{H}',
@@ -279,7 +279,7 @@ export const UNIT_STATS: Record<Race, RaceUnits> = {
       name: 'Eye Sniper', hp: 38, damage: 16, attackSpeed: 1.4, moveSpeed: 3.5, range: 8, ascii: '@>', critChance: 0.20, critMult: 1.75,
     },
     [BuildingType.CasterSpawner]: {
-      name: 'Overlord', hp: 52, damage: 20, attackSpeed: 2.0, moveSpeed: 2.5, range: 7, ascii: '{D}',
+      name: 'Overlord', hp: 65, damage: 20, attackSpeed: 2.0, moveSpeed: 2.5, range: 7, ascii: '{D}',
     },
   },
   // === DEEP (Aquatic) — Control & Attrition ===

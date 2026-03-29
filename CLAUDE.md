@@ -18,11 +18,16 @@ npm run profile-sim      # Bot composition profile comparison
 ## Critical Rules
 
 ### Determinism — the #1 footgun
-The simulation must be **fully deterministic** for multiplayer lockstep sync.
+The simulation must be **fully deterministic** for multiplayer lockstep sync. All clients run the same `simulateTick()` with the same commands and must produce byte-identical state. Any divergence = desync = broken game.
 
 - **NEVER use `Math.random()` in any `src/simulation/` file.** Always use `state.rng()`.
 - Any new `state.rng()` call changes the RNG sequence, which **invalidates all prior balance data** and can cause multiplayer desync. Re-run `npm run balance` after any such change.
+- **NEVER use `Date.now()`, `performance.now()`, or any time-dependent value** in simulation logic. Tick count is the only clock.
+- **NEVER iterate `Map` or `Object.keys()` in simulation** where order matters unless the result is sorted. Use arrays or sort by entity ID.
+- **NEVER use `Set` iteration order** for game logic — convert to sorted array first.
 - Sort tie-breakers in GameState.ts and BotAI.ts must be stable (use entity ID as final tiebreaker).
+- **All player actions must flow through `GameCommand` objects** — never mutate game state directly from input handlers or UI code.
+- If you add/remove/reorder any code path that calls `state.rng()`, even conditionally, every subsequent random result shifts and all clients diverge.
 
 ### Resource types
 The game uses **Gold, Wood, Meat** (NOT Stone). "Stone" appears in the old GDD but was renamed.
@@ -67,7 +72,7 @@ src/
     Camera.ts        # Pan/zoom (mouse, keyboard, touch)
     VisualEffects.ts # Day/night, weather, particles, screen shake
   scenes/            # Scene system (Title, RaceSelect, Match, PostMatch, etc.)
-  ui/                # Input handling, popups (Building, Hut, Research)
+  ui/                # Input handling, popups (Building, Hut, Research), TutorialManager
   game/              # Game orchestration (Game.ts, GameLoop.ts)
   network/           # Firebase RTDB multiplayer (PartyManager, CommandSync)
   audio/             # Music + procedural SFX
@@ -146,6 +151,9 @@ Research upgrades in the popup use painted icons from the **Nhance Spell Icons B
 ## Multiplayer
 
 - Firebase RTDB lockstep: `CommandSync` exchanges commands per turn, all clients simulate identically.
+- **Sync model:** Each client buffers local commands, broadcasts them via Firebase RTDB, waits for all players' commands for the current turn, then advances the tick. If any client's simulation diverges by even one bit, the game desyncs irreparably.
+- **What breaks sync:** Non-deterministic iteration order, `Math.random()`, time-dependent logic, floating-point differences across platforms (use integer math in simulation), conditional `state.rng()` calls, unordered collection iteration.
+- **Testing sync changes:** After touching anything in `src/simulation/`, run `npm run test:sim` to verify determinism. Run two browser tabs in a local multiplayer game to smoke-test manually.
 - Party system supports N players with bot backfill.
 - `git push` from local `main` goes to `origin/master` (branch naming mismatch is intentional).
 
@@ -167,7 +175,7 @@ Effective cost model: **2 gold = 1 wood = 1 meat** (derived from harvester econo
 | Burn | 2 dmg/sec/stack, 3s | 5 |
 | Haste | 1.3x speed, 3s, refreshes | 1 |
 | Shield | Absorbs 12 dmg, 4s | 1 |
-| Frenzy | +50% damage, 3s (Wild kill bonus) | 1 |
+| Frenzy | +50% damage (2-stack = +100%), 3s (Wild kill bonus) | 1 (2 via upgrades) |
 | Wound | -50% healing, 6s | 1 |
 | Vulnerable | +20% damage taken, 3s | 1 |
 
@@ -175,11 +183,31 @@ Effective cost model: **2 gold = 1 wood = 1 meat** (derived from harvester econo
 
 **Important:** `applyOnHitEffects()` is ONLY called from the melee path — ranged effects go through `tickProjectiles`.
 
+## Tutorial System
+
+- `src/ui/TutorialManager.ts` — state machine with localStorage persistence (`lanecraft.tutorial`)
+- First-time players auto-enter a 2v2 tutorial match (Crown + Deep vs Goblins + Horde)
+- 16 steps guide through: miner hut → melee barracks → tower → research → nuke → menu tour
+- All peripheral inputs gated during tutorial (nuke, rally, research, right-click, minimap, keyboard shortcuts)
+- Post-match returns to title screen for solo games
+
+## Weather System
+
+- 8 weather types: clear, overcast, rain, storm, snow, blizzard, fog, sandstorm
+- 5 biomes with weighted weather pools (temperate, arctic, desert, swamp, volcanic)
+- Split depth rendering (behind/in front of units), camera-culled particles
+- Gradual transitions with pre-weather wind cues, procedural audio (rain/wind/thunder)
+
+## Race Abilities
+
+Each race has a unique ability building with 4 upgrade tiers (defined in `RACE_ABILITY_UPGRADES` in `data.ts`). Ability building costs use `ABILITY_COST_MODIFIERS` in `data.ts`.
+
 ## Common Pitfalls
 
 - Adding a `console.log` in `simulation/` files won't cause issues, but adding `Math.random()` will cause desync.
 - Upgrade trees have 216 nodes (9 races × 4 building types × 6 nodes). Art-changing nodes must match their creature's animation.
 - Touch + click can double-fire on hybrid devices — `lastClickTime` debounce guards against this.
 - The bot AI value function bypasses race profile targets unless steering multipliers are applied.
-- First tower is free per player. Tower alley is shared per team.
+- First tower is free per player. Tower alley is shared per team. Tower sell refund is prorated by HP: `50% × (currentHp / maxHp)`.
 - Hut cost escalates: `baseCost × 1.35^hutCount`.
+- Burn/poison suppresses regen entirely (BLIGHT combo at 3+ burn stacks).

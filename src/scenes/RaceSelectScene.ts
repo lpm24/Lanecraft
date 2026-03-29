@@ -284,7 +284,7 @@ export class RaceSelectScene implements Scene {
     const h = this.canvas.clientHeight;
     const headerH = 70 + getSafeTop();
     const footerH = 80;
-    const randomBtnReserve = 60; // space for the random button below the grid
+    const randomBtnReserve = 80; // space for the random button below the grid
     const availH = h - headerH - footerH - randomBtnReserve;
     const availW = w - 40;
     const gapX = 8;
@@ -347,13 +347,13 @@ export class RaceSelectScene implements Scene {
     const boxes = this.getBoxLayout();
     const lastRow = boxes[RACES.length - 1]; // Tenders (bottom-right)
     const btnW = lastRow.w; // same width as a race tile
-    const btnH = Math.max(40, lastRow.h * 0.40); // ~100% taller than before
+    const btnH = Math.max(36, lastRow.h * 0.35);
     const gridBottom = lastRow.y + lastRow.h;
     // Cap so it doesn't overlap the bottom BACK/NEXT buttons (pinned at h - 72, 56px tall)
     const maxY = h - 72 - btnH - 8;
     return {
       x: (this.canvas.clientWidth - btnW) / 2,
-      y: Math.min(gridBottom + 8, maxY),
+      y: Math.min(gridBottom + 16, maxY),
       w: btnW,
       h: btnH,
     };

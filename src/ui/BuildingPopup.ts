@@ -1,11 +1,12 @@
 import { Camera } from '../rendering/Camera';
 import { UIAssets, IconName } from '../rendering/UIAssets';
 import { SpriteLoader, drawSpriteFrame, getSpriteFrame } from '../rendering/SpriteLoader';
-import { GameState, BuildingType, BuildingState, Race } from '../simulation/types';
+import { GameState, BuildingType, BuildingState, Race, TICK_RATE } from '../simulation/types';
 import { tileToPixel } from '../rendering/Projection';
-import { UPGRADE_TREES, UNIT_STATS, TOWER_STATS, getBuildingCost, getNodeUpgradeCost, getUpgradeNodeDef, type UpgradeNodeDef } from '../simulation/data';
+import { UPGRADE_TREES, UNIT_STATS, TOWER_STATS, SPAWN_INTERVAL_TICKS, getBuildingCost, getNodeUpgradeCost, getUpgradeNodeDef, type UpgradeNodeDef } from '../simulation/data';
 import { getUnitUpgradeMultipliers } from '../simulation/GameState';
 import { getPopupSafeY } from './SafeArea';
+import { MAX_STATS, STAT_COLORS, drawStatBar, drawStatBarDelta, formatNodeStatChanges, formatSpecialBonuses, formatSpecialOnlyChanges } from './StatBarUtils';
 
 export interface UpgradeOption {
   choice: string;
@@ -128,6 +129,7 @@ export class BuildingPopup {
   private targetBuildingId: number | null = null;
   private showStats = true; // default to open
   private animTick = 0;
+  private hoveredChoice: string | null = null;
   // Cached layout for hit testing (screen space)
   private rect = { x: 0, y: 0, w: 0, h: 0 };
   private upgradeBtnRects: { x: number; y: number; w: number; h: number; choice: string }[] = [];
@@ -190,6 +192,7 @@ export class BuildingPopup {
     ui: UIAssets, canvasW: number, canvasH: number,
     playerGold: number, playerWood: number, playerMeat: number,
     sprites?: SpriteLoader | null,
+    pointerX?: number, pointerY?: number,
   ): void {
     if (this.targetBuildingId === null) return;
 
@@ -198,6 +201,17 @@ export class BuildingPopup {
 
     const race = state.players[building.playerId]?.race;
     if (!race) return;
+
+    // Hover detection using previous frame's button rects
+    this.hoveredChoice = null;
+    if (pointerX !== undefined && pointerY !== undefined) {
+      for (const btn of this.upgradeBtnRects) {
+        if (this.hitTest(pointerX, pointerY, btn)) {
+          this.hoveredChoice = btn.choice;
+          break;
+        }
+      }
+    }
 
     this.animTick++;
 
@@ -291,6 +305,16 @@ export class BuildingPopup {
         ? Math.floor((popupW - PAD * 2 - GAP) / 2)
         : popupW - PAD * 2;
 
+      // Find shared stat lines between both options — these aren't useful for the decision
+      let sharedTexts: Set<string> | undefined;
+      if (options.length === 2) {
+        const aLines = formatNodeStatChanges(getUpgradeNodeDef(race, building.type, options[0].choice)!);
+        const bLines = formatNodeStatChanges(getUpgradeNodeDef(race, building.type, options[1].choice)!);
+        const aTexts = new Set(aLines.map(l => l.text));
+        sharedTexts = new Set(bLines.filter(l => aTexts.has(l.text)).map(l => l.text));
+        if (sharedTexts.size === 0) sharedTexts = undefined;
+      }
+
       for (let i = 0; i < options.length; i++) {
         const opt = options[i];
         const bx = px + PAD + (i > 0 ? btnW + GAP : 0);
@@ -304,8 +328,9 @@ export class BuildingPopup {
           && (soulsCost <= 0 || playerSouls >= soulsCost);
 
         this.upgradeBtnRects.push({ x: bx, y: by, w: btnW, h: UPGRADE_BTN_H, choice: opt.choice });
+        const isHovered = this.hoveredChoice === opt.choice;
         this.drawUpgradeButton(ctx, ui, bx, by, btnW, UPGRADE_BTN_H, opt, canAfford,
-          building, race, category, sprites ?? null, SPRITE_SIZE, ICON_SIZE, isMobile);
+          building, race, category, sprites ?? null, SPRITE_SIZE, ICON_SIZE, isMobile, isHovered, sharedTexts);
       }
       curY += UPGRADE_BTN_H + GAP;
     } else if (building.upgradePath.length >= 3) {
@@ -422,22 +447,38 @@ export class BuildingPopup {
     ctx.restore();
   }
 
-  private measureStatsHeight(building: BuildingState, _race: Race, _isMobile: boolean): number {
-    const lineH = 16;
-    // Start offset: lineH + 2
-    let h = lineH + 4;
+  private measureStatsHeight(building: BuildingState, race: Race, isMobile: boolean): number {
+    if (building.type === BuildingType.HarvesterHut) return 0;
 
-    if (building.type === BuildingType.Tower) {
-      h += lineH * 4;
-    } else if (building.type !== BuildingType.HarvesterHut) {
-      // Name + HP/dmg icons + Spd/Atk/Rng + gap + description (up to 3 lines)
-      h += lineH + lineH + (lineH + 2) + 3 * (lineH - 1);
+    const barGap = isMobile ? 16 : 18;
+    const nameH = 18;
+    const descH = building.type === BuildingType.Tower ? 0 : 30;
+    const specialH = 44; // reserved for special bonuses on hover
+
+    // Count bars dynamically — same logic as buildStatBars but cheaper
+    const upgrade = getUnitUpgradeMultipliers(building.upgradePath, race, building.type);
+    const isTower = building.type === BuildingType.Tower;
+    // Core bars: HP, DAMAGE, ATK SPEED, RANGE (always shown)
+    let barCount = 4;
+    if (!isTower) barCount += 3; // DPS, SPEED, SPAWN RATE
+    // Conditional bars
+    if (upgrade.special.dodgeChance) barCount++;
+    if (upgrade.special.damageReductionPct) barCount++;
+    // If hovering could add dodge/DR, we need stable height — use max possible for this building
+    // Check if any upgrade option could add dodge/DR
+    const tree = UPGRADE_TREES[race]?.[building.type];
+    if (tree && building.upgradePath.length < 3) {
+      const checkNodes = building.upgradePath.length === 1 ? ['B', 'C']
+        : building.upgradePath[1] === 'B' ? ['D', 'E'] : ['F', 'G'];
+      let addedDodge = false, addedDr = false;
+      for (const node of checkNodes) {
+        const def = tree[node as keyof typeof tree] as UpgradeNodeDef | undefined;
+        if (!addedDodge && def?.special?.dodgeChance && !upgrade.special.dodgeChance) { barCount++; addedDodge = true; }
+        if (!addedDr && def?.special?.damageReductionPct && !upgrade.special.damageReductionPct) { barCount++; addedDr = true; }
+      }
     }
 
-    // Upgrade path
-    if (building.upgradePath.length > 1) h += lineH + 4;
-
-    return Math.max(50, h);
+    return nameH + barGap * barCount + descH + specialH + 4;
   }
 
   private drawUpgradeButton(
@@ -448,6 +489,8 @@ export class BuildingPopup {
     category: 'melee' | 'ranged' | 'caster' | undefined,
     sprites: SpriteLoader | null,
     _spriteSize: number, iconSize: number, isMobile: boolean,
+    isHovered = false,
+    sharedTexts?: Set<string>,
   ): void {
     // 9-slice button background — draw oversized so text sits well inside the visual border
     const btnPad = 8;
@@ -457,6 +500,20 @@ export class BuildingPopup {
       ctx.globalAlpha = 0.45;
       ui.drawBigBlueButton(ctx, x - btnPad, y - btnPad, w + btnPad * 2, h + btnPad * 2);
       ctx.globalAlpha = 1;
+    }
+
+    // Hover glow border
+    if (isHovered && canAfford) {
+      ctx.strokeStyle = '#ffd740';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.roundRect(x - btnPad + 2, y - btnPad + 2, w + btnPad * 2 - 4, h + btnPad * 2 - 4, 6);
+      ctx.stroke();
+      // Subtle brightness overlay
+      ctx.fillStyle = 'rgba(255, 215, 64, 0.08)';
+      ctx.beginPath();
+      ctx.roundRect(x - btnPad + 2, y - btnPad + 2, w + btnPad * 2 - 4, h + btnPad * 2 - 4, 6);
+      ctx.fill();
     }
 
     // Content inset — keep all text/sprites inside the button's visible region
@@ -540,20 +597,40 @@ export class BuildingPopup {
       ctx.fillText(line, textLeft, nameY);
     }
 
-    // Rows 1-2: Description (right 3 cells, rows 1 and 2)
-    const descFontSize = isMobile ? 10 : 12;
-    ctx.font = `${descFontSize}px monospace`;
-    const desc = opt.desc ?? '';
-    const descLineH = descFontSize + 2;
-    const descStartY = cy + rowH + Math.round(descFontSize * 0.9);
-    const descAvailH = rowH * 2 - Math.round(descFontSize * 0.9) - 2; // space before cost row
+    // Rows 1-2: Precise stat changes (right 3 cells, rows 1 and 2)
+    const descFontSize = isMobile ? 9 : 11;
+    const descLineH = descFontSize + 1;
+    const descStartY = cy + rowH + Math.round(descFontSize * 0.8);
+    const descAvailH = rowH * 2 - Math.round(descFontSize * 0.5);
     const maxDescLines = Math.min(3, Math.max(1, Math.floor(descAvailH / descLineH)));
-    const descLines = this.wordWrap(ctx, desc, textW, maxDescLines);
-    for (let i = 0; i < descLines.length; i++) {
-      const lineY = descStartY + i * descLineH;
-      shadowText(descLines[i], textLeft, lineY);
-      ctx.fillStyle = canAfford ? '#e0e0e0' : '#888';
-      ctx.fillText(descLines[i], textLeft, lineY);
+
+    // Generate precise stat change lines, filtering out effects shared by both options
+    const nodeDef = getUpgradeNodeDef(race, building.type, opt.choice);
+    const statChanges = nodeDef
+      ? formatNodeStatChanges(nodeDef).filter(c => !sharedTexts?.has(c.text))
+      : [];
+
+    if (statChanges.length > 0) {
+      ctx.font = `${descFontSize}px monospace`;
+      for (let i = 0; i < Math.min(statChanges.length, maxDescLines); i++) {
+        const lineY = descStartY + i * descLineH;
+        const change = statChanges[i];
+        ctx.fillStyle = canAfford
+          ? (change.isBuff ? '#69f0ae' : '#ff6666')
+          : '#888';
+        ctx.fillText(change.text, textLeft, lineY);
+      }
+    } else {
+      // Fallback to original desc
+      ctx.font = `${descFontSize}px monospace`;
+      const desc = opt.desc ?? '';
+      const descLines = this.wordWrap(ctx, desc, textW, maxDescLines);
+      for (let i = 0; i < descLines.length; i++) {
+        const lineY = descStartY + i * descLineH;
+        shadowText(descLines[i], textLeft, lineY);
+        ctx.fillStyle = canAfford ? '#e0e0e0' : '#888';
+        ctx.fillText(descLines[i], textLeft, lineY);
+      }
     }
 
     // Row 3: Cost centered across full width
@@ -589,128 +666,202 @@ export class BuildingPopup {
     }
   }
 
+  /** Build the dynamic stat bar list for any building type. Bars with val=0 and projVal=0 are hidden. */
+  private buildStatBars(
+    building: BuildingState, race: Race,
+    upgrade: ReturnType<typeof getUnitUpgradeMultipliers>,
+    projected: ReturnType<typeof getUnitUpgradeMultipliers> | null,
+  ): { label: string; val: number; projVal: number; max: number; disp: string; projDisp: string; color: string }[] {
+    const isTower = building.type === BuildingType.Tower;
+    const base = isTower ? TOWER_STATS[race] : UNIT_STATS[race]?.[building.type];
+    if (!base) return [];
+
+    const hp = Math.max(1, Math.round(base.hp * upgrade.hp));
+    const dmg = Math.max(1, Math.round(base.damage * upgrade.damage));
+    const atkSpd = Math.max(0.2, base.attackSpeed * upgrade.attackSpeed);
+    const rng = Math.max(1, Math.round(base.range * upgrade.range));
+    const towerRngBonus = isTower ? (upgrade.special.towerRangeBonus ?? 0) : 0;
+    const totalRng = rng + towerRngBonus;
+
+    const pHp = projected ? Math.max(1, Math.round(base.hp * projected.hp)) : hp;
+    const pDmg = projected ? Math.max(1, Math.round(base.damage * projected.damage)) : dmg;
+    const pAtkSpd = projected ? Math.max(0.2, base.attackSpeed * projected.attackSpeed) : atkSpd;
+    const pRng = projected ? Math.max(1, Math.round(base.range * projected.range)) : rng;
+    const pTowerRngBonus = isTower && projected ? (projected.special.towerRangeBonus ?? 0) : towerRngBonus;
+    const pTotalRng = pRng + pTowerRngBonus;
+
+    const hpMax = isTower ? MAX_STATS.hp * 4 : MAX_STATS.hp;
+    const rngMax = isTower ? MAX_STATS.range * 2 : MAX_STATS.range;
+
+    // All possible bars — we'll filter to only show non-zero ones
+    const all: { label: string; val: number; projVal: number; max: number; disp: string; projDisp: string; color: string }[] = [];
+
+    // Core stats (always shown for units/towers that have them)
+    all.push({ label: 'HEALTH',    val: hp,  projVal: pHp,  max: hpMax,            disp: `${hp}`,  projDisp: `${pHp}`,  color: STAT_COLORS.hp });
+    all.push({ label: 'DAMAGE',    val: dmg, projVal: pDmg, max: MAX_STATS.damage, disp: `${dmg}`, projDisp: `${pDmg}`, color: STAT_COLORS.damage });
+
+    if (!isTower) {
+      const dps = dmg / atkSpd;
+      const pDps = pDmg / pAtkSpd;
+      all.push({ label: 'DPS', val: dps, projVal: pDps, max: MAX_STATS.dps, disp: `${dps.toFixed(1)}`, projDisp: `${pDps.toFixed(1)}`, color: STAT_COLORS.dps });
+    }
+
+    all.push({ label: 'ATK SPEED', val: 1 / atkSpd, projVal: 1 / pAtkSpd, max: MAX_STATS.atkRate, disp: `${atkSpd.toFixed(2)}s`, projDisp: `${pAtkSpd.toFixed(2)}s`, color: STAT_COLORS.atkSpeed });
+
+    if (!isTower) {
+      const spd = Math.max(0.5, (base as any).moveSpeed * upgrade.moveSpeed);
+      const pSpd = projected ? Math.max(0.5, (base as any).moveSpeed * projected.moveSpeed) : spd;
+      all.push({ label: 'SPEED', val: spd, projVal: pSpd, max: MAX_STATS.moveSpeed, disp: `${spd.toFixed(1)}`, projDisp: `${pSpd.toFixed(1)}`, color: STAT_COLORS.moveSpeed });
+    }
+
+    all.push({ label: 'RANGE', val: totalRng, projVal: pTotalRng, max: rngMax, disp: `${totalRng}`, projDisp: `${pTotalRng}`, color: STAT_COLORS.range });
+
+    // Spawn speed (only for spawners) — displayed as seconds per spawn
+    if (!isTower) {
+      const baseSpawnSec = SPAWN_INTERVAL_TICKS / TICK_RATE;
+      const spawnSec = baseSpawnSec * upgrade.spawnSpeed;
+      const pSpawnSec = projected ? baseSpawnSec * projected.spawnSpeed : spawnSec;
+      // Bar value: 1/seconds (higher = faster), so lower seconds = bigger bar
+      all.push({ label: 'SPAWN', val: 1 / spawnSec, projVal: 1 / pSpawnSec, max: MAX_STATS.spawnRate, disp: `${spawnSec.toFixed(1)}s`, projDisp: `${pSpawnSec.toFixed(1)}s`, color: STAT_COLORS.spawnSpeed });
+    }
+
+    // Conditional bars: only shown when current OR projected value > 0
+    const dodge = upgrade.special.dodgeChance ?? 0;
+    const pDodge = projected ? (projected.special.dodgeChance ?? 0) : dodge;
+    if (dodge > 0 || pDodge > 0) {
+      all.push({ label: 'DODGE', val: dodge, projVal: pDodge, max: 1, disp: `${Math.round(dodge * 100)}%`, projDisp: `${Math.round(pDodge * 100)}%`, color: '#80cbc4' });
+    }
+
+    const dr = upgrade.special.damageReductionPct ?? 0;
+    const pDr = projected ? (projected.special.damageReductionPct ?? 0) : dr;
+    if (dr > 0 || pDr > 0) {
+      all.push({ label: 'DMG REDUC', val: dr, projVal: pDr, max: 1, disp: `${Math.round(dr * 100)}%`, projDisp: `${Math.round(pDr * 100)}%`, color: '#90a4ae' });
+    }
+
+    return all;
+  }
+
   private drawStatsPanel(
     ctx: CanvasRenderingContext2D,
-    x: number, y: number, w: number, h: number,
+    x: number, y: number, w: number, _h: number,
     building: BuildingState, race: Race,
-    ui: UIAssets, isMobile: boolean,
+    _ui: UIAssets, isMobile: boolean,
   ): void {
     // Dark inset background
     ctx.fillStyle = 'rgba(0,0,0,0.35)';
     ctx.beginPath();
-    ctx.roundRect(x, y, w, h, 4);
+    ctx.roundRect(x, y, w, _h, 4);
     ctx.fill();
 
-    ctx.textAlign = 'left';
-    const mainFont = isMobile ? 13 : 14;
-    const smallFont = 13;
-    const iconSz = 14;
-    const lineH = 16;
+    const barGap = isMobile ? 16 : 18;
+    const barH = isMobile ? 10 : 12;
+    const barW = w - 12;
     const col1 = x + 6;
-    const descW = w - 12;
-    let ly = y + lineH + 2;
+    let ly = y + 4;
 
     const upgrade = getUnitUpgradeMultipliers(building.upgradePath, race, building.type);
 
-    if (building.type === BuildingType.Tower) {
-      const base = TOWER_STATS[race];
-      if (base) {
-        const dmg = Math.max(1, Math.round(base.damage * upgrade.damage));
-        const atkSpd = Math.max(0.2, +(base.attackSpeed * upgrade.attackSpeed).toFixed(2));
-        const rng = Math.max(1, +(base.range * upgrade.range).toFixed(1)) + (upgrade.special.towerRangeBonus ?? 0);
-
-        // Name + stats on one line
-        ctx.fillStyle = '#ffd740';
-        ctx.font = `bold ${mainFont}px monospace`;
-        ctx.fillText(`Tower`, col1, ly);
-        ly += lineH;
-
-        ctx.font = `${smallFont}px monospace`;
-        ctx.fillStyle = '#ddd';
-        ui.drawIcon(ctx, 'shield', col1 - 2, ly - iconSz + 1, iconSz);
-        ctx.fillText(`${building.hp}/${building.maxHp}`, col1 + iconSz + 2, ly);
-        const col2 = col1 + w / 2 - 4;
-        ui.drawIcon(ctx, 'sword', col2 - 2, ly - iconSz + 1, iconSz);
-        ctx.fillText(`${dmg}`, col2 + iconSz + 2, ly);
-        ly += lineH;
-
-        ctx.fillStyle = '#aaa';
-        ctx.fillText(`Atk: ${atkSpd}s  Rng: ${rng}`, col1, ly);
-        ly += lineH;
-
-        // Description
-        ctx.fillStyle = '#b0bec5';
-        ctx.font = `${smallFont}px monospace`;
-        ctx.fillText('Attacks nearest enemy in range.', col1, ly);
-      }
-    } else if (building.type !== BuildingType.HarvesterHut) {
-      const base = UNIT_STATS[race]?.[building.type];
-      if (base) {
-        const hp = Math.max(1, Math.round(base.hp * upgrade.hp));
-        const dmg = Math.max(1, Math.round(base.damage * upgrade.damage));
-        const spd = Math.max(0.5, +(base.moveSpeed * upgrade.moveSpeed).toFixed(1));
-        const atkSpd = Math.max(0.2, +(base.attackSpeed * upgrade.attackSpeed).toFixed(2));
-        const rng = Math.max(1, +(base.range * upgrade.range).toFixed(1));
-
-        // Unit name
-        ctx.fillStyle = '#ffd740';
-        ctx.font = `bold ${mainFont}px monospace`;
-        ctx.fillText(base.name, col1, ly);
-        ly += lineH;
-
-        // Stats row with icons
-        ctx.font = `${smallFont}px monospace`;
-        ctx.fillStyle = '#ddd';
-        ui.drawIcon(ctx, 'shield', col1 - 2, ly - iconSz + 1, iconSz);
-        ctx.fillText(`${hp}`, col1 + iconSz + 2, ly);
-        const col2 = col1 + w / 2 - 4;
-        ui.drawIcon(ctx, 'sword', col2 - 2, ly - iconSz + 1, iconSz);
-        ctx.fillText(`${dmg}`, col2 + iconSz + 2, ly);
-        ly += lineH;
-
-        ctx.fillStyle = '#aaa';
-        ctx.fillText(`Spd: ${spd}  Atk: ${atkSpd}s  Rng: ${rng}`, col1, ly);
-        ly += lineH + 2;
-
-        // Description — explain what this unit does, with numbers
-        ctx.fillStyle = '#b0bec5';
-        ctx.font = `${smallFont}px monospace`;
-        let desc = '';
-        const category = building.type === BuildingType.CasterSpawner ? 'caster'
-          : building.type === BuildingType.MeleeSpawner ? 'melee' : 'ranged';
-        if (category === 'caster') {
-          desc = CASTER_SUPPORT_DESC[race] ?? 'Support caster.';
-        } else if (category === 'melee') {
-          desc = MELEE_ONHIT_DESC[race] ?? '';
-        } else if (category === 'ranged') {
-          desc = RANGED_ONHIT_DESC[race] ?? '';
-        }
-        if (base.spawnCount && base.spawnCount > 1) {
-          if (!desc.includes('Spawn')) desc += ` Spawns ${base.spawnCount} per cycle.`;
-        }
-        // Word wrap the description
-        const descLines = this.wordWrap(ctx, desc, descW, 3);
-        for (const line of descLines) {
-          ctx.fillText(line, col1, ly);
-          ly += lineH - 1;
-        }
-      }
+    // Compute projected stats if hovering an upgrade
+    let projected: ReturnType<typeof getUnitUpgradeMultipliers> | null = null;
+    let hoveredNode: UpgradeNodeDef | undefined;
+    if (this.hoveredChoice) {
+      const projPath = [...building.upgradePath, this.hoveredChoice];
+      projected = getUnitUpgradeMultipliers(projPath, race, building.type);
+      hoveredNode = getUpgradeNodeDef(race, building.type, this.hoveredChoice);
     }
 
-    // Upgrade path — show names
-    const pathTier = building.upgradePath.length - 1;
-    if (pathTier > 0) {
-      ly += 2;
-      ctx.fillStyle = '#81c784';
-      ctx.font = `${smallFont}px monospace`;
+    if (building.type === BuildingType.HarvesterHut) return;
+
+    const isTower = building.type === BuildingType.Tower;
+
+    // Name
+    ctx.fillStyle = '#ffd740';
+    ctx.font = `bold ${isMobile ? 12 : 13}px monospace`;
+    ctx.textAlign = 'left';
+    if (isTower) {
+      ctx.fillText('Tower', col1, ly + 12);
+    } else {
+      const base = UNIT_STATS[race]?.[building.type];
       const tree = UPGRADE_TREES[race]?.[building.type];
-      const names = building.upgradePath.slice(1).map(node => {
-        const def = tree?.[node as keyof typeof tree] as UpgradeNodeDef | undefined;
-        return def?.name ?? node;
-      });
-      const pathText = names.join(' > ');
-      const pathLines = this.wordWrap(ctx, pathText, descW, 1);
-      ctx.fillText(pathLines[0], col1, ly);
+      const lastNode = building.upgradePath.length > 1 ? building.upgradePath[building.upgradePath.length - 1] : null;
+      const upgradeName = lastNode ? (tree?.[lastNode as keyof typeof tree] as UpgradeNodeDef | undefined)?.name : null;
+      ctx.fillText(upgradeName ?? base?.name ?? '', col1, ly + 12);
+    }
+    ly += 18;
+
+    // Dynamic stat bars
+    const stats = this.buildStatBars(building, race, upgrade, projected);
+    for (const s of stats) {
+      drawStatBar(ctx, col1, ly, barW, barH, s.label, s.val, s.max, s.disp, s.color);
+      if (projected && s.projDisp !== s.disp) {
+        drawStatBarDelta(ctx, col1, ly, barW, barH, s.val, s.projVal, s.max, s.projDisp);
+      }
+      ly += barGap;
+    }
+
+    // Description (spawners only)
+    if (!isTower) {
+      ctx.fillStyle = '#b0bec5';
+      ctx.font = `${isMobile ? 10 : 11}px monospace`;
+      ctx.textAlign = 'left';
+      let desc = '';
+      const category = building.type === BuildingType.CasterSpawner ? 'caster'
+        : building.type === BuildingType.MeleeSpawner ? 'melee' : 'ranged';
+      if (category === 'caster') desc = CASTER_SUPPORT_DESC[race] ?? 'Support caster.';
+      else if (category === 'melee') desc = MELEE_ONHIT_DESC[race] ?? '';
+      else if (category === 'ranged') desc = RANGED_ONHIT_DESC[race] ?? '';
+      const base = UNIT_STATS[race]?.[building.type];
+      if (base?.spawnCount && base.spawnCount > 1 && !desc.includes('Spawn')) {
+        desc += ` Spawns ${base.spawnCount} per cycle.`;
+      }
+      const descLines = this.wordWrap(ctx, desc, barW, 2);
+      for (const line of descLines) {
+        ctx.fillText(line, col1, ly + 10);
+        ly += 13;
+      }
+      ly += 4;
+    }
+
+    // Special bonuses area: always show current, highlight new on hover
+    this.drawSpecialBonuses(ctx, col1, ly, barW, upgrade.special, hoveredNode, isMobile);
+  }
+
+  /** Draw special bonus lines: current specials in neutral color, new hover specials in green */
+  private drawSpecialBonuses(
+    ctx: CanvasRenderingContext2D,
+    x: number, y: number, _w: number,
+    currentSpecial: ReturnType<typeof getUnitUpgradeMultipliers>['special'],
+    hoveredNode: UpgradeNodeDef | undefined, isMobile: boolean,
+  ): void {
+    const fontSize = isMobile ? 9 : 10;
+    ctx.font = `${fontSize}px monospace`;
+    ctx.textAlign = 'left';
+    let ly = y;
+    const maxLines = 4;
+    let lineCount = 0;
+
+    // Current specials (always shown, neutral color)
+    const currentLines = formatSpecialBonuses(currentSpecial);
+    for (const line of currentLines) {
+      if (lineCount >= maxLines) break;
+      ctx.fillStyle = '#b0bec5';
+      ctx.fillText(line.text, x, ly + fontSize);
+      ly += fontSize + 3;
+      lineCount++;
+    }
+
+    // New specials from hovered upgrade (green, only ones not already present)
+    if (hoveredNode) {
+      const hoverLines = formatSpecialOnlyChanges(hoveredNode);
+      const currentTexts = new Set(currentLines.map(l => l.text));
+      for (const line of hoverLines) {
+        if (lineCount >= maxLines) break;
+        if (currentTexts.has(line.text)) continue; // already shown above
+        ctx.fillStyle = line.isBuff ? '#69f0ae' : '#ff6666';
+        ctx.fillText(line.text, x, ly + fontSize);
+        ly += fontSize + 3;
+        lineCount++;
+      }
     }
   }
 

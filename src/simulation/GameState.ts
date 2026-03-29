@@ -358,7 +358,7 @@ function addFloatingText(state: GameState, x: number, y: number, text: string, c
   let vy: number | undefined;
   let xOff: number;
   if (isDmg) {
-    const rng2 = state.rng(); // only consume 2nd rng for damage (preserves old sequence for non-damage)
+    const rng2 = state.rng(); // consume 2nd rng for damage velocity spread
     vx = (rng1 < 0.5 ? -1 : 1) * (0.04 + rng2 * 0.04);
     vy = -0.12;
     xOff = 0;
@@ -477,6 +477,8 @@ export function createInitialState(
     playerStats: players.map(() => createPlayerStats()),
     warHeroes: [],
     supportHeroes: [],
+    tankHeroes: [],
+    healerHeroes: [],
     fallenHeroes: [],
     fogOfWar,
     visibility: map.teams.map(() => new Array(map.width * map.height).fill(false)),
@@ -919,7 +921,7 @@ export function simulateTick(state: GameState, commands: GameCommand[]): void {
   tickCombat(state);
   debugCheckUnitPositions(state, 'tickCombat');
   // Rebuild spatial grid after tickCombat's dead-unit filter so tickTowers/tickHQDefense/tickProjectiles
-  // don't find stale dead-unit references (the old linear scans implicitly skipped them)
+  // don't find stale dead-unit references in the spatial grid
   _combatGrid.build(state.units);
   tickTowers(state);
   tickHQDefense(state);
@@ -1441,8 +1443,8 @@ function useAbility(state: GameState, cmd: Extract<GameCommand, { type: 'use_abi
 
   // Calculate growing cost (non-Tenders)
   const growthMult = def.costGrowthFactor ? Math.pow(def.costGrowthFactor, player.abilityUseCount) : 1;
-  // Geists: additive soul cost scaling (+5 per cast)
-  const soulsCostAdditive = player.race === Race.Geists ? (def.baseCost.souls ?? 0) + 5 * player.abilityUseCount : 0;
+  // Geists: additive soul cost scaling (+10 per cast)
+  const soulsCostAdditive = player.race === Race.Geists ? (def.baseCost.souls ?? 0) + 10 * player.abilityUseCount : 0;
   // Apply ability cost modifiers from research upgrades (centralised in data.ts)
   const mod = ABILITY_COST_MODIFIERS[player.race];
   const hasModUpgrade = mod && player.researchUpgrades.raceUpgrades[mod.upgradeId];
@@ -1574,7 +1576,7 @@ function hordeAbility(state: GameState, player: PlayerState): void {
     category: 'melee', upgradeTier: 0, upgradeNode: 'E', // Goblin troll warlord art
     spriteRace: Race.Goblins, visualScale: 2.0,
     upgradeSpecial: { knockbackChance: 0.3, _trollBaseDmg: trollDmg, _trollBaseHp: trollHp },
-    kills: 0, damageDone: 0, healingDone: 0, buffsApplied: 0, lastDamagedByName: '', spawnTick: state.tick,
+    kills: 0, damageDone: 0, damageTaken: 0, healingDone: 0, buffsApplied: 0, lastDamagedByName: '', spawnTick: state.tick,
   });
   const trollLabel = trophyKills > 0 ? `WAR TROLL! (+${trophyKills} trophies)` : 'WAR TROLL!';
   addFloatingText(state, trollX, trollY, trollLabel, '#ff6600');
@@ -1782,7 +1784,7 @@ function spawnGeistSkeletons(state: GameState, eff: AbilityEffect): void {
       targetId: null, lane, pathProgress, carryingDiamond: false,
       statusEffects: [], hitCount: 0, shieldHp: 0,
       category: 'melee', upgradeTier: 0, upgradeNode: 'A',
-      upgradeSpecial: { lifestealPct: 0.08 }, kills: 0, damageDone: 0, healingDone: 0, buffsApplied: 0, lastDamagedByName: '', spawnTick: state.tick,
+      upgradeSpecial: { lifestealPct: 0.08 }, kills: 0, damageDone: 0, damageTaken: 0, healingDone: 0, buffsApplied: 0, lastDamagedByName: '', spawnTick: state.tick,
       summonDuration: skeletonDuration,
     });
   }
@@ -1800,7 +1802,7 @@ function spawnGeistSkeletons(state: GameState, eff: AbilityEffect): void {
         targetId: null, lane, pathProgress, carryingDiamond: false,
         statusEffects: [], hitCount: 0, shieldHp: 0,
         category: 'ranged', upgradeTier: 0, upgradeNode: 'A',
-        upgradeSpecial: { lifestealPct: 0.05 }, kills: 0, damageDone: 0, healingDone: 0, buffsApplied: 0, lastDamagedByName: '', spawnTick: state.tick,
+        upgradeSpecial: { lifestealPct: 0.05 }, kills: 0, damageDone: 0, damageTaken: 0, healingDone: 0, buffsApplied: 0, lastDamagedByName: '', spawnTick: state.tick,
         summonDuration: skeletonDuration,
       });
     }
@@ -2058,7 +2060,7 @@ function tickAbilityEffects(state: GameState): void {
                   targetId: null, lane, pathProgress: gProg, carryingDiamond: false,
                   statusEffects: [], hitCount: 0, shieldHp: 0, category: spawnCat,
                   upgradeTier: 0, upgradeNode: 'A', upgradeSpecial: {},
-                  kills: 0, damageDone: 0, healingDone: 0, buffsApplied: 0, lastDamagedByName: '', spawnTick: state.tick,
+                  kills: 0, damageDone: 0, damageTaken: 0, healingDone: 0, buffsApplied: 0, lastDamagedByName: '', spawnTick: state.tick,
                 });
               }
               addSound(state, 'unit_spawn', b.worldX, b.worldY);
@@ -2100,7 +2102,7 @@ function tickAbilityEffects(state: GameState): void {
                 targetId: null, lane, pathProgress: seedProg, carryingDiamond: false,
                 statusEffects: [], hitCount: 0, shieldHp: 0, category: cat,
                 upgradeTier: tier, upgradeNode: 'A', upgradeSpecial: {},
-                kills: 0, damageDone: 0, healingDone: 0, buffsApplied: 0, lastDamagedByName: '', spawnTick: state.tick,
+                kills: 0, damageDone: 0, damageTaken: 0, healingDone: 0, buffsApplied: 0, lastDamagedByName: '', spawnTick: state.tick,
               });
               const tierLabel = tier > 0 ? ` T${tier + 1}` : '';
               addFloatingText(state, b.worldX, b.worldY, `${stats.name}${tierLabel}!`, '#81c784');
@@ -2302,7 +2304,7 @@ function trackDeathResources(state: GameState, deadUnit: UnitState): void {
         targetId: null, lane, pathProgress: msProg, carryingDiamond: false,
         statusEffects: [], hitCount: 0, shieldHp: 0,
         category: 'melee', upgradeTier: 0, upgradeNode: 'A',
-        upgradeSpecial: {}, kills: 0, damageDone: 0, healingDone: 0, buffsApplied: 0, lastDamagedByName: '', spawnTick: state.tick,
+        upgradeSpecial: {}, kills: 0, damageDone: 0, damageTaken: 0, healingDone: 0, buffsApplied: 0, lastDamagedByName: '', spawnTick: state.tick,
         summonDuration: 10 * TICK_RATE,
       });
       addDeathParticles(state, deadUnit.x, deadUnit.y, '#b39ddb', 2);
@@ -2496,7 +2498,7 @@ function spawnDiamondChampion(state: GameState, team: Team, x: number, y: number
     upgradeTier: 0,
     upgradeNode: champ.node,
     upgradeSpecial: {},
-    kills: 0, damageDone: 0, healingDone: 0, buffsApplied: 0,
+    kills: 0, damageDone: 0, damageTaken: 0, healingDone: 0, buffsApplied: 0,
     lastDamagedByName: '',
     spawnTick: state.tick,
     nukeImmune: true,
@@ -2633,7 +2635,7 @@ function tickSpawners(state: GameState): void {
           statusEffects: [], hitCount: 0, shieldHp: 0, category,
           upgradeTier: building.upgradePath.length - 1,
           upgradeNode: building.upgradePath[building.upgradePath.length - 1] ?? 'A',
-          upgradeSpecial: upgrade.special, kills: 0, damageDone: 0, healingDone: 0, buffsApplied: 0, lastDamagedByName: '', spawnTick: state.tick,
+          upgradeSpecial: upgrade.special, kills: 0, damageDone: 0, damageTaken: 0, healingDone: 0, buffsApplied: 0, lastDamagedByName: '', spawnTick: state.tick,
         });
         if (state.playerStats[building.playerId]) state.playerStats[building.playerId].unitsSpawned++;
       }
@@ -3233,6 +3235,7 @@ function dealDamage(state: GameState, target: UnitState, amount: number, showFlo
         { ftType: 'damage', magnitude: amount, miniIcon });
     }
     // Track damage stats
+    target.damageTaken += amount;
     const targetPs = state.playerStats[target.playerId];
     if (targetPs) targetPs.totalDamageTaken += amount;
     if (sourceUnitId !== undefined) {
@@ -3264,7 +3267,7 @@ function dealDamage(state: GameState, target: UnitState, amount: number, showFlo
         if (target.hp <= 0) {
           killer.kills++;
           if (state.playerStats[killer.playerId]) state.playerStats[killer.playerId].enemyUnitsKilled++;
-          // Gold on kill (pirate upgrade path)
+          // Gold on kill (Crown Buccaneer upgrade path)
           const gok = killer.upgradeSpecial?.goldOnKill ?? 0;
           if (gok > 0) {
             const kp = state.players[killer.playerId];
@@ -3373,7 +3376,7 @@ function applyCasterSupport(state: GameState, caster: UnitState, race: Race, sp:
 
   switch (race) {
     case Race.Crown: {
-      // Shield allies (like old Bastion)
+      // Shield nearby allies (Crown caster ability)
       const shieldCount = 2 + (sp?.shieldTargetBonus ?? 0);
       const sorted = allies.slice().sort((a, b) => {
         const da = (a.x - caster.x) ** 2 + (a.y - caster.y) ** 2;
@@ -3389,6 +3392,7 @@ function applyCasterSupport(state: GameState, caster: UnitState, race: Race, sp:
         applyStatus(sorted[i], StatusType.Shield, 1);
         if (absorbBonus > 0) sorted[i].shieldHp += absorbBonus;
         caster.buffsApplied++;
+        if (state.playerStats[caster.playerId]) state.playerStats[caster.playerId].totalBuffsApplied++;
       }
       // Research: Healing Aura — 1 HP/s to 2 nearest allies
       if (casterPlayer?.researchUpgrades.raceUpgrades['crown_caster_2']) {
@@ -3419,6 +3423,7 @@ function applyCasterSupport(state: GameState, caster: UnitState, race: Race, sp:
           }
           hordeHasteCount++;
           caster.buffsApplied++;
+          if (state.playerStats[caster.playerId]) state.playerStats[caster.playerId].totalBuffsApplied++;
           if (hordeHasteCount >= 5 + healBonus) break;
         }
       }
@@ -3446,6 +3451,7 @@ function applyCasterSupport(state: GameState, caster: UnitState, race: Race, sp:
           applyStatus(a, StatusType.Haste, 1);
           oozHasteCount++;
           caster.buffsApplied++;
+          if (state.playerStats[caster.playerId]) state.playerStats[caster.playerId].totalBuffsApplied++;
           if (oozHasteCount >= 3 + healBonus) break;
         }
       }
@@ -3505,6 +3511,7 @@ function applyCasterSupport(state: GameState, caster: UnitState, race: Race, sp:
           applyStatus(a, StatusType.Shield, 1);
           a.shieldHp += 3;
           caster.buffsApplied++;
+          if (state.playerStats[caster.playerId]) state.playerStats[caster.playerId].totalBuffsApplied++;
         }
       }
       if (cleansed > 0) {
@@ -3521,6 +3528,7 @@ function applyCasterSupport(state: GameState, caster: UnitState, race: Race, sp:
           applyStatus(a, StatusType.Haste, 1);
           hasteCount++;
           caster.buffsApplied++;
+          if (state.playerStats[caster.playerId]) state.playerStats[caster.playerId].totalBuffsApplied++;
           if (hasteCount >= 3 + healBonus) break;
         }
       }
@@ -3533,6 +3541,7 @@ function applyCasterSupport(state: GameState, caster: UnitState, race: Race, sp:
           applyStatus(a, StatusType.Frenzy, 1);
           frenzied++;
           caster.buffsApplied++;
+          if (state.playerStats[caster.playerId]) state.playerStats[caster.playerId].totalBuffsApplied++;
         }
       }
       if (hasteCount > 0) addCombatEvent(state, { type: 'pulse', x: caster.x, y: caster.y, radius: supportRange, color: '#4caf50' });
@@ -4852,7 +4861,7 @@ function tickCombat(state: GameState): void {
     }
     addDeathParticles(state, u.x, u.y, u.team === Team.Bottom ? '#4488ff' : '#ff4444', 5);
     if (u.carryingDiamond) dropDiamond(state, u.x, u.y);
-    // Gold on death (pirate upgrade path)
+    // Gold on death (Crown Buccaneer upgrade path)
     const god = u.upgradeSpecial?.goldOnDeath ?? 0;
     if (god > 0) {
       const dp = state.players[u.playerId];
@@ -4889,7 +4898,7 @@ function tickCombat(state: GameState): void {
           targetId: null, lane: mitLane, pathProgress: mitProg, carryingDiamond: false,
           statusEffects: [], hitCount: 0, shieldHp: 0,
           category: u.category, upgradeTier: u.upgradeTier, upgradeNode: u.upgradeNode,
-          upgradeSpecial: {}, kills: 0, damageDone: 0, healingDone: 0, buffsApplied: 0, lastDamagedByName: '', spawnTick: state.tick,
+          upgradeSpecial: {}, kills: 0, damageDone: 0, damageTaken: 0, healingDone: 0, buffsApplied: 0, lastDamagedByName: '', spawnTick: state.tick,
         });
         if (state.playerStats[u.playerId]) state.playerStats[u.playerId].unitsSpawned++;
         addFloatingText(state, u.x, u.y, 'MUTATE', '#76ff03', undefined, true,
@@ -4906,15 +4915,15 @@ function tickCombat(state: GameState): void {
         addCombatEvent(state, { type: 'splash', x: u.x, y: u.y, radius: 1.5, color: '#69f0ae' });
       }
     }
-    // Record fallen heroes (units with kills, healing, or buff contributions)
-    if (u.kills > 0 || u.healingDone > 0 || u.buffsApplied > 0) {
+    // Record fallen heroes (units with kills, healing, buff, or tank contributions)
+    if (u.kills > 0 || u.healingDone > 0 || u.buffsApplied > 0 || u.damageTaken > 50) {
       const fallRace = state.players[u.playerId].race;
       const fallBldg = `${u.category}_spawner` as BuildingType;
       state.fallenHeroes.push({
         name: getUpgradeNodeDef(fallRace, fallBldg, u.upgradeNode)?.name ?? u.type,
         playerId: u.playerId, race: fallRace,
         category: u.category, upgradeNode: u.upgradeNode,
-        kills: u.kills, damageDone: u.damageDone, healingDone: u.healingDone, buffsApplied: u.buffsApplied,
+        kills: u.kills, damageDone: u.damageDone, damageTaken: u.damageTaken, healingDone: u.healingDone, buffsApplied: u.buffsApplied,
         survived: false, killedByName: u.lastDamagedByName || 'unknown',
         spawnTick: u.spawnTick, deathTick: state.tick,
       });
@@ -4947,7 +4956,7 @@ function tickCombat(state: GameState): void {
               targetId: null, lane: dlane, pathProgress: dProg, carryingDiamond: false,
               statusEffects: [], hitCount: 0, shieldHp: 0, category: catNames[ci],
               upgradeTier: 0, upgradeNode: 'A', upgradeSpecial: {},
-              kills: 0, damageDone: 0, healingDone: 0, buffsApplied: 0, lastDamagedByName: '', spawnTick: state.tick,
+              kills: 0, damageDone: 0, damageTaken: 0, healingDone: 0, buffsApplied: 0, lastDamagedByName: '', spawnTick: state.tick,
             });
           }
           addFloatingText(state, db.worldX, db.worldY, 'DEATH BURST!', '#69f0ae');
@@ -6327,18 +6336,18 @@ function walkHome(state: GameState, h: HarvesterState, movePerTick: number): voi
     if (h.carryingResource === ResourceType.Gold) {
       player.gold += amt;
       if (ps) ps.totalGoldEarned += amt;
-      if (state.tick % 2 === 0) addFloatingText(state, h.x, h.y, `+${amt}`, '#ffd700', 'gold');
+      addFloatingText(state, h.x, h.y, `+${amt}`, '#ffd700', 'gold');
     } else if (h.carryingResource === ResourceType.Wood) {
       // Crown Timber Surplus: +40% wood returned
       const woodAmt = (player.race === Race.Crown && player.researchUpgrades.raceUpgrades['crown_ability_4'])
         ? Math.round(amt * 1.4) : amt;
       player.wood += woodAmt;
       if (ps) ps.totalWoodEarned += woodAmt;
-      if (state.tick % 2 === 0) addFloatingText(state, h.x, h.y, `+${woodAmt}`, '#8d6e63', 'wood');
+      addFloatingText(state, h.x, h.y, `+${woodAmt}`, '#8d6e63', 'wood');
     } else if (h.carryingResource === ResourceType.Meat) {
       player.meat += amt;
       if (ps) ps.totalMeatEarned += amt;
-      if (state.tick % 2 === 0) addFloatingText(state, h.x, h.y, `+${amt}`, '#ff5252', 'meat');
+      addFloatingText(state, h.x, h.y, `+${amt}`, '#ff5252', 'meat');
     }
     h.carryingResource = null;
     h.carryAmount = 0;
@@ -6407,40 +6416,53 @@ function computeWarHeroes(state: GameState): void {
   // Combine surviving units and fallen heroes into a single candidate pool
   const candidates: WarHero[] = [...state.fallenHeroes];
   for (const u of state.units) {
-    if (u.kills > 0 || u.healingDone > 0 || u.buffsApplied > 0) {
+    if (u.kills > 0 || u.healingDone > 0 || u.buffsApplied > 0 || u.damageTaken > 50) {
       const heroRace = state.players[u.playerId].race;
       const heroBldg = `${u.category}_spawner` as BuildingType;
       candidates.push({
         name: getUpgradeNodeDef(heroRace, heroBldg, u.upgradeNode)?.name ?? u.type,
         playerId: u.playerId, race: heroRace,
         category: u.category, upgradeNode: u.upgradeNode,
-        kills: u.kills, damageDone: u.damageDone, healingDone: u.healingDone, buffsApplied: u.buffsApplied,
+        kills: u.kills, damageDone: u.damageDone, damageTaken: u.damageTaken,
+        healingDone: u.healingDone, buffsApplied: u.buffsApplied,
         survived: true, killedByName: null,
         spawnTick: u.spawnTick, deathTick: null,
       });
     }
   }
 
+  // Helper: pick top candidate overall + best per player
+  const pickHeroes = (
+    pool: WarHero[],
+    target: WarHero[],
+  ) => {
+    if (pool.length > 0) target.push(pool[0]);
+    const seen = new Set<number>();
+    if (target.length > 0) seen.add(target[0].playerId);
+    for (const c of pool) {
+      if (!seen.has(c.playerId)) { target.push(c); seen.add(c.playerId); }
+    }
+  };
+
   // --- War Hero: top killer overall + best per player ---
   const killCandidates = candidates.filter(c => c.kills > 0);
   killCandidates.sort((a, b) => b.kills - a.kills || a.playerId - b.playerId || a.spawnTick - b.spawnTick);
-  if (killCandidates.length > 0) state.warHeroes.push(killCandidates[0]);
-  const warSeen = new Set<number>();
-  if (state.warHeroes.length > 0) warSeen.add(state.warHeroes[0].playerId);
-  for (const c of killCandidates) {
-    if (!warSeen.has(c.playerId)) { state.warHeroes.push(c); warSeen.add(c.playerId); }
-  }
+  pickHeroes(killCandidates, state.warHeroes);
 
-  // --- Support Hero: top support unit (healing + buffs) overall + best per player ---
-  const supportScore = (h: WarHero) => h.healingDone + h.buffsApplied;
-  const supportCandidates = candidates.filter(c => supportScore(c) > 0);
-  supportCandidates.sort((a, b) => supportScore(b) - supportScore(a) || a.playerId - b.playerId || a.spawnTick - b.spawnTick);
-  if (supportCandidates.length > 0) state.supportHeroes.push(supportCandidates[0]);
-  const suppSeen = new Set<number>();
-  if (state.supportHeroes.length > 0) suppSeen.add(state.supportHeroes[0].playerId);
-  for (const c of supportCandidates) {
-    if (!suppSeen.has(c.playerId)) { state.supportHeroes.push(c); suppSeen.add(c.playerId); }
-  }
+  // --- Support Hero: top buff/debuff unit (buffsApplied only) overall + best per player ---
+  const supportCandidates = candidates.filter(c => c.buffsApplied > 0);
+  supportCandidates.sort((a, b) => b.buffsApplied - a.buffsApplied || a.playerId - b.playerId || a.spawnTick - b.spawnTick);
+  pickHeroes(supportCandidates, state.supportHeroes);
+
+  // --- Tank Hero: most damage taken overall + best per player ---
+  const tankCandidates = candidates.filter(c => c.damageTaken > 0);
+  tankCandidates.sort((a, b) => b.damageTaken - a.damageTaken || a.playerId - b.playerId || a.spawnTick - b.spawnTick);
+  pickHeroes(tankCandidates, state.tankHeroes);
+
+  // --- Healer Hero: most healing done overall + best per player ---
+  const healCandidates = candidates.filter(c => c.healingDone > 0);
+  healCandidates.sort((a, b) => b.healingDone - a.healingDone || a.playerId - b.playerId || a.spawnTick - b.spawnTick);
+  pickHeroes(healCandidates, state.healerHeroes);
 }
 
 function checkWinConditions(state: GameState): void {

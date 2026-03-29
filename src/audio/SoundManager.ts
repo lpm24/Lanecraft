@@ -922,7 +922,9 @@ export class SoundManager {
         if (!this.shouldPlay('cleave', 80, 2)) return;
         this.playAbilityCleave(v, this.spatialDest(pan)); break;
       case 'ability_fireball': this.playAbilityFireball(v, this.spatialDest(pan)); break;
-      case 'ability_deluge': this.playAbilityDeluge(v, this.spatialDest(pan)); break;
+      case 'ability_deluge':
+        if (!this.shouldPlay('deluge', 200, 1)) return;
+        this.playAbilityDeluge(v, this.spatialDest(pan)); break;
       case 'ability_frenzy': this.playAbilityFrenzy(v, this.spatialDest(pan)); break;
       case 'ability_summon': this.playAbilitySummon(v, this.spatialDest(pan)); break;
       case 'ability_troll': this.playAbilityTroll(v, this.spatialDest(pan)); break;

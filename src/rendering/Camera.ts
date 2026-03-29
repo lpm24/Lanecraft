@@ -32,6 +32,8 @@ export class Camera {
     return Math.min(this.canvas.clientWidth / (worldW * pad), this.canvas.clientHeight / (worldH * pad));
   }
 
+  /** Set true to suppress pointer-drag panning (e.g. while radial menu is open). */
+  dragDisabled = false;
   private keys = new Set<string>();
   private abortController = new AbortController();
   private isDragging = false;
@@ -98,7 +100,7 @@ export class Camera {
         this.clamp();
         return;
       }
-      if (!this.isDragging) return;
+      if (!this.isDragging || this.dragDisabled) return;
       const dx = e.clientX - this.lastPointerX;
       const dy = e.clientY - this.lastPointerY;
       this.x -= dx / this.zoom;

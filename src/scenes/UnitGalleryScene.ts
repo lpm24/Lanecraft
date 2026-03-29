@@ -11,6 +11,7 @@ import {
 import { getUnitUpgradeMultipliers } from '../simulation/GameState';
 import { getElo, ELO_DEFAULT } from './TitleElo';
 import { getSafeTop } from '../ui/SafeArea';
+import { MAX_STATS } from '../ui/StatBarUtils';
 
 const T = TILE_SIZE;
 
@@ -55,36 +56,6 @@ const RACE_INNATE_TRAITS: Record<Race, Record<string, string[]>> = {
   [Race.Geists]:   { melee: ['Burn on hit', '20% lifesteal', 'Wound on hit'], ranged: ['Burn on hit', '20% lifesteal', 'Wound on hit'], caster: ['Single-target attacker', '20% lifesteal', 'Skeleton summon on nearby death'] },
   [Race.Tenders]:  { melee: ['1 HP/s regen'], ranged: ['Slow on hit'], caster: ['Heals most injured ally', 'AoE damage'] },
 };
-
-// Compute max stats across all units at all upgrade tiers for stat bar normalization
-function computeMaxStats(): { hp: number; damage: number; dps: number; moveSpeed: number; atkRate: number; range: number } {
-  let maxHp = 0, maxDmg = 0, maxDps = 0, maxSpd = 0, maxAtkRate = 0, maxRange = 0;
-  for (const race of ALL_RACES) {
-    for (const { bt } of CATEGORIES) {
-      const base = UNIT_STATS[race]?.[bt];
-      if (!base) continue;
-      for (const tab of TAB_PATHS) {
-        const upgrade = getUnitUpgradeMultipliers(tab.path, race, bt);
-        const hp = Math.round(base.hp * upgrade.hp);
-        const dmg = Math.round(base.damage * upgrade.damage);
-        const atkSpd = base.attackSpeed * upgrade.attackSpeed;
-        const dps = dmg / atkSpd;
-        const atkRate = 1 / atkSpd;
-        const spd = base.moveSpeed * upgrade.moveSpeed;
-        const range = Math.round(base.range * upgrade.range);
-        if (hp > maxHp) maxHp = hp;
-        if (dmg > maxDmg) maxDmg = dmg;
-        if (dps > maxDps) maxDps = dps;
-        if (atkRate > maxAtkRate) maxAtkRate = atkRate;
-        if (spd > maxSpd) maxSpd = spd;
-        if (range > maxRange) maxRange = range;
-      }
-    }
-  }
-  return { hp: maxHp, damage: maxDmg, dps: maxDps, moveSpeed: maxSpd, atkRate: maxAtkRate, range: maxRange };
-}
-
-const MAX_STATS = computeMaxStats();
 
 interface DetailSelection {
   race: Race;

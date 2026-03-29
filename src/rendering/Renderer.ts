@@ -75,6 +75,9 @@ function quickChatStyle(message: string): { icon: string; color: string } {
   if (message === 'Attack Right') return { icon: '>', color: '#ff8a65' };
   if (message === 'Get Diamond') return { icon: 'D', color: '#ffe082' };
   if (message === 'Nuking Now!') return { icon: 'N', color: '#ff1744' };
+  if (message === 'Save Us') return { icon: '!', color: '#ef5350' };
+  if (message === 'Sending Now') return { icon: '>', color: '#66bb6a' };
+  if (message === 'Random') return { icon: '?', color: '#ab47bc' };
   return { icon: '!', color: '#ffcc80' };
 }
 
@@ -93,6 +96,10 @@ export class Renderer {
   placingBuilding: BuildingType | null = null;
   /** Isometric rendering mode */
   isometric = false;
+  /** Cached pixel coords from drawYSorted — avoids redundant tp() in drawOne* functions.
+   *  Only valid during the dispatch loop; drawOne* can use these instead of calling tp(). */
+  private _cachedPx = 0;
+  private _cachedPy = 0;
   private isoTerrainCache: HTMLCanvasElement | null = null;
   private terrainCache: HTMLCanvasElement | null = null;
   private waterCache: HTMLCanvasElement | null = null;
@@ -141,6 +148,8 @@ export class Renderer {
   private lastNukeCount = 0;
   // Track previous HQ HP values to detect destruction
   private lastHqHp: number[] = [-1, -1];
+  // Smooth deluge vignette alpha (0 = hidden, 1 = fully visible)
+  private delugeVignetteAlpha = 0;
   // Map dimensions & definition — set from state.mapDef on first render, used throughout rendering
   private mapW = MAP_WIDTH;
   private mapH = MAP_HEIGHT;
@@ -291,14 +300,17 @@ export class Renderer {
       const vpY1 = this.camera.y + this.canvas.clientHeight / this.camera.zoom + T;
       const hw = ISO_TILE_W / 2;
       const hh = ISO_TILE_H / 2;
-      // Batch fully-fogged tiles into one path for a single fill call
+      // Batch fully-fogged tiles into one path for a single fill call.
+      // Inline iso projection math to avoid 14k+ tp() function calls per frame.
       ctx.beginPath();
       let hasLinger = false;
       for (let ty = 0; ty < mh; ty++) {
         for (let tx = 0; tx < mw; tx++) {
           const idx = ty * mw + tx;
           if (vis[idx]) continue;
-          const { px: cx, py: cy } = this.tp(tx + 0.5, ty + 0.5);
+          const tileXc = tx + 0.5, tileYc = ty + 0.5;
+          const cx = (tileXc - tileYc) * hw;
+          const cy = (tileXc + tileYc) * hh;
           if (cx + hw < vpX0 || cx - hw > vpX1 || cy + hh < vpY0 || cy - hh > vpY1) continue;
           if (linger[idx] > 0) {
             hasLinger = true;
@@ -319,7 +331,9 @@ export class Renderer {
           for (let tx = 0; tx < mw; tx++) {
             const idx = ty * mw + tx;
             if (vis[idx] || linger[idx] <= 0) continue;
-            const { px: cx, py: cy } = this.tp(tx + 0.5, ty + 0.5);
+            const tileXc = tx + 0.5, tileYc = ty + 0.5;
+            const cx = (tileXc - tileYc) * hw;
+            const cy = (tileXc + tileYc) * hh;
             if (cx + hw < vpX0 || cx - hw > vpX1 || cy + hh < vpY0 || cy - hh > vpY1) continue;
             const t = 1 - linger[idx] / LINGER;
             ctx.fillStyle = `rgba(0,0,0,${(FOG_ALPHA / 255) * t})`;
@@ -449,12 +463,31 @@ export class Renderer {
     }
     this.ambientParticles.update(dt, combatZones, this.isometric ? (x, y) => this.tp(x, y) : undefined);
 
-    // Spawn race-themed ambient particles near units
-    for (const u of state.units) {
-      const race = state.players[u.playerId]?.race;
-      if (race) {
-        if (this.isometric) {
-          const { px: rpx, py: rpy } = this.tp(u.x, u.y);
+    // Spawn race-themed ambient particles near visible units only
+    {
+      const pMargin = T * 2;
+      const pVpX0 = this.camera.x - pMargin;
+      const pVpY0 = this.camera.y - pMargin;
+      const pVpX1 = this.camera.x + this.canvas.clientWidth / this.camera.zoom + pMargin;
+      const pVpY1 = this.camera.y + this.canvas.clientHeight / this.camera.zoom + pMargin;
+      const iso = this.isometric;
+      const isoHW = ISO_TILE_W / 2;
+      const isoHH = ISO_TILE_H / 2;
+      for (const u of state.units) {
+        const race = state.players[u.playerId]?.race;
+        if (!race) continue;
+        // Inline iso projection to avoid tp() call per unit
+        let rpx: number, rpy: number;
+        if (iso) {
+          rpx = (u.x - u.y) * isoHW;
+          rpy = (u.x + u.y) * isoHH;
+        } else {
+          rpx = u.x * T;
+          rpy = u.y * T;
+        }
+        // Skip off-screen units
+        if (rpx < pVpX0 || rpx > pVpX1 || rpy < pVpY0 || rpy > pVpY1) continue;
+        if (iso) {
           this.ambientParticles.spawnRaceParticlePx(rpx, rpy, race);
         } else {
           this.ambientParticles.spawnRaceParticle(u.x, u.y, race);
@@ -548,6 +581,29 @@ export class Renderer {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     // Weather screen overlay
     if (vfxPrefs.weather) this.weather.drawOverlay(ctx, this.canvas.clientWidth, this.canvas.clientHeight);
+
+    // Deep deluge blue vignette (screen-space)
+    {
+      const hasDeluge = state.abilityEffects.some(e => e.type === 'deep_rain');
+      const target = hasDeluge ? 1 : 0;
+      const fadeSpeed = hasDeluge ? 3 : 2; // fade in faster than fade out
+      this.delugeVignetteAlpha += (target - this.delugeVignetteAlpha) * Math.min(1, fadeSpeed * dt);
+      if (this.delugeVignetteAlpha > 0.005) {
+        const w = this.canvas.clientWidth;
+        const h = this.canvas.clientHeight;
+        const cx = w / 2;
+        const cy = h / 2;
+        const r = Math.max(w, h) * 0.7;
+        const grad = ctx.createRadialGradient(cx, cy, r * 0.5, cx, cy, r);
+        const a = this.delugeVignetteAlpha;
+        grad.addColorStop(0, `rgba(30, 80, 160, 0)`);
+        grad.addColorStop(0.6, `rgba(20, 60, 140, ${a * 0.12})`);
+        grad.addColorStop(1, `rgba(10, 30, 80, ${a * 0.35})`);
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, w, h);
+      }
+    }
+
     this.drawHUD(ctx, state, networkLatencyMs, desyncDetected, peerDisconnected, waitingForAllyMs);
     this.drawQuickChats(ctx, state);
     this.drawMinimap(ctx, state);
@@ -1258,17 +1314,18 @@ export class Renderer {
         // Water background
         oc.fillStyle = '#5b9a8b';
         oc.fillRect(bounds.minX - pad, bounds.minY - pad, cw, ch);
-        // Playable tiles as green diamonds
+        // Playable tiles as green diamonds (slightly oversized to eliminate seam gaps)
         oc.fillStyle = '#3a6b3a';
+        const seamPad = 0.5; // extra half-pixel per edge to cover anti-aliasing seams
         for (let ty = 0; ty < this.mapH; ty++) {
           for (let tx = 0; tx < this.mapW; tx++) {
             if (!this.mapDef.isPlayable(tx, ty)) continue;
             const { px: cx, py: cy } = this.tp(tx + 0.5, ty + 0.5);
             oc.beginPath();
-            oc.moveTo(cx, cy - ISO_TILE_H / 2);
-            oc.lineTo(cx + ISO_TILE_W / 2, cy);
-            oc.lineTo(cx, cy + ISO_TILE_H / 2);
-            oc.lineTo(cx - ISO_TILE_W / 2, cy);
+            oc.moveTo(cx, cy - ISO_TILE_H / 2 - seamPad);
+            oc.lineTo(cx + ISO_TILE_W / 2 + seamPad, cy);
+            oc.lineTo(cx, cy + ISO_TILE_H / 2 + seamPad);
+            oc.lineTo(cx - ISO_TILE_W / 2 - seamPad, cy);
             oc.closePath();
             oc.fill();
           }
@@ -1892,7 +1949,8 @@ export class Renderer {
 
   // Reusable sort buffer to avoid per-frame allocations (GC pressure)
   // kind: 0=hq, 1=building, 2=projectile, 3=unit, 4=dead, 5=harvester
-  private sortBuf: { y: number; kind: number; idx: number }[] = [];
+  // px/py cache the projected pixel coords so drawOne* functions don't re-call tp()
+  private sortBuf: { y: number; kind: number; idx: number; px: number; py: number }[] = [];
 
   private drawYSorted(ctx: CanvasRenderingContext2D, state: GameState): void {
     // Viewport culling bounds (world pixels, with sprite margin)
@@ -1911,9 +1969,9 @@ export class Renderer {
     // HQs — always draw (only 2)
     for (let ti = 0; ti < 2; ti++) {
       const pos = getHQPosition(ti as Team, state.mapDef);
-      const { py: hqPy } = this.tp(pos.x, pos.y + HQ_HEIGHT);
-      if (n < buf.length) { buf[n].y = hqPy; buf[n].kind = 0; buf[n].idx = ti; }
-      else buf.push({ y: hqPy, kind: 0, idx: ti });
+      const { px: hqPx, py: hqPy } = this.tp(pos.x, pos.y + HQ_HEIGHT);
+      if (n < buf.length) { buf[n].y = hqPy; buf[n].kind = 0; buf[n].idx = ti; buf[n].px = hqPx; buf[n].py = hqPy; }
+      else buf.push({ y: hqPy, kind: 0, idx: ti, px: hqPx, py: hqPy });
       n++;
     }
 
@@ -1925,8 +1983,8 @@ export class Renderer {
       // Fog: hide enemy buildings in unseen tiles
       if (fog && state.players[b.playerId]?.team !== localTeam && !this.isTileVisible(state, b.worldX, b.worldY)) continue;
       const { py: bsy } = this.tp(b.worldX, b.worldY + 1);
-      if (n < buf.length) { buf[n].y = bsy; buf[n].kind = 1; buf[n].idx = i; }
-      else buf.push({ y: bsy, kind: 1, idx: i });
+      if (n < buf.length) { buf[n].y = bsy; buf[n].kind = 1; buf[n].idx = i; buf[n].px = bpx; buf[n].py = bpy; }
+      else buf.push({ y: bsy, kind: 1, idx: i, px: bpx, py: bpy });
       n++;
     }
 
@@ -1936,8 +1994,8 @@ export class Renderer {
       const { px: ppx, py: ppy } = this.tp(p.x, p.y);
       if (ppx < vpX0 || ppx > vpX1 || ppy < vpY0 || ppy > vpY1) continue;
       if (fog && !this.isTileVisible(state, p.x, p.y)) continue;
-      if (n < buf.length) { buf[n].y = ppy; buf[n].kind = 2; buf[n].idx = i; }
-      else buf.push({ y: ppy, kind: 2, idx: i });
+      if (n < buf.length) { buf[n].y = ppy; buf[n].kind = 2; buf[n].idx = i; buf[n].px = ppx; buf[n].py = ppy; }
+      else buf.push({ y: ppy, kind: 2, idx: i, px: ppx, py: ppy });
       n++;
     }
 
@@ -1949,8 +2007,8 @@ export class Renderer {
       if (upx < vpX0 || upx > vpX1 || upy < vpY0 || upy > vpY1) continue;
       // Fog: hide enemy units in unseen tiles
       if (fog && u.team !== localTeam && !this.isTileVisible(state, u.x, u.y)) continue;
-      if (n < buf.length) { buf[n].y = upy; buf[n].kind = 3; buf[n].idx = i; }
-      else buf.push({ y: upy, kind: 3, idx: i });
+      if (n < buf.length) { buf[n].y = upy; buf[n].kind = 3; buf[n].idx = i; buf[n].px = upx; buf[n].py = upy; }
+      else buf.push({ y: upy, kind: 3, idx: i, px: upx, py: upy });
       n++;
     }
 
@@ -1960,8 +2018,8 @@ export class Renderer {
       const { px: dpx, py: dpy } = this.tp(d.x, d.y);
       if (dpx < vpX0 || dpx > vpX1 || dpy < vpY0 || dpy > vpY1) continue;
       if (fog && d.team !== localTeam && !this.isTileVisible(state, d.x, d.y)) continue;
-      if (n < buf.length) { buf[n].y = dpy; buf[n].kind = 4; buf[n].idx = i; }
-      else buf.push({ y: dpy, kind: 4, idx: i });
+      if (n < buf.length) { buf[n].y = dpy; buf[n].kind = 4; buf[n].idx = i; buf[n].px = dpx; buf[n].py = dpy; }
+      else buf.push({ y: dpy, kind: 4, idx: i, px: dpx, py: dpy });
       n++;
     }
 
@@ -1972,8 +2030,8 @@ export class Renderer {
       const { px: hpx, py: hpy } = this.tp(h.x, h.y);
       if (hpx < vpX0 || hpx > vpX1 || hpy < vpY0 || hpy > vpY1) continue;
       if (fog && state.players[h.playerId]?.team !== localTeam && !this.isTileVisible(state, h.x, h.y)) continue;
-      if (n < buf.length) { buf[n].y = hpy; buf[n].kind = 5; buf[n].idx = i; }
-      else buf.push({ y: hpy, kind: 5, idx: i });
+      if (n < buf.length) { buf[n].y = hpy; buf[n].kind = 5; buf[n].idx = i; buf[n].px = hpx; buf[n].py = hpy; }
+      else buf.push({ y: hpy, kind: 5, idx: i, px: hpx, py: hpy });
       n++;
     }
 
@@ -1981,9 +2039,11 @@ export class Renderer {
     if (buf.length > n) buf.length = n; // trim excess from prior frames
     buf.sort((a, b) => a.y - b.y);
 
-    // Dispatch draws without closures
+    // Dispatch draws — pass cached pixel coords to avoid redundant tp() calls
     for (let i = 0; i < n; i++) {
       const item = buf[i];
+      this._cachedPx = item.px;
+      this._cachedPy = item.py;
       switch (item.kind) {
         case 0: this.drawOneHQ(ctx, state, item.idx as Team); break;
         case 1: this.drawOneBuilding(ctx, state, state.buildings[item.idx]); break;
@@ -2014,7 +2074,7 @@ export class Renderer {
 
 
   private drawDeadUnit(ctx: CanvasRenderingContext2D, dead: DeadUnitSnapshot): void {
-    const { px, py } = this.tp(dead.x, dead.y);
+    const px = this._cachedPx, py = this._cachedPy;
     const cx = px + T / 2;
     const feetY = py + T * 0.70;
     const progress = Math.min(1, dead.ageSec / DEAD_UNIT_LIFETIME_SEC);
@@ -2106,15 +2166,6 @@ export class Renderer {
       const drawX = px - T;
       const drawY = py + h - drawH;
 
-      // HQ shadow — anchored at visual base (groundY ~0.71 for Tiny Swords)
-      const hqGroundY = drawY + drawH * 0.71;
-      const hqShadowLen = this.dayNight.shadowLength;
-      const hqShadowX = Math.cos(this.dayNight.shadowAngle) * hqShadowLen * 4;
-      ctx.fillStyle = `rgba(0,0,0,${this.dayNight.brightness * 0.15})`;
-      ctx.beginPath();
-      ctx.ellipse(px + w / 2 + hqShadowX, hqGroundY, drawW * 0.38, drawW * 0.08, 0, 0, Math.PI * 2);
-      ctx.fill();
-
       ctx.drawImage(sprite, drawX, drawY, drawW, drawH);
     } else {
       ctx.fillStyle = bg;
@@ -2167,7 +2218,7 @@ export class Renderer {
       const py = _bpy;
       const half = T / 2 - 2;
 
-      const upgradeTier = b.upgradePath.length - 1; // 0=base, 1=tier1, 2=tier2
+      const upgradeTier = Math.max(0, b.upgradePath.length - 1); // 0=base, 1=tier1, 2=tier2
       const sprite = b.isGlobule
         ? this.sprites.getGlobuleSprite()
         : b.isFoundry
@@ -2177,17 +2228,23 @@ export class Renderer {
             : this.sprites.getBuildingSprite(b.type, b.playerId, this.isometric, player.race, b.upgradePath);
 
       if (sprite) {
-        // Draw sprite scaled to fit one tile, anchored at bottom-center
+        // Draw sprite scaled to fit one tile, centered on diamond in iso mode
         // Scale up slightly per upgrade tier to show leveling
         // Research: 2x size
         const researchScale = b.type === BuildingType.Research ? 2.0 : 1.0;
         const globuleScale = 1.0;
-        const tierScale = 1.0 + upgradeTier * 0.08;
+        // Tier scaling: A=base, B/C=mid, D/E/F/G=large — more noticeable in iso mode
+        const tierScale = this.isometric
+          ? [0.85, 1.0, 1.15][Math.min(upgradeTier, 2)]
+          : 1.0 + upgradeTier * 0.08;
 
         // Race building pack sprites are high-res (~900px) vs Tiny Swords (~192px)
         const isNewPack = !b.isGlobule && this.sprites.isRacePackSprite(b.type, player.race, b.upgradePath);
-        const tileScale = (isNewPack && researchScale < 2.0) ? 0.8 : 1.0; // shrink new isometric sprites, but keep research big
-        const baseDrawW = (T + 4) * tierScale * researchScale * globuleScale * tileScale;
+        // In iso mode, all sprites use the diamond tile as base — no extra shrink for race packs
+        const tileScale = (!this.isometric && isNewPack && researchScale < 2.0) ? 0.8 : 1.0;
+        // In isometric mode, use ~85% of the diamond tile width as the base size
+        const baseTileW = this.isometric ? ISO_TILE_W * 0.85 : (T + 4);
+        const baseDrawW = baseTileW * tierScale * researchScale * globuleScale * tileScale;
         const baseDrawH = (baseDrawW / sprite.width) * sprite.height;
 
         // Construction animation: scale-up bounce
@@ -2195,19 +2252,10 @@ export class Renderer {
         const drawW = baseDrawW * buildScale;
         const drawH = baseDrawH * buildScale;
         const drawX = px - drawW / 2;
-        const drawY = py + half - drawH + 2; // anchor bottom to tile bottom
-
-        // Building shadow (day/night responsive) — anchored at building visual base
-        // Tiny Swords sprites have ~29% transparent padding below the building (groundY=0.71)
-        // Slime sprites are tightly cropped (groundY=0.93)
-        // New isometric sprites are tightly cropped — use 0.95
-        const bGroundY = drawY + drawH * (b.isGlobule ? 0.93 : isNewPack ? 0.95 : 0.71);
-        const bShadowLen = this.dayNight.shadowLength;
-        const bShadowX = Math.cos(this.dayNight.shadowAngle) * bShadowLen * 3;
-        ctx.fillStyle = `rgba(0,0,0,${this.dayNight.brightness * 0.15})`;
-        ctx.beginPath();
-        ctx.ellipse(px + bShadowX, bGroundY, drawW * 0.4, drawW * 0.1, 0, 0, Math.PI * 2);
-        ctx.fill();
+        // Iso: center sprite on tile center; ortho: anchor bottom to tile bottom
+        const drawY = this.isometric
+          ? py - drawH / 2
+          : py + half - drawH + 2;
 
         // Seed buildings: draw plant sprite scaled by tier
         if (b.isSeed) {
@@ -2249,7 +2297,7 @@ export class Renderer {
             const barW = drawW * 0.8;
             const barH = 3;
             const barX = px - barW / 2;
-            const barY = bGroundY - drawH * 0.5;
+            const barY = drawY;
             ctx.fillStyle = '#333';
             ctx.fillRect(barX, barY, barW, barH);
             const tierColors = ['#81c784', '#ffd740', '#ff8a65'];
@@ -2732,7 +2780,7 @@ export class Renderer {
   private drawOneUnit(ctx: CanvasRenderingContext2D, state: GameState, u: UnitState): void {
     {
       const playerColor = PLAYER_COLORS[u.playerId % PLAYER_COLORS.length];
-      const { px, py } = this.tp(u.x, u.y);
+      const px = this._cachedPx, py = this._cachedPy;
       const laneColor = u.lane === Lane.Left ? LANE_LEFT_COLOR : LANE_RIGHT_COLOR;
       const r = u.range > 2 ? 3 : 4;
       const cx = px + T / 2;
@@ -3373,7 +3421,7 @@ export class Renderer {
 
   private drawOneHarvester(ctx: CanvasRenderingContext2D, state: GameState, h: HarvesterState): void {
     {
-      const { px, py } = this.tp(h.x, h.y);
+      const px = this._cachedPx, py = this._cachedPy;
 
       // Drop shadow (day/night responsive)
       ctx.fillStyle = `rgba(0,0,0,${this.dayNight.brightness * 0.18})`;
@@ -4700,9 +4748,10 @@ export class Renderer {
     const H = this.canvas.clientHeight;
     const lineH = 18;
     const trayH = 68;
+    const nukeH = 72;
     const safeBottom = getSafeBottom();
-    // Position above the bottom build tray, like a WoW chat channel
-    const bottomY = H - trayH - safeBottom - 8;
+    // Position above nuke/research buttons (not just above tray) to avoid overlap
+    const bottomY = H - trayH - nukeH - safeBottom - 12;
     const startX = 12;
 
     for (let i = 0; i < visibleChats.length; i++) {
@@ -4922,17 +4971,34 @@ export class Renderer {
       ctx.fillRect(up.mx - 1, up.my - 1, 2, 2);
     }
 
-    // Team-visible ping markers
+    // Team-visible ping markers — large and prominent
     for (const p of state.pings) {
       if (p.team !== localTeam) continue;
       const pp = p.age / p.maxAge;
-      const pr = 2 + 4 * pp;
+      const alpha = Math.max(0.2, 1 - pp);
       const pingP = tileToMM(p.x, p.y);
+
+      // Pulsing outer ring
+      const pulsePhase = (p.age % 10) / 10;
+      const outerR = 6 + 6 * pulsePhase;
       ctx.beginPath();
-      ctx.arc(pingP.mx, pingP.my, pr, 0, Math.PI * 2);
-      ctx.strokeStyle = `rgba(255,235,59,${0.9 - 0.7 * pp})`;
-      ctx.lineWidth = 1;
+      ctx.arc(pingP.mx, pingP.my, outerR, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(255,235,59,${0.6 * alpha * (1 - pulsePhase)})`;
+      ctx.lineWidth = 2;
       ctx.stroke();
+
+      // Solid inner ring
+      ctx.beginPath();
+      ctx.arc(pingP.mx, pingP.my, 4, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(255,235,59,${0.9 * alpha})`;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      // Filled center dot
+      ctx.beginPath();
+      ctx.arc(pingP.mx, pingP.my, 2, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(255,235,59,${alpha})`;
+      ctx.fill();
     }
 
     // Harvesters as smaller dots — fog-filtered

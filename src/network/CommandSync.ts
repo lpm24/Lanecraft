@@ -205,16 +205,20 @@ export class CommandSync {
       const val = snap.val() as Record<string, TurnData> | null;
       if (!val) return;
 
-      // Buffer all remote turn data from this snapshot
+      // Buffer ALL remote turn data from this snapshot — not just current remoteSlotIds.
+      // A player who submitted commands then disconnected must still have their commands
+      // included, even if removeHumanSlot() already removed them from remoteSlotIds.
       let turnMap = this.turnBuffer.get(turn);
       if (!turnMap) {
         turnMap = new Map();
         this.turnBuffer.set(turn, turnMap);
       }
 
-      for (const remoteId of this.remoteSlotIds) {
-        const data = val[String(remoteId)];
-        if (data) turnMap.set(remoteId, data);
+      for (const [key, data] of Object.entries(val)) {
+        const slotId = Number(key);
+        if (slotId !== this.localSlotId && data) {
+          turnMap.set(slotId, data as TurnData);
+        }
       }
 
       // Check if all players (including local) have submitted
@@ -363,16 +367,33 @@ export class CommandSync {
     if (!turnMap) return { commands: [] };
 
     // CRITICAL: All clients must apply commands in the same order.
-    // Always sort by slot ID (ascending) for determinism.
+    // Collect from ALL slots that submitted data for this turn, sorted by slot ID.
+    // This ensures commands aren't dropped if removeHumanSlot() fires asynchronously
+    // on one client before collectTurn runs (Firebase listener race condition).
     const allCmds: GameCommand[] = [];
-    let remoteHash: number | undefined;
+    const remoteHashes: { slotId: number; hash: number }[] = [];
 
-    for (const slotId of this.allHumanSlots) {
+    const sortedSlots = [...turnMap.keys()].sort((a, b) => a - b);
+    for (const slotId of sortedSlots) {
       const data = turnMap.get(slotId);
       if (data?.cmds) allCmds.push(...data.cmds);
-      // Use any remote hash for desync detection
       if (slotId !== this.localSlotId && data?.hash !== undefined) {
-        remoteHash = data.hash;
+        remoteHashes.push({ slotId, hash: data.hash });
+      }
+    }
+
+    // Compare all remote hashes against each other (not just last one)
+    let remoteHash: number | undefined;
+    if (remoteHashes.length > 0) {
+      remoteHash = remoteHashes[0].hash;
+      for (let i = 1; i < remoteHashes.length; i++) {
+        if (remoteHashes[i].hash !== remoteHash) {
+          console.error(
+            `[CommandSync] Cross-peer desync at turn ${turn}: ` +
+            `slot ${remoteHashes[0].slotId} hash=${remoteHash}, ` +
+            `slot ${remoteHashes[i].slotId} hash=${remoteHashes[i].hash}`
+          );
+        }
       }
     }
 
@@ -398,13 +419,18 @@ export class CommandSync {
     const idx = this.allHumanSlots.indexOf(slotId);
     if (idx !== -1) this.allHumanSlots.splice(idx, 1);
     this.remoteSlotIds = this.allHumanSlots.filter(id => id !== this.localSlotId);
-    // Resolve any pending turns that are now complete with the reduced player set
-    for (const [turn, resolver] of this.resolvers) {
-      if (this.isTurnComplete(turn)) {
-        this.resolvers.delete(turn);
-        resolver();
+    // Defer turn resolution to next microtask — gives any pending Firebase turn-data
+    // callbacks a chance to buffer the departing player's final commands before
+    // collectTurn runs. Without this, a race between the disconnect listener and the
+    // turn-data listener can cause collectTurn to miss already-submitted commands.
+    queueMicrotask(() => {
+      for (const [turn, resolver] of this.resolvers) {
+        if (this.isTurnComplete(turn)) {
+          this.resolvers.delete(turn);
+          resolver();
+        }
       }
-    }
+    });
   }
 
   /** Slots that have been flagged as left but not yet processed by the game. */

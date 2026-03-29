@@ -1368,7 +1368,7 @@ const UNIT_ABILITY_VALUE: Record<Race, Record<string, { survMult: number; dmgMul
     caster: { survMult: 1.10, dmgMult: 2.0 },
   },
   [Race.Horde]: {
-    // Brute: knockback every 3rd hit + 10% melee lifesteal. High base stats.
+    // Brute: knockback every 3rd hit + 10% melee lifesteal. 130 HP tank.
     melee:  { survMult: 1.20, dmgMult: 1.05 },
     // Bowcleaver: best ranged DPS in game (13.8 base with 18 dmg).
     ranged: { survMult: 1.00, dmgMult: 1.05 },
@@ -1392,19 +1392,20 @@ const UNIT_ABILITY_VALUE: Record<Race, Record<string, { survMult: number; dmgMul
     melee:  { survMult: 1.15, dmgMult: 1.10 },
     // Spitter x2: ranged bodies. With Corrosive Spit: vulnerable (+20% dmg taken).
     ranged: { survMult: 1.00, dmgMult: 1.15 },
-    // Bloater x2: haste pulse to 3 allies. With Symbiotic Link: heal during haste.
-    caster: { survMult: 1.00, dmgMult: 1.8 },
+    // Bloater x2: haste pulse to 3 allies. C-path = chain lightning (2-3 bounces).
+    // With Symbiotic Link: heal during haste. Chain lightning adds real DPS.
+    caster: { survMult: 1.00, dmgMult: 2.0 },
   },
   [Race.Demon]: {
-    // Smasher: burn on every melee hit + Wound. Glass cannon (85 HP, 12 dmg).
+    // Smasher: burn on every melee hit + Wound. Glass cannon (90 HP, 12 dmg, 4.62 speed).
     // With Infernal Rage: +25% vs burning. Core burn synergy.
-    melee:  { survMult: 0.90, dmgMult: 1.45 },
+    melee:  { survMult: 0.92, dmgMult: 1.45 },
     // Eye Sniper: burn on ranged hit, long range (8), 20% crit at 1.75x.
     // With Hellfire Arrows: +1 burn +10% dmg. Crit identity = burst damage.
     ranged: { survMult: 0.85, dmgMult: 1.50 },
-    // Overlord: strongest base caster (52 HP, 19 dmg). AoE attacks.
+    // Overlord: tankiest caster (65 HP, 20 dmg). AoE attacks.
     // With Flame Conduit: +1 burn on AoE. With Immolation: 2-tile burn aura.
-    caster: { survMult: 0.85, dmgMult: 1.7 },
+    caster: { survMult: 0.95, dmgMult: 1.7 },
   },
   [Race.Deep]: {
     // Shell Guard: slow on melee hit. 190 HP tank wall.
@@ -1430,9 +1431,9 @@ const UNIT_ABILITY_VALUE: Record<Race, Record<string, { survMult: number; dmgMul
     // Bone Knight: 10% melee lifesteal + burn + wound on hit. With Death Grip: 15% lifesteal.
     // Lifesteal sustain on 88 HP body — still effective but squishier now.
     melee:  { survMult: 1.25, dmgMult: 1.20 },
-    // Wraith Bow: 20% ranged lifesteal + burn on hit (via projectile).
-    // Lifesteal sustain keeps ranged alive in extended fights.
-    ranged: { survMult: 1.15, dmgMult: 1.20 },
+    // Wraith Bow: 10% ranged lifesteal + burn on hit (via projectile). 25 HP, fragile.
+    // Lifesteal helps but low HP means they die fast to AoE.
+    ranged: { survMult: 1.10, dmgMult: 1.20 },
     // Necromancer: with Necrotic Burst research: heals 2 HP to 3 allies.
     // With Undying Will: skeleton summon chance. Decent support.
     caster: { survMult: 1.10, dmgMult: 1.8 },
@@ -3437,7 +3438,7 @@ function botUseAbility(state: GameState, playerId: number, emit: Emit): void {
     const meatCost = Math.floor((def.baseCost.meat ?? 0) * growthMult);
     const manaCost = Math.floor((def.baseCost.mana ?? 0) * growthMult);
     const soulsCost = player.race === Race.Geists
-      ? (def.baseCost.souls ?? 0) + 5 * player.abilityUseCount
+      ? (def.baseCost.souls ?? 0) + 10 * player.abilityUseCount
       : Math.floor((def.baseCost.souls ?? 0) * growthMult);
     const essenceCost = Math.floor((def.baseCost.deathEssence ?? 0) * growthMult);
 

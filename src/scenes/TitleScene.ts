@@ -84,6 +84,11 @@ export class TitleScene implements Scene {
   private duelTier: 1 | 2 | 3;
   private duelRaceLocked = true;
   private duelTypeFilter: 'Any' | 'Melee' | 'Ranged' | 'Caster' = 'Any';
+  private subtitle = 'Spawn Glory';
+  private subtitlePrev = '';
+  private subtitleRollTimer = 0; // seconds remaining in roll animation
+  private static readonly SUBTITLE_ROLL_DUR = 0.4;
+  private subtitleIndex = 0;
   private resetEloConfirm = false; // true = waiting for second click to confirm
 
   // Win announcement
@@ -1443,11 +1448,35 @@ export class TitleScene implements Scene {
     this.partyErrorTimer = 3;
   }
 
+  private static readonly SUBTITLES = [
+    'Spawn Glory',
+    'To Arms!', 'No Mercy', 'Glory Awaits', 'Hold Nothing Back',
+    'One Must Fall', 'Blood & Glory', 'Into the Fray',
+    'Steel Meets Steel', 'Ashes to Ashes', 'By Blade or Spell',
+    'Draw First Blood', 'Conquer or Perish', 'March to War',
+    'The Lanes Await', 'Build. Fight. Win.', 'War Never Changes',
+    'Choose Your Race', 'Command the Field', 'Raise Your Army',
+    // Easter eggs
+    'A Krool World', 'GG No Re', 'Touch Grass Later',
+    'Skill Issue Incoming', 'Nerf This', 'Press F to Pay Respects',
+    'Perfectly Balanced', 'RNG Be Kind', 'Git Gud',
+    'Leeeroy!', 'Do a Barrel Roll', 'It\'s Super Effective',
+  ];
+
   private spawnDuel(): void {
     this.blueTeam = [];
     this.redTeam = [];
     this.bannerBlue = [];
     this.bannerRed = [];
+
+    // Rotate subtitle — "Spawn Glory" first, then random with roll animation
+    this.subtitleIndex++;
+    if (this.subtitleIndex > 0) {
+      this.subtitlePrev = this.subtitle;
+      const subs = TitleScene.SUBTITLES;
+      this.subtitle = subs[Math.floor(Math.random() * subs.length)];
+      this.subtitleRollTimer = TitleScene.SUBTITLE_ROLL_DUR;
+    }
 
     // Determine allowed unit types based on type filter
     const allowedTypes = this.duelTypeFilter === 'Melee' ? [BuildingType.MeleeSpawner]
@@ -1505,6 +1534,7 @@ export class TitleScene implements Scene {
 
     if (this.partyErrorTimer > 0) this.partyErrorTimer -= dtSec;
     if (this.copyFeedbackTimer > 0) this.copyFeedbackTimer--;
+    if (this.subtitleRollTimer > 0) this.subtitleRollTimer -= dtSec;
 
     // Menu tutorial: refresh cache and handle timeout (before render)
     refreshTutorialCache();
@@ -1747,10 +1777,19 @@ export class TitleScene implements Scene {
         const blueColor = RACE_COLORS[blue.race].primary;
         ctx.font = `bold ${fontSize}px monospace`;
         ctx.textAlign = 'right';
-        ctx.fillStyle = 'rgba(0,0,0,0.6)';
+        ctx.fillStyle = blue.alive ? 'rgba(0,0,0,0.6)' : 'rgba(0,0,0,0.3)';
         ctx.fillText(blue.name, w / 2 - fontSize * 1.2 + 1, rowY + 1);
-        ctx.fillStyle = blueColor;
+        ctx.fillStyle = blue.alive ? blueColor : 'rgba(128,128,128,0.5)';
         ctx.fillText(blue.name, w / 2 - fontSize * 1.2, rowY);
+        if (!blue.alive) {
+          const tw = ctx.measureText(blue.name).width;
+          ctx.strokeStyle = 'rgba(255,60,60,0.7)';
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.moveTo(w / 2 - fontSize * 1.2 - tw - 2, rowY);
+          ctx.lineTo(w / 2 - fontSize * 1.2 + 2, rowY);
+          ctx.stroke();
+        }
 
         if (i === 0) {
           ctx.textAlign = 'center';
@@ -1764,10 +1803,19 @@ export class TitleScene implements Scene {
         const redColor = RACE_COLORS[red.race].primary;
         ctx.font = `bold ${fontSize}px monospace`;
         ctx.textAlign = 'left';
-        ctx.fillStyle = 'rgba(0,0,0,0.6)';
+        ctx.fillStyle = red.alive ? 'rgba(0,0,0,0.6)' : 'rgba(0,0,0,0.3)';
         ctx.fillText(red.name, w / 2 + fontSize * 1.2 + 1, rowY + 1);
-        ctx.fillStyle = redColor;
+        ctx.fillStyle = red.alive ? redColor : 'rgba(128,128,128,0.5)';
         ctx.fillText(red.name, w / 2 + fontSize * 1.2, rowY);
+        if (!red.alive) {
+          const tw = ctx.measureText(red.name).width;
+          ctx.strokeStyle = 'rgba(255,60,60,0.7)';
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.moveTo(w / 2 + fontSize * 1.2 - 2, rowY);
+          ctx.lineTo(w / 2 + fontSize * 1.2 + tw + 2, rowY);
+          ctx.stroke();
+        }
       }
 
       // Team avg ELO
@@ -1902,10 +1950,31 @@ export class TitleScene implements Scene {
     const subX = (w - subW) / 2;
     const subY = bannerY + bannerH - subH * 0.2;
     this.ui.drawSmallRibbon(ctx, subX, subY, subW, subH, 0);
-    ctx.font = `bold ${Math.max(11, subH * 0.38)}px monospace`;
+    const subFontSize = Math.max(11, subH * 0.38);
+    ctx.font = `bold ${subFontSize}px monospace`;
     ctx.textBaseline = 'middle';
-    ctx.fillStyle = '#fff';
-    ctx.fillText('Spawn Glory', w / 2, subY + subH * 0.5);
+    const subCenterY = subY + subH * 0.5;
+    if (this.subtitleRollTimer > 0) {
+      // Roll animation: old text slides up and fades out, new text slides up from below
+      const t = 1 - this.subtitleRollTimer / TitleScene.SUBTITLE_ROLL_DUR; // 0→1
+      const ease = t * t * (3 - 2 * t); // smoothstep
+      const offset = subH * 0.6;
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(subX, subY, subW, subH);
+      ctx.clip();
+      // Old text sliding up
+      ctx.globalAlpha = 1 - ease;
+      ctx.fillStyle = '#fff';
+      ctx.fillText(this.subtitlePrev, w / 2, subCenterY - offset * ease);
+      // New text sliding up from below
+      ctx.globalAlpha = ease;
+      ctx.fillText(this.subtitle, w / 2, subCenterY + offset * (1 - ease));
+      ctx.restore();
+    } else {
+      ctx.fillStyle = '#fff';
+      ctx.fillText(this.subtitle, w / 2, subCenterY);
+    }
 
     // === Buttons or Party Panel ===
     if (this.localSetup) {

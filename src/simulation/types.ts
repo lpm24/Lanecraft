@@ -265,7 +265,7 @@ export enum StatusType {
   Burn = 'burn',       // 2 dmg/sec per stack for 3s, max 5
   Haste = 'haste',     // 1.3x speed, 3s, no stack, refreshes
   Shield = 'shield',   // absorbs 12 damage, 4s, 1 instance
-  Frenzy = 'frenzy',       // Wild kill bonus: +30% damage, 3s, refreshes on kills
+  Frenzy = 'frenzy',       // Wild kill bonus: +50% damage, 3s, refreshes on kills
   Wound = 'wound',         // -50% healing received, 6s, max 1 stack, refreshes
   Vulnerable = 'vulnerable', // +20% damage taken, 3s, max 1 stack, refreshes
 }
@@ -407,7 +407,7 @@ export interface UnitState {
   pathProgress: number;
   carryingDiamond: boolean;
   statusEffects: StatusEffect[];
-  hitCount: number;       // for Bastion knockback (every 3rd hit)
+  hitCount: number;       // for Horde Brute knockback (every 3rd hit)
   shieldHp: number;       // absorb pool from Shield status
   category: 'melee' | 'ranged' | 'caster';
   upgradeTier: number;                 // 0=base, 1=tier1, 2=tier2
@@ -415,6 +415,7 @@ export interface UnitState {
   upgradeSpecial: Record<string, any>; // upgrade-granted special effects
   kills: number;          // individual kill count for war hero tracking
   damageDone: number;     // total damage dealt (for war hero display)
+  damageTaken: number;    // total damage received (for tank hero)
   healingDone: number;    // total HP healed to allies (for support hero)
   buffsApplied: number;   // ally buff instances applied (Haste/Frenzy/Shield, for support hero)
   lastDamagedByName: string; // name of last unit/source that dealt damage
@@ -438,6 +439,7 @@ export interface WarHero {
   upgradeNode: string;  // terminal upgrade node key ('A','B',...)
   kills: number;
   damageDone: number;
+  damageTaken: number;
   healingDone: number;
   buffsApplied: number;
   survived: boolean;
@@ -665,6 +667,7 @@ export interface PlayerStats {
   abilityDamageDealt: number; // damage from race abilities (fireball, deluge, etc.)
   nukeDamageDealt: number;   // damage from nuke detonations
   totalHealing: number;
+  totalBuffsApplied: number;
   unitsSpawned: number;
   unitsLost: number;
   enemyUnitsKilled: number;
@@ -680,6 +683,7 @@ export function createPlayerStats(): PlayerStats {
     totalDamageTaken: 0, towerDamageDealt: 0,
     burnDamageDealt: 0, abilityDamageDealt: 0, nukeDamageDealt: 0,
     totalHealing: 0,
+    totalBuffsApplied: 0,
     unitsSpawned: 0, unitsLost: 0, enemyUnitsKilled: 0, nukeKills: 0,
     diamondPickups: 0, diamondTimeHeld: 0,
   };
@@ -729,7 +733,9 @@ export interface GameState {
   nextEntityId: number;
   playerStats: PlayerStats[];
   warHeroes: WarHero[];          // populated at match end — top killer per player
-  supportHeroes: WarHero[];      // populated at match end — top support unit per player
+  supportHeroes: WarHero[];      // populated at match end — top support (buffs/debuffs) per player
+  tankHeroes: WarHero[];         // populated at match end — most damage taken per player
+  healerHeroes: WarHero[];       // populated at match end — most healing done per player
   fallenHeroes: WarHero[];       // notable units that died during the match
   fogOfWar: boolean;             // whether fog of war is enabled
   /** Per-team tile visibility: teamIndex → flat boolean array [y * mapWidth + x] */
