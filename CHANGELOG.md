@@ -2,7 +2,7 @@
 
 ## 2026-03-29 — v1.1.0 (since iOS 1.0.7 build 10)
 
-_36 commits: 8133aac → 9b18a60_
+_38 commits: 8133aac → e964988_
 
 ### New Features
 - **Tutorial system** — 16-step guided first-time match (miner hut → melee → tower → research → nuke → full menu tour) with spotlight overlays, gated input, and localStorage persistence
