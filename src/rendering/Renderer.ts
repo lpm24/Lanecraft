@@ -2302,17 +2302,7 @@ export class Renderer {
 
         // Special ability buildings (non-seed)
         if (b.isFoundry) {
-          // Crown Foundry — draw ship helm sprite on top of building
-          const helmImg = this.sprites.getFoundrySprite();
-          if (helmImg) {
-            const helmSize = T * 1.6 * buildScale;
-            const helmAspect = helmImg.naturalWidth / helmImg.naturalHeight;
-            const helmW = helmSize * helmAspect;
-            const helmH = helmSize;
-            const helmFeetY = py + half + 2;
-            const helmDrawY = helmFeetY - helmH * 0.85;
-            ctx.drawImage(helmImg, px - helmW / 2, helmDrawY, helmW, helmH);
-          }
+          // Crown Foundry — new AI sprite includes the foundry visual, no overlay needed
         } else if (b.isGlobule) {
           // Subtle pulsing glow under the animated globule
           const pulse = 0.1 + 0.06 * Math.sin(state.tick * 0.08);
