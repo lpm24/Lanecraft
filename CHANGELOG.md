@@ -2,7 +2,7 @@
 
 ## 2026-03-29 — v1.1.0 (since iOS 1.0.7 build 10)
 
-_38 commits: 8133aac → e964988_
+_40 commits: 8133aac → 13e6ac7_
 
 ### New Features
 - **Tutorial system** — 16-step guided first-time match (miner hut → melee → tower → research → nuke → full menu tour) with spotlight overlays, gated input, and localStorage persistence
@@ -30,7 +30,10 @@ _38 commits: 8133aac → e964988_
 - Fix 1px seams in 9-slice panels and iso terrain tiles
 - flipX sprite support for directional units
 - Mobile UX: suppress long-press context menu, text truncation, gallery click-through
-- Post-match hero cards: sprite flush-left, better award icons (nuke/diamond/mana/star)
+- Post-match hero cards: fixed-width sprite column, better award icons (nuke/diamond/mana/star)
+- Bot name abbreviations in summary (Medium→Med, Nightmare→NM)
+- Suppress building tooltip when popup is open
+- Wider title screen subtitle ribbon
 
 ### Balance
 - **Stone → Meat** resource rename across entire codebase
@@ -48,6 +51,8 @@ _38 commits: 8133aac → e964988_
 - `isAbilityBuilding()` centralized helper — replaces scattered manual flag checks
 - `totalBuffsApplied` player stat for support tracking
 - `damageTaken` on units for tank hero computation
+- Tenders seed: remove 10-stack cap, rework Fast Growth to bonus tick (2 of 5 ticks) for determinism
+- Exported `SEED_GROW_TIMES` constant (renderer uses same values as simulation)
 - Harvester floating text every tick (was every other)
 - Spatial grid optimization for combat tick
 - Fog of war throttled to every 3 ticks
@@ -58,6 +63,9 @@ _38 commits: 8133aac → e964988_
 - Difficulty redesign: decision intervals + mistake rates replace spawn caps
 - Stronger profile steering (1.5x multipliers for build targets)
 - Correct ability building exclusion from tower counting
+- Diamond workers: send 2 instead of 1 (need to contest the node)
+- Demon mana worker capped at 1 (extras redirected to bottleneck resource)
+- Harvester reassignment hysteresis (10s cooldown prevents toggling)
 
 ### Multiplayer & Networking
 - **CommandSync race condition fix** — Buffer all remote turn data on disconnect
