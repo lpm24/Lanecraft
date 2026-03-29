@@ -7,7 +7,7 @@ import {
   GOLD_PER_CELL, GoldCell, CROSS_BASE_MARGIN, CROSS_BASE_WIDTH,
   getMarginAtRow,
   LANE_PATHS, Vec2,
-  GameCommand, BuildingType, BuildingState, ResourceType,
+  GameCommand, BuildingType, BuildingState, ResourceType, isAbilityBuilding,
   HarvesterAssignment, HarvesterState, UnitState, WarHero, WoodPileState, PotionType,
   StatusType, SoundEvent, CombatEvent, AbilityEffect, createSeededRng, createResearchUpgradeState,
   type ProjectileVisual,
@@ -1213,7 +1213,7 @@ function placeBuilding(state: GameState, cmd: Extract<GameCommand, { type: 'plac
   // Towers escalate faster than other slots — each additional tower after the first costs more
   let effectiveCost = cost;
   if (cmd.buildingType === BuildingType.Tower && !isFirstTower) {
-    const myTowers = state.buildings.filter(b => b.playerId === cmd.playerId && b.type === BuildingType.Tower && !b.isSeed).length;
+    const myTowers = state.buildings.filter(b => b.playerId === cmd.playerId && b.type === BuildingType.Tower && !isAbilityBuilding(b)).length;
     const mult = Math.pow(TOWER_COST_SCALE, Math.max(0, myTowers - 1));
     effectiveCost = {
       gold: Math.floor(cost.gold * mult),
@@ -5042,7 +5042,7 @@ function tickTowers(state: GameState): void {
   for (const building of state.buildings) {
     if (building.type !== BuildingType.Tower) continue;
     // Skip special ability buildings that use Tower type but don't shoot
-    if (building.isFoundry || building.isPotionShop || building.isGlobule || building.isSeed) continue;
+    if (isAbilityBuilding(building)) continue;
 
     const player = state.players[building.playerId];
     const baseStats = TOWER_STATS[player.race];

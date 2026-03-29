@@ -381,11 +381,14 @@ export class PostMatchScene implements Scene {
     const won = state.winner === localTeam;
     const fontSize = Math.max(14, Math.min(w / 28, 24));
 
+    // Global vertical nudge — shift everything except Continue button up
+    const yNudge = -10;
+
     // VICTORY / DEFEAT banner
     const headerBannerW = Math.min(w * 0.75, 540);
     const headerBannerH = Math.min(90, h * 0.1);
     const headerBannerX = (w - headerBannerW) / 2;
-    const headerBannerY = h * 0.02 + getSafeTop();
+    const headerBannerY = h * 0.02 + getSafeTop() + yNudge;
     this.ui.drawBigRibbon(ctx, headerBannerX, headerBannerY, headerBannerW, headerBannerH, won ? 0 : 1);
 
     ctx.font = `bold ${fontSize * 2.2}px monospace`;
@@ -857,9 +860,9 @@ export class PostMatchScene implements Scene {
     const awards = this.computeAwards(pStats);
     const awardIcons: Record<string, IconName> = {
       'MVP Damage': 'sword', 'Best Economy': 'gold', 'Best Defender': 'shield',
-      'Top Killer': 'sword', 'Nuke Master': 'sword', 'Diamond Runner': 'gold',
-      'Tower Damage': 'shield', 'Most Healing': 'meat', 'Most Tanked': 'shield',
-      'Top Support': 'meat',
+      'Top Killer': 'nuke', 'Nuke Master': 'nuke', 'Diamond Runner': 'diamond',
+      'Tower Damage': 'sword', 'Most Healing': 'mana', 'Most Tanked': 'shield',
+      'Top Support': 'star',
     };
     const gap = Math.round(fontSize * 0.5);
     let y = startY;
@@ -971,8 +974,8 @@ export class PostMatchScene implements Scene {
     const heroEntries: [WarHero[], string, IconName, string][] = [
       [state.warHeroes, 'THE REAPER', 'sword', '#ffd54f'],
       [state.tankHeroes, 'IRON WALL', 'shield', '#90caf9'],
-      [state.supportHeroes, 'BATTLE SAGE', 'meat', '#ce93d8'],
-      [state.healerHeroes, 'LIFE WEAVER', 'meat', '#80cbc4'],
+      [state.supportHeroes, 'BATTLE SAGE', 'star', '#ce93d8'],
+      [state.healerHeroes, 'LIFE WEAVER', 'mana', '#80cbc4'],
     ];
 
     // Filter to only heroes that exist
@@ -1053,7 +1056,7 @@ export class PostMatchScene implements Scene {
     ctx.roundRect(heroCardX, y, heroCardW, 3, [6, 6, 0, 0]);
     ctx.fill();
 
-    // Animated sprite — slow walk animation (8 game ticks/sec)
+    // Animated sprite — flush to left edge of card
     const maxSpriteH = heroCardH - gap * 2;
     const spriteSize = Math.min(fontSize * 3.5, maxSpriteH);
     let spriteDrawW = 0;
@@ -1070,17 +1073,17 @@ export class PostMatchScene implements Scene {
       const baseH = spriteSize * scale;
       const dw = baseH * aspect;
       const dh = baseH * (def.heightScale ?? 1.0);
-      const spriteX = heroCardX + gap;
+      const spriteX = heroCardX + 2;
       const spriteY = y + (heroCardH - dh) / 2;
       ctx.drawImage(img, sx, 0, def.frameW, def.frameH, spriteX, spriteY, dw, dh);
-      spriteDrawW = dw + gap;
+      spriteDrawW = dw + 2;
     }
 
-    const textL = heroCardX + spriteDrawW + gap;
-    const textAvailW = heroCardW - spriteDrawW - gap * 2;
+    const textL = heroCardX + spriteDrawW + gap * 0.5;
+    const textAvailW = heroCardW - spriteDrawW - gap;
     const textCenterX = textL + textAvailW / 2;
 
-    const contentH = lineH * 4.6;
+    const contentH = lineH * 4.2;
     const topPad = (heroCardH - contentH) / 2;
     const line1Y = y + topPad + lineH * 0.9;
     const line2Y = line1Y + lineH;
@@ -1105,11 +1108,10 @@ export class PostMatchScene implements Scene {
     ctx.fillStyle = this.lightenColor(raceColor, 0.45);
     ctx.fillText(this.truncateText(ctx, hero.name, textAvailW), textCenterX, line2Y);
 
-    // Owner + category
+    // Owner (player name only, no category)
     ctx.font = `bold ${Math.max(10, fontSize * 0.55)}px monospace`;
     ctx.fillStyle = this.lightenColor(playerColor, 0.4);
-    const catLabel = hero.category === 'melee' ? 'Melee' : hero.category === 'ranged' ? 'Ranged' : 'Caster';
-    ctx.fillText(`${this.slotLabel(hero.playerId)}'s ${catLabel}`, textCenterX, line3Y);
+    ctx.fillText(this.slotLabel(hero.playerId), textCenterX, line3Y);
 
     // Stats line — context-aware based on hero type
     ctx.font = `bold ${Math.max(10, fontSize * 0.6)}px monospace`;
@@ -1155,7 +1157,7 @@ export class PostMatchScene implements Scene {
     } else {
       const deathTime = this.formatTickTime(hero.deathTick ?? state2.tick);
       ctx.fillStyle = '#ff6e6e';
-      ctx.fillText(this.truncateText(ctx, `Slain at ${deathTime} (${aliveTime})`, textAvailW), textCenterX, line5Y);
+      ctx.fillText(this.truncateText(ctx, `\u26B0 ${deathTime} (${aliveTime})`, textAvailW), textCenterX, line5Y);
     }
 
     return y + heroCardH;

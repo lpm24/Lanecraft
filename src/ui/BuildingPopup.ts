@@ -130,6 +130,7 @@ export class BuildingPopup {
   private showStats = true; // default to open
   private animTick = 0;
   private hoveredChoice: string | null = null;
+  private selectedChoice: string | null = null; // mobile confirmation flow
   // Cached layout for hit testing (screen space)
   private rect = { x: 0, y: 0, w: 0, h: 0 };
   private upgradeBtnRects: { x: number; y: number; w: number; h: number; choice: string }[] = [];
@@ -138,15 +139,16 @@ export class BuildingPopup {
   private laneBtnRect = { x: 0, y: 0, w: 0, h: 0 };
   private statsBtnRect = { x: 0, y: 0, w: 0, h: 0 };
 
-  open(buildingId: number, isMobile = false): void {
+  open(buildingId: number, _isMobile = false): void {
     this.targetBuildingId = buildingId;
-    // Default stats closed on mobile to save space
-    this.showStats = isMobile ? false : infoPanelPreference === 'open';
+    this.showStats = infoPanelPreference === 'open';
+    this.selectedChoice = null;
     this.animTick = 0;
   }
 
   close(): void {
     this.targetBuildingId = null;
+    this.selectedChoice = null;
   }
 
   isOpen(): boolean {
@@ -162,7 +164,7 @@ export class BuildingPopup {
     return cx >= r.x && cx < r.x + r.w && cy >= r.y && cy < r.y + r.h;
   }
 
-  handleClick(cx: number, cy: number): PopupAction | null {
+  handleClick(cx: number, cy: number, isMobile = false): PopupAction | null {
     if (!this.containsPoint(cx, cy)) return null;
 
     if (this.hitTest(cx, cy, this.closeBtnRect)) return { action: 'close' };
@@ -176,8 +178,23 @@ export class BuildingPopup {
     }
 
     for (const btn of this.upgradeBtnRects) {
-      if (this.hitTest(cx, cy, btn)) return { action: 'upgrade', choice: btn.choice };
+      if (this.hitTest(cx, cy, btn)) {
+        if (isMobile) {
+          // Mobile: first click selects, second click on same button confirms
+          if (this.selectedChoice === btn.choice) {
+            this.selectedChoice = null;
+            return { action: 'upgrade', choice: btn.choice };
+          }
+          // Select this option (deselect other)
+          this.selectedChoice = btn.choice;
+          return null;
+        }
+        return { action: 'upgrade', choice: btn.choice };
+      }
     }
+
+    // Clicked inside popup but not on a button — deselect on mobile
+    if (isMobile) this.selectedChoice = null;
 
     return null; // clicked inside popup, consume event
   }
@@ -202,9 +219,14 @@ export class BuildingPopup {
     const race = state.players[building.playerId]?.race;
     if (!race) return;
 
-    // Hover detection using previous frame's button rects
+    const isMobile = canvasW < 600;
+
+    // Hover/selection detection
+    // Desktop: driven by mouse position. Mobile: driven by tap selection.
     this.hoveredChoice = null;
-    if (pointerX !== undefined && pointerY !== undefined) {
+    if (isMobile) {
+      this.hoveredChoice = this.selectedChoice;
+    } else if (pointerX !== undefined && pointerY !== undefined) {
       for (const btn of this.upgradeBtnRects) {
         if (this.hitTest(pointerX, pointerY, btn)) {
           this.hoveredChoice = btn.choice;
@@ -220,7 +242,6 @@ export class BuildingPopup {
     const category = BUILDING_CATEGORY[building.type];
 
     // --- Responsive sizing ---
-    const isMobile = canvasW < 600;
     const PAD = isMobile ? 8 : 14;
     const POPUP_W = isMobile ? Math.min(canvasW - 8, 510) : 510;
     const UPGRADE_BTN_H = isMobile ? 96 : 132;
@@ -618,7 +639,13 @@ export class BuildingPopup {
         ctx.fillStyle = canAfford
           ? (change.isBuff ? '#69f0ae' : '#ff6666')
           : '#888';
-        ctx.fillText(change.text, textLeft, lineY);
+        // Truncate text that overflows button width
+        let text = change.text;
+        if (ctx.measureText(text).width > textW) {
+          while (text.length > 4 && ctx.measureText(text + '..').width > textW) text = text.slice(0, -1);
+          text += '..';
+        }
+        ctx.fillText(text, textLeft, lineY);
       }
     } else {
       // Fallback to original desc
@@ -633,36 +660,44 @@ export class BuildingPopup {
       }
     }
 
-    // Row 3: Cost centered across full width
+    // Row 3: Cost (or "UPGRADE" confirmation on mobile when selected)
     const costFontSize = isMobile ? 11 : 12;
     ctx.font = `bold ${costFontSize}px monospace`;
-
-    // Measure total cost width first for centering
-    const costItems: { icon: IconName; val: number; color: string; dimColor: string }[] = [];
-    if (opt.cost.gold > 0) costItems.push({ icon: 'gold', val: opt.cost.gold, color: '#ffd740', dimColor: '#665500' });
-    if (opt.cost.wood > 0) costItems.push({ icon: 'wood', val: opt.cost.wood, color: '#81c784', dimColor: '#2e5530' });
-    if (opt.cost.meat > 0) costItems.push({ icon: 'meat', val: opt.cost.meat, color: '#e57373', dimColor: '#6d2828' });
-    if ((opt.cost.deathEssence ?? 0) > 0) costItems.push({ icon: 'ooze', val: opt.cost.deathEssence!, color: '#69f0ae', dimColor: '#1b5e20' });
-    if ((opt.cost.souls ?? 0) > 0) costItems.push({ icon: 'souls', val: opt.cost.souls!, color: '#ce93d8', dimColor: '#4a148c' });
-
-    let totalCostW = 0;
-    for (const item of costItems) {
-      totalCostW += iconSize + 1 + ctx.measureText(`${item.val}`).width + 6;
-    }
-    if (totalCostW > 0) totalCostW -= 6; // remove trailing gap
-
     const costRowY = cy + rowH * 3 + Math.round(rowH / 2) + Math.round(costFontSize / 3);
-    let costX = cx + Math.round((cw - totalCostW) / 2);
 
-    for (const item of costItems) {
-      ctx.globalAlpha = canAfford ? 1 : 0.4;
-      ui.drawIcon(ctx, item.icon, costX, costRowY - iconSize + 1, iconSize);
-      ctx.globalAlpha = 1;
-      ctx.textAlign = 'left';
-      shadowText(`${item.val}`, costX + iconSize + 1, costRowY);
-      ctx.fillStyle = canAfford ? item.color : item.dimColor;
-      ctx.fillText(`${item.val}`, costX + iconSize + 1, costRowY);
-      costX += iconSize + ctx.measureText(`${item.val}`).width + 6;
+    const isSelected = isMobile && this.selectedChoice === opt.choice;
+    if (isSelected && canAfford) {
+      // Mobile confirmation: show "UPGRADE" + cost on same row
+      ctx.textAlign = 'center';
+      shadowText('UPGRADE', cx + cw / 2, costRowY);
+      ctx.fillStyle = '#69f0ae';
+      ctx.fillText('UPGRADE', cx + cw / 2, costRowY);
+    } else {
+      // Normal cost display
+      const costItems: { icon: IconName; val: number; color: string; dimColor: string }[] = [];
+      if (opt.cost.gold > 0) costItems.push({ icon: 'gold', val: opt.cost.gold, color: '#ffd740', dimColor: '#665500' });
+      if (opt.cost.wood > 0) costItems.push({ icon: 'wood', val: opt.cost.wood, color: '#81c784', dimColor: '#2e5530' });
+      if (opt.cost.meat > 0) costItems.push({ icon: 'meat', val: opt.cost.meat, color: '#e57373', dimColor: '#6d2828' });
+      if ((opt.cost.deathEssence ?? 0) > 0) costItems.push({ icon: 'ooze', val: opt.cost.deathEssence!, color: '#69f0ae', dimColor: '#1b5e20' });
+      if ((opt.cost.souls ?? 0) > 0) costItems.push({ icon: 'souls', val: opt.cost.souls!, color: '#ce93d8', dimColor: '#4a148c' });
+
+      let totalCostW = 0;
+      for (const item of costItems) {
+        totalCostW += iconSize + 1 + ctx.measureText(`${item.val}`).width + 6;
+      }
+      if (totalCostW > 0) totalCostW -= 6;
+
+      let costX = cx + Math.round((cw - totalCostW) / 2);
+      for (const item of costItems) {
+        ctx.globalAlpha = canAfford ? 1 : 0.4;
+        ui.drawIcon(ctx, item.icon, costX, costRowY - iconSize + 1, iconSize);
+        ctx.globalAlpha = 1;
+        ctx.textAlign = 'left';
+        shadowText(`${item.val}`, costX + iconSize + 1, costRowY);
+        ctx.fillStyle = canAfford ? item.color : item.dimColor;
+        ctx.fillText(`${item.val}`, costX + iconSize + 1, costRowY);
+        costX += iconSize + ctx.measureText(`${item.val}`).width + 6;
+      }
     }
   }
 

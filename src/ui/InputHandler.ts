@@ -757,14 +757,17 @@ export class InputHandler {
       if (e.key !== 'q' && e.key !== 'Q') return;
       if (!this.quickChatRadialActive) return;
       const msg = this.getQuickChatChoiceFromPointer();
+      const radialCenter = this.quickChatRadialCenter;
       this.quickChatRadialActive = false;
       this.quickChatRadialCenter = null;
       this.camera.dragDisabled = false;
       if (msg) {
         if (msg === 'Ping') {
-          const wx = this.camera.x + this.canvas.clientWidth / (2 * this.camera.zoom);
-          const wy = this.camera.y + this.canvas.clientHeight / (2 * this.camera.zoom);
-          const pingTile = this.worldToTile(wx, wy);
+          const wp = radialCenter
+            ? this.camera.screenToWorld(radialCenter.x, radialCenter.y)
+            : { x: this.camera.x + this.canvas.clientWidth / (2 * this.camera.zoom),
+                y: this.camera.y + this.canvas.clientHeight / (2 * this.camera.zoom) };
+          const pingTile = this.worldToTile(wp.x, wp.y);
           this.game.sendCommand({ type: 'ping', playerId: this.pid, x: pingTile.tileX, y: pingTile.tileY });
           this.quickChatToast = { text: 'Sent: Ping', until: Date.now() + 700 };
         } else {
@@ -1086,6 +1089,7 @@ export class InputHandler {
       // If radial is open, send the selected message on release
       if (this.quickChatRadialActive) {
         const msg = this.getQuickChatChoiceFromPointer();
+        const radialCenter = this.quickChatRadialCenter;
         this.quickChatRadialActive = false;
         this.quickChatRadialCenter = null;
         this.camera.dragDisabled = false;
@@ -1093,10 +1097,11 @@ export class InputHandler {
         this.suppressClicksUntil = Date.now() + 400;
         if (msg) {
           if (msg === 'Ping') {
-            // Send a ping at screen center
-            const wx = this.camera.x + this.canvas.clientWidth / (2 * this.camera.zoom);
-            const wy = this.camera.y + this.canvas.clientHeight / (2 * this.camera.zoom);
-            const pingTile = this.worldToTile(wx, wy);
+            const wp = radialCenter
+              ? this.camera.screenToWorld(radialCenter.x, radialCenter.y)
+              : { x: this.camera.x + this.canvas.clientWidth / (2 * this.camera.zoom),
+                  y: this.camera.y + this.canvas.clientHeight / (2 * this.camera.zoom) };
+            const pingTile = this.worldToTile(wp.x, wp.y);
             this.game.sendCommand({ type: 'ping', playerId: this.pid, x: pingTile.tileX, y: pingTile.tileY });
             this.quickChatToast = { text: 'Sent: Ping', until: Date.now() + 700 };
           } else {

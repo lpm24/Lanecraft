@@ -1,7 +1,7 @@
 import {
   GameState, GameCommand, Race, BuildingType, Lane, Team, HQ_WIDTH, HQ_HEIGHT,
   HarvesterAssignment, HQ_HP, MapDef, TICK_RATE, NUKE_RADIUS,
-  AbilityTargetMode, ResearchUpgradeState,
+  AbilityTargetMode, ResearchUpgradeState, isAbilityBuilding,
 } from './types';
 import { RACE_BUILDING_COSTS, UPGRADE_TREES, UpgradeNodeDef, UNIT_STATS, SPAWN_INTERVAL_TICKS, TOWER_STATS, getNodeUpgradeCost, HUT_COST_SCALE, TOWER_COST_SCALE, GOLD_YIELD_PER_TRIP, WOOD_YIELD_PER_TRIP, MEAT_YIELD_PER_TRIP, RACE_ABILITY_DEFS, getAllResearchUpgrades, getResearchUpgradeCost } from './data';
 import { getHQPosition, getUnitUpgradeMultipliers, PASSIVE_INCOME, getTeamAlleyOrigin, getBaseGoldPosition } from './GameState';
@@ -982,7 +982,7 @@ function botPlanResources(
     else if (b.type === BuildingType.RangedSpawner) rangedCount++;
     else if (b.type === BuildingType.CasterSpawner) casterCount++;
     else if (b.type === BuildingType.HarvesterHut) hutCount++;
-    else if (b.type === BuildingType.Tower) towerCount++;
+    else if (b.type === BuildingType.Tower && !isAbilityBuilding(b)) towerCount++;
   }
 
   // --- Build shopping list: next 3-4 purchases ---
@@ -2149,6 +2149,7 @@ function runSingleBotAI(state: GameState, ctx: BotContext, playerId: number, emi
       case BuildingType.RangedSpawner: rangedCount++; break;
       case BuildingType.CasterSpawner: casterCount++; break;
       case BuildingType.Tower:
+        if (isAbilityBuilding(b)) break;
         if (b.buildGrid === 'military') towerCount++;
         else if (b.buildGrid === 'alley' && !b.isSeed) alleyTowerCount++;
         break;

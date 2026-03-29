@@ -379,13 +379,20 @@ export interface BuildingState {
   actionTimer: number;
   placedTick: number;
   upgradePath: string[];
-  // Race ability building markers
+  // Race ability building markers — when adding a new one, also add it to isAbilityBuilding() below
   isFoundry?: boolean;     // Crown: gold yield building
   isPotionShop?: boolean;  // Goblins: potion shop
   isGlobule?: boolean;     // Oozlings: globule building
   isSeed?: boolean;        // Tenders: seed pod
   seedTimer?: number;      // Tenders: ticks until seed pops
   seedTier?: number;       // Tenders: 0=T1, 1=T2, 2=T3
+}
+
+/** Race ability buildings stored as BuildingType.Tower but aren't real towers.
+ *  Use this to exclude them from tower cost escalation, tower targeting, tower counting, etc.
+ *  UPDATE THIS when adding a new race ability building that uses BuildingType.Tower. */
+export function isAbilityBuilding(b: BuildingState): boolean {
+  return !!(b.isFoundry || b.isPotionShop || b.isGlobule || b.isSeed);
 }
 
 export interface UnitState {

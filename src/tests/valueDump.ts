@@ -3,7 +3,7 @@
  * Shows what the bot thinks is optimal vs what actually works.
  */
 import { createInitialState, simulateTick } from '../simulation/GameState';
-import { GameCommand, Race, Team, TICK_RATE, BuildingType } from '../simulation/types';
+import { GameCommand, Race, Team, TICK_RATE, BuildingType, isAbilityBuilding } from '../simulation/types';
 import {
   runAllBotAI, createBotContext, BotDifficultyLevel,
 } from '../simulation/BotAI';
@@ -56,8 +56,8 @@ for (const race of ALL_RACES) {
   const melee = buildings.filter(b => b.type === BuildingType.MeleeSpawner).length;
   const ranged = buildings.filter(b => b.type === BuildingType.RangedSpawner).length;
   const caster = buildings.filter(b => b.type === BuildingType.CasterSpawner).length;
-  const realTowers = buildings.filter(b => b.type === BuildingType.Tower && !b.isFoundry && !b.isPotionShop && !b.isGlobule && !b.isSeed).length;
-  const racialBuildings = buildings.filter(b => b.isFoundry || b.isPotionShop || b.isGlobule || b.isSeed).length;
+  const realTowers = buildings.filter(b => b.type === BuildingType.Tower && !isAbilityBuilding(b)).length;
+  const racialBuildings = buildings.filter(b => isAbilityBuilding(b)).length;
   const huts = buildings.filter(b => b.type === BuildingType.HarvesterHut).length;
   const units = state.units.filter(u => u.team === Team.Bottom).length;
 

@@ -202,6 +202,9 @@ Effective cost model: **2 gold = 1 wood = 1 meat** (derived from harvester econo
 
 Each race has a unique ability building with 4 upgrade tiers (defined in `RACE_ABILITY_UPGRADES` in `data.ts`). Ability building costs use `ABILITY_COST_MODIFIERS` in `data.ts`.
 
+- **Ability buildings share `BuildingType.Tower`** but are NOT real towers. They have marker flags (`isFoundry`, `isPotionShop`, `isGlobule`, `isSeed`). Use `isAbilityBuilding()` from `types.ts` to exclude them from tower cost escalation, tower targeting, tower counting, etc.
+- **When adding a new race ability building** that uses `BuildingType.Tower`, add its marker flag to `BuildingState` and to `isAbilityBuilding()` in `types.ts`.
+
 ## Common Pitfalls
 
 - Adding a `console.log` in `simulation/` files won't cause issues, but adding `Math.random()` will cause desync.
