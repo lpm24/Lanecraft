@@ -1123,13 +1123,10 @@ export class PostMatchScene implements Scene {
     const parts: string[] = [];
     if (damageTaken > 0 && title === 'IRON WALL') {
       parts.push(damageTaken >= 1000 ? `${(damageTaken / 1000).toFixed(1)}k tanked` : `${damageTaken} tanked`);
-      if (hero.kills > 0) parts.push(`${hero.kills} kills`);
     } else if (healingDone > 0 && title === 'LIFE WEAVER') {
       parts.push(`${healingDone} healed`);
-      if (hero.kills > 0) parts.push(`${hero.kills} kills`);
     } else if (buffsApplied > 0 && title === 'BATTLE SAGE') {
       parts.push(`${buffsApplied} buffs`);
-      if (hero.kills > 0) parts.push(`${hero.kills} kills`);
     } else {
       if (hero.kills > 0) parts.push(`${hero.kills} kills`);
       const dmgStr = hero.damageDone >= 1000
@@ -1139,12 +1136,14 @@ export class PostMatchScene implements Scene {
     }
     const statsLine = parts.join(' \u00b7 ');
     const killIconSz = fontSize * 0.6;
-    const statsTextW = ctx.measureText(statsLine).width;
+    const maxStatsW = textAvailW - killIconSz - gap * 0.4;
+    const truncStats = this.truncateText(ctx, statsLine, maxStatsW);
+    const statsTextW = ctx.measureText(truncStats).width;
     const statsTotalW = killIconSz + gap * 0.4 + statsTextW;
     const statsStartX = textCenterX - statsTotalW / 2;
     this.ui.drawIcon(ctx, icon, statsStartX, line4Y - killIconSz * 0.7, killIconSz);
     ctx.textAlign = 'left';
-    ctx.fillText(statsLine, statsStartX + killIconSz + gap * 0.4, line4Y);
+    ctx.fillText(truncStats, statsStartX + killIconSz + gap * 0.4, line4Y);
 
     // Survival
     const state2 = this.stats!.state;
@@ -1153,7 +1152,7 @@ export class PostMatchScene implements Scene {
     const aliveTime = this.formatTickTime((hero.deathTick ?? state2.tick) - hero.spawnTick);
     if (hero.survived) {
       ctx.fillStyle = '#69f0ae';
-      ctx.fillText(`Survived (${aliveTime})`, textCenterX, line5Y);
+      ctx.fillText(this.truncateText(ctx, `Survived (${aliveTime})`, textAvailW), textCenterX, line5Y);
     } else {
       const deathTime = this.formatTickTime(hero.deathTick ?? state2.tick);
       ctx.fillStyle = '#ff6e6e';

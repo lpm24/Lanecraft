@@ -2014,7 +2014,8 @@ export class InputHandler {
 
     // Building popup takes priority
     if (this.buildingPopup.isOpen()) {
-      const result = this.buildingPopup.handleClick(popupCx, popupCy);
+      const isMobile = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+      const result = this.buildingPopup.handleClick(popupCx, popupCy, isMobile);
       if (result) {
         const bId = this.buildingPopup.getBuildingId();
         if (bId !== null) {
