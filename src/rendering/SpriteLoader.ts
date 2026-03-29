@@ -1328,7 +1328,7 @@ export class SpriteLoader {
 
     // Fall back to Tiny Swords
     const vid = playerId % NUM_SPRITE_VARIANTS;
-    if (isometric && bKey === 'hut') {
+    if (bKey === 'hut') {
       const isoUrl = ISO_HUT_URLS[vid];
       if (isoUrl) return this.loadImage(isoUrl);
     }
