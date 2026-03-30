@@ -654,12 +654,18 @@ export type SoundEventType =
   | 'ability_summon' | 'ability_troll' | 'ability_potion'
   | 'nuke_incoming' | 'nuke_detonated'
   | 'diamond_exposed' | 'diamond_carried' | 'hq_damaged'
-  | 'match_start' | 'match_end_win' | 'match_end_lose';
+  | 'match_start' | 'match_end_win' | 'match_end_lose'
+  | 'status_burn' | 'status_shield' | 'status_haste' | 'status_slow' | 'status_frenzy'
+  | 'status_wound' | 'status_vulnerable'
+  | 'combat_knockback' | 'combat_lifesteal'
+  | 'resource_delivered';
 
 export interface SoundEvent {
   type: SoundEventType;
   x?: number; // world tile coords
   y?: number;
+  race?: Race;
+  buildingType?: BuildingType;
 }
 
 export interface PlayerStats {

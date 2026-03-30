@@ -3,6 +3,7 @@ import { UIAssets } from '../rendering/UIAssets';
 import { BotDifficultyLevel } from '../simulation/BotAI';
 import { type MapDef } from '../simulation/types';
 import { DUEL_MAP, SKIRMISH_MAP, WARZONE_MAP } from '../simulation/maps';
+import { SoundManager } from '../audio/SoundManager';
 import { getSafeTop } from '../ui/SafeArea';
 
 interface DifficultyOption {
@@ -61,6 +62,7 @@ export class DifficultySelectScene implements Scene {
   private fogHover = false;
   private isometric = false;
   private isoHover = false;
+  private sfx = new SoundManager();
   private tick = 0;
   private sceneAge = 0;
 
@@ -79,15 +81,18 @@ export class DifficultySelectScene implements Scene {
   enter(): void {
     this.hoverIndex = -1;
     this.modeHoverIndex = -1;
+    this.sfx.enableTabSuspend();
     this.loadSelections();
 
     this.keyHandler = (e) => {
       if (e.key === 'ArrowUp' || e.key === 'w') {
         this.selectedIndex = Math.max(0, this.selectedIndex - 1);
+        this.sfx.playUIClick();
         this.saveSelections();
       }
       if (e.key === 'ArrowDown' || e.key === 's') {
         this.selectedIndex = Math.min(DIFFICULTIES.length - 1, this.selectedIndex + 1);
+        this.sfx.playUIClick();
         this.saveSelections();
       }
       if (e.key === 'Tab' || e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
@@ -95,34 +100,40 @@ export class DifficultySelectScene implements Scene {
         const delta = e.key === 'ArrowLeft' ? -1 : 1;
         const maxMode = this.isometric ? 2 : MODE_OPTIONS.length; // iso: only 1v1, 2v2
         this.modeIndex = (this.modeIndex + delta + maxMode) % maxMode;
+        this.sfx.playUIClick();
         this.saveSelections();
       }
       if (e.key === 'f') {
         this.fogOfWar = !this.fogOfWar;
+        this.sfx.playUIToggle();
         this.saveSelections();
       }
       if (e.key === 'i') {
         this.toggleIsometric();
+        this.sfx.playUIToggle();
         this.saveSelections();
       }
       if (e.key === 'Enter' || e.key === ' ') {
+        this.sfx.playUIConfirm();
         this.confirmSelection();
       }
-      if (e.key === 'Escape') this.manager.switchTo('raceSelect');
+      if (e.key === 'Escape') { this.sfx.playUIBack(); this.manager.switchTo('raceSelect'); }
     };
 
     let lastTouchTime = 0;
     this.clickHandler = (e) => {
       if (Date.now() - lastTouchTime < 300) return;
       const [cx, cy] = this.toCanvas(e.clientX, e.clientY);
-      if (this.isBackButtonAt(cx, cy)) { this.manager.switchTo('raceSelect'); return; }
+      if (this.isBackButtonAt(cx, cy)) { this.sfx.playUIBack(); this.manager.switchTo('raceSelect'); return; }
       if (this.isFogToggleAt(cx, cy)) {
         this.fogOfWar = !this.fogOfWar;
+        this.sfx.playUIToggle();
         this.saveSelections();
         return;
       }
       if (this.isIsoToggleAt(cx, cy)) {
         this.toggleIsometric();
+        this.sfx.playUIToggle();
         this.saveSelections();
         return;
       }
@@ -130,16 +141,19 @@ export class DifficultySelectScene implements Scene {
       if (modeIdx >= 0) {
         if (this.isometric && modeIdx > 1) return; // disabled in iso mode
         this.modeIndex = modeIdx;
+        this.sfx.playUIClick();
         this.saveSelections();
         return;
       }
       const idx = this.getCardIndexAt(cx, cy);
       if (idx >= 0) {
         this.selectedIndex = idx;
+        this.sfx.playUIClick();
         this.saveSelections();
         return;
       }
       if (this.isStartButtonAt(cx, cy)) {
+        this.sfx.playUIConfirm();
         this.confirmSelection();
       }
     };
@@ -158,14 +172,16 @@ export class DifficultySelectScene implements Scene {
       const touch = e.touches[0];
       if (!touch) return;
       const [cx, cy] = this.toCanvas(touch.clientX, touch.clientY);
-      if (this.isBackButtonAt(cx, cy)) { this.manager.switchTo('raceSelect'); return; }
+      if (this.isBackButtonAt(cx, cy)) { this.sfx.playUIBack(); this.manager.switchTo('raceSelect'); return; }
       if (this.isFogToggleAt(cx, cy)) {
         this.fogOfWar = !this.fogOfWar;
+        this.sfx.playUIToggle();
         this.saveSelections();
         return;
       }
       if (this.isIsoToggleAt(cx, cy)) {
         this.toggleIsometric();
+        this.sfx.playUIToggle();
         this.saveSelections();
         return;
       }
@@ -173,16 +189,19 @@ export class DifficultySelectScene implements Scene {
       if (modeIdx >= 0) {
         if (this.isometric && modeIdx > 1) return;
         this.modeIndex = modeIdx;
+        this.sfx.playUIClick();
         this.saveSelections();
         return;
       }
       const idx = this.getCardIndexAt(cx, cy);
       if (idx >= 0) {
         this.selectedIndex = idx;
+        this.sfx.playUIClick();
         this.saveSelections();
         return;
       }
       if (this.isStartButtonAt(cx, cy)) {
+        this.sfx.playUIConfirm();
         this.confirmSelection();
       }
     };
@@ -202,6 +221,7 @@ export class DifficultySelectScene implements Scene {
     this.clickHandler = null;
     this.moveHandler = null;
     this.touchHandler = null;
+    this.sfx.dispose();
   }
 
   update(_dt: number): void { this.tick++; this.sceneAge += _dt; }

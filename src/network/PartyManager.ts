@@ -440,6 +440,15 @@ export class PartyManager {
     }
   }
 
+  /** Clean up all resources. Safe to call even if leaveParty() wasn't called. */
+  destroy(): void {
+    this.stopHeartbeat();
+    if (this.unsubscribe) {
+      this.unsubscribe();
+      this.unsubscribe = null;
+    }
+  }
+
   /** Find an open party (status=waiting, has empty slots) and join it.
    *  Returns true if joined, false if none found. */
   async findAndJoinGame(race: Race): Promise<boolean> {

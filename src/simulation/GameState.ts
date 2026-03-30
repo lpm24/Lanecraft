@@ -200,8 +200,8 @@ export function getUnitUpgradeMultipliers(path: string[], race?: Race, buildingT
   return { hp, damage, attackSpeed, moveSpeed, range, spawnSpeed, special };
 }
 
-function addSound(state: GameState, type: SoundEvent['type'], x?: number, y?: number): void {
-  state.soundEvents.push({ type, x, y });
+function addSound(state: GameState, type: SoundEvent['type'], x?: number, y?: number, extra?: Partial<SoundEvent>): void {
+  state.soundEvents.push({ type, x, y, ...extra });
 }
 
 // === Generate diamond-shaped gold cell grid ===
@@ -839,6 +839,10 @@ function debugCheckUnitPositions(state: GameState, phase: string): void {
 export function simulateTick(state: GameState, commands: GameCommand[]): void {
   state.soundEvents = [];
   state.combatEvents = [];
+  // Reset per-tick status/resource/combat sound throttle counters
+  statusBurnSounds = 0; statusShieldSounds = 0; statusHasteSounds = 0;
+  statusSlowSounds = 0; statusFrenzySounds = 0; woundSounds = 0;
+  vulnerableSounds = 0; resourceDeliverySounds = 0;
   for (const cmd of commands) processCommand(state, cmd);
 
   if (state.matchPhase === 'prematch') {
@@ -871,12 +875,24 @@ export function simulateTick(state: GameState, commands: GameCommand[]): void {
       if (p.isEmpty) continue;
       const inc = PASSIVE_INCOME[p.race];
       const ps = state.playerStats[p.id];
-      if (inc.gold >= 1) { p.gold += Math.floor(inc.gold); if (ps) ps.totalGoldEarned += Math.floor(inc.gold); }
-      else if (inc.gold > 0) { p.goldFrac = (p.goldFrac ?? 0) + inc.gold; if (p.goldFrac >= 1) { p.goldFrac -= 1; p.gold += 1; if (ps) ps.totalGoldEarned += 1; } }
-      if (inc.wood >= 1) { p.wood += Math.floor(inc.wood); if (ps) ps.totalWoodEarned += Math.floor(inc.wood); }
-      else if (inc.wood > 0) { p.woodFrac = (p.woodFrac ?? 0) + inc.wood; if (p.woodFrac >= 1) { p.woodFrac -= 1; p.wood += 1; if (ps) ps.totalWoodEarned += 1; } }
-      if (inc.meat >= 1) { p.meat += Math.floor(inc.meat); if (ps) ps.totalMeatEarned += Math.floor(inc.meat); }
-      else if (inc.meat > 0) { p.meatFrac = (p.meatFrac ?? 0) + inc.meat; if (p.meatFrac >= 1) { p.meatFrac -= 1; p.meat += 1; if (ps) ps.totalMeatEarned += 1; } }
+      if (inc.gold > 0) {
+        const whole = Math.floor(inc.gold);
+        if (whole > 0) { p.gold += whole; if (ps) ps.totalGoldEarned += whole; }
+        const frac = inc.gold - whole;
+        if (frac > 0) { p.goldFrac = (p.goldFrac ?? 0) + frac; if (p.goldFrac >= 1) { p.goldFrac -= 1; p.gold += 1; if (ps) ps.totalGoldEarned += 1; } }
+      }
+      if (inc.wood > 0) {
+        const whole = Math.floor(inc.wood);
+        if (whole > 0) { p.wood += whole; if (ps) ps.totalWoodEarned += whole; }
+        const frac = inc.wood - whole;
+        if (frac > 0) { p.woodFrac = (p.woodFrac ?? 0) + frac; if (p.woodFrac >= 1) { p.woodFrac -= 1; p.wood += 1; if (ps) ps.totalWoodEarned += 1; } }
+      }
+      if (inc.meat > 0) {
+        const whole = Math.floor(inc.meat);
+        if (whole > 0) { p.meat += whole; if (ps) ps.totalMeatEarned += whole; }
+        const frac = inc.meat - whole;
+        if (frac > 0) { p.meatFrac = (p.meatFrac ?? 0) + frac; if (p.meatFrac >= 1) { p.meatFrac -= 1; p.meat += 1; if (ps) ps.totalMeatEarned += 1; } }
+      }
       // Demon: passive mana generation (+1/sec)
       if (p.race === Race.Demon) {
         p.mana += 1;
@@ -1100,7 +1116,7 @@ function purchaseUpgrade(state: GameState, cmd: Extract<GameCommand, { type: 'pu
   const treeDef = getUpgradeNodeDef(player.race, building.type, cmd.choice);
   const label = treeDef ? treeDef.name : `UP ${cmd.choice}`;
   addFloatingText(state, building.worldX + 0.5, building.worldY, label, '#90caf9');
-  addSound(state, 'upgrade_complete', building.worldX, building.worldY);
+  addSound(state, 'upgrade_complete', building.worldX, building.worldY, { race: player.race, buildingType: building.type });
 }
 
 function processResearchUpgrade(state: GameState, cmd: Extract<GameCommand, { type: 'research_upgrade' }>): void {
@@ -1183,7 +1199,7 @@ function processResearchUpgrade(state: GameState, cmd: Extract<GameCommand, { ty
   }
 
   addFloatingText(state, research.worldX + 0.5, research.worldY, def.name, '#90caf9');
-  addSound(state, 'upgrade_complete', research.worldX, research.worldY);
+  addSound(state, 'upgrade_complete', research.worldX, research.worldY, { race: player.race });
 }
 
 /** Get research attack/defense multipliers for a player's unit category */
@@ -1262,7 +1278,7 @@ function placeBuilding(state: GameState, cmd: Extract<GameCommand, { type: 'plac
       lane: isLeft ? Lane.Left : Lane.Right,
       hp: cost.hp, maxHp: cost.hp, actionTimer: 0, placedTick: state.tick, upgradePath: ['A'],
     });
-    addSound(state, 'building_placed', world.x, world.y);
+    addSound(state, 'building_placed', world.x, world.y, { race: player.race, buildingType: cmd.buildingType });
     if (isFirstTower) player.hasBuiltTower = true;
   } else {
     // Military grid — towers not allowed here (must use tower alley)
@@ -1277,7 +1293,7 @@ function placeBuilding(state: GameState, cmd: Extract<GameCommand, { type: 'plac
       lane: isLeft ? Lane.Left : Lane.Right,
       hp: cost.hp, maxHp: cost.hp, actionTimer: SPAWN_INTERVAL_TICKS, placedTick: state.tick, upgradePath: ['A'],
     });
-    addSound(state, 'building_placed', world.x, world.y);
+    addSound(state, 'building_placed', world.x, world.y, { race: player.race, buildingType: cmd.buildingType });
   }
 }
 
@@ -1406,7 +1422,7 @@ function buildHut(state: GameState, cmd: Extract<GameCommand, { type: 'build_hut
       targetCellIdx: -1, diamondCellsMinedThisTrip: 0, fightTargetId: null, path: [],
     });
   }
-  addSound(state, 'building_placed', world.x, world.y);
+  addSound(state, 'building_placed', world.x, world.y, { race: player.race, buildingType: BuildingType.HarvesterHut });
 }
 
 function setHutAssignment(state: GameState, cmd: Extract<GameCommand, { type: 'set_hut_assignment' }>): void {
@@ -1613,7 +1629,7 @@ function crownAbility(state: GameState, player: PlayerState, cmd: Extract<GameCo
     isFoundry: true, // marker for gold yield bonus
   });
   addFloatingText(state, world.x, world.y, 'FOUNDRY', '#ffd700');
-  addSound(state, 'building_placed', world.x, world.y);
+  addSound(state, 'building_placed', world.x, world.y, { race: Race.Crown });
 }
 
 function wildAbility(state: GameState, player: PlayerState, cmd: Extract<GameCommand, { type: 'use_ability' }>): void {
@@ -1826,7 +1842,7 @@ function goblinsAbility(state: GameState, player: PlayerState, cmd: Extract<Game
     isPotionShop: true,
   });
   addFloatingText(state, world.x, world.y, 'POTION SHOP', '#69f0ae');
-  addSound(state, 'building_placed', world.x, world.y);
+  addSound(state, 'building_placed', world.x, world.y, { race: Race.Goblins });
 }
 
 function oozlingsAbility(state: GameState, player: PlayerState, cmd: Extract<GameCommand, { type: 'use_ability' }>): void {
@@ -1843,7 +1859,7 @@ function oozlingsAbility(state: GameState, player: PlayerState, cmd: Extract<Gam
     isGlobule: true,
   });
   addFloatingText(state, world.x, world.y, 'OOZE MOUND', '#69f0ae');
-  addSound(state, 'building_placed', world.x, world.y);
+  addSound(state, 'building_placed', world.x, world.y, { race: Race.Oozlings });
 }
 
 export const SEED_GROW_TIMES = [18 * TICK_RATE, 36 * TICK_RATE, 72 * TICK_RATE]; // T1=18s, T2=36s, T3=72s
@@ -1868,7 +1884,7 @@ function tendersAbility(state: GameState, player: PlayerState, cmd: Extract<Game
     existing.seedTimer = Math.max(0, SEED_GROW_TIMES[newTier] - elapsed);
     const tierLabel = ['T2', 'T3'][newTier - 1];
     addFloatingText(state, existing.worldX, existing.worldY, `SEED → ${tierLabel}`, '#ffd740');
-    addSound(state, 'building_placed', existing.worldX, existing.worldY);
+    addSound(state, 'building_placed', existing.worldX, existing.worldY, { race: Race.Tenders });
   } else {
     // Plant a new T1 seed
     const origin = getTeamAlleyOrigin(player.team, state.mapDef);
@@ -1882,7 +1898,7 @@ function tendersAbility(state: GameState, player: PlayerState, cmd: Extract<Game
       isSeed: true, seedTimer: growTime, seedTier: 0,
     });
     addFloatingText(state, world.x, world.y, 'SEED PLANTED', '#81c784');
-    addSound(state, 'building_placed', world.x, world.y);
+    addSound(state, 'building_placed', world.x, world.y, { race: Race.Tenders });
   }
 }
 
@@ -1933,7 +1949,8 @@ function tickAbilityEffects(state: GameState): void {
     // Same aura type doesn't stack — uses Math.max so only the strongest applies
     // Different aura types DO combine (damage + speed + armor from different units)
     const sp = u.upgradeSpecial;
-    if (u.hp > 0 && (sp?.auraDamageBonus || sp?.auraSpeedBonus || sp?.auraArmorBonus)) {
+    if (u.hp > 0 && (sp?.auraDamageBonus || sp?.auraSpeedBonus || sp?.auraArmorBonus ||
+        sp?.auraAttackSpeedBonus || sp?.auraHealPerSec || sp?.auraDodgeBonus)) {
       // Horde: Wide Aura — double aura range
       const auraOwner = state.players[u.playerId];
       const auraRange = (auraOwner?.researchUpgrades.raceUpgrades['horde_ability_3']) ? 10 : 5;
@@ -3082,7 +3099,27 @@ function tickUnitDiamondPickup(state: GameState): void {
   }
 }
 
-function applyStatus(target: UnitState, type: StatusType, stacks: number): void {
+// Throttle counters for status effect sounds — reset each tick in simulateTick
+let statusBurnSounds = 0;
+let statusShieldSounds = 0;
+let statusHasteSounds = 0;
+let statusSlowSounds = 0;
+let statusFrenzySounds = 0;
+let resourceDeliverySounds = 0;
+
+const STATUS_SOUND_MAP: Partial<Record<StatusType, SoundEvent['type']>> = {
+  [StatusType.Burn]: 'status_burn',
+  [StatusType.Shield]: 'status_shield',
+  [StatusType.Haste]: 'status_haste',
+  [StatusType.Slow]: 'status_slow',
+  [StatusType.Frenzy]: 'status_frenzy',
+  [StatusType.Wound]: 'status_wound',
+  [StatusType.Vulnerable]: 'status_vulnerable',
+};
+let woundSounds = 0;
+let vulnerableSounds = 0;
+
+function applyStatus(target: UnitState, type: StatusType, stacks: number, state?: GameState): void {
   const existing = target.statusEffects.find(e => e.type === type);
   const maxStacks = type === StatusType.Slow || type === StatusType.Burn ? 5 : 1;
   const duration = type === StatusType.Burn ? 3 * TICK_RATE :
@@ -3090,6 +3127,7 @@ function applyStatus(target: UnitState, type: StatusType, stacks: number): void 
                    type === StatusType.Haste ? 3 * TICK_RATE :
                    type === StatusType.Frenzy ? 4 * TICK_RATE :
                    4 * TICK_RATE; // Shield
+  const isNew = !existing;
   if (existing) {
     existing.stacks = Math.min(existing.stacks + stacks, maxStacks);
     existing.duration = duration; // refresh
@@ -3097,6 +3135,22 @@ function applyStatus(target: UnitState, type: StatusType, stacks: number): void 
     target.statusEffects.push({ type, stacks: Math.min(stacks, maxStacks), duration });
   }
   if (type === StatusType.Shield && target.shieldHp <= 0) target.shieldHp = 12;
+
+  // Emit sound only for new applications (not refreshes), heavily throttled
+  if (state && isNew) {
+    const soundType = STATUS_SOUND_MAP[type];
+    if (soundType) {
+      const canPlay =
+        (type === StatusType.Burn && statusBurnSounds++ < 2) ||
+        (type === StatusType.Shield && statusShieldSounds++ < 1) ||
+        (type === StatusType.Haste && statusHasteSounds++ < 1) ||
+        (type === StatusType.Slow && statusSlowSounds++ < 2) ||
+        (type === StatusType.Frenzy && statusFrenzySounds++ < 1) ||
+        (type === StatusType.Wound && woundSounds++ < 1) ||
+        (type === StatusType.Vulnerable && vulnerableSounds++ < 1);
+      if (canPlay) addSound(state, soundType, target.x, target.y);
+    }
+  }
 }
 
 function applyKnockback(unit: UnitState, amount: number, mapDef?: MapDef): void {
@@ -3127,17 +3181,23 @@ function trackHealing(state: GameState, unit: UnitState, amount: number): void {
 }
 
 const WOUND_DURATION_TICKS = 6 * TICK_RATE;
-function applyWound(target: UnitState): void {
+function applyWound(target: UnitState, state?: GameState): void {
   const existing = target.statusEffects.find(e => e.type === StatusType.Wound);
   if (existing) { existing.duration = WOUND_DURATION_TICKS; }
-  else { target.statusEffects.push({ type: StatusType.Wound, stacks: 1, duration: WOUND_DURATION_TICKS }); }
+  else {
+    target.statusEffects.push({ type: StatusType.Wound, stacks: 1, duration: WOUND_DURATION_TICKS });
+    if (state && woundSounds++ < 1) addSound(state, 'status_wound', target.x, target.y);
+  }
 }
 
 const VULNERABLE_DURATION_TICKS = 3 * TICK_RATE;
-function applyVulnerable(target: UnitState): void {
+function applyVulnerable(target: UnitState, state?: GameState): void {
   const existing = target.statusEffects.find(e => e.type === StatusType.Vulnerable);
   if (existing) { existing.duration = VULNERABLE_DURATION_TICKS; }
-  else { target.statusEffects.push({ type: StatusType.Vulnerable, stacks: 1, duration: VULNERABLE_DURATION_TICKS }); }
+  else {
+    target.statusEffects.push({ type: StatusType.Vulnerable, stacks: 1, duration: VULNERABLE_DURATION_TICKS });
+    if (state && vulnerableSounds++ < 1) addSound(state, 'status_vulnerable', target.x, target.y);
+  }
 }
 
 /** Heal a unit, respecting Wound status (-50% healing). Returns actual HP healed. */
@@ -3350,16 +3410,16 @@ function dealDamage(state: GameState, target: UnitState, amount: number, showFlo
             if (actualHeal > 0) trackHealing(state, killer, actualHeal);
             // Blood Frenzy: double frenzy radius
             const frenzyRadius = wildPlayer?.researchUpgrades.raceUpgrades['wild_ability_2'] ? 12 : 6;
-            applyStatus(killer, StatusType.Frenzy, 1);
-            applyStatus(killer, StatusType.Haste, 1);
+            applyStatus(killer, StatusType.Frenzy, 1, state);
+            applyStatus(killer, StatusType.Haste, 1, state);
             const frenzyNearby = _combatGrid.getNearby(killer.x, killer.y, frenzyRadius);
             for (const ally of frenzyNearby) {
               if (ally.team !== killer.team || ally.id === killer.id || ally.hp <= 0) continue;
               if (state.players[ally.playerId]?.race !== Race.Wild) continue;
               const dx = ally.x - killer.x, dy = ally.y - killer.y;
               if (dx * dx + dy * dy <= frenzyRadius * frenzyRadius) {
-                applyStatus(ally, StatusType.Frenzy, 1);
-                applyStatus(ally, StatusType.Haste, 1);
+                applyStatus(ally, StatusType.Frenzy, 1, state);
+                applyStatus(ally, StatusType.Haste, 1, state);
               }
             }
             if (state.rng() < 0.25) {
@@ -3407,7 +3467,7 @@ function applyCasterSupport(state: GameState, caster: UnitState, race: Race, sp:
       if (casterPlayer?.researchUpgrades.raceUpgrades['crown_caster_1']) absorbBonus += 8;
       const crownShielded = Math.min(shieldCount, sorted.length);
       for (let i = 0; i < crownShielded; i++) {
-        applyStatus(sorted[i], StatusType.Shield, 1);
+        applyStatus(sorted[i], StatusType.Shield, 1, state);
         if (absorbBonus > 0) sorted[i].shieldHp += absorbBonus;
         caster.buffsApplied++;
         if (state.playerStats[caster.playerId]) state.playerStats[caster.playerId].totalBuffsApplied++;
@@ -3433,7 +3493,7 @@ function applyCasterSupport(state: GameState, caster: UnitState, race: Race, sp:
       const hordeP = state.players[caster.playerId];
       for (const a of allies) {
         if (!a.statusEffects.some(e => e.type === StatusType.Haste)) {
-          applyStatus(a, StatusType.Haste, 1);
+          applyStatus(a, StatusType.Haste, 1, state);
           // Research: War Drums — +2s haste duration
           if (hordeP?.researchUpgrades.raceUpgrades['horde_caster_1']) {
             const hasteEff = a.statusEffects.find(e => e.type === StatusType.Haste);
@@ -3466,7 +3526,7 @@ function applyCasterSupport(state: GameState, caster: UnitState, race: Race, sp:
       let oozHasteCount = 0;
       for (const a of allies) {
         if (!a.statusEffects.some(e => e.type === StatusType.Haste)) {
-          applyStatus(a, StatusType.Haste, 1);
+          applyStatus(a, StatusType.Haste, 1, state);
           oozHasteCount++;
           caster.buffsApplied++;
           if (state.playerStats[caster.playerId]) state.playerStats[caster.playerId].totalBuffsApplied++;
@@ -3484,9 +3544,9 @@ function applyCasterSupport(state: GameState, caster: UnitState, race: Race, sp:
       );
       const gobP = state.players[caster.playerId];
       for (const e of enemies) {
-        applyStatus(e, StatusType.Slow, 1 + (sp?.extraSlowStacks ?? 0));
+        applyStatus(e, StatusType.Slow, 1 + (sp?.extraSlowStacks ?? 0), state);
         // Potent Hex: +1 Burn on caster AoE
-        if (gobP?.researchUpgrades.raceUpgrades['goblins_caster_1']) applyStatus(e, StatusType.Burn, 1);
+        if (gobP?.researchUpgrades.raceUpgrades['goblins_caster_1']) applyStatus(e, StatusType.Burn, 1, state);
       }
       if (enemies.length > 0) {
         addFloatingText(state, caster.x, caster.y - 0.5, '', '#2e7d32', undefined, true,
@@ -3519,14 +3579,14 @@ function applyCasterSupport(state: GameState, caster: UnitState, race: Race, sp:
       if (extraCleanse > 0) {
         for (const a of allies.slice(0, 5)) {
           if (!a.statusEffects.some(e => e.type === StatusType.Haste)) {
-            applyStatus(a, StatusType.Haste, 1);
+            applyStatus(a, StatusType.Haste, 1, state);
           }
         }
       }
       // Research: Abyssal Ward — shield 3 HP to nearby allies
       if (deepP?.researchUpgrades.raceUpgrades['deep_caster_2']) {
         for (const a of allies.slice(0, 3)) {
-          applyStatus(a, StatusType.Shield, 1);
+          applyStatus(a, StatusType.Shield, 1, state);
           a.shieldHp += 3;
           caster.buffsApplied++;
           if (state.playerStats[caster.playerId]) state.playerStats[caster.playerId].totalBuffsApplied++;
@@ -3543,7 +3603,7 @@ function applyCasterSupport(state: GameState, caster: UnitState, race: Race, sp:
       let hasteCount = 0;
       for (const a of allies) {
         if (!a.statusEffects.some(e => e.type === StatusType.Haste)) {
-          applyStatus(a, StatusType.Haste, 1);
+          applyStatus(a, StatusType.Haste, 1, state);
           hasteCount++;
           caster.buffsApplied++;
           if (state.playerStats[caster.playerId]) state.playerStats[caster.playerId].totalBuffsApplied++;
@@ -3556,7 +3616,7 @@ function applyCasterSupport(state: GameState, caster: UnitState, race: Race, sp:
         let frenzied = 0;
         for (const a of allies) {
           if (frenzied >= 2) break;
-          applyStatus(a, StatusType.Frenzy, 1);
+          applyStatus(a, StatusType.Frenzy, 1, state);
           frenzied++;
           caster.buffsApplied++;
           if (state.playerStats[caster.playerId]) state.playerStats[caster.playerId].totalBuffsApplied++;
@@ -3627,6 +3687,7 @@ function applyOnHitEffects(state: GameState, attacker: UnitState, target: UnitSt
           applyKnockback(target, 0.02, state.mapDef);
           addDeathParticles(state, target.x, target.y, '#ffab40', 3);
           addCombatEvent(state, { type: 'knockback', x: target.x, y: target.y, color: '#ffab40' });
+          addSound(state, 'combat_knockback', target.x, target.y);
           if (state.rng() < 0.3) addFloatingText(state, target.x, target.y - 0.3, 'KNOCK', '#ffab40', undefined, true,
             { ftType: 'status' });
         }
@@ -3635,12 +3696,13 @@ function applyOnHitEffects(state: GameState, attacker: UnitState, target: UnitSt
           const ah = healUnit(attacker, hordeSteal);
           if (ah > 0) trackHealing(state, attacker, ah);
           addCombatEvent(state, { type: 'lifesteal', x: target.x, y: target.y, x2: attacker.x, y2: attacker.y, color: '#66bb6a' });
+          addSound(state, 'combat_lifesteal', attacker.x, attacker.y);
         }
       }
       break;
     case Race.Goblins:
       // Knifer burn is applied via projectile hit logic (tickProjectiles)
-      applyWound(target); // all Goblin attacks apply Wound
+      applyWound(target, state); // all Goblin attacks apply Wound
       break;
     case Race.Oozlings:
       // Globule: 15% chance haste on melee hit
@@ -3653,7 +3715,7 @@ function applyOnHitEffects(state: GameState, attacker: UnitState, target: UnitSt
       // Smasher: burn on every hit (melee)
       if (isMelee) {
         applyStatus(target, StatusType.Burn, 1 + (sp?.extraBurnStacks ?? 0));
-        applyWound(target); // Demon melee applies Wound
+        applyWound(target, state); // Demon melee applies Wound
       }
       break;
     case Race.Deep:
@@ -3671,6 +3733,7 @@ function applyOnHitEffects(state: GameState, attacker: UnitState, target: UnitSt
           const wah = healUnit(attacker, wildSteal);
           if (wah > 0) trackHealing(state, attacker, wah);
           addCombatEvent(state, { type: 'lifesteal', x: target.x, y: target.y, x2: attacker.x, y2: attacker.y, color: '#66bb6a' });
+          addSound(state, 'combat_lifesteal', attacker.x, attacker.y);
         }
       }
       break;
@@ -3678,11 +3741,14 @@ function applyOnHitEffects(state: GameState, attacker: UnitState, target: UnitSt
       // Bone Knight: burn (soul drain) on melee hit + lifesteal 20% + Wound
       if (isMelee) {
         applyStatus(target, StatusType.Burn, 1 + (sp?.extraBurnStacks ?? 0));
-        applyWound(target); // Geists melee applies Wound
+        applyWound(target, state); // Geists melee applies Wound
         const geistMeleeSteal = Math.round(attacker.damage * 0.10);
         const geistAh = healUnit(attacker, geistMeleeSteal);
         if (geistAh > 0) trackHealing(state, attacker, geistAh);
-        if (geistMeleeSteal > 0) addCombatEvent(state, { type: 'lifesteal', x: target.x, y: target.y, x2: attacker.x, y2: attacker.y, color: '#b39ddb' });
+        if (geistMeleeSteal > 0) {
+          addCombatEvent(state, { type: 'lifesteal', x: target.x, y: target.y, x2: attacker.x, y2: attacker.y, color: '#b39ddb' });
+          addSound(state, 'combat_lifesteal', attacker.x, attacker.y);
+        }
       }
       // Wraith Bow: 20% ranged lifesteal is applied via projectile hit logic (tickProjectiles)
       break;
@@ -4434,7 +4500,7 @@ function tickCombat(state: GameState): void {
           extraSlowStacks: sp?.extraSlowStacks,
         });
         unit.attackTimer = Math.round(unit.attackSpeed * TICK_RATE);
-        addSound(state, 'ranged_hit', unit.x, unit.y);
+        addSound(state, 'ranged_hit', unit.x, unit.y, { race: state.players[unit.playerId]?.race });
         continue; // skip regular attack this tick
       }
     }
@@ -4738,7 +4804,7 @@ function tickCombat(state: GameState): void {
             if (mbu.raceUpgrades['horde_caster_2'] && unit.statusEffects.some(e => e.type === StatusType.Haste)) meleeDmg = Math.round(meleeDmg * 1.25);
           }
           dealDamage(state, target, meleeDmg, meleeDmg >= 5, unit.playerId, unit.id);
-          if (meleeHitSounds < 4) { addSound(state, 'melee_hit', unit.x, unit.y); meleeHitSounds++; }
+          if (meleeHitSounds < 4) { addSound(state, 'melee_hit', unit.x, unit.y, { race: state.players[unit.playerId]?.race }); meleeHitSounds++; }
           applyOnHitEffects(state, unit, target);
 
           // Horde: Trample — War Troll deals AoE trample damage on hit
@@ -5239,7 +5305,7 @@ function tickProjectiles(state: GameState): void {
           }
         }
         addDeathParticles(state, impX, impY, '#ff6600', 6);
-        if (rangedHitSounds < 3) { addSound(state, 'ranged_hit', impX, impY); rangedHitSounds++; }
+        if (rangedHitSounds < 3) { addSound(state, 'ranged_hit', impX, impY, { race: state.players[p.sourcePlayerId]?.race }); rangedHitSounds++; }
         toRemove.add(p.id);
       } else {
         p.x += (pdx / pdist) * pmove;
@@ -5275,7 +5341,7 @@ function tickProjectiles(state: GameState): void {
       }
       // Hit! Apply damage through shield
       dealDamage(state, target, hitDmg, true, p.sourcePlayerId, p.sourceUnitId, p.isTowerShot);
-      if (rangedHitSounds < 3) { addSound(state, 'ranged_hit', target.x, target.y); rangedHitSounds++; }
+      if (rangedHitSounds < 3) { addSound(state, 'ranged_hit', target.x, target.y, { race: state.players[p.sourcePlayerId]?.race }); rangedHitSounds++; }
       addDeathParticles(state, target.x, target.y, '#ffaa00', 2);
 
       // Apply status effects based on source player's race + upgrade extras
@@ -5314,7 +5380,7 @@ function tickProjectiles(state: GameState): void {
         // Demon Flame Conduit: +1 AoE burn stack on caster projectiles
         if (pbu.raceUpgrades['demon_caster_1'] && p.aoeRadius > 0) applyStatus(target, StatusType.Burn, 1);
         // Oozlings Corrosive Spit: Vulnerable (+20% dmg taken) on ranged hit
-        if (pbu.raceUpgrades['oozlings_ranged_1']) applyVulnerable(target);
+        if (pbu.raceUpgrades['oozlings_ranged_1']) applyVulnerable(target, state);
         // Crown Piercing Arrows: ignore 20% def (applied as bonus damage)
         // Geists Soul Arrows: +5% lifesteal on ranged
         if (pbu.raceUpgrades['geists_ranged_1']) {
@@ -6374,6 +6440,10 @@ function walkHome(state: GameState, h: HarvesterState, movePerTick: number): voi
       player.meat += amt;
       if (ps) ps.totalMeatEarned += amt;
       addFloatingText(state, h.x, h.y, `+${amt}`, '#ff5252', 'meat');
+    }
+    if (resourceDeliverySounds < 1) {
+      addSound(state, 'resource_delivered', h.x, h.y, { race: player.race });
+      resourceDeliverySounds++;
     }
     h.carryingResource = null;
     h.carryAmount = 0;

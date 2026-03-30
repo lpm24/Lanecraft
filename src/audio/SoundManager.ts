@@ -1,11 +1,11 @@
-import { SoundEvent, Race } from '../simulation/types';
+import { SoundEvent, Race, BuildingType } from '../simulation/types';
 import { Camera } from '../rendering/Camera';
 import { subscribeToAudioSettings, type AudioSettings } from './AudioSettings';
 import type { WeatherType } from '../rendering/VisualEffects';
 
 const TILE_SIZE = 16;
 
-const SFX_MASTER_GAIN = 0.5;
+const SFX_MASTER_GAIN = 0.7;
 const MUSIC_MASTER_GAIN = 0.075;
 
 type RhythmStyle = 'standard' | 'heavy' | 'sparse' | 'tribal' | 'none';
@@ -188,8 +188,15 @@ export class SoundManager {
 
   dispose(): void {
     this.stopMusic();
+    this.stopWeatherAudio();
+    this.disableTabSuspend();
     this.settingsUnsub?.();
     this.settingsUnsub = null;
+    if (this.actx) {
+      this.actx.close().catch(() => {});
+      this.actx = null;
+      this.master = null;
+    }
   }
 
   private ctx(): AudioContext {
@@ -212,8 +219,8 @@ export class SoundManager {
   }
 
   private applyAudioSettings(): void {
-    if (this.master) this.master.gain.value = SFX_MASTER_GAIN * this.settings.sfxVolume;
-    if (this.musicGain) this.musicGain.gain.value = MUSIC_MASTER_GAIN * this.settings.musicVolume;
+    if (this.master) this.master.gain.value = this._muted ? 0 : SFX_MASTER_GAIN * this.settings.sfxVolume;
+    if (this.musicGain) this.musicGain.gain.value = this._muted ? 0 : MUSIC_MASTER_GAIN * this.settings.musicVolume;
   }
 
   private dest(): GainNode {
@@ -706,35 +713,35 @@ export class SoundManager {
   private playMeleeHit(v: number, d: GainNode): void {
     const p = this.pitchVar(0.12);
     // Percussive thwack: filtered noise burst + low body thud
-    this.filteredNoise(0.04, v * 0.4, d, 1200 * p, 2);
-    this.sweep(110 * p, 55, 0.05, v * 0.25, d, 'triangle');
+    this.filteredNoise(0.05, v * 0.55, d, 1200 * p, 2);
+    this.sweep(110 * p, 55, 0.06, v * 0.35, d, 'triangle');
   }
 
   private playRangedHit(v: number, d: GainNode): void {
     const p = this.pitchVar(0.15);
     // Pluck — high tick + filtered noise
-    this.note(700 * p, 0.025, v * 0.25, d, 'square');
-    this.filteredNoise(0.03, v * 0.15, d, 2000 * p, 3);
+    this.note(700 * p, 0.03, v * 0.35, d, 'square');
+    this.filteredNoise(0.04, v * 0.25, d, 2000 * p, 3);
   }
 
   private playUnitKilled(v: number, d: GainNode): void {
     const p = this.pitchVar(0.1);
-    this.sweep(260 * p, 70, 0.1, v * 0.35, d, 'square');
-    this.filteredNoise(0.07, v * 0.2, d, 400, 1);
+    this.sweep(260 * p, 70, 0.12, v * 0.45, d, 'square');
+    this.filteredNoise(0.08, v * 0.3, d, 400, 1);
   }
 
   private playUnitSpawn(v: number, d: GainNode): void {
     const p = this.pitchVar(0.08);
     // Soft ascending blip — subtle "ready" feedback
-    this.note(440 * p, 0.05, v * 0.2, d, 'triangle');
-    this.note(660 * p, 0.07, v * 0.25, d, 'triangle', 0.04);
+    this.note(440 * p, 0.05, v * 0.25, d, 'triangle');
+    this.note(660 * p, 0.07, v * 0.3, d, 'triangle', 0.04);
   }
 
   private playTowerFire(v: number, d: GainNode): void {
     const p = this.pitchVar(0.12);
     // Short zap — brief high-freq burst
-    this.sweep(900 * p, 400 * p, 0.05, v * 0.2, d, 'sawtooth');
-    this.filteredNoise(0.03, v * 0.12, d, 3000, 4);
+    this.sweep(900 * p, 400 * p, 0.06, v * 0.3, d, 'sawtooth');
+    this.filteredNoise(0.04, v * 0.2, d, 3000, 4);
   }
 
   private playUpgradeComplete(v: number, d: GainNode): void {
@@ -890,6 +897,244 @@ export class SoundManager {
     notes.forEach((f, i) => this.note(f, 0.18, v * 0.35, d, 'triangle', i * 0.16));
   }
 
+  // ─── Race-Contextual Building Placement ────────────────────────
+
+  /** Race-aware pitch/timbre shift for building_placed */
+  private raceFreqShift(race?: Race): { base: number; type: OscillatorType; noiseFreq: number } {
+    switch (race) {
+      case Race.Deep:    return { base: 0.7,  type: 'sine',     noiseFreq: 400 };   // deep, watery
+      case Race.Demon:   return { base: 1.2,  type: 'sawtooth', noiseFreq: 1800 };  // harsh, fiery
+      case Race.Goblins: return { base: 1.35, type: 'square',   noiseFreq: 2200 };  // tinny, quick
+      case Race.Oozlings:return { base: 0.8,  type: 'sine',     noiseFreq: 500 };   // bubbly, wet
+      case Race.Wild:    return { base: 0.9,  type: 'triangle', noiseFreq: 800 };   // woody, natural
+      case Race.Geists:  return { base: 1.1,  type: 'sine',     noiseFreq: 1600 };  // ethereal
+      case Race.Tenders: return { base: 0.85, type: 'triangle', noiseFreq: 700 };   // organic, gentle
+      case Race.Horde:   return { base: 0.75, type: 'sawtooth', noiseFreq: 600 };   // heavy, drum-like
+      case Race.Crown:   // fallthrough
+      default:           return { base: 1.0,  type: 'triangle', noiseFreq: 1000 };  // balanced, noble
+    }
+  }
+
+  private playBuildingPlacedRace(v: number, d: GainNode, race?: Race, buildingType?: BuildingType): void {
+    const p = this.pitchVar(0.05);
+    const r = this.raceFreqShift(race);
+    // Building type pitch offset: towers=low, huts=gentle, spawners=mid
+    const typeShift = buildingType === BuildingType.Tower ? 0.85 :
+                      buildingType === BuildingType.HarvesterHut ? 1.1 : 1.0;
+    const base = r.base * typeShift;
+    // Ascending 3-note chime with race timbre
+    this.note(330 * base * p, 0.06, v * 0.3, d, r.type);
+    this.note(440 * base * p, 0.07, v * 0.35, d, r.type, 0.05);
+    this.note(550 * base * p, 0.09, v * 0.3, d, r.type, 0.1);
+    this.filteredNoise(0.04, v * 0.12, d, r.noiseFreq, 2, 0.08);
+  }
+
+  private playUpgradeCompleteRace(v: number, d: GainNode, race?: Race, buildingType?: BuildingType): void {
+    const p = this.pitchVar(0.04);
+    const r = this.raceFreqShift(race);
+    // Building category shifts the timbre slightly
+    const catShift = buildingType === BuildingType.CasterSpawner ? 1.15 :
+                     buildingType === BuildingType.RangedSpawner ? 1.05 : 1.0;
+    const base = r.base * catShift;
+    // Bright 2-note ascending chime with shimmer
+    this.note(523 * base * p, 0.1, v * 0.3, d, r.type);
+    this.note(784 * base * p, 0.15, v * 0.35, d, r.type, 0.08);
+    this.note(1568 * base * p, 0.1, v * 0.12, d, 'sine', 0.1); // shimmer overtone
+  }
+
+  // ─── Status Effect Sounds ──────────────────────────────────────
+
+  private playStatusBurn(v: number, d: GainNode): void {
+    const p = this.pitchVar(0.1);
+    // Soft crackle — filtered noise with high freq + brief warm sweep
+    this.filteredNoise(0.06, v * 0.15, d, 2500 * p, 3);
+    this.sweep(200 * p, 400 * p, 0.04, v * 0.1, d, 'sawtooth');
+  }
+
+  private playStatusShield(v: number, d: GainNode): void {
+    const p = this.pitchVar(0.06);
+    // Gentle shimmer — ascending sine + soft overtone
+    this.note(800 * p, 0.08, v * 0.15, d, 'sine');
+    this.note(1200 * p, 0.06, v * 0.1, d, 'sine', 0.03);
+    this.note(1600 * p, 0.04, v * 0.06, d, 'sine', 0.05);
+  }
+
+  private playStatusHaste(v: number, d: GainNode): void {
+    const p = this.pitchVar(0.08);
+    // Quick ascending whoosh
+    this.sweep(300 * p, 800 * p, 0.06, v * 0.12, d, 'triangle');
+  }
+
+  private playStatusSlow(v: number, d: GainNode): void {
+    const p = this.pitchVar(0.1);
+    // Low descending tone — brief heaviness
+    this.sweep(250 * p, 120, 0.07, v * 0.12, d, 'triangle');
+  }
+
+  private playStatusFrenzy(v: number, d: GainNode): void {
+    const p = this.pitchVar(0.08);
+    // Quick growl — short sawtooth burst
+    this.sweep(150 * p, 300 * p, 0.06, v * 0.15, d, 'sawtooth');
+    this.filteredNoise(0.03, v * 0.08, d, 800, 2, 0.02);
+  }
+
+  private playStatusWound(v: number, d: GainNode): void {
+    const p = this.pitchVar(0.1);
+    // Dull thud + brief low buzz — suppressive feel
+    this.sweep(180 * p, 90, 0.05, v * 0.12, d, 'sawtooth');
+    this.filteredNoise(0.03, v * 0.06, d, 400, 1.5);
+  }
+
+  private playStatusVulnerable(v: number, d: GainNode): void {
+    const p = this.pitchVar(0.1);
+    // Brief cracking/fracture — armor breaking feel
+    this.filteredNoise(0.04, v * 0.12, d, 1800 * p, 3);
+    this.note(500 * p, 0.03, v * 0.08, d, 'square');
+  }
+
+  // ─── Race-Aware Combat Hits ────────────────────────────────────
+
+  private playMeleeHitRace(v: number, d: GainNode, race?: Race): void {
+    const p = this.pitchVar(0.12);
+    const r = this.raceFreqShift(race);
+    // Percussive thwack shaped by race: noise freq + body thud pitch
+    this.filteredNoise(0.05, v * 0.55, d, r.noiseFreq * p, 2);
+    this.sweep(110 * r.base * p, 55 * r.base, 0.06, v * 0.35, d, r.type);
+  }
+
+  private playRangedHitRace(v: number, d: GainNode, race?: Race): void {
+    const p = this.pitchVar(0.15);
+    const r = this.raceFreqShift(race);
+    // Impact pluck shaped by race timbre
+    this.note(700 * r.base * p, 0.03, v * 0.35, d, r.type);
+    this.filteredNoise(0.04, v * 0.25, d, r.noiseFreq * p, 3);
+  }
+
+  // ─── Combat Event Sounds ───────────────────────────────────────
+
+  private playKnockback(v: number, d: GainNode): void {
+    const p = this.pitchVar(0.1);
+    // Punchy whoosh + low thud — impact pushback feel
+    this.sweep(300 * p, 100, 0.06, v * 0.2, d, 'triangle');
+    this.filteredNoise(0.04, v * 0.15, d, 600, 1.5);
+  }
+
+  private playLifesteal(v: number, d: GainNode): void {
+    const p = this.pitchVar(0.08);
+    // Quick ethereal drain — ascending sine with soft noise
+    this.sweep(200 * p, 500 * p, 0.06, v * 0.12, d, 'sine');
+    this.note(600 * p, 0.04, v * 0.06, d, 'sine', 0.03);
+  }
+
+  // ─── Resource Delivery ─────────────────────────────────────────
+
+  private playResourceDelivered(v: number, d: GainNode, race?: Race): void {
+    const p = this.pitchVar(0.08);
+    // Quiet, satisfying little "clink" — barely noticeable but adds texture
+    const r = this.raceFreqShift(race);
+    const base = r.base;
+    this.note(1100 * base * p, 0.03, v * 0.1, d, 'triangle');
+    this.note(1400 * base * p, 0.025, v * 0.08, d, 'sine', 0.025);
+  }
+
+  // ─── UI Sounds (non-spatial, direct to master) ─────────────────
+
+  /** Soft click for general button presses */
+  playUIClick(): void {
+    const d = this.dest();
+    const v = 0.25 * this.settings.sfxVolume;
+    const p = this.pitchVar(0.06);
+    this.note(900 * p, 0.02, v, d, 'triangle');
+  }
+
+  /** Gentle open — popup/panel appearance */
+  playUIOpen(): void {
+    const d = this.dest();
+    const v = 0.2 * this.settings.sfxVolume;
+    const p = this.pitchVar(0.04);
+    this.note(500 * p, 0.04, v, d, 'sine');
+    this.note(700 * p, 0.05, v * 0.8, d, 'sine', 0.03);
+  }
+
+  /** Gentle close — popup dismiss */
+  playUIClose(): void {
+    const d = this.dest();
+    const v = 0.18 * this.settings.sfxVolume;
+    const p = this.pitchVar(0.04);
+    this.note(600 * p, 0.04, v, d, 'sine');
+    this.note(450 * p, 0.05, v * 0.7, d, 'sine', 0.03);
+  }
+
+  /** Tab switch — light tick */
+  playUITab(): void {
+    const d = this.dest();
+    const v = 0.2 * this.settings.sfxVolume;
+    const p = this.pitchVar(0.08);
+    this.note(1000 * p, 0.015, v, d, 'triangle');
+  }
+
+  /** Confirm action — build, upgrade, start */
+  playUIConfirm(): void {
+    const d = this.dest();
+    const v = 0.25 * this.settings.sfxVolume;
+    const p = this.pitchVar(0.04);
+    this.note(600 * p, 0.04, v, d, 'triangle');
+    this.note(800 * p, 0.06, v * 0.9, d, 'triangle', 0.03);
+  }
+
+  /** Back/cancel — descending */
+  playUIBack(): void {
+    const d = this.dest();
+    const v = 0.18 * this.settings.sfxVolume;
+    const p = this.pitchVar(0.04);
+    this.note(700 * p, 0.04, v, d, 'sine');
+    this.note(500 * p, 0.05, v * 0.7, d, 'sine', 0.03);
+  }
+
+  /** Toggle on/off — quick blip */
+  playUIToggle(): void {
+    const d = this.dest();
+    const v = 0.18 * this.settings.sfxVolume;
+    this.note(850, 0.02, v, d, 'triangle');
+  }
+
+  // ─── Mute toggle ───────────────────────────────────────────────
+
+  private _muted = false;
+
+  get muted(): boolean { return this._muted; }
+
+  toggleMute(): boolean {
+    this._muted = !this._muted;
+    this.applyAudioSettings();
+    return this._muted;
+  }
+
+  // ─── Tab visibility handling ───────────────────────────────────
+
+  private _visibilityHandler: (() => void) | null = null;
+
+  /** Call once after construction to enable tab-suspend behavior */
+  enableTabSuspend(): void {
+    if (this._visibilityHandler) return;
+    this._visibilityHandler = () => {
+      if (!this.actx) return;
+      if (document.hidden) {
+        void this.actx.suspend();
+      } else {
+        void this.actx.resume();
+      }
+    };
+    document.addEventListener('visibilitychange', this._visibilityHandler);
+  }
+
+  disableTabSuspend(): void {
+    if (this._visibilityHandler) {
+      document.removeEventListener('visibilitychange', this._visibilityHandler);
+      this._visibilityHandler = null;
+    }
+  }
+
   play(event: SoundEvent, camera: Camera, canvas: HTMLCanvasElement): void {
     const v = this.spatialGain(event.x, event.y, camera, canvas);
     if (v < 0.01) return;
@@ -902,10 +1147,14 @@ export class SoundManager {
     switch (t) {
       case 'melee_hit':
         if (!this.shouldPlay('melee', 30, 3)) return;
-        this.playMeleeHit(v, this.spatialDest(pan)); break;
+        if (event.race) this.playMeleeHitRace(v, this.spatialDest(pan), event.race);
+        else this.playMeleeHit(v, this.spatialDest(pan));
+        break;
       case 'ranged_hit':
         if (!this.shouldPlay('ranged', 40, 2)) return;
-        this.playRangedHit(v, this.spatialDest(pan)); break;
+        if (event.race) this.playRangedHitRace(v, this.spatialDest(pan), event.race);
+        else this.playRangedHit(v, this.spatialDest(pan));
+        break;
       case 'unit_killed':
         if (!this.shouldPlay('killed', 40, 3)) return;
         this.playUnitKilled(v, this.spatialDest(pan)); break;
@@ -930,14 +1179,53 @@ export class SoundManager {
       case 'ability_troll': this.playAbilityTroll(v, this.spatialDest(pan)); break;
       case 'ability_potion': this.playAbilityPotion(v, this.spatialDest(pan)); break;
       // Below: less frequent sounds — always play, still get panning
-      case 'building_placed': this.playBuildingPlaced(v, this.spatialDest(pan)); break;
+      case 'building_placed':
+        if (event.race) this.playBuildingPlacedRace(v, this.spatialDest(pan), event.race, event.buildingType);
+        else this.playBuildingPlaced(v, this.spatialDest(pan));
+        break;
       case 'building_destroyed': this.playBuildingDestroyed(v, this.spatialDest(pan)); break;
-      case 'upgrade_complete': this.playUpgradeComplete(v, this.spatialDest(pan)); break;
+      case 'upgrade_complete':
+        if (event.race) this.playUpgradeCompleteRace(v, this.spatialDest(pan), event.race, event.buildingType);
+        else this.playUpgradeComplete(v, this.spatialDest(pan));
+        break;
       case 'nuke_incoming': this.playNukeIncoming(v, this.spatialDest(pan)); break;
       case 'nuke_detonated': this.playNukeDetonated(v, this.spatialDest(pan)); break;
       case 'diamond_exposed': this.playDiamondExposed(v, this.spatialDest(pan)); break;
       case 'diamond_carried': this.playDiamondCarried(v, this.spatialDest(pan)); break;
       case 'hq_damaged': this.playHqDamaged(v, this.spatialDest(pan)); break;
+      // Status effect sounds — already throttled in simulation, light cooldown here
+      case 'status_burn':
+        if (!this.shouldPlay('status_burn', 800, 1)) return;
+        this.playStatusBurn(v, this.spatialDest(pan)); break;
+      case 'status_shield':
+        if (!this.shouldPlay('status_shield', 1000, 1)) return;
+        this.playStatusShield(v, this.spatialDest(pan)); break;
+      case 'status_haste':
+        if (!this.shouldPlay('status_haste', 1500, 1)) return;
+        this.playStatusHaste(v, this.spatialDest(pan)); break;
+      case 'status_slow':
+        if (!this.shouldPlay('status_slow', 800, 1)) return;
+        this.playStatusSlow(v, this.spatialDest(pan)); break;
+      case 'status_frenzy':
+        if (!this.shouldPlay('status_frenzy', 1500, 1)) return;
+        this.playStatusFrenzy(v, this.spatialDest(pan)); break;
+      case 'status_wound':
+        if (!this.shouldPlay('status_wound', 1000, 1)) return;
+        this.playStatusWound(v, this.spatialDest(pan)); break;
+      case 'status_vulnerable':
+        if (!this.shouldPlay('status_vulnerable', 1000, 1)) return;
+        this.playStatusVulnerable(v, this.spatialDest(pan)); break;
+      // Combat events — knockback and lifesteal
+      case 'combat_knockback':
+        if (!this.shouldPlay('knockback', 200, 1)) return;
+        this.playKnockback(v, this.spatialDest(pan)); break;
+      case 'combat_lifesteal':
+        if (!this.shouldPlay('lifesteal', 300, 1)) return;
+        this.playLifesteal(v, this.spatialDest(pan)); break;
+      // Resource delivery — very subtle
+      case 'resource_delivered':
+        if (!this.shouldPlay('resource', 300, 1)) return;
+        this.playResourceDelivered(v, this.spatialDest(pan), event.race); break;
       // Global sounds — no panning
       case 'match_start': this.playMatchStart(v, this.dest()); break;
       case 'match_end_win': this.playMatchEndWin(v, this.dest()); break;
@@ -1027,8 +1315,8 @@ export class SoundManager {
     if (typeChanged) {
       const sfxVol = this.settings.sfxVolume;
       let targetNoiseGain = 0;
-      if (weatherType === 'rain') targetNoiseGain = 0.06 * sfxVol;
-      else if (weatherType === 'storm') targetNoiseGain = 0.12 * sfxVol;
+      if (weatherType === 'rain') targetNoiseGain = 0.035 * sfxVol;
+      else if (weatherType === 'storm') targetNoiseGain = 0.07 * sfxVol;
       else if (weatherType === 'snow') targetNoiseGain = 0.02 * sfxVol;
       else if (weatherType === 'blizzard') targetNoiseGain = 0.08 * sfxVol;
       else if (weatherType === 'sandstorm') targetNoiseGain = 0.07 * sfxVol;
@@ -1043,7 +1331,7 @@ export class SoundManager {
 
     if (windChanged && this.weatherWindOsc && this.weatherWindGain) {
       const sfxVol = this.settings.sfxVolume;
-      const windVol = Math.min(0.08, Math.abs(windStrength) * 0.001) * sfxVol;
+      const windVol = Math.min(0.04, Math.abs(windStrength) * 0.0005) * sfxVol;
       this.weatherWindGain.gain.cancelScheduledValues(now);
       this.weatherWindGain.gain.setValueAtTime(this.weatherWindGain.gain.value, now);
       this.weatherWindGain.gain.linearRampToValueAtTime(windVol, now + 0.5);
@@ -1079,8 +1367,8 @@ export class SoundManager {
     const filter = ac.createBiquadFilter();
     if (isRain) {
       filter.type = 'bandpass';
-      filter.frequency.value = 2500;
-      filter.Q.value = 0.4;
+      filter.frequency.value = 1800;
+      filter.Q.value = 0.2;
     } else if (isSand) {
       filter.type = 'lowpass';
       filter.frequency.value = 800;
@@ -1120,9 +1408,9 @@ export class SoundManager {
     // LFO for wind modulation
     const lfo = ac.createOscillator();
     lfo.type = 'sine';
-    lfo.frequency.value = 0.3; // slow modulation
+    lfo.frequency.value = 0.15; // very slow modulation — less pulsing
     const lfoGain = ac.createGain();
-    lfoGain.gain.value = 30; // frequency wobble range
+    lfoGain.gain.value = 12; // gentle frequency wobble range
 
     lfo.connect(lfoGain);
     lfoGain.connect(osc.frequency);

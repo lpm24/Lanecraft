@@ -496,11 +496,13 @@ export class InputHandler {
     if (cx < sx || cx >= sx + pw || cy < sy || cy >= sy + panelH) {
       this.settingsOpen = false;
       this.settingsSliderDrag = null;
+      this.game.sfx.playUIClose();
       return true;
     }
     // Close button
     if (cx >= sx + pw - 22 && cx < sx + pw - 6 && cy >= sy + 4 && cy < sy + 20) {
       this.settingsOpen = false;
+      this.game.sfx.playUIClose();
       return true;
     }
 
@@ -526,16 +528,19 @@ export class InputHandler {
     if (inRow(L.shakeRowY)) {
       const vis = getVisualSettings();
       updateVisualSettings({ screenShake: !vis.screenShake });
+      this.game.sfx.playUIToggle();
       return true;
     }
     if (inRow(L.weatherRowY)) {
       const vis = getVisualSettings();
       updateVisualSettings({ weather: !vis.weather });
+      this.game.sfx.playUIToggle();
       return true;
     }
     if (inRow(L.dayNightRowY)) {
       const vis = getVisualSettings();
       updateVisualSettings({ dayNight: !vis.dayNight });
+      this.game.sfx.playUIToggle();
       return true;
     }
 
@@ -543,41 +548,49 @@ export class InputHandler {
     if (inRow(L.laneRowY)) {
       this.laneToggleMode = this.laneToggleMode === 'double' ? 'single' : 'double';
       this.saveLaneMode();
+      this.game.sfx.playUIToggle();
       return true;
     }
     if (inRow(L.feedbackRowY)) {
       this.uiFeedbackEnabled = !this.uiFeedbackEnabled;
       this.saveUiFeedbackEnabled();
+      this.game.sfx.playUIToggle();
       return true;
     }
     if (inRow(L.cameraSnapRowY)) {
       this.cameraSnapOnSelect = !this.cameraSnapOnSelect;
       this.saveGameplaySettings();
+      this.game.sfx.playUIToggle();
       return true;
     }
     if (inRow(L.minimapRowY)) {
       this.minimapPanEnabled = !this.minimapPanEnabled;
       this.saveGameplaySettings();
+      this.game.sfx.playUIToggle();
       return true;
     }
     if (inRow(L.stickyRowY)) {
       this.stickyBuildMode = !this.stickyBuildMode;
       this.saveGameplaySettings();
+      this.game.sfx.playUIToggle();
       return true;
     }
     if (inRow(L.holdDelayRowY)) {
       this.radialArmMs = this.radialArmMs >= 500 ? 240 : this.radialArmMs + 40;
       this.saveRadialSettings();
+      this.game.sfx.playUIToggle();
       return true;
     }
     if (inRow(L.radialSizeRowY)) {
       this.radialSize = this.radialSize >= 110 ? 60 : this.radialSize + 8;
       this.saveRadialSettings();
+      this.game.sfx.playUIToggle();
       return true;
     }
     if (inRow(L.radialA11yRowY)) {
       this.radialAccessibility = !this.radialAccessibility;
       this.saveRadialSettings();
+      this.game.sfx.playUIToggle();
       return true;
     }
 
@@ -1230,6 +1243,7 @@ export class InputHandler {
     if (building.type === BuildingType.Research) {
       this.buildingPopup.close();
       this.researchPopup.open(building.id);
+      this.game.sfx.playUIOpen();
       return;
     }
 
@@ -1238,6 +1252,7 @@ export class InputHandler {
       this.buildingPopup.close();
       this.researchPopup.close();
       this.hutPopup.open(building.id);
+      this.game.sfx.playUIOpen();
       return;
     }
 
@@ -1247,6 +1262,7 @@ export class InputHandler {
       this.researchPopup.close();
       this.hutPopup.close();
       this.seedPopup.open(building.id);
+      this.game.sfx.playUIOpen();
       return;
     }
 
@@ -1257,6 +1273,7 @@ export class InputHandler {
     this.hutPopup.close();
     this.seedPopup.close();
     this.buildingPopup.open(building.id, this.isTouchDevice);
+    this.game.sfx.playUIOpen();
   }
 
   private getUpgradeChoice(building: { type: BuildingType; upgradePath: string[] }, alternate: boolean): string | null {
@@ -1818,6 +1835,8 @@ export class InputHandler {
     if (cx >= sr.x && cx <= sr.x + sr.w && cy >= sr.y && cy <= sr.y + sr.h) {
       this.settingsOpen = !this.settingsOpen;
       this.showTutorial = false;
+      if (this.settingsOpen) this.game.sfx.playUIOpen();
+      else this.game.sfx.playUIClose();
       return true;
     }
 
@@ -1968,13 +1987,19 @@ export class InputHandler {
       if (result) {
         if (result.action === 'upgrade') {
           this.game.sendCommand({ type: 'research_upgrade', playerId: this.pid, upgradeId: result.upgradeId });
+          this.game.sfx.playUIConfirm();
         } else if (result.action === 'close') {
           this.researchPopup.close();
+          this.game.sfx.playUIClose();
         }
         return true;
       }
-      if (this.researchPopup.containsPoint(popupCx, popupCy)) return true;
+      if (this.researchPopup.containsPoint(popupCx, popupCy)) {
+        this.game.sfx.playUITab(); // tab switch or consumed click inside popup
+        return true;
+      }
       this.researchPopup.close();
+      this.game.sfx.playUIClose();
     }
 
     // Building popup takes priority
@@ -1985,9 +2010,11 @@ export class InputHandler {
         if (bId !== null) {
           if (result.action === 'upgrade') {
             this.game.sendCommand({ type: 'purchase_upgrade', playerId: this.pid, buildingId: bId, choice: result.choice });
+            this.game.sfx.playUIConfirm();
           } else if (result.action === 'sell') {
             this.game.sendCommand({ type: 'sell_building', playerId: this.pid, buildingId: bId });
             this.buildingPopup.close();
+            this.game.sfx.playUIClick();
           } else if (result.action === 'toggle_lane') {
             const b = this.game.state.buildings.find(b => b.id === bId);
             if (b) {
@@ -1999,10 +2026,12 @@ export class InputHandler {
                 this.rallyPrevLanes.clear();
                 const nextLane = b.lane === Lane.Left ? Lane.Right : Lane.Left;
                 this.game.sendCommand({ type: 'toggle_lane', playerId: this.pid, buildingId: bId, lane: nextLane });
+                this.game.sfx.playUIToggle();
               }
             }
           } else if (result.action === 'close') {
             this.buildingPopup.close();
+            this.game.sfx.playUIClose();
           }
         }
         return true;
@@ -2011,6 +2040,7 @@ export class InputHandler {
       if (this.buildingPopup.containsPoint(popupCx, popupCy)) return true;
       // Click outside popup — close it
       this.buildingPopup.close();
+      this.game.sfx.playUIClose();
     }
 
     // Hut popup takes priority
@@ -2024,6 +2054,7 @@ export class InputHandler {
               type: 'set_hut_assignment', playerId: this.pid,
               hutId: bId, assignment: result.assignment,
             });
+            this.game.sfx.playUIClick();
           } else if (result.action === 'center_builder') {
             const h = this.game.state.harvesters.find(h => h.hutId === bId);
             if (h) {
@@ -2036,8 +2067,10 @@ export class InputHandler {
               this.camera.followTargetY = hpy;
             }
             this.hutPopup.close();
+            this.game.sfx.playUIClick();
           } else if (result.action === 'close') {
             this.hutPopup.close();
+            this.game.sfx.playUIClose();
           }
         }
         return true;
@@ -2046,6 +2079,7 @@ export class InputHandler {
       if (this.hutPopup.containsPoint(popupCx, popupCy)) return true;
       // Click outside popup — close it
       this.hutPopup.close();
+      this.game.sfx.playUIClose();
     }
 
     // Seed popup
@@ -2057,13 +2091,16 @@ export class InputHandler {
             type: 'use_ability', playerId: this.pid,
             gridX: result.gridX, gridY: result.gridY,
           });
+          this.game.sfx.playUIConfirm();
         } else if (result.action === 'close') {
           this.seedPopup.close();
+          this.game.sfx.playUIClose();
         }
         return true;
       }
       if (this.seedPopup.containsPoint(popupCx, popupCy)) return true;
       this.seedPopup.close();
+      this.game.sfx.playUIClose();
     }
     const cx = e.clientX - rect.left;
     const cy = e.clientY - rect.top;
@@ -2096,6 +2133,7 @@ export class InputHandler {
       if (player.nukeAvailable && !this.isNukeLocked()) {
         this.selectedBuilding = null;
         this.nukeTargeting = !this.nukeTargeting;
+        this.game.sfx.playUIClick();
       }
       return true;
     }
@@ -2112,6 +2150,7 @@ export class InputHandler {
         this.seedPopup.close();
         this.researchPopup.open(resBuilding.id);
         this.selectedBuildingId = resBuilding.id;
+        this.game.sfx.playUIOpen();
       }
       return true;
     }
@@ -2124,6 +2163,7 @@ export class InputHandler {
       const hitRandom = hitRect(rallyRandomRect);
       const hitRight = hitRect(rallyRightRect);
       if (hitLeft || hitRight || hitRandom) {
+        this.game.sfx.playUIClick();
         const target: Lane | 'random' = hitLeft ? Lane.Left : hitRight ? Lane.Right : 'random';
         if (this.rallyOverride === target) {
           // Cancel — restore previous lanes
@@ -2195,6 +2235,7 @@ export class InputHandler {
         this.clearSelection();
         this.activateAbility(player);
       }
+      this.game.sfx.playUIClick();
       this.checkTutorialTrayAdvance();
       return true;
     }

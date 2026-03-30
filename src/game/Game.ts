@@ -33,7 +33,7 @@ export class Game {
   private loop: GameLoop;
   private pendingCommands: GameCommand[] = [];
   private input: InputHandler;
-  private sounds: SoundManager;
+  readonly sfx: SoundManager;
   onMatchEnd: (() => void) | null = null;
   onQuitGame: (() => void) | null = null;
   private matchEndTick = -1;
@@ -192,7 +192,8 @@ export class Game {
     this.input = new InputHandler(this, canvas, this.renderer.camera, ui, this.renderer.sprites);
     this.input.onQuitGame = () => this.handleQuitGame();
     this.input.onConcede = () => this.handleConcede();
-    this.sounds = new SoundManager();
+    this.sfx = new SoundManager();
+    this.sfx.enableTabSuspend();
 
     // Center camera on local player's HQ at game start
     const localTeam = this.state.players[this.localPlayerId]?.team ?? Team.Bottom;
@@ -234,7 +235,7 @@ export class Game {
     const musicRace = partyOpts
       ? (partyOpts.humanPlayers.find(h => h.slot === this.localPlayerId)?.race ?? playerRace)
       : playerRace;
-    this.sounds.startMusic(musicRace);
+    this.sfx.startMusic(musicRace);
   }
 
   /** Which player slot the local user controls (0 = host/solo, 1 = guest). */
@@ -290,8 +291,8 @@ export class Game {
   stop(): void {
     if (this.connectingInterval) { clearInterval(this.connectingInterval); this.connectingInterval = null; }
     this.loop.stop();
-    this.sounds.stopWeatherAudio();
-    this.sounds.dispose();
+    this.sfx.stopWeatherAudio();
+    this.sfx.dispose();
     this.input.destroy();
     this.renderer.destroy();
     this.renderer.camera.destroy();
@@ -520,17 +521,17 @@ export class Game {
   private postTick(): void {
     // Play sounds emitted during this tick
     for (const ev of this.state.soundEvents) {
-      this.sounds.play(ev, this.renderer.camera, this.renderer.canvas);
+      this.sfx.play(ev, this.renderer.camera, this.renderer.canvas);
     }
     // Evaluate music intensity
     const myTeam = this.state.players[this.localPlayerId]?.team ?? Team.Bottom;
     const ownHqHpRatio = this.state.hqHp[myTeam] / HQ_HP;
     if (ownHqHpRatio < 0.3) {
-      this.sounds.setIntensity(2);
+      this.sfx.setIntensity(2);
     } else if (this.state.units.some(u => u.targetId !== null)) {
-      this.sounds.setIntensity(1);
+      this.sfx.setIntensity(1);
     } else {
-      this.sounds.setIntensity(0);
+      this.sfx.setIntensity(0);
     }
 
     // Check for match end — delay 3 seconds so player can see the final moment
@@ -551,7 +552,7 @@ export class Game {
     this.renderer.render(this.state, latencyMs, this.desyncDetected, this.peerDisconnected, this.waitingForAllyMs);
     // Update weather ambient audio
     const w = this.renderer.weather;
-    this.sounds.updateWeatherAudio(w.type, w.lightningFlash, w.windStrength);
+    this.sfx.updateWeatherAudio(w.type, w.lightningFlash, w.windStrength);
     this.input.render(this.renderer, latencyMs);
   }
 

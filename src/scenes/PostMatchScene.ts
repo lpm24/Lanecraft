@@ -3,6 +3,7 @@ import { GameState, Team, PlayerStats, MinimapFrame, HQ_WIDTH, HQ_HEIGHT, WarHer
 import { PLAYER_COLORS, RACE_COLORS } from '../simulation/data';
 import { UIAssets, IconName } from '../rendering/UIAssets';
 import { SpriteLoader, getSpriteFrame } from '../rendering/SpriteLoader';
+import { SoundManager } from '../audio/SoundManager';
 import { getSafeTop } from '../ui/SafeArea';
 
 export interface MatchStats {
@@ -26,6 +27,7 @@ export class PostMatchScene implements Scene {
   private ui: UIAssets;
   private sprites: SpriteLoader;
   private stats: MatchStats | null = null;
+  private sfx = new SoundManager();
   private animTime = 0;
   private clickHandler: ((e: MouseEvent) => void) | null = null;
 
@@ -182,6 +184,7 @@ export class PostMatchScene implements Scene {
     this.animTime = 0;
     this.scrollY = 0;
     this.maxScrollY = 0;
+    this.sfx.enableTabSuspend();
 
     // Party games return to lobby, solo/tutorial games return to title menu
     const continueTarget = 'title';
@@ -194,7 +197,7 @@ export class PostMatchScene implements Scene {
       const cy = e.clientY - rect.top;
       if (this.handleTabClick(cx, cy)) return;
       if (this.handleColHeaderClick(cx, cy)) return;
-      if (this.isButtonAt(cx, cy)) this.manager.switchTo(continueTarget);
+      if (this.isButtonAt(cx, cy)) { this.sfx.playUIConfirm(); this.manager.switchTo(continueTarget); }
     };
 
     this.mouseMoveHandler = (e) => {
@@ -205,6 +208,7 @@ export class PostMatchScene implements Scene {
 
     this.keyHandler = (e) => {
       if (e.key === 'Enter' || e.key === ' ' || e.key === 'Escape') {
+        this.sfx.playUIConfirm();
         this.manager.switchTo(continueTarget);
       }
     };
@@ -220,7 +224,7 @@ export class PostMatchScene implements Scene {
       const cy = touch.clientY - rect.top;
       if (this.handleTabClick(cx, cy)) return;
       if (this.handleColHeaderClick(cx, cy)) return;
-      if (this.isButtonAt(cx, cy)) this.manager.switchTo(continueTarget);
+      if (this.isButtonAt(cx, cy)) { this.sfx.playUIConfirm(); this.manager.switchTo(continueTarget); }
     };
 
     this.wheelHandler = (e) => {
@@ -258,6 +262,7 @@ export class PostMatchScene implements Scene {
     this.touchHandler = null;
     this.wheelHandler = null;
     this.touchMoveHandler = null;
+    this.sfx.dispose();
   }
 
   private handleTabClick(cx: number, cy: number): boolean {
@@ -266,6 +271,7 @@ export class PostMatchScene implements Scene {
         if (this.activeTab !== tab.id) {
           this.activeTab = tab.id;
           this.scrollY = 0;
+          this.sfx.playUITab();
         }
         return true;
       }
@@ -285,6 +291,7 @@ export class PostMatchScene implements Scene {
           this.sortCol = hdr.col;
           this.sortAsc = false; // default descending (highest first)
         }
+        this.sfx.playUIClick();
         return true;
       }
     }

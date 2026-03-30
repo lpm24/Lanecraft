@@ -3522,9 +3522,19 @@ function botUseAbility(state: GameState, playerId: number, emit: Emit): void {
       emit({ type: 'use_ability', playerId, x: bestX, y: bestY });
     }
   } else if (def.targetMode === AbilityTargetMode.BuildSlot) {
-    // BuildSlot abilities (Oozlings Ooze Mound): use when affordable, but consider
-    // whether research would be better value once we have enough racial buildings.
+    // BuildSlot abilities: race-specific timing
     const racialCount = state.buildings.filter(b => b.playerId === playerId && b.isGlobule).length;
+    const gameMin = state.tick / TICK_RATE / 60;
+
+    // Goblins: potion shops are mid-game buildings — need army first, potions scale with research
+    // Don't build any before 3 min, max 1 before 5 min, max 2 before 7 min
+    if (player.race === Race.Goblins) {
+      if (gameMin < 3) return;
+      const potionShopCount = state.buildings.filter(b => b.playerId === playerId && b.isPotionShop).length;
+      if (gameMin < 5 && potionShopCount >= 1) return;
+      if (gameMin < 7 && potionShopCount >= 2) return;
+    }
+
     // After 6+ Ooze Mounds, alternate: save some deathEssence for research upgrades
     if (racialCount >= 6 && player.race === Race.Oozlings) {
       // Only build if we have enough deathEssence to cover both the mound AND a research

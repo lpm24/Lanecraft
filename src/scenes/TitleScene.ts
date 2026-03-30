@@ -254,6 +254,7 @@ export class TitleScene implements Scene {
         if (this.hitRect(cx, cy, pl.slotRects[localSlot])) {
           e.preventDefault();
           this.cycleRace(-1);
+          this.menuMusic.playUIClick();
           return;
         }
         // Right-click on bot slot → cycle bot race
@@ -267,6 +268,7 @@ export class TitleScene implements Scene {
               if (!hasPlayer && ps.bots?.[String(i)]) {
                 e.preventDefault();
                 this.cyclePartyBotRace(i);
+                this.menuMusic.playUIClick();
                 return;
               }
             }
@@ -279,6 +281,7 @@ export class TitleScene implements Scene {
         if (this.hitRect(cx, cy, pl.slotRects[ls.playerSlot])) {
           e.preventDefault();
           this.cycleRace(-1);
+          this.menuMusic.playUIClick();
           return;
         }
         // Right-click bot slot → cycle bot race
@@ -289,6 +292,7 @@ export class TitleScene implements Scene {
           if (this.hitRect(cx, cy, pl.slotRects[i]) && ls.bots[String(i)]) {
             e.preventDefault();
             this.cycleBotRace(i);
+            this.menuMusic.playUIClick();
             return;
           }
         }
@@ -325,6 +329,7 @@ export class TitleScene implements Scene {
       interactHandler();
       if (this.settingsOpen && e.key === 'Escape') {
         this.settingsOpen = false;
+        this.menuMusic.playUIClose();
         return;
       }
       // Ctrl+V paste — works even before join input is active
@@ -345,7 +350,7 @@ export class TitleScene implements Scene {
         return;
       }
       if (this.joinInputActive) {
-        if (e.key === 'Escape') { this.closeJoinInput(); return; }
+        if (e.key === 'Escape') { this.menuMusic.playUIBack(); this.closeJoinInput(); return; }
         // Let hidden input handle all text input, Enter, and Backspace
         return;
       }
@@ -779,11 +784,13 @@ export class TitleScene implements Scene {
     const settingsLayout = getSettingsOverlayLayout(this.canvas.clientWidth, this.canvas.clientHeight);
     if (hitOverlayRect(cx, cy, settingsLayout.button, 6)) {
       this.settingsOpen = !this.settingsOpen;
+      if (this.settingsOpen) this.menuMusic.playUIOpen(); else this.menuMusic.playUIClose();
       return;
     }
     if (this.settingsOpen) {
       if (hitOverlayRect(cx, cy, settingsLayout.close, 8)) {
         this.settingsOpen = false;
+        this.menuMusic.playUIClose();
         return;
       }
       if (hitOverlayRect(cx, cy, settingsLayout.musicRow)) {
@@ -794,9 +801,10 @@ export class TitleScene implements Scene {
         updateAudioSettings({ sfxVolume: sliderValueFromPoint(cx, settingsLayout.sfxRow) });
         return;
       }
-      if (handleVisualToggleClick(cx, cy, settingsLayout)) return;
+      if (handleVisualToggleClick(cx, cy, settingsLayout)) { this.menuMusic.playUIToggle(); return; }
       if (hitOverlayRect(cx, cy, settingsLayout.panel)) return;
       this.settingsOpen = false;
+      this.menuMusic.playUIClose();
     }
 
     // Duel control buttons (always active)
@@ -804,8 +812,10 @@ export class TitleScene implements Scene {
       if (this.resetEloConfirm) {
         saveAllElo({});
         this.resetEloConfirm = false;
+        this.menuMusic.playUIConfirm();
       } else {
         this.resetEloConfirm = true;
+        this.menuMusic.playUIClick();
       }
       return;
     }
@@ -819,6 +829,7 @@ export class TitleScene implements Scene {
       this.waitTimer = 0.5;
       this.blueTeam = [];
       this.redTeam = [];
+      this.menuMusic.playUIClick();
       return;
     }
     if (this.hitRect(cx, cy, this.tierBtnRect)) {
@@ -828,6 +839,7 @@ export class TitleScene implements Scene {
       this.waitTimer = 0.5;
       this.blueTeam = [];
       this.redTeam = [];
+      this.menuMusic.playUIClick();
       return;
     }
     if (this.hitRect(cx, cy, this.raceLockBtnRect)) {
@@ -837,6 +849,7 @@ export class TitleScene implements Scene {
       this.waitTimer = 0.5;
       this.blueTeam = [];
       this.redTeam = [];
+      this.menuMusic.playUIClick();
       return;
     }
     if (this.hitRect(cx, cy, this.typeFilterBtnRect)) {
@@ -848,6 +861,7 @@ export class TitleScene implements Scene {
       this.waitTimer = 0.5;
       this.blueTeam = [];
       this.redTeam = [];
+      this.menuMusic.playUIClick();
       return;
     }
 
@@ -855,6 +869,7 @@ export class TitleScene implements Scene {
     if (this.localSetup) {
       // Profile button accessible from lobby
       if (this.hitRect(cx, cy, this.profileBtnRect)) {
+        this.menuMusic.playUIClick();
         this.manager.switchTo('profile');
         return;
       }
@@ -864,6 +879,7 @@ export class TitleScene implements Scene {
       // Click own slot's race to cycle
       if (this.hitRect(cx, cy, pl.slotRects[ls.playerSlot])) {
         this.cycleRace();
+        this.menuMusic.playUIClick();
         return;
       }
       // Click non-player slots: check X/RACE/DIFF buttons first, then cell for empty slots
@@ -879,39 +895,46 @@ export class TitleScene implements Scene {
             delete ls.bots[String(i)];
             if (ls.botRaces) delete ls.botRaces[String(i)];
             saveLocalSetup(ls);
+            this.menuMusic.playUIClick();
             return;
           }
           // RACE and DIFF buttons
           const { raceBtn, diffBtn } = this.getBotSlotButtons(sr);
           if (this.hitRect(cx, cy, raceBtn)) {
             this.cycleBotRace(i);
+            this.menuMusic.playUIClick();
             return;
           }
           if (this.hitRect(cx, cy, diffBtn)) {
             this.localSetupCycleDifficulty(i);
+            this.menuMusic.playUIClick();
             return;
           }
         }
         // Click anywhere in cell on empty slot adds a bot
         if (this.hitRect(cx, cy, sr) && !ls.bots[String(i)]) {
           this.localSetupCycleBot(i);
+          this.menuMusic.playUIClick();
           return;
         }
       }
       // Mode toggle (1v1 / 2v2 / 3v3)
       if (this.hitRect(cx, cy, pl.modeToggle)) {
         this.localSetupCycleMode();
+        this.menuMusic.playUIClick();
         return;
       }
       // Fog of war toggle
       if (this.hitRect(cx, cy, pl.fogToggle)) {
         ls.fogOfWar = !(ls.fogOfWar ?? true);
         saveLocalSetup(ls);
+        this.menuMusic.playUIToggle();
         return;
       }
       // Start button
       if (this.hitRect(cx, cy, pl.start) && canStartLocalSetup(ls)) {
         saveLocalSetup(ls);
+        this.menuMusic.playUIConfirm();
         if (this.onLocalStart) this.onLocalStart(ls);
         this.localSetup = null;
         return;
@@ -919,6 +942,7 @@ export class TitleScene implements Scene {
       // Leave / back button — save state so it's restored next time
       if (this.hitRect(cx, cy, pl.leave)) {
         saveLocalSetup(ls);
+        this.menuMusic.playUIBack();
         this.localSetup = null;
         return;
       }
@@ -929,6 +953,7 @@ export class TitleScene implements Scene {
     if (this.partyState && !this.matchmaking) {
       // Profile button accessible from lobby
       if (this.hitRect(cx, cy, this.profileBtnRect)) {
+        this.menuMusic.playUIClick();
         this.manager.switchTo('profile');
         return;
       }
@@ -940,6 +965,7 @@ export class TitleScene implements Scene {
       // Click own slot to cycle race
       if (this.hitRect(cx, cy, pl.slotRects[localSlot])) {
         this.cycleRace();
+        this.menuMusic.playUIClick();
         return;
       }
       // Host clicking non-local slots: X/RACE/DIFF buttons on bot slots, X on player slots, cell click for empty
@@ -957,6 +983,7 @@ export class TitleScene implements Scene {
             const removeBtn = this.getSlotRemoveBtn(sr);
             if (this.hitRect(cx, cy, removeBtn)) {
               this.party?.setSlotBot(i, null);
+              this.menuMusic.playUIClick();
               return;
             }
           }
@@ -965,18 +992,21 @@ export class TitleScene implements Scene {
             const { raceBtn, diffBtn } = this.getBotSlotButtons(sr);
             if (this.hitRect(cx, cy, raceBtn)) {
               this.cyclePartyBotRace(i);
+              this.menuMusic.playUIClick();
               return;
             }
             if (this.hitRect(cx, cy, diffBtn)) {
               const cycle = [BotDifficultyLevel.Easy, BotDifficultyLevel.Medium, BotDifficultyLevel.Hard, BotDifficultyLevel.Nightmare];
               const curIdx = cycle.indexOf(currentBot as BotDifficultyLevel);
               this.party?.setSlotBot(i, cycle[(curIdx + 1) % cycle.length]);
+              this.menuMusic.playUIClick();
               return;
             }
           }
           // Empty slot — click anywhere in cell adds a bot
           if (this.hitRect(cx, cy, sr) && !currentBot) {
             this.party?.setSlotBot(i, BotDifficultyLevel.Easy);
+            this.menuMusic.playUIClick();
             return;
           }
         }
@@ -985,6 +1015,7 @@ export class TitleScene implements Scene {
       if (isHost && this.hitRect(cx, cy, pl.fogToggle)) {
         const current = this.partyState.fogOfWar ?? true;
         this.party?.updateFogOfWar(!current);
+        this.menuMusic.playUIToggle();
         return;
       }
       // Mode toggle (host only — cycle Duel → Battle → War)
@@ -1001,13 +1032,16 @@ export class TitleScene implements Scene {
         } else {
           this.party?.updateMap('duel', 1);
         }
+        this.menuMusic.playUIClick();
         return;
       }
       if (isHost && this.hitRect(cx, cy, pl.start) && canStartParty(this.partyState)) {
+        this.menuMusic.playUIConfirm();
         this.party?.startGame();
         return;
       }
       if (this.hitRect(cx, cy, pl.leave)) {
+        this.menuMusic.playUIBack();
         this.party?.leaveParty();
         return;
       }
@@ -1015,6 +1049,7 @@ export class TitleScene implements Scene {
       if (this.hitRect(cx, cy, pl.code)) {
         navigator.clipboard?.writeText(this.partyState.code).catch(() => {});
         this.copyFeedbackTimer = 120; // ~2s at 60fps
+        this.menuMusic.playUIClick();
         return;
       }
       return;
@@ -1026,10 +1061,12 @@ export class TitleScene implements Scene {
       const h = this.canvas.clientHeight;
       const jl = this.getJoinInputLayout(w, h);
       if (this.hitRect(cx, cy, jl.join) && this.joinCodeInput.length >= 4) {
+        this.menuMusic.playUIConfirm();
         this.doJoinParty();
         return;
       }
       if (this.hitRect(cx, cy, jl.cancel)) {
+        this.menuMusic.playUIBack();
         this.closeJoinInput();
         return;
       }
@@ -1042,6 +1079,7 @@ export class TitleScene implements Scene {
       // Clicking outside the scroll + buttons area dismisses
       const fullH = (jl.cancel.y + jl.cancel.h) - jl.bgY;
       if (!this.hitRect(cx, cy, { x: jl.bgX, y: jl.bgY, w: jl.bgW, h: fullH })) {
+        this.menuMusic.playUIBack();
         this.closeJoinInput();
       }
       return;
@@ -1054,32 +1092,39 @@ export class TitleScene implements Scene {
 
     // Profile button
     if (this.hitRect(cx, cy, this.profileBtnRect)) {
+      this.menuMusic.playUIClick();
       this.manager.switchTo('profile');
       return;
     }
 
     const btns = this.getButtonLayout();
     if (this.hitRect(cx, cy, btns.solo)) {
+      this.menuMusic.playUIClick();
       this.manager.switchTo('raceSelect');
       return;
     }
     if (this.hitRect(cx, cy, btns.findGame)) {
       if (this.matchmaking) {
+        this.menuMusic.playUIBack();
         this.cancelMatchmaking();
       } else {
+        this.menuMusic.playUIClick();
         this.doFindGame();
       }
       return;
     }
     if (this.hitRect(cx, cy, btns.create) && !this.connecting) {
+      this.menuMusic.playUIClick();
       this.doCreateParty();
       return;
     }
     if (this.hitRect(cx, cy, btns.gallery)) {
+      this.menuMusic.playUIClick();
       this.manager.switchTo('gallery');
       return;
     }
     if (this.hitRect(cx, cy, btns.join)) {
+      this.menuMusic.playUIOpen();
       this.openJoinInput();
       return;
     }

@@ -310,7 +310,7 @@ export class CommandSync {
       // Clean up old turns from Firebase
       if (turn > TURN_CLEANUP_DELAY) {
         const oldTurn = turn - TURN_CLEANUP_DELAY;
-        remove(ref(db, `games/${this.partyCode}/turns/${oldTurn}`)).catch(() => {});
+        remove(ref(db, `games/${this.partyCode}/turns/${oldTurn}`)).catch(e => console.warn('[CommandSync] old turn cleanup failed:', e));
         this.turnBuffer.delete(oldTurn);
       }
     }
@@ -404,7 +404,7 @@ export class CommandSync {
   broadcastLeave(): void {
     try {
       const db = getDb();
-      set(ref(db, `games/${this.partyCode}/left/${this.localSlotId}`), true).catch(() => {});
+      set(ref(db, `games/${this.partyCode}/left/${this.localSlotId}`), true).catch(e => console.warn('[CommandSync] broadcastLeave failed:', e));
     } catch {
       // DB may not be available
     }
@@ -490,7 +490,7 @@ export class CommandSync {
     // because the other player may still be writing turns
     try {
       const db = getDb();
-      remove(ref(db, `games/${this.partyCode}/ready/${this.localSlotId}`)).catch(() => {});
+      remove(ref(db, `games/${this.partyCode}/ready/${this.localSlotId}`)).catch(e => console.warn('[CommandSync] ready signal cleanup failed:', e));
     } catch {
       // DB may not be available
     }

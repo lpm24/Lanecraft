@@ -125,10 +125,10 @@ export class RaceSelectScene implements Scene {
         const race = this.selectedIndex < RACES.length ? RACES[this.selectedIndex].race : Race.Crown;
         this.music.previewRaceSelection(race);
       }
-      if (e.key === 'Enter' || e.key === ' ') this.confirm();
+      if (e.key === 'Enter' || e.key === ' ') { this.music.playUIConfirm(); this.confirm(); }
       if (e.key === 'Escape') {
-        if (this.settingsOpen) this.settingsOpen = false;
-        else this.manager.switchTo('title');
+        if (this.settingsOpen) { this.settingsOpen = false; this.music.playUIClose(); }
+        else { this.music.playUIBack(); this.manager.switchTo('title'); }
       }
     };
 
@@ -137,18 +137,21 @@ export class RaceSelectScene implements Scene {
       if (Date.now() - lastTouchTime < 300) return;
       const [cx, cy] = this.toCanvasCoords(e.clientX, e.clientY);
       if (this.handleSettingsClick(cx, cy)) return;
-      if (this.isBackButtonAt(cx, cy)) { this.manager.switchTo('title'); return; }
+      if (this.isBackButtonAt(cx, cy)) { this.music.playUIBack(); this.manager.switchTo('title'); return; }
       if (this.isRandomButtonAt(cx, cy)) {
-        if (this.selectedIndex === RANDOM_INDEX) { this.confirm(); return; }
+        if (this.selectedIndex === RANDOM_INDEX) { this.music.playUIConfirm(); this.confirm(); return; }
         this.selectedIndex = RANDOM_INDEX;
+        this.music.playUIClick();
         return;
       }
       const idx = this.getBoxIndexAt(cx, cy);
       if (idx >= 0) {
-        if (idx === this.selectedIndex) { this.confirm(); return; }
+        if (idx === this.selectedIndex) { this.music.playUIConfirm(); this.confirm(); return; }
         this.selectedIndex = idx;
+        this.music.playUIClick();
         this.music.previewRaceSelection(RACES[this.selectedIndex].race);
       } else if (this.isStartButtonAt(cx, cy)) {
+        this.music.playUIConfirm();
         this.confirm();
       }
     };
@@ -183,18 +186,21 @@ export class RaceSelectScene implements Scene {
       if (this.sliderDrag.start(cx, cy, layout, this.settingsOpen)) return;
       lastTouchTime = Date.now();
       if (this.handleSettingsClick(cx, cy)) return;
-      if (this.isBackButtonAt(cx, cy)) { this.manager.switchTo('title'); return; }
+      if (this.isBackButtonAt(cx, cy)) { this.music.playUIBack(); this.manager.switchTo('title'); return; }
       if (this.isRandomButtonAt(cx, cy)) {
-        if (this.selectedIndex === RANDOM_INDEX) { this.confirm(); return; }
+        if (this.selectedIndex === RANDOM_INDEX) { this.music.playUIConfirm(); this.confirm(); return; }
         this.selectedIndex = RANDOM_INDEX;
+        this.music.playUIClick();
         return;
       }
       const idx = this.getBoxIndexAt(cx, cy);
       if (idx >= 0) {
-        if (idx === this.selectedIndex) { this.confirm(); return; }
+        if (idx === this.selectedIndex) { this.music.playUIConfirm(); this.confirm(); return; }
         this.selectedIndex = idx;
+        this.music.playUIClick();
         this.music.previewRaceSelection(RACES[this.selectedIndex].race);
       } else if (this.isStartButtonAt(cx, cy)) {
+        this.music.playUIConfirm();
         this.confirm();
       }
     };
@@ -246,11 +252,13 @@ export class RaceSelectScene implements Scene {
     const layout = getSettingsOverlayLayout(this.canvas.clientWidth, this.canvas.clientHeight);
     if (hitRect(cx, cy, layout.button)) {
       this.settingsOpen = !this.settingsOpen;
+      if (this.settingsOpen) this.music.playUIOpen(); else this.music.playUIClose();
       return true;
     }
     if (!this.settingsOpen) return false;
     if (hitRect(cx, cy, layout.close)) {
       this.settingsOpen = false;
+      this.music.playUIClose();
       return true;
     }
     if (hitRect(cx, cy, layout.musicRow)) {
