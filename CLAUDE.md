@@ -36,7 +36,7 @@ The game uses **Gold, Wood, Meat** (NOT Stone). "Stone" appears in the old GDD b
 | Race | Resources | Identity |
 |------|-----------|----------|
 | Crown | Gold + Wood | Balanced, shield + dmg reduction |
-| Horde | Gold + Meat | Brute force, knockback |
+| Horde | Gold + Meat + Wood | Brute force, knockback |
 | Goblins | Gold + Wood | Fast + cheap, poison/burn |
 | Oozlings | Gold + Meat | Swarm (spawnCount:2), haste |
 | Demon | Meat + Wood | Glass cannon, burn. **No gold economy.** |

@@ -112,7 +112,7 @@ export class InputHandler {
   private cameraFollowing = false;
   private followBtnRect: { x: number; y: number; w: number; h: number } | null = null;
   private hoveredUnitId: number | null = null;
-  private showTutorial = localStorage.getItem('lanecraft.hideTutorial') !== 'true' && !isMatchTutorial();
+  private showTutorial = false;
   private hideTutorialOnStart = localStorage.getItem('lanecraft.hideTutorial') === 'true';
   // Guided tutorial state — re-derived from TutorialManager each frame
   private matchTutorialActive = false;
@@ -326,7 +326,7 @@ export class InputHandler {
     const radialA11yRowY = y; y += rowH + gap + 4;
 
     // Actions
-    const helpRowY = y; y += rowH + gap + 4;
+    const helpRowY = -1;
     const resetRowY = y; y += rowH + gap + 8;
     let concedeRowY = -1;
     if (this.onConcede) { concedeRowY = y; y += rowH + gap + 8; }
@@ -479,7 +479,6 @@ export class InputHandler {
     drawToggle(L.radialA11yRowY, 'Radial A11y', this.radialAccessibility, '#90caf9');
 
     // ── ACTIONS ──
-    drawAction(L.helpRowY, 'Help / Controls', '#90caf9', 'rgba(20,20,40,0.9)');
     drawAction(L.resetRowY, 'Reset Defaults', '#ffcc80', 'rgba(20,20,20,0.9)');
     if (this.onConcede && L.concedeRowY >= 0) {
       drawAction(L.concedeRowY, 'Concede Match', '#ffa726', 'rgba(80,60,10,0.9)');
@@ -583,11 +582,6 @@ export class InputHandler {
     }
 
     // Actions
-    if (inRow(L.helpRowY)) {
-      this.settingsOpen = false;
-      this.showTutorial = true;
-      return true;
-    }
     if (inRow(L.resetRowY)) {
       this.resetUiDefaults();
       return true;
@@ -798,7 +792,10 @@ export class InputHandler {
         const unit = this.findUnitNear(wx, wy, 1.2);
         if (unit) {
           this.hoveredUnitId = unit.id;
-          this.tooltip = { text: this.getUnitTooltip(unit), x: e.clientX, y: e.clientY - 20 };
+          // Skip tooltips on touch — synthetic mousemove before tap causes 1-frame flash
+          if (!this.isTouchDevice) {
+            this.tooltip = { text: this.getUnitTooltip(unit), x: e.clientX, y: e.clientY - 20 };
+          }
         } else {
           // Check for building hover
           const tileX = Math.floor(wx);
@@ -808,7 +805,9 @@ export class InputHandler {
           );
           if (building) {
             this.hoveredBuildingId = building.id;
-            this.tooltip = { text: this.getBuildingTooltip(building), x: e.clientX, y: e.clientY - 20 };
+            if (!this.isTouchDevice) {
+              this.tooltip = { text: this.getBuildingTooltip(building), x: e.clientX, y: e.clientY - 20 };
+            }
           }
         }
       }
@@ -1257,8 +1256,7 @@ export class InputHandler {
     // Open building popup for spawners and towers
     this.hutPopup.close();
     this.seedPopup.close();
-    const isMobile = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
-    this.buildingPopup.open(building.id, isMobile);
+    this.buildingPopup.open(building.id, this.isTouchDevice);
   }
 
   private getUpgradeChoice(building: { type: BuildingType; upgradePath: string[] }, alternate: boolean): string | null {
@@ -1771,16 +1769,10 @@ export class InputHandler {
     return { x: this.canvas.clientWidth - size - 10, y: 10 + getSafeTop(), w: size, h: size };
   }
 
-  private getInfoButtonRect(): { x: number; y: number; w: number; h: number } {
+  private getMvpButtonRect(): { x: number; y: number; w: number; h: number } {
     const size = 30;
     const sr = this.getSettingsButtonRect();
     return { x: sr.x - size - 12, y: sr.y, w: size, h: size };
-  }
-
-  private getMvpButtonRect(): { x: number; y: number; w: number; h: number } {
-    const size = 30;
-    const ir = this.getInfoButtonRect();
-    return { x: ir.x - size - 8, y: ir.y, w: size, h: size };
   }
 
   private handleFollowBtnClick(e: MouseEvent): boolean {
@@ -1829,15 +1821,7 @@ export class InputHandler {
       return true;
     }
 
-    // Info button (to the left of settings)
-    const ir = this.getInfoButtonRect();
-    if (cx >= ir.x && cx <= ir.x + ir.w && cy >= ir.y && cy <= ir.y + ir.h) {
-      this.showTutorial = !this.showTutorial;
-      this.settingsOpen = false;
-      return true;
-    }
-
-    // MVP button (to the left of info) — select unit with most kills
+    // MVP button (to the left of settings) — select unit with most kills
     const mr = this.getMvpButtonRect();
     if (cx >= mr.x && cx <= mr.x + mr.w && cy >= mr.y && cy <= mr.y + mr.h) {
       this.selectMvpUnit();
@@ -1867,26 +1851,7 @@ export class InputHandler {
       ctx.textAlign = 'start';
     }
 
-    // Info button (to the left of settings)
-    const ir = this.getInfoButtonRect();
-    if (this.showTutorial) {
-      ctx.fillStyle = 'rgba(41,121,255,0.35)';
-      ctx.fillRect(ir.x, ir.y, ir.w, ir.h);
-    }
-    if (!this.ui.drawIcon(ctx, 'info', ir.x, ir.y, ir.w)) {
-      ctx.fillStyle = 'rgba(18,18,18,0.92)';
-      ctx.fillRect(ir.x, ir.y, ir.w, ir.h);
-      ctx.strokeStyle = '#9bb7ff';
-      ctx.lineWidth = 1.5;
-      ctx.strokeRect(ir.x, ir.y, ir.w, ir.h);
-      ctx.fillStyle = '#e3f2fd';
-      ctx.font = 'bold 16px monospace';
-      ctx.textAlign = 'center';
-      ctx.fillText('ℹ', ir.x + ir.w / 2, ir.y + 21);
-      ctx.textAlign = 'start';
-    }
-
-    // MVP button (to the left of info) — select top killer
+    // MVP button (to the left of settings) — select top killer
     const mr = this.getMvpButtonRect();
     const hasKiller = this.game.state.units.some(u => u.team === this.myTeam && u.kills > 0);
     if (!hasKiller) {
@@ -2014,8 +1979,7 @@ export class InputHandler {
 
     // Building popup takes priority
     if (this.buildingPopup.isOpen()) {
-      const isMobile = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
-      const result = this.buildingPopup.handleClick(popupCx, popupCy, isMobile);
+      const result = this.buildingPopup.handleClick(popupCx, popupCy, this.isTouchDevice);
       if (result) {
         const bId = this.buildingPopup.getBuildingId();
         if (bId !== null) {

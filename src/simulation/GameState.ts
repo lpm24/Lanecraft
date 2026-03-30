@@ -1915,6 +1915,9 @@ function tickAbilityEffects(state: GameState): void {
     u.upgradeSpecial._auraDmg = 0;
     u.upgradeSpecial._auraSpd = 0;
     u.upgradeSpecial._auraArmor = 0;
+    u.upgradeSpecial._auraAtkSpd = 0;
+    u.upgradeSpecial._auraHeal = 0;
+    u.upgradeSpecial._auraDodge = 0;
   }
 
   // Tick summon durations (temporary units like Geist skeletons)
@@ -1942,6 +1945,21 @@ function tickAbilityEffects(state: GameState): void {
         ally.upgradeSpecial._auraDmg = Math.max(ally.upgradeSpecial._auraDmg ?? 0, sp.auraDamageBonus ?? 0);
         ally.upgradeSpecial._auraSpd = Math.max(ally.upgradeSpecial._auraSpd ?? 0, sp.auraSpeedBonus ?? 0);
         ally.upgradeSpecial._auraArmor = Math.max(ally.upgradeSpecial._auraArmor ?? 0, sp.auraArmorBonus ?? 0);
+        ally.upgradeSpecial._auraAtkSpd = Math.max(ally.upgradeSpecial._auraAtkSpd ?? 0, sp.auraAttackSpeedBonus ?? 0);
+        ally.upgradeSpecial._auraHeal = Math.max(ally.upgradeSpecial._auraHeal ?? 0, sp.auraHealPerSec ?? 0);
+        ally.upgradeSpecial._auraDodge = Math.max(ally.upgradeSpecial._auraDodge ?? 0, sp.auraDodgeBonus ?? 0);
+      }
+    }
+  }
+
+  // Horde aura healing: heal units with _auraHeal > 0 once per second
+  if (state.tick % TICK_RATE === 0) {
+    for (const u of state.units) {
+      if (u.hp <= 0 || u.hp >= u.maxHp) continue;
+      const auraHeal = u.upgradeSpecial?._auraHeal ?? 0;
+      if (auraHeal > 0) {
+        const ah = healUnit(u, auraHeal);
+        if (ah > 0) trackHealing(state, u, ah);
       }
     }
   }
@@ -2299,7 +2317,7 @@ function trackDeathResources(state: GameState, deadUnit: UnitState): void {
       state.units.push({
         id: genId(state), type: 'Mini Skeleton', playerId: caster.playerId, team: caster.team,
         x: deadUnit.x, y: deadUnit.y,
-        hp: 25, maxHp: 25, damage: miniDmg,
+        hp: 15, maxHp: 15, damage: miniDmg,
         attackSpeed: 1.0, attackTimer: 0, moveSpeed: miniSpd, range: 1.5,
         targetId: null, lane, pathProgress: msProg, carryingDiamond: false,
         statusEffects: [], hitCount: 0, shieldHp: 0,
@@ -3136,8 +3154,8 @@ function healUnit(unit: UnitState, amount: number): number {
 
 
 function dealDamage(state: GameState, target: UnitState, amount: number, showFloat: boolean, sourcePlayerId?: number, sourceUnitId?: number, isTowerShot?: boolean): void {
-  // Dodge check
-  let dodge = target.upgradeSpecial?.dodgeChance ?? 0;
+  // Dodge check (including Horde aura dodge bonus)
+  let dodge = (target.upgradeSpecial?.dodgeChance ?? 0) + (target.upgradeSpecial?._auraDodge ?? 0);
   // Goblins Cower Reflexes: +25% dodge when below 50% HP
   if (target.hp < target.maxHp * 0.5) {
     const tgtPlayer = state.players[target.playerId];
@@ -4841,6 +4859,14 @@ function tickCombat(state: GameState): void {
       && unit.statusEffects.some(e => e.type === StatusType.Haste)
       && unit.attackTimer > 0 && state.tick % 5 === 0) {
       unit.attackTimer--;
+    }
+
+    // Horde aura attack speed: extra tick-down based on aura %
+    // 10% = extra tick every 10th tick, 15% = every ~7th tick
+    const auraAtkSpd = unit.upgradeSpecial?._auraAtkSpd ?? 0;
+    if (auraAtkSpd > 0 && unit.attackTimer > 0) {
+      const interval = Math.max(2, Math.round(1 / auraAtkSpd));
+      if (state.tick % interval === 0) unit.attackTimer--;
     }
   }
 

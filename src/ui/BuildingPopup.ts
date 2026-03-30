@@ -241,6 +241,11 @@ export class BuildingPopup {
     this.animTick++;
 
     const options = this.getUpgradeOptions(building, race, state);
+    // Clear stale selection if the selected choice is no longer a valid option
+    if (this.selectedChoice && !options.some(o => o.choice === this.selectedChoice)) {
+      this.selectedChoice = null;
+      this.hoveredChoice = null;
+    }
     const isSpawner = building.type !== BuildingType.Tower && building.type !== BuildingType.HarvesterHut;
     const category = BUILDING_CATEGORY[building.type];
 

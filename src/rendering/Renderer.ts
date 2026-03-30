@@ -2249,12 +2249,15 @@ export class Renderer {
 
         // Construction animation: scale-up bounce
         const buildScale = this.constructionAnims.getScale(b.id, state.tick);
-        const drawW = baseDrawW * buildScale;
-        const drawH = baseDrawH * buildScale;
+        // Clamp width to tile width so upgraded buildings never spill outside their tile
+        const maxTileW = this.isometric ? ISO_TILE_W : (T + 4);
+        const unclampedW = baseDrawW * buildScale;
+        const drawW = (researchScale >= 2.0) ? unclampedW : Math.min(unclampedW, maxTileW);
+        const drawH = baseDrawH * buildScale * (drawW / unclampedW);
         const drawX = px - drawW / 2;
-        // Iso: center sprite on tile center; ortho: anchor bottom to tile bottom
+        // Anchor sprite bottom to tile bottom in both modes
         const drawY = this.isometric
-          ? py - drawH / 2
+          ? py + ISO_TILE_H / 2 - drawH
           : py + half - drawH + 2;
 
         // Seed buildings: draw plant sprite scaled by tier
@@ -2557,13 +2560,6 @@ export class Renderer {
         }
         ctx.globalAlpha = 1;
 
-        if (upgradeTier >= 2) {
-          ctx.strokeStyle = rc.primary;
-          ctx.globalAlpha = 0.35;
-          ctx.lineWidth = 1;
-          ctx.strokeRect(px - half - 1, py - half - 1, (half + 1) * 2, (half + 1) * 2);
-          ctx.globalAlpha = 1;
-        }
       }
 
       // Building damage fire overlay when HP < 50%
@@ -2804,6 +2800,73 @@ export class Renderer {
         ctx.fillStyle = '#00ffff';
         ctx.beginPath();
         ctx.arc(cx, py + T * 0.5, glowR, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+
+      // Horde aura visuals — ground effect on source units and glow on affected allies
+      const sp = u.upgradeSpecial;
+      const hasSourceAura = sp && (
+        (sp.auraDamageBonus ?? 0) > 0 || (sp.auraSpeedBonus ?? 0) > 0 ||
+        (sp.auraArmorBonus ?? 0) > 0 || (sp.auraAttackSpeedBonus ?? 0) > 0 ||
+        (sp.auraHealPerSec ?? 0) > 0 || (sp.auraDodgeBonus ?? 0) > 0
+      );
+      if (hasSourceAura) {
+        // Determine aura color by type (pick primary aura)
+        let auraColor = '#ff9800'; // default orange
+        if ((sp.auraDamageBonus ?? 0) > 0) auraColor = '#ff5722';       // red-orange = damage
+        else if ((sp.auraArmorBonus ?? 0) > 0) auraColor = '#42a5f5';   // blue = armor
+        else if ((sp.auraSpeedBonus ?? 0) > 0) auraColor = '#66bb6a';   // green = speed
+        else if ((sp.auraAttackSpeedBonus ?? 0) > 0) auraColor = '#ffd740'; // yellow = atk speed
+        else if ((sp.auraHealPerSec ?? 0) > 0) auraColor = '#81c784';   // soft green = healing
+        else if ((sp.auraDodgeBonus ?? 0) > 0) auraColor = '#ce93d8';   // purple = dodge
+
+        // Rotating ring on the ground under the source unit
+        const auraPulse = 0.6 + 0.4 * Math.sin(state.tick * 0.08);
+        const auraRadius = T * 0.9;
+        const feetY = py + T * 0.70;
+        ctx.save();
+        ctx.globalAlpha = 0.18 * auraPulse;
+        ctx.strokeStyle = auraColor;
+        ctx.lineWidth = 1.5;
+        // Outer rotating ring
+        const rot = state.tick * 0.03;
+        ctx.beginPath();
+        ctx.ellipse(cx, feetY, auraRadius, auraRadius * 0.35, rot, 0, Math.PI * 2);
+        ctx.stroke();
+        // Inner filled glow
+        ctx.globalAlpha = 0.06 * auraPulse;
+        ctx.fillStyle = auraColor;
+        ctx.beginPath();
+        ctx.ellipse(cx, feetY, auraRadius * 0.7, auraRadius * 0.25, rot, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+
+      // Subtle glow on units receiving aura buffs
+      const hasReceivedAura = sp && (
+        (sp._auraDmg ?? 0) > 0 || (sp._auraSpd ?? 0) > 0 ||
+        (sp._auraArmor ?? 0) > 0 || (sp._auraAtkSpd ?? 0) > 0 ||
+        (sp._auraHeal ?? 0) > 0 || (sp._auraDodge ?? 0) > 0
+      );
+      if (hasReceivedAura && !hasSourceAura) {
+        // Small pulsing dot at feet — color matches strongest received aura
+        let buffColor = '#ff9800';
+        const bestAura = Math.max(sp._auraDmg ?? 0, sp._auraSpd ?? 0, sp._auraArmor ?? 0,
+          sp._auraAtkSpd ?? 0, sp._auraHeal ?? 0, sp._auraDodge ?? 0);
+        if (bestAura === (sp._auraDmg ?? 0) && bestAura > 0) buffColor = '#ff5722';
+        else if (bestAura === (sp._auraArmor ?? 0) && bestAura > 0) buffColor = '#42a5f5';
+        else if (bestAura === (sp._auraSpd ?? 0) && bestAura > 0) buffColor = '#66bb6a';
+        else if (bestAura === (sp._auraAtkSpd ?? 0) && bestAura > 0) buffColor = '#ffd740';
+        else if (bestAura === (sp._auraHeal ?? 0) && bestAura > 0) buffColor = '#81c784';
+        else if (bestAura === (sp._auraDodge ?? 0) && bestAura > 0) buffColor = '#ce93d8';
+
+        const buffPulse = 0.5 + 0.5 * Math.sin(state.tick * 0.12 + u.id * 0.7);
+        ctx.save();
+        ctx.globalAlpha = 0.15 + buffPulse * 0.1;
+        ctx.fillStyle = buffColor;
+        ctx.beginPath();
+        ctx.arc(cx, py + T * 0.70, 2.5, 0, Math.PI * 2);
         ctx.fill();
         ctx.restore();
       }
@@ -4555,7 +4618,7 @@ export class Renderer {
       this.ui.drawIcon(ctx, icon, x, iconY, iconSz);
       x += iconSz + 1;
       ctx.fillStyle = color;
-      const text = rate ? `${val} (+${rate}/s)` : `${val}`;
+      const text = rate ? `${val} (+${rate})` : `${val}`;
       ctx.fillText(text, x, y1 + fontSize * 0.35);
       x += ctx.measureText(text).width + (compact ? 4 : 8);
     };

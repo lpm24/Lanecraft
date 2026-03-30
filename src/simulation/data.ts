@@ -321,10 +321,10 @@ export const UNIT_STATS: Record<Race, RaceUnits> = {
   // === TENDERS (Nature/Fey) — Sustain & Healing ===
   [Race.Tenders]: {
     [BuildingType.MeleeSpawner]: {
-      name: 'Treant', hp: 135, damage: 8, attackSpeed: 1.2, moveSpeed: 2.8, range: 1, ascii: '|T|',
+      name: 'Treant', hp: 155, damage: 8, attackSpeed: 1.2, moveSpeed: 2.8, range: 1, ascii: '|T|',
     },
     [BuildingType.RangedSpawner]: {
-      name: 'Tinker', hp: 33, damage: 12, attackSpeed: 1.1, moveSpeed: 4.0, range: 7, ascii: '.>',
+      name: 'Tinker', hp: 33, damage: 13, attackSpeed: 1.1, moveSpeed: 4.0, range: 7, ascii: '.>',
     },
     [BuildingType.CasterSpawner]: {
       name: 'Grove Keeper', hp: 50, damage: 11, attackSpeed: 2.2, moveSpeed: 3.0, range: 7, ascii: '{Y}',
@@ -421,6 +421,9 @@ export interface UpgradeSpecial {
   auraDamageBonus?: number;      // +flat damage to nearby allies
   auraSpeedBonus?: number;       // +% move speed to nearby allies (0.1 = +10%)
   auraArmorBonus?: number;       // +% damage reduction to nearby allies (0.1 = 10%)
+  auraAttackSpeedBonus?: number; // +% attack speed to nearby allies (0.1 = 10% faster)
+  auraHealPerSec?: number;       // heal N HP/sec to nearby allies
+  auraDodgeBonus?: number;       // +% dodge chance to nearby allies (0.1 = 10%)
   chainHeal?: number;            // heal N most injured allies each cast (Horde War Chanter)
   // Geist Soul Gorger: grows stronger from nearby deaths
   soulHarvest?: boolean;           // enable soul harvest mechanic
@@ -457,29 +460,32 @@ export function getUpgradeNodeDef(race: Race, type: BuildingType, node: string):
 export const UPGRADE_TREES: Record<Race, Partial<Record<BuildingType, Record<UpgradeNode, UpgradeNodeDef>>>> = {
   // ============ CROWN (Humans) — Shield & Balance [HYBRID] ============
   [Race.Crown]: {
+    // Melee B-path = gold-heavy (econ investment), C-path = wood-heavy (combat)
     [BuildingType.MeleeSpawner]: {
-      B: { name: 'Buccaneer', desc: '+20% dmg, +3 gold/kill', damageMult: 1.20, special: { goldOnKill: 3 }, spawnSpeedMult: 0.88 },
-      C: { name: 'Noble', desc: '+20% speed, faster atk', moveSpeedMult: 1.20, attackSpeedMult: 0.85, spawnSpeedMult: 0.88 },
-      D: { name: 'Corsair Captain', desc: '+40% HP, +5 gold/death', hpMult: 1.40, special: { goldOnDeath: 5, goldOnKill: 3 }, spawnSpeedMult: 0.82 },
-      E: { name: 'Pirate King', desc: '+35% dmg, +6 gold/kill', damageMult: 1.35, special: { goldOnKill: 6, goldOnDeath: 8 }, spawnSpeedMult: 0.82 },
-      F: { name: 'King', desc: '+15% dmg, +30% speed, 30% dodge', damageMult: 1.15, moveSpeedMult: 1.30, special: { dodgeChance: 0.30 }, spawnSpeedMult: 0.82 },
-      G: { name: 'Champion', desc: '+50% dmg, faster atk', damageMult: 1.50, attackSpeedMult: 0.80, spawnSpeedMult: 0.82 },
+      B: { name: 'Buccaneer', desc: '+20% dmg, +3 gold/kill', damageMult: 1.20, special: { goldOnKill: 3 }, spawnSpeedMult: 0.88, cost: { gold: 50, wood: 0, meat: 0 } },
+      C: { name: 'Noble', desc: '+20% speed, faster atk', moveSpeedMult: 1.20, attackSpeedMult: 0.85, spawnSpeedMult: 0.88, cost: { gold: 15, wood: 20, meat: 0 } },
+      D: { name: 'Corsair Captain', desc: '+40% HP, +5 gold/death', hpMult: 1.40, special: { goldOnDeath: 5, goldOnKill: 3 }, spawnSpeedMult: 0.82, cost: { gold: 75, wood: 0, meat: 0 } },
+      E: { name: 'Pirate King', desc: '+35% dmg, +6 gold/kill', damageMult: 1.35, special: { goldOnKill: 6, goldOnDeath: 8 }, spawnSpeedMult: 0.82, cost: { gold: 90, wood: 20, meat: 0 } },
+      F: { name: 'King', desc: '+15% dmg, +30% speed, 30% dodge', damageMult: 1.15, moveSpeedMult: 1.30, special: { dodgeChance: 0.30 }, spawnSpeedMult: 0.82, cost: { gold: 30, wood: 40, meat: 0 } },
+      G: { name: 'Champion', desc: '+50% dmg, faster atk', damageMult: 1.50, attackSpeedMult: 0.80, spawnSpeedMult: 0.82, cost: { gold: 20, wood: 55, meat: 0 } },
     },
+    // Ranged B-path = wood-heavy, C-path = gold-heavy (scout→siege)
     [BuildingType.RangedSpawner]: {
-      B: { name: 'Heavy Bow', desc: '+30% HP, +25% dmg', hpMult: 1.30, damageMult: 1.25, spawnSpeedMult: 0.88 },
-      C: { name: 'Dwarfette Scout', desc: '+15% speed, faster atk', moveSpeedMult: 1.15, attackSpeedMult: 0.80, spawnSpeedMult: 0.88 },
-      D: { name: 'Longbow', desc: '+40% dmg, +25% range', damageMult: 1.40, rangeMult: 1.25, spawnSpeedMult: 0.82 },
-      E: { name: 'War Bow', desc: '+35% dmg, splash 2t', damageMult: 1.35, special: { splashRadius: 2, splashDamagePct: 0.50 }, spawnSpeedMult: 0.82 },
-      F: { name: 'Dwarfette Blitzer', desc: 'Much faster, +25% range', attackSpeedMult: 0.70, rangeMult: 1.25, spawnSpeedMult: 0.82 },
-      G: { name: 'Cannon', desc: 'SIEGE: 13 range, slow, fragile, devastating vs buildings', hpMult: 0.50, damageMult: 2.16, attackSpeedMult: 3.40, moveSpeedMult: 0.38, rangeMult: 1.85, spawnSpeedMult: 0.82, special: { isSiegeUnit: true, buildingDamageMult: 4.0, splashRadius: 3, splashDamagePct: 0.65 } },
+      B: { name: 'Heavy Bow', desc: '+30% HP, +25% dmg', hpMult: 1.30, damageMult: 1.25, spawnSpeedMult: 0.88, cost: { gold: 10, wood: 25, meat: 0 } },
+      C: { name: 'Dwarfette Scout', desc: '+15% speed, faster atk', moveSpeedMult: 1.15, attackSpeedMult: 0.80, spawnSpeedMult: 0.88, cost: { gold: 45, wood: 0, meat: 0 } },
+      D: { name: 'Longbow', desc: '+40% dmg, +25% range', damageMult: 1.40, rangeMult: 1.25, spawnSpeedMult: 0.82, cost: { gold: 20, wood: 50, meat: 0 } },
+      E: { name: 'War Bow', desc: '+35% dmg, splash 2t', damageMult: 1.35, special: { splashRadius: 2, splashDamagePct: 0.50 }, spawnSpeedMult: 0.82, cost: { gold: 25, wood: 45, meat: 0 } },
+      F: { name: 'Dwarfette Blitzer', desc: 'Much faster, +25% range', attackSpeedMult: 0.70, rangeMult: 1.25, spawnSpeedMult: 0.82, cost: { gold: 85, wood: 15, meat: 0 } },
+      G: { name: 'Cannon', desc: 'SIEGE: 13 range, slow, fragile, devastating vs buildings', hpMult: 0.50, damageMult: 2.16, attackSpeedMult: 3.40, moveSpeedMult: 0.38, rangeMult: 1.85, spawnSpeedMult: 0.82, special: { isSiegeUnit: true, buildingDamageMult: 4.0, splashRadius: 3, splashDamagePct: 0.65 }, cost: { gold: 100, wood: 20, meat: 0 } },
     },
+    // Caster B-path = gold-heavy (shields), C-path = wood-heavy (damage mage)
     [BuildingType.CasterSpawner]: {
-      B: { name: 'High Priest', desc: '+30% HP, shield +2 targets', hpMult: 1.30, special: { shieldTargetBonus: 2 }, spawnSpeedMult: 0.88 },
-      C: { name: 'War Mage', desc: 'AoE damage, +40% dmg', damageMult: 1.40, special: { crownMage: true, aoeRadiusBonus: 1 }, spawnSpeedMult: 0.88 },
-      D: { name: 'Arch Bishop', desc: '+40% HP, shield +3 targets', hpMult: 1.40, special: { shieldTargetBonus: 3 }, spawnSpeedMult: 0.82 },
-      E: { name: 'War Cleric', desc: '+35% dmg, shield +20 absorb', damageMult: 1.35, special: { shieldAbsorbBonus: 20 }, spawnSpeedMult: 0.82 },
-      F: { name: 'Battle Magus', desc: '+50% dmg, burn on hit', damageMult: 1.50, special: { crownMage: true, aoeRadiusBonus: 2, extraBurnStacks: 1 }, spawnSpeedMult: 0.82 },
-      G: { name: 'Archmage', desc: '+80% dmg, large AoE, burn', damageMult: 1.80, rangeMult: 1.25, special: { crownMage: true, aoeRadiusBonus: 3, extraBurnStacks: 2 }, spawnSpeedMult: 0.82 },
+      B: { name: 'High Priest', desc: '+30% HP, shield +2 targets', hpMult: 1.30, special: { shieldTargetBonus: 2 }, spawnSpeedMult: 0.88, cost: { gold: 45, wood: 5, meat: 0 } },
+      C: { name: 'War Mage', desc: 'AoE damage, +40% dmg', damageMult: 1.40, special: { crownMage: true, aoeRadiusBonus: 1 }, spawnSpeedMult: 0.88, cost: { gold: 10, wood: 25, meat: 0 } },
+      D: { name: 'Arch Bishop', desc: '+40% HP, shield +3 targets', hpMult: 1.40, special: { shieldTargetBonus: 3 }, spawnSpeedMult: 0.82, cost: { gold: 85, wood: 10, meat: 0 } },
+      E: { name: 'War Cleric', desc: '+35% dmg, shield +20 absorb', damageMult: 1.35, special: { shieldAbsorbBonus: 20 }, spawnSpeedMult: 0.82, cost: { gold: 70, wood: 25, meat: 0 } },
+      F: { name: 'Battle Magus', desc: '+50% dmg, burn on hit', damageMult: 1.50, special: { crownMage: true, aoeRadiusBonus: 2, extraBurnStacks: 1 }, spawnSpeedMult: 0.82, cost: { gold: 20, wood: 50, meat: 0 } },
+      G: { name: 'Archmage', desc: '+80% dmg, large AoE, burn', damageMult: 1.80, rangeMult: 1.25, special: { crownMage: true, aoeRadiusBonus: 3, extraBurnStacks: 2 }, spawnSpeedMult: 0.82, cost: { gold: 30, wood: 60, meat: 0 } },
     },
     [BuildingType.Tower]: {
       B: { name: 'Reinforced Tower', desc: '+60% HP, +30% dmg', hpMult: 1.60, damageMult: 1.30 },
@@ -501,19 +507,19 @@ export const UPGRADE_TREES: Record<Race, Partial<Record<BuildingType, Record<Upg
       C: { name: 'Raging Brute', desc: '+30% dmg, faster atk', damageMult: 1.30, attackSpeedMult: 0.85, spawnSpeedMult: 0.88, cost: { gold: 45, wood: 0, meat: 0 } },
       // D,E under B (meat)
       D: { name: 'Warchief', desc: '+70% HP, AURA: +10% armor', hpMult: 1.70, special: { damageReductionPct: 0.15, auraArmorBonus: 0.10 }, spawnSpeedMult: 0.82, cost: { gold: 0, wood: 0, meat: 90 } },
-      E: { name: 'Berserker', desc: '+55% dmg, AURA: +3 dmg', damageMult: 1.55, special: { knockbackEveryN: 2, auraDamageBonus: 3 }, spawnSpeedMult: 0.82, cost: { gold: 0, wood: 0, meat: 90 } },
+      E: { name: 'Berserker', desc: '+55% dmg, AURA: +10% atk speed', damageMult: 1.55, special: { knockbackEveryN: 2, auraAttackSpeedBonus: 0.10 }, spawnSpeedMult: 0.82, cost: { gold: 0, wood: 0, meat: 90 } },
       // F,G under C (gold)
       F: { name: 'Bloodrager', desc: '+50% dmg, AURA: +10% speed', damageMult: 1.50, special: { guaranteedHaste: true, auraSpeedBonus: 0.10 }, spawnSpeedMult: 0.82, cost: { gold: 90, wood: 0, meat: 0 } },
       G: { name: 'Skull Crusher', desc: '+60% dmg, AURA: +4 dmg', damageMult: 1.60, attackSpeedMult: 0.80, special: { auraDamageBonus: 4 }, spawnSpeedMult: 0.82, cost: { gold: 90, wood: 0, meat: 0 } },
     },
     [BuildingType.RangedSpawner]: {
-      // B path = wood (stays on starting resource)
-      B: { name: 'Heavy Cleaver', desc: '+30% HP, +30% dmg', hpMult: 1.30, damageMult: 1.30, spawnSpeedMult: 0.88, cost: { gold: 0, wood: 45, meat: 0 } },
+      // B path = wood — split shot identity (multishot)
+      B: { name: 'Heavy Cleaver', desc: 'Fires 2 projectiles at 70% dmg', special: { multishotCount: 1, multishotDamagePct: 0.70 }, spawnSpeedMult: 0.88, cost: { gold: 0, wood: 45, meat: 0 } },
       // C path = full SIEGE path (all 3 nodes are siege)
       C: { name: 'Orc Catapult', desc: 'SIEGE: 11 range, slow, devastating vs buildings', hpMult: 0.65, damageMult: 1.68, attackSpeedMult: 2.00, moveSpeedMult: 0.55, rangeMult: 1.57, spawnSpeedMult: 0.88, cost: { gold: 0, wood: 0, meat: 45 }, special: { isSiegeUnit: true, buildingDamageMult: 3.0, splashRadius: 2.5, splashDamagePct: 0.55, auraDamageBonus: 2 } },
-      // D,E under B (wood) — normal ranged
-      D: { name: 'War Thrower', desc: '+45% dmg, AURA: +10% speed', damageMult: 1.45, special: { knockbackEveryN: 2, auraSpeedBonus: 0.10 }, spawnSpeedMult: 0.82, cost: { gold: 0, wood: 90, meat: 0 } },
-      E: { name: 'Battle Cleaver', desc: '+40% dmg, splash, AURA: +2 dmg', damageMult: 1.40, special: { splashRadius: 2, splashDamagePct: 0.55, auraDamageBonus: 2 }, spawnSpeedMult: 0.82, cost: { gold: 0, wood: 90, meat: 0 } },
+      // D,E under B (wood) — multishot path
+      D: { name: 'War Thrower', desc: 'Fires 3 projectiles at 60% dmg, AURA: +8% dodge', special: { multishotCount: 2, multishotDamagePct: 0.60, auraDodgeBonus: 0.08 }, spawnSpeedMult: 0.82, cost: { gold: 0, wood: 90, meat: 0 } },
+      E: { name: 'Battle Cleaver', desc: '+50% dmg, +20% range, AURA: +3 dmg', damageMult: 1.50, rangeMult: 1.20, special: { auraDamageBonus: 3 }, spawnSpeedMult: 0.82, cost: { gold: 0, wood: 90, meat: 0 } },
       // F,G under C (siege T3s)
       F: { name: 'Horde Bombard', desc: 'SIEGE: 13 range, AURA: +10% armor', hpMult: 0.76, damageMult: 1.72, attackSpeedMult: 1.35, moveSpeedMult: 0.79, rangeMult: 1.18, spawnSpeedMult: 0.82, cost: { gold: 0, wood: 0, meat: 90 }, special: { isSiegeUnit: true, buildingDamageMult: 4.0, splashRadius: 3.5, splashDamagePct: 0.65, auraArmorBonus: 0.10 } },
       G: { name: 'Doom Catapult', desc: 'SIEGE: 14 range, massive AoE, AURA: +4 dmg', hpMult: 0.87, damageMult: 2.04, attackSpeedMult: 1.46, moveSpeedMult: 0.73, rangeMult: 1.27, spawnSpeedMult: 0.82, cost: { gold: 0, wood: 0, meat: 90 }, special: { isSiegeUnit: true, buildingDamageMult: 5.0, splashRadius: 4, splashDamagePct: 0.70, auraDamageBonus: 4 } },
@@ -524,11 +530,11 @@ export const UPGRADE_TREES: Record<Race, Partial<Record<BuildingType, Record<Upg
       // C path = wood (switches resource)
       C: { name: 'War Drummer', desc: 'Faster atk, +25% range', attackSpeedMult: 0.80, rangeMult: 1.25, spawnSpeedMult: 0.88, cost: { gold: 0, wood: 45, meat: 0 } },
       // D,E under B (gold)
-      D: { name: 'Blood Chanter', desc: '+40% dmg, chain heal 5 allies, AURA: +3 dmg', damageMult: 1.40, special: { healBonus: 8, chainHeal: 5, auraDamageBonus: 3 }, spawnSpeedMult: 0.82, cost: { gold: 90, wood: 0, meat: 0 } },
+      D: { name: 'Blood Chanter', desc: '+40% dmg, chain heal 5 allies, AURA: 2 HP/s', damageMult: 1.40, special: { healBonus: 8, chainHeal: 5, auraHealPerSec: 2 }, spawnSpeedMult: 0.82, cost: { gold: 90, wood: 0, meat: 0 } },
       E: { name: 'Rage Shaman', desc: '+45% dmg, AURA: +15% speed', damageMult: 1.45, special: { aoeRadiusBonus: 2, auraSpeedBonus: 0.15 }, spawnSpeedMult: 0.82, cost: { gold: 90, wood: 0, meat: 0 } },
       // F,G under C (wood)
       F: { name: 'Swift Chanter', desc: 'Very fast, AURA: +10% armor', attackSpeedMult: 0.65, special: { healBonus: 5, auraArmorBonus: 0.10 }, spawnSpeedMult: 0.82, cost: { gold: 0, wood: 90, meat: 0 } },
-      G: { name: 'Doom Chanter', desc: '+55% dmg, AURA: +4 dmg', damageMult: 1.55, rangeMult: 1.30, special: { auraDamageBonus: 4 }, spawnSpeedMult: 0.82, cost: { gold: 0, wood: 90, meat: 0 } },
+      G: { name: 'Doom Chanter', desc: '+55% dmg, AURA: +15% atk speed', damageMult: 1.55, rangeMult: 1.30, special: { auraAttackSpeedBonus: 0.15 }, spawnSpeedMult: 0.82, cost: { gold: 0, wood: 90, meat: 0 } },
     },
     [BuildingType.Tower]: {
       B: { name: 'Orc Palisade', desc: '+60% HP, +35% dmg', hpMult: 1.60, damageMult: 1.35 },
@@ -541,29 +547,32 @@ export const UPGRADE_TREES: Record<Race, Partial<Record<BuildingType, Record<Upg
   },
   // ============ GOBLINS — Dodge & Poison [WIDE] ============
   [Race.Goblins]: {
+    // Melee B-path = wood-heavy (bruiser), C-path = gold-heavy (speed/evasion)
     [BuildingType.MeleeSpawner]: {
-      B: { name: 'Troll Brute', desc: '+30% HP, +15% dmg', hpMult: 1.30, damageMult: 1.15, spawnSpeedMult: 0.80 },
-      C: { name: 'Quick Sticker', desc: '+25% speed, faster atk', moveSpeedMult: 1.25, attackSpeedMult: 0.85, spawnSpeedMult: 0.80 },
-      D: { name: 'Troll Smasher', desc: '+30% dmg, +2 burn', damageMult: 1.30, special: { extraBurnStacks: 2 }, spawnSpeedMult: 0.70 },
-      E: { name: 'Troll Warlord', desc: '+40% dmg, +2 slow', damageMult: 1.40, special: { extraSlowStacks: 2 } },
-      F: { name: 'Shadow Sticker', desc: '+35% speed, 30% dodge', moveSpeedMult: 1.35, special: { dodgeChance: 0.30 }, spawnSpeedMult: 0.70 },
-      G: { name: 'Goblin Ace', desc: '+45% dmg, faster atk', damageMult: 1.45, attackSpeedMult: 0.80 },
+      B: { name: 'Troll Brute', desc: '+30% HP, +15% dmg', hpMult: 1.30, damageMult: 1.15, spawnSpeedMult: 0.80, cost: { gold: 10, wood: 25, meat: 0 } },
+      C: { name: 'Quick Sticker', desc: '+25% speed, faster atk', moveSpeedMult: 1.25, attackSpeedMult: 0.85, spawnSpeedMult: 0.80, cost: { gold: 55, wood: 5, meat: 0 } },
+      D: { name: 'Troll Smasher', desc: '+30% dmg, +2 burn', damageMult: 1.30, special: { extraBurnStacks: 2 }, spawnSpeedMult: 0.70, cost: { gold: 20, wood: 45, meat: 0 } },
+      E: { name: 'Troll Warlord', desc: '+40% dmg, +2 slow', damageMult: 1.40, special: { extraSlowStacks: 2 }, cost: { gold: 30, wood: 50, meat: 0 } },
+      F: { name: 'Shadow Sticker', desc: '+35% speed, 30% dodge', moveSpeedMult: 1.35, special: { dodgeChance: 0.30 }, spawnSpeedMult: 0.70, cost: { gold: 90, wood: 10, meat: 0 } },
+      G: { name: 'Goblin Ace', desc: '+45% dmg, faster atk', damageMult: 1.45, attackSpeedMult: 0.80, cost: { gold: 110, wood: 15, meat: 0 } },
     },
+    // Ranged B-path = gold-heavy (damage/burn), C-path = wood-heavy (utility→siege)
     [BuildingType.RangedSpawner]: {
-      B: { name: 'Venom Knifer', desc: '+25% dmg, +2 burn', damageMult: 1.25, special: { extraBurnStacks: 2 }, spawnSpeedMult: 0.80 },
-      C: { name: 'War Pig', desc: 'Faster atk, +20% range', attackSpeedMult: 0.80, rangeMult: 1.20, spawnSpeedMult: 0.80 },
-      D: { name: 'Plague Knifer', desc: '+35% dmg, +3 burn', damageMult: 1.35, special: { extraBurnStacks: 3 }, spawnSpeedMult: 0.70 },
-      E: { name: 'Fan Knifer', desc: 'Fires 2 projectiles', special: { multishotCount: 1, multishotDamagePct: 0.70 } },
-      F: { name: 'King Pig', desc: '+30% speed, 25% dodge', moveSpeedMult: 1.30, special: { dodgeChance: 0.25 }, spawnSpeedMult: 0.70 },
-      G: { name: 'Goblin Mortar', desc: 'SIEGE: 13 range, slow, devastating vs buildings', hpMult: 0.50, damageMult: 2.40, attackSpeedMult: 3.20, moveSpeedMult: 0.38, rangeMult: 1.88, spawnSpeedMult: 0.82, special: { isSiegeUnit: true, buildingDamageMult: 4.0, splashRadius: 3, splashDamagePct: 0.65, extraBurnStacks: 1 } },
+      B: { name: 'Venom Knifer', desc: '+25% dmg, +2 burn', damageMult: 1.25, special: { extraBurnStacks: 2 }, spawnSpeedMult: 0.80, cost: { gold: 50, wood: 10, meat: 0 } },
+      C: { name: 'War Boar', desc: 'Faster atk, +20% range', attackSpeedMult: 0.80, rangeMult: 1.20, spawnSpeedMult: 0.80, cost: { gold: 15, wood: 25, meat: 0 } },
+      D: { name: 'Plague Knifer', desc: '+35% dmg, +3 burn', damageMult: 1.35, special: { extraBurnStacks: 3 }, spawnSpeedMult: 0.70, cost: { gold: 100, wood: 15, meat: 0 } },
+      E: { name: 'Fan Knifer', desc: 'Fires 2 projectiles', special: { multishotCount: 1, multishotDamagePct: 0.70 }, cost: { gold: 80, wood: 20, meat: 0 } },
+      F: { name: 'King Boar', desc: '+30% speed, 25% dodge', moveSpeedMult: 1.30, special: { dodgeChance: 0.25 }, spawnSpeedMult: 0.70, cost: { gold: 15, wood: 35, meat: 0 } },
+      G: { name: 'Goblin Mortar', desc: 'SIEGE: 13 range, slow, devastating vs buildings', hpMult: 0.50, damageMult: 2.40, attackSpeedMult: 3.20, moveSpeedMult: 0.38, rangeMult: 1.88, spawnSpeedMult: 0.82, special: { isSiegeUnit: true, buildingDamageMult: 4.0, splashRadius: 3, splashDamagePct: 0.65, extraBurnStacks: 1 }, cost: { gold: 30, wood: 60, meat: 0 } },
     },
+    // Caster B-path = wood-heavy (control/slow), C-path = gold-heavy (speed/range)
     [BuildingType.CasterSpawner]: {
-      B: { name: 'Hex Master', desc: '+25% HP, +3 slow', hpMult: 1.25, special: { extraSlowStacks: 3 }, spawnSpeedMult: 0.80 },
-      C: { name: 'Curse Weaver', desc: 'Faster atk, +20% range', attackSpeedMult: 0.80, rangeMult: 1.20, spawnSpeedMult: 0.80 },
-      D: { name: 'Grand Hexer', desc: '+35% dmg, +4 slow', damageMult: 1.35, special: { extraSlowStacks: 4 }, spawnSpeedMult: 0.70 },
-      E: { name: 'Plague Hexer', desc: '+40% dmg, +2 AoE', damageMult: 1.40, special: { aoeRadiusBonus: 2 } },
-      F: { name: 'Rapid Hexer', desc: 'Very fast, +25% range', attackSpeedMult: 0.65, rangeMult: 1.25, spawnSpeedMult: 0.70 },
-      G: { name: 'Doom Hexer', desc: '+50% dmg, +30% range', damageMult: 1.50, rangeMult: 1.30 },
+      B: { name: 'Hex Master', desc: '+25% HP, +3 slow', hpMult: 1.25, special: { extraSlowStacks: 3 }, spawnSpeedMult: 0.80, cost: { gold: 10, wood: 30, meat: 0 } },
+      C: { name: 'Curse Weaver', desc: 'Faster atk, +20% range', attackSpeedMult: 0.80, rangeMult: 1.20, spawnSpeedMult: 0.80, cost: { gold: 55, wood: 5, meat: 0 } },
+      D: { name: 'Grand Hexer', desc: '+35% dmg, +4 slow', damageMult: 1.35, special: { extraSlowStacks: 4 }, spawnSpeedMult: 0.70, cost: { gold: 20, wood: 55, meat: 0 } },
+      E: { name: 'Plague Hexer', desc: '+40% dmg, +2 AoE', damageMult: 1.40, special: { aoeRadiusBonus: 2 }, cost: { gold: 25, wood: 50, meat: 0 } },
+      F: { name: 'Rapid Hexer', desc: 'Very fast, +25% range', attackSpeedMult: 0.65, rangeMult: 1.25, spawnSpeedMult: 0.70, cost: { gold: 110, wood: 10, meat: 0 } },
+      G: { name: 'Doom Hexer', desc: '+50% dmg, +30% range', damageMult: 1.50, rangeMult: 1.30, cost: { gold: 120, wood: 15, meat: 0 } },
     },
     [BuildingType.Tower]: {
       B: { name: 'Goblin Fort', desc: '+50% HP, +30% dmg', hpMult: 1.50, damageMult: 1.30 },
@@ -576,29 +585,32 @@ export const UPGRADE_TREES: Record<Race, Partial<Record<BuildingType, Record<Upg
   },
   // ============ OOZLINGS (Slimes) — Swarm & Haste [WIDE] ============
   [Race.Oozlings]: {
+    // Melee B-path = gold-heavy (tank), C-path = meat-heavy (baneling/explode)
     [BuildingType.MeleeSpawner]: {
-      B: { name: 'Tough Glob', desc: '+35% HP, +20% dmg', hpMult: 1.35, damageMult: 1.20, spawnSpeedMult: 0.80 },
-      C: { name: 'Baneling', desc: '+40% speed, explodes on death', moveSpeedMult: 1.40, spawnSpeedMult: 0.80, special: { explodeOnDeath: true, explodeDamage: 35, explodeRadius: 3 } },
-      D: { name: 'Armored Glob', desc: '+55% HP, 15% dmg reduction', hpMult: 1.55, special: { damageReductionPct: 0.15 }, spawnSpeedMult: 0.70 },
-      E: { name: 'Acid Glob', desc: '+40% dmg, +2 burn', damageMult: 1.40, special: { extraBurnStacks: 2 } },
-      F: { name: 'Volatile', desc: '+50% speed, big explosion', moveSpeedMult: 1.50, spawnSpeedMult: 0.70, special: { explodeOnDeath: true, explodeDamage: 60, explodeRadius: 4 } },
-      G: { name: 'Detonator', desc: 'Huge explosion, +3 burn', moveSpeedMult: 1.30, spawnSpeedMult: 0.70, special: { explodeOnDeath: true, explodeDamage: 90, explodeRadius: 5, extraBurnStacks: 3 } },
+      B: { name: 'Tough Glob', desc: '+35% HP, +20% dmg', hpMult: 1.35, damageMult: 1.20, spawnSpeedMult: 0.80, cost: { gold: 50, wood: 0, meat: 5 } },
+      C: { name: 'Baneling', desc: '+40% speed, explodes on death', moveSpeedMult: 1.40, spawnSpeedMult: 0.80, special: { explodeOnDeath: true, explodeDamage: 35, explodeRadius: 3 }, cost: { gold: 10, wood: 0, meat: 25 } },
+      D: { name: 'Armored Glob', desc: '+55% HP, 15% dmg reduction', hpMult: 1.55, special: { damageReductionPct: 0.15 }, spawnSpeedMult: 0.70, cost: { gold: 95, wood: 0, meat: 10 } },
+      E: { name: 'Acid Glob', desc: '+40% dmg, +2 burn', damageMult: 1.40, special: { extraBurnStacks: 2 }, cost: { gold: 85, wood: 0, meat: 20 } },
+      F: { name: 'Volatile', desc: '+50% speed, big explosion', moveSpeedMult: 1.50, spawnSpeedMult: 0.70, special: { explodeOnDeath: true, explodeDamage: 60, explodeRadius: 4 }, cost: { gold: 20, wood: 0, meat: 50 } },
+      G: { name: 'Detonator', desc: 'Huge explosion, +3 burn', moveSpeedMult: 1.30, spawnSpeedMult: 0.70, special: { explodeOnDeath: true, explodeDamage: 90, explodeRadius: 5, extraBurnStacks: 3 }, cost: { gold: 25, wood: 0, meat: 60 } },
     },
+    // Ranged B-path = meat-heavy (brawler), C-path = gold-heavy (speed→siege)
     [BuildingType.RangedSpawner]: {
-      B: { name: 'Thick Spitter', desc: '+30% HP, +25% dmg', hpMult: 1.30, damageMult: 1.25, spawnSpeedMult: 0.80 },
-      C: { name: 'Rapid Spitter', desc: 'Faster atk, +15% speed', attackSpeedMult: 0.80, moveSpeedMult: 1.15, spawnSpeedMult: 0.80 },
-      D: { name: 'Acid Spitter', desc: '+35% dmg, +2 slow', damageMult: 1.35, special: { extraSlowStacks: 2 }, spawnSpeedMult: 0.70 },
-      E: { name: 'Burst Spitter', desc: '+30% dmg, splash 2t', damageMult: 1.30, special: { splashRadius: 2, splashDamagePct: 0.50 } },
-      F: { name: 'Hyper Spitter', desc: 'Much faster, +25% range', attackSpeedMult: 0.70, rangeMult: 1.25, spawnSpeedMult: 0.70 },
-      G: { name: 'Glob Siege', desc: 'SIEGE: 1 giant glob, 12 range, slow, devastating vs buildings', hpMult: 2.20, damageMult: 4.56, attackSpeedMult: 3.20, moveSpeedMult: 0.35, rangeMult: 1.95, spawnSpeedMult: 0.82, special: { isSiegeUnit: true, buildingDamageMult: 4.0, splashRadius: 3, splashDamagePct: 0.65, spawnCount: 1, extraSlowStacks: 2 } },
+      B: { name: 'Thick Spitter', desc: '+30% HP, +25% dmg', hpMult: 1.30, damageMult: 1.25, spawnSpeedMult: 0.80, cost: { gold: 15, wood: 0, meat: 25 } },
+      C: { name: 'Rapid Spitter', desc: 'Faster atk, +15% speed', attackSpeedMult: 0.80, moveSpeedMult: 1.15, spawnSpeedMult: 0.80, cost: { gold: 45, wood: 0, meat: 5 } },
+      D: { name: 'Acid Spitter', desc: '+35% dmg, +2 slow', damageMult: 1.35, special: { extraSlowStacks: 2 }, spawnSpeedMult: 0.70, cost: { gold: 25, wood: 0, meat: 45 } },
+      E: { name: 'Burst Spitter', desc: '+30% dmg, splash 2t', damageMult: 1.30, special: { splashRadius: 2, splashDamagePct: 0.50 }, cost: { gold: 30, wood: 0, meat: 40 } },
+      F: { name: 'Hyper Spitter', desc: 'Much faster, +25% range', attackSpeedMult: 0.70, rangeMult: 1.25, spawnSpeedMult: 0.70, cost: { gold: 95, wood: 0, meat: 10 } },
+      G: { name: 'Glob Siege', desc: 'SIEGE: 1 giant glob, 12 range, slow, devastating vs buildings', hpMult: 2.20, damageMult: 4.56, attackSpeedMult: 3.20, moveSpeedMult: 0.35, rangeMult: 1.95, spawnSpeedMult: 0.82, special: { isSiegeUnit: true, buildingDamageMult: 4.0, splashRadius: 3, splashDamagePct: 0.65, spawnCount: 1, extraSlowStacks: 2 }, cost: { gold: 110, wood: 0, meat: 15 } },
     },
+    // Caster B-path = gold-heavy (AoE), C-path = meat-heavy (chain/speed)
     [BuildingType.CasterSpawner]: {
-      B: { name: 'Big Bloater', desc: '+30% HP, +1 AoE', hpMult: 1.30, special: { aoeRadiusBonus: 1 }, spawnSpeedMult: 0.80 },
-      C: { name: 'Quick Bloater', desc: 'Faster atk, +20% range, chain 2', attackSpeedMult: 0.80, rangeMult: 1.20, special: { extraChainTargets: 2 }, spawnSpeedMult: 0.80 },
-      D: { name: 'Mega Bloater', desc: '+40% dmg, +1 AoE', damageMult: 1.40, special: { aoeRadiusBonus: 1 }, spawnSpeedMult: 0.70 },
-      E: { name: 'Acid Bloater', desc: '+35% dmg, +3 slow', damageMult: 1.35, special: { extraSlowStacks: 3 } },
-      F: { name: 'Hyper Bloater', desc: 'Very fast, +25% range, chain 3', attackSpeedMult: 0.65, rangeMult: 1.25, special: { extraChainTargets: 3 }, spawnSpeedMult: 0.70 },
-      G: { name: 'Ooze Lord', desc: '+50% dmg, +30% range', damageMult: 1.50, rangeMult: 1.30 },
+      B: { name: 'Big Bloater', desc: '+30% HP, +1 AoE', hpMult: 1.30, special: { aoeRadiusBonus: 1 }, spawnSpeedMult: 0.80, cost: { gold: 45, wood: 0, meat: 10 } },
+      C: { name: 'Quick Bloater', desc: 'Faster atk, +20% range, chain 2', attackSpeedMult: 0.80, rangeMult: 1.20, special: { extraChainTargets: 2 }, spawnSpeedMult: 0.80, cost: { gold: 10, wood: 0, meat: 30 } },
+      D: { name: 'Mega Bloater', desc: '+40% dmg, +1 AoE', damageMult: 1.40, special: { aoeRadiusBonus: 1 }, spawnSpeedMult: 0.70, cost: { gold: 90, wood: 0, meat: 15 } },
+      E: { name: 'Acid Bloater', desc: '+35% dmg, +3 slow', damageMult: 1.35, special: { extraSlowStacks: 3 }, cost: { gold: 80, wood: 0, meat: 20 } },
+      F: { name: 'Hyper Bloater', desc: 'Very fast, +25% range, chain 3', attackSpeedMult: 0.65, rangeMult: 1.25, special: { extraChainTargets: 3 }, spawnSpeedMult: 0.70, cost: { gold: 20, wood: 0, meat: 55 } },
+      G: { name: 'Ooze Lord', desc: '+50% dmg, +30% range', damageMult: 1.50, rangeMult: 1.30, cost: { gold: 25, wood: 0, meat: 55 } },
     },
     [BuildingType.Tower]: {
       B: { name: 'Slime Pillar', desc: '+50% HP, +30% dmg', hpMult: 1.50, damageMult: 1.30 },
@@ -611,29 +623,32 @@ export const UPGRADE_TREES: Record<Race, Partial<Record<BuildingType, Record<Upg
   },
   // ============ DEMON — Burn & Burst [HYBRID] ============
   [Race.Demon]: {
+    // Melee B-path = meat-heavy (bruiser/burn), C-path = wood-heavy (speed/utility)
     [BuildingType.MeleeSpawner]: {
-      B: { name: 'Inferno Smasher', desc: '+30% HP, +35% dmg', hpMult: 1.30, damageMult: 1.35, spawnSpeedMult: 0.88 },
-      C: { name: 'Blaze Smasher', desc: '+25% speed, faster atk', moveSpeedMult: 1.25, attackSpeedMult: 0.85, spawnSpeedMult: 0.88 },
-      D: { name: 'Doom Smasher', desc: '+50% dmg, +2 burn', damageMult: 1.50, special: { extraBurnStacks: 2 }, spawnSpeedMult: 0.82 },
-      E: { name: 'Bloodfire Berserker', desc: '+20% dmg, +5% dmg per kill (max 10)', damageMult: 1.20, spawnSpeedMult: 0.82, special: { killScaling: true, killDmgPct: 0.05, killMaxStacks: 10 } },
-      F: { name: 'Phoenix Blade', desc: '+20% dmg, +30% speed, revive 60%', damageMult: 1.20, moveSpeedMult: 1.30, special: { reviveHpPct: 0.60 }, spawnSpeedMult: 0.82 },
-      G: { name: 'Magma Smasher', desc: '+55% dmg, +3 burn', damageMult: 1.55, special: { extraBurnStacks: 3 }, spawnSpeedMult: 0.82 },
+      B: { name: 'Inferno Smasher', desc: '+30% HP, +35% dmg', hpMult: 1.30, damageMult: 1.35, spawnSpeedMult: 0.88, cost: { gold: 0, wood: 10, meat: 40 } },
+      C: { name: 'Blaze Smasher', desc: '+25% speed, faster atk', moveSpeedMult: 1.25, attackSpeedMult: 0.85, spawnSpeedMult: 0.88, cost: { gold: 0, wood: 35, meat: 10 } },
+      D: { name: 'Doom Smasher', desc: '+50% dmg, +2 burn', damageMult: 1.50, special: { extraBurnStacks: 2 }, spawnSpeedMult: 0.82, cost: { gold: 0, wood: 15, meat: 80 } },
+      E: { name: 'Bloodfire Berserker', desc: '+20% dmg, +5% dmg per kill (max 10)', damageMult: 1.20, spawnSpeedMult: 0.82, special: { killScaling: true, killDmgPct: 0.05, killMaxStacks: 10 }, cost: { gold: 0, wood: 20, meat: 60 } },
+      F: { name: 'Phoenix Blade', desc: '+20% dmg, +30% speed, revive 60%', damageMult: 1.20, moveSpeedMult: 1.30, special: { reviveHpPct: 0.60 }, spawnSpeedMult: 0.82, cost: { gold: 0, wood: 65, meat: 20 } },
+      G: { name: 'Magma Smasher', desc: '+55% dmg, +3 burn', damageMult: 1.55, special: { extraBurnStacks: 3 }, spawnSpeedMult: 0.82, cost: { gold: 0, wood: 55, meat: 30 } },
     },
+    // Ranged B-path = wood-heavy (sniper/splash), C-path = meat-heavy (speed→siege)
     [BuildingType.RangedSpawner]: {
-      B: { name: 'Flame Sniper', desc: '+35% dmg, +20% range', damageMult: 1.35, rangeMult: 1.20, spawnSpeedMult: 0.88 },
-      C: { name: 'Rapid Eye', desc: 'Faster atk, +15% speed', attackSpeedMult: 0.80, moveSpeedMult: 1.15, spawnSpeedMult: 0.88 },
-      D: { name: 'Meteor Eye', desc: '+45% dmg, splash 2t', damageMult: 1.45, special: { splashRadius: 2, splashDamagePct: 0.60 }, spawnSpeedMult: 0.82 },
-      E: { name: 'Inferno Reaper', desc: '+20% dmg, +5% dmg per kill (max 10)', damageMult: 1.20, spawnSpeedMult: 0.82, special: { killScaling: true, killDmgPct: 0.05, killMaxStacks: 10 } },
-      F: { name: 'Blitz Eye', desc: 'Very fast, +30% range', attackSpeedMult: 0.70, rangeMult: 1.30, spawnSpeedMult: 0.82 },
-      G: { name: 'Brimstone Cannon', desc: 'SIEGE: 14 range, slow, devastating vs buildings + burns', hpMult: 0.50, damageMult: 2.16, attackSpeedMult: 3.20, moveSpeedMult: 0.35, rangeMult: 1.75, spawnSpeedMult: 0.82, special: { isSiegeUnit: true, buildingDamageMult: 4.0, splashRadius: 3.5, splashDamagePct: 0.65, extraBurnStacks: 2 } },
+      B: { name: 'Flame Sniper', desc: '+35% dmg, +20% range', damageMult: 1.35, rangeMult: 1.20, spawnSpeedMult: 0.88, cost: { gold: 0, wood: 35, meat: 15 } },
+      C: { name: 'Rapid Eye', desc: 'Faster atk, +15% speed', attackSpeedMult: 0.80, moveSpeedMult: 1.15, spawnSpeedMult: 0.88, cost: { gold: 0, wood: 10, meat: 30 } },
+      D: { name: 'Meteor Eye', desc: '+45% dmg, splash 2t', damageMult: 1.45, special: { splashRadius: 2, splashDamagePct: 0.60 }, spawnSpeedMult: 0.82, cost: { gold: 0, wood: 70, meat: 20 } },
+      E: { name: 'Inferno Reaper', desc: '+20% dmg, +5% dmg per kill (max 10)', damageMult: 1.20, spawnSpeedMult: 0.82, special: { killScaling: true, killDmgPct: 0.05, killMaxStacks: 10 }, cost: { gold: 0, wood: 55, meat: 20 } },
+      F: { name: 'Blitz Eye', desc: 'Very fast, +30% range', attackSpeedMult: 0.70, rangeMult: 1.30, spawnSpeedMult: 0.82, cost: { gold: 0, wood: 15, meat: 70 } },
+      G: { name: 'Brimstone Cannon', desc: 'SIEGE: 14 range, slow, devastating vs buildings + burns', hpMult: 0.50, damageMult: 2.16, attackSpeedMult: 3.20, moveSpeedMult: 0.35, rangeMult: 1.75, spawnSpeedMult: 0.82, special: { isSiegeUnit: true, buildingDamageMult: 4.0, splashRadius: 3.5, splashDamagePct: 0.65, extraBurnStacks: 2 }, cost: { gold: 0, wood: 20, meat: 80 } },
     },
+    // Caster B-path = meat-heavy (damage), C-path = wood-heavy (speed/range)
     [BuildingType.CasterSpawner]: {
-      B: { name: 'Hellfire Lord', desc: '+25% HP, +40% dmg', hpMult: 1.25, damageMult: 1.40, spawnSpeedMult: 0.88 },
-      C: { name: 'Pyro Lord', desc: 'Faster atk, +25% range', attackSpeedMult: 0.80, rangeMult: 1.25, spawnSpeedMult: 0.88 },
-      D: { name: 'Apocalypse Lord', desc: '+50% dmg, +3 burn', damageMult: 1.50, special: { extraBurnStacks: 3 }, spawnSpeedMult: 0.82 },
-      E: { name: 'Eruption Lord', desc: '+45% dmg, +1 AoE', damageMult: 1.45, special: { aoeRadiusBonus: 1 }, spawnSpeedMult: 0.82 },
-      F: { name: 'Flame Conduit', desc: 'Very fast, +1 AoE', attackSpeedMult: 0.65, special: { aoeRadiusBonus: 1 }, spawnSpeedMult: 0.82 },
-      G: { name: 'Soul Pyre', desc: '+20% dmg, +5% dmg per kill (max 10)', damageMult: 1.20, spawnSpeedMult: 0.82, special: { killScaling: true, killDmgPct: 0.05, killMaxStacks: 10 } },
+      B: { name: 'Hellfire Lord', desc: '+25% HP, +40% dmg', hpMult: 1.25, damageMult: 1.40, spawnSpeedMult: 0.88, cost: { gold: 0, wood: 10, meat: 40 } },
+      C: { name: 'Pyro Lord', desc: 'Faster atk, +25% range', attackSpeedMult: 0.80, rangeMult: 1.25, spawnSpeedMult: 0.88, cost: { gold: 0, wood: 35, meat: 10 } },
+      D: { name: 'Apocalypse Lord', desc: '+50% dmg, +3 burn', damageMult: 1.50, special: { extraBurnStacks: 3 }, spawnSpeedMult: 0.82, cost: { gold: 0, wood: 15, meat: 85 } },
+      E: { name: 'Eruption Lord', desc: '+45% dmg, +1 AoE', damageMult: 1.45, special: { aoeRadiusBonus: 1 }, spawnSpeedMult: 0.82, cost: { gold: 0, wood: 20, meat: 70 } },
+      F: { name: 'Flame Conduit', desc: 'Very fast, +1 AoE', attackSpeedMult: 0.65, special: { aoeRadiusBonus: 1 }, spawnSpeedMult: 0.82, cost: { gold: 0, wood: 65, meat: 15 } },
+      G: { name: 'Soul Pyre', desc: '+20% dmg, +5% dmg per kill (max 10)', damageMult: 1.20, spawnSpeedMult: 0.82, special: { killScaling: true, killDmgPct: 0.05, killMaxStacks: 10 }, cost: { gold: 0, wood: 50, meat: 15 } },
     },
     [BuildingType.Tower]: {
       B: { name: 'Demon Turret', desc: '+45% HP, +40% dmg', hpMult: 1.45, damageMult: 1.40 },
@@ -646,29 +661,32 @@ export const UPGRADE_TREES: Record<Race, Partial<Record<BuildingType, Record<Upg
   },
   // ============ DEEP (Aquatic) — Slow & Control [TALL] ============
   [Race.Deep]: {
+    // Melee B-path = wood-heavy (tank whale), C-path = gold-heavy (mobile frog)
     [BuildingType.MeleeSpawner]: {
-      B: { name: 'Bull Whale', desc: '+50% HP, +25% dmg', hpMult: 1.50, damageMult: 1.25, spawnSpeedMult: 0.90 },
-      C: { name: 'Frog Scout', desc: '+20% speed, +2 slow', moveSpeedMult: 1.20, special: { extraSlowStacks: 2 }, spawnSpeedMult: 0.90 },
-      D: { name: 'Armored Whale', desc: '+70% HP, 20% dmg reduction', hpMult: 1.70, special: { damageReductionPct: 0.20 }, spawnSpeedMult: 0.85 },
-      E: { name: 'Leviathan', desc: '+45% dmg, knockback/2', damageMult: 1.45, special: { knockbackEveryN: 2 }, spawnSpeedMult: 0.85 },
-      F: { name: 'Leapfrog', desc: '+20% dmg, +25% speed, hop attack, +3 slow', damageMult: 1.20, moveSpeedMult: 1.25, special: { extraSlowStacks: 3, hopAttack: true }, spawnSpeedMult: 0.85 },
-      G: { name: 'Frog Titan', desc: '+50% dmg, regen 3/s, hop attack', damageMult: 1.50, special: { regenPerSec: 3, hopAttack: true }, spawnSpeedMult: 0.85 },
+      B: { name: 'Bull Whale', desc: '+50% HP, +25% dmg', hpMult: 1.50, damageMult: 1.25, spawnSpeedMult: 0.90, cost: { gold: 10, wood: 35, meat: 0 } },
+      C: { name: 'Frog Scout', desc: '+20% speed, +2 slow', moveSpeedMult: 1.20, special: { extraSlowStacks: 2 }, spawnSpeedMult: 0.90, cost: { gold: 40, wood: 10, meat: 0 } },
+      D: { name: 'Armored Whale', desc: '+70% HP, 20% dmg reduction', hpMult: 1.70, special: { damageReductionPct: 0.20 }, spawnSpeedMult: 0.85, cost: { gold: 15, wood: 60, meat: 0 } },
+      E: { name: 'Leviathan', desc: '+45% dmg, knockback/2', damageMult: 1.45, special: { knockbackEveryN: 2 }, spawnSpeedMult: 0.85, cost: { gold: 20, wood: 55, meat: 0 } },
+      F: { name: 'Leapfrog', desc: '+20% dmg, +25% speed, hop attack, +3 slow', damageMult: 1.20, moveSpeedMult: 1.25, special: { extraSlowStacks: 3, hopAttack: true }, spawnSpeedMult: 0.85, cost: { gold: 80, wood: 10, meat: 0 } },
+      G: { name: 'Frog Titan', desc: '+50% dmg, regen 3/s, hop attack', damageMult: 1.50, special: { regenPerSec: 3, hopAttack: true }, spawnSpeedMult: 0.85, cost: { gold: 90, wood: 15, meat: 0 } },
     },
+    // Ranged B-path = gold-heavy (shark/damage), C-path = wood-heavy (crab/control→siege)
     [BuildingType.RangedSpawner]: {
-      B: { name: 'Reef Shark', desc: 'Faster atk, +1 slow', attackSpeedMult: 0.85, special: { extraSlowStacks: 1 }, spawnSpeedMult: 0.90 },
-      C: { name: 'Spray Crab', desc: 'Faster atk, +2 slow', attackSpeedMult: 0.80, special: { extraSlowStacks: 2 }, spawnSpeedMult: 0.90 },
-      D: { name: 'Hammerhead', desc: '+40% dmg, faster atk, +2 slow', damageMult: 1.40, attackSpeedMult: 0.85, special: { extraSlowStacks: 2 }, spawnSpeedMult: 0.85 },
-      E: { name: 'Great White', desc: '+30% dmg, +25% range, +3 slow', damageMult: 1.30, rangeMult: 1.25, special: { extraSlowStacks: 3 }, spawnSpeedMult: 0.85 },
-      F: { name: 'Depth Charge', desc: 'SIEGE: 13 range, slow, devastating vs buildings + slows', hpMult: 0.50, damageMult: 2.04, attackSpeedMult: 3.40, moveSpeedMult: 0.40, rangeMult: 1.85, spawnSpeedMult: 0.85, special: { isSiegeUnit: true, buildingDamageMult: 4.0, splashRadius: 3.5, splashDamagePct: 0.65, extraSlowStacks: 3 } },
-      G: { name: 'King Crab', desc: '+35% dmg, splash 3t', damageMult: 1.35, special: { splashRadius: 3, splashDamagePct: 0.45 }, spawnSpeedMult: 0.85 },
+      B: { name: 'Reef Shark', desc: 'Faster atk, +1 slow', attackSpeedMult: 0.85, special: { extraSlowStacks: 1 }, spawnSpeedMult: 0.90, cost: { gold: 30, wood: 20, meat: 0 } },
+      C: { name: 'Spray Crab', desc: 'Faster atk, +2 slow', attackSpeedMult: 0.80, special: { extraSlowStacks: 2 }, spawnSpeedMult: 0.90, cost: { gold: 10, wood: 30, meat: 0 } },
+      D: { name: 'Hammerhead', desc: '+40% dmg, faster atk, +2 slow', damageMult: 1.40, attackSpeedMult: 0.85, special: { extraSlowStacks: 2 }, spawnSpeedMult: 0.85, cost: { gold: 70, wood: 20, meat: 0 } },
+      E: { name: 'Great White', desc: '+30% dmg, +25% range, +3 slow', damageMult: 1.30, rangeMult: 1.25, special: { extraSlowStacks: 3 }, spawnSpeedMult: 0.85, cost: { gold: 65, wood: 25, meat: 0 } },
+      F: { name: 'Depth Charge', desc: 'SIEGE: 13 range, slow, devastating vs buildings + slows', hpMult: 0.50, damageMult: 2.04, attackSpeedMult: 3.40, moveSpeedMult: 0.40, rangeMult: 1.85, spawnSpeedMult: 0.85, special: { isSiegeUnit: true, buildingDamageMult: 4.0, splashRadius: 3.5, splashDamagePct: 0.65, extraSlowStacks: 3 }, cost: { gold: 15, wood: 70, meat: 0 } },
+      G: { name: 'King Crab', desc: '+35% dmg, splash 3t', damageMult: 1.35, special: { splashRadius: 3, splashDamagePct: 0.45 }, spawnSpeedMult: 0.85, cost: { gold: 20, wood: 55, meat: 0 } },
     },
+    // Caster B-path = wood-heavy (healer), C-path = gold-heavy (damage/AoE)
     [BuildingType.CasterSpawner]: {
-      B: { name: 'Sea Star', desc: '+30% HP, cleanse +3', hpMult: 1.30, special: { healBonus: 3 }, spawnSpeedMult: 0.90 },
-      C: { name: 'Snap Clam', desc: '+1 AoE, faster atk', special: { aoeRadiusBonus: 1 }, attackSpeedMult: 0.80, spawnSpeedMult: 0.90 },
-      D: { name: 'Crown Star', desc: '+30% dmg, +3 slow', damageMult: 1.30, special: { extraSlowStacks: 3 }, spawnSpeedMult: 0.85 },
-      E: { name: 'Star Lord', desc: 'Cleanse +6, +25% range', rangeMult: 1.25, special: { healBonus: 6 }, spawnSpeedMult: 0.85 },
-      F: { name: 'Giant Clam', desc: '+60% HP, +40% dmg', hpMult: 1.60, damageMult: 1.40, spawnSpeedMult: 0.85 },
-      G: { name: 'Pearl Maw', desc: '+35% dmg, +3 AoE', damageMult: 1.35, special: { aoeRadiusBonus: 3 }, spawnSpeedMult: 0.85 },
+      B: { name: 'Sea Star', desc: '+30% HP, cleanse +3', hpMult: 1.30, special: { healBonus: 3 }, spawnSpeedMult: 0.90, cost: { gold: 10, wood: 35, meat: 0 } },
+      C: { name: 'Snap Clam', desc: '+1 AoE, faster atk', special: { aoeRadiusBonus: 1 }, attackSpeedMult: 0.80, spawnSpeedMult: 0.90, cost: { gold: 40, wood: 10, meat: 0 } },
+      D: { name: 'Crown Star', desc: '+30% dmg, +3 slow', damageMult: 1.30, special: { extraSlowStacks: 3 }, spawnSpeedMult: 0.85, cost: { gold: 15, wood: 55, meat: 0 } },
+      E: { name: 'Star Lord', desc: 'Cleanse +6, +25% range', rangeMult: 1.25, special: { healBonus: 6 }, spawnSpeedMult: 0.85, cost: { gold: 20, wood: 45, meat: 0 } },
+      F: { name: 'Giant Clam', desc: '+60% HP, +40% dmg', hpMult: 1.60, damageMult: 1.40, spawnSpeedMult: 0.85, cost: { gold: 85, wood: 15, meat: 0 } },
+      G: { name: 'Pearl Maw', desc: '+35% dmg, +3 AoE', damageMult: 1.35, special: { aoeRadiusBonus: 3 }, spawnSpeedMult: 0.85, cost: { gold: 75, wood: 25, meat: 0 } },
     },
     [BuildingType.Tower]: {
       B: { name: 'Tidal Pool', desc: '+50% HP, +35% dmg', hpMult: 1.50, damageMult: 1.35 },
@@ -681,29 +699,32 @@ export const UPGRADE_TREES: Record<Race, Partial<Record<BuildingType, Record<Upg
   },
   // ============ WILD (Beasts) — Poison & Speed [HYBRID] ============
   [Race.Wild]: {
+    // Melee B-path = wood-heavy (big single units), C-path = meat-heavy (swarm)
     [BuildingType.MeleeSpawner]: {
-      B: { name: 'Cave Bear', desc: '+40% HP, +25% dmg', hpMult: 1.40, damageMult: 1.25, spawnSpeedMult: 0.88 },
-      C: { name: 'Spider Brood', desc: 'Spawn 3 spiders, +25% speed', hpMult: 0.65, damageMult: 0.60, moveSpeedMult: 1.25, attackSpeedMult: 0.85, special: { spawnCount: 3 }, spawnSpeedMult: 0.88 },
-      D: { name: 'Minotaur', desc: '+55% HP, +40% dmg, cleave 2', hpMult: 1.55, damageMult: 1.40, special: { cleaveTargets: 2 }, spawnSpeedMult: 0.82 },
-      E: { name: 'Dire Bear', desc: '+65% HP, +35% dmg, 20% dmg reduction', hpMult: 1.65, damageMult: 1.35, special: { damageReductionPct: 0.20 }, spawnSpeedMult: 0.82 },
-      F: { name: 'Viper Nest', desc: 'Spawn 3 snakes, +35% speed, +2 slow', hpMult: 0.65, damageMult: 0.65, moveSpeedMult: 1.35, special: { spawnCount: 3, extraSlowStacks: 2 }, spawnSpeedMult: 0.82 },
-      G: { name: 'Spider Swarm', desc: 'Spawn 5 spiders, faster atk, +2 slow', attackSpeedMult: 0.80, damageMult: 0.65, hpMult: 0.50, special: { spawnCount: 5, extraSlowStacks: 2 }, spawnSpeedMult: 0.82 },
+      B: { name: 'Cave Bear', desc: '+40% HP, +25% dmg', hpMult: 1.40, damageMult: 1.25, spawnSpeedMult: 0.88, cost: { gold: 0, wood: 30, meat: 10 } },
+      C: { name: 'Spider Brood', desc: 'Spawn 3 spiders, +25% speed', hpMult: 0.65, damageMult: 0.60, moveSpeedMult: 1.25, attackSpeedMult: 0.85, special: { spawnCount: 3 }, spawnSpeedMult: 0.88, cost: { gold: 0, wood: 10, meat: 30 } },
+      D: { name: 'Minotaur', desc: '+55% HP, +40% dmg, cleave 2', hpMult: 1.55, damageMult: 1.40, special: { cleaveTargets: 2 }, spawnSpeedMult: 0.82, cost: { gold: 0, wood: 65, meat: 15 } },
+      E: { name: 'Dire Bear', desc: '+65% HP, +35% dmg, 20% dmg reduction', hpMult: 1.65, damageMult: 1.35, special: { damageReductionPct: 0.20 }, spawnSpeedMult: 0.82, cost: { gold: 0, wood: 60, meat: 20 } },
+      F: { name: 'Viper Nest', desc: 'Spawn 3 snakes, +35% speed, +2 slow', hpMult: 0.65, damageMult: 0.65, moveSpeedMult: 1.35, special: { spawnCount: 3, extraSlowStacks: 2 }, spawnSpeedMult: 0.82, cost: { gold: 0, wood: 15, meat: 55 } },
+      G: { name: 'Spider Swarm', desc: 'Spawn 5 spiders, faster atk, +2 slow', attackSpeedMult: 0.80, damageMult: 0.65, hpMult: 0.50, special: { spawnCount: 5, extraSlowStacks: 2 }, spawnSpeedMult: 0.82, cost: { gold: 0, wood: 20, meat: 60 } },
     },
+    // Ranged B-path = meat-heavy (damage), C-path = wood-heavy (utility/speed)
     [BuildingType.RangedSpawner]: {
-      B: { name: 'Chameleon', desc: '+30% HP, +30% dmg', hpMult: 1.30, damageMult: 1.30, spawnSpeedMult: 0.88 },
-      C: { name: 'Spitting Snake', desc: 'Faster atk, +2 slow', attackSpeedMult: 0.80, special: { extraSlowStacks: 2 }, spawnSpeedMult: 0.88 },
-      D: { name: 'Stalker', desc: '+40% dmg, splash 2t', damageMult: 1.40, special: { splashRadius: 2, splashDamagePct: 0.50 }, spawnSpeedMult: 0.82 },
-      E: { name: 'Catapult Beast', desc: 'SIEGE: 10 range, slow, devastating vs buildings + burns', hpMult: 0.70, damageMult: 1.92, attackSpeedMult: 3.00, moveSpeedMult: 0.40, rangeMult: 1.66, spawnSpeedMult: 0.82, special: { isSiegeUnit: true, buildingDamageMult: 3.5, splashRadius: 3, splashDamagePct: 0.60, extraBurnStacks: 1 } },
-      F: { name: 'Venom Serpent', desc: 'Much faster, +25% range, +2 burn', attackSpeedMult: 0.70, rangeMult: 1.25, special: { extraBurnStacks: 2 }, spawnSpeedMult: 0.82 },
-      G: { name: 'Hydra Spit', desc: '+45% dmg, splash 3t, +2 slow', damageMult: 1.45, special: { splashRadius: 3, splashDamagePct: 0.50, extraSlowStacks: 2 }, spawnSpeedMult: 0.82 },
+      B: { name: 'Chameleon', desc: '+30% HP, +30% dmg', hpMult: 1.30, damageMult: 1.30, spawnSpeedMult: 0.88, cost: { gold: 0, wood: 10, meat: 30 } },
+      C: { name: 'Spitting Snake', desc: 'Faster atk, +2 slow', attackSpeedMult: 0.80, special: { extraSlowStacks: 2 }, spawnSpeedMult: 0.88, cost: { gold: 0, wood: 30, meat: 10 } },
+      D: { name: 'Stalker', desc: '+40% dmg, splash 2t', damageMult: 1.40, special: { splashRadius: 2, splashDamagePct: 0.50 }, spawnSpeedMult: 0.82, cost: { gold: 0, wood: 15, meat: 60 } },
+      E: { name: 'Catapult Beast', desc: 'SIEGE: 10 range, slow, devastating vs buildings + burns', hpMult: 0.70, damageMult: 1.92, attackSpeedMult: 3.00, moveSpeedMult: 0.40, rangeMult: 1.66, spawnSpeedMult: 0.82, special: { isSiegeUnit: true, buildingDamageMult: 3.5, splashRadius: 3, splashDamagePct: 0.60, extraBurnStacks: 1 }, cost: { gold: 0, wood: 20, meat: 65 } },
+      F: { name: 'Venom Serpent', desc: 'Much faster, +25% range, +2 burn', attackSpeedMult: 0.70, rangeMult: 1.25, special: { extraBurnStacks: 2 }, spawnSpeedMult: 0.82, cost: { gold: 0, wood: 55, meat: 15 } },
+      G: { name: 'Hydra Spit', desc: '+45% dmg, splash 3t, +2 slow', damageMult: 1.45, special: { splashRadius: 3, splashDamagePct: 0.50, extraSlowStacks: 2 }, spawnSpeedMult: 0.82, cost: { gold: 0, wood: 50, meat: 25 } },
     },
+    // Caster B-path = wood-heavy (healer), C-path = meat-heavy (damage/range)
     [BuildingType.CasterSpawner]: {
-      B: { name: 'Elder Sage', desc: '+30% HP, +5 heal', hpMult: 1.30, special: { healBonus: 5 }, spawnSpeedMult: 0.88 },
-      C: { name: 'Swift Sage', desc: 'Faster atk, +25% range', attackSpeedMult: 0.80, rangeMult: 1.25, spawnSpeedMult: 0.88 },
-      D: { name: 'Primal Sage', desc: '+40% dmg, +8 heal', damageMult: 1.40, special: { healBonus: 8 }, spawnSpeedMult: 0.82 },
-      E: { name: 'Storm Sage', desc: '+45% dmg, +2 AoE', damageMult: 1.45, special: { aoeRadiusBonus: 2 }, spawnSpeedMult: 0.82 },
-      F: { name: 'Feral Sage', desc: 'Very fast, +6 heal', attackSpeedMult: 0.65, special: { healBonus: 6 }, spawnSpeedMult: 0.82 },
-      G: { name: 'Alpha Sage', desc: '+50% dmg, +35% range', damageMult: 1.50, rangeMult: 1.35, spawnSpeedMult: 0.82 },
+      B: { name: 'Elder Sage', desc: '+30% HP, +5 heal', hpMult: 1.30, special: { healBonus: 5 }, spawnSpeedMult: 0.88, cost: { gold: 0, wood: 30, meat: 10 } },
+      C: { name: 'Swift Sage', desc: 'Faster atk, +25% range', attackSpeedMult: 0.80, rangeMult: 1.25, spawnSpeedMult: 0.88, cost: { gold: 0, wood: 10, meat: 25 } },
+      D: { name: 'Primal Sage', desc: '+40% dmg, +8 heal', damageMult: 1.40, special: { healBonus: 8 }, spawnSpeedMult: 0.82, cost: { gold: 0, wood: 60, meat: 15 } },
+      E: { name: 'Storm Sage', desc: '+45% dmg, +2 AoE', damageMult: 1.45, special: { aoeRadiusBonus: 2 }, spawnSpeedMult: 0.82, cost: { gold: 0, wood: 55, meat: 25 } },
+      F: { name: 'Feral Sage', desc: 'Very fast, +6 heal', attackSpeedMult: 0.65, special: { healBonus: 6 }, spawnSpeedMult: 0.82, cost: { gold: 0, wood: 15, meat: 50 } },
+      G: { name: 'Alpha Sage', desc: '+50% dmg, +35% range', damageMult: 1.50, rangeMult: 1.35, spawnSpeedMult: 0.82, cost: { gold: 0, wood: 20, meat: 55 } },
     },
     [BuildingType.Tower]: {
       B: { name: 'Thorn Nest', desc: '+60% HP, +30% dmg', hpMult: 1.60, damageMult: 1.30 },
@@ -1043,7 +1064,7 @@ export function getResearchUpgradeCost(id: string, level: number, race: Race): {
   if (!def) return { gold: 999, wood: 999, meat: 999 };
   // Geists: attack/defense research costs souls instead of resources
   if (race === Race.Geists && (def.type === 'attack' || def.type === 'defense')) {
-    const cost = Math.round(25 * Math.pow(1.75, level));
+    const cost = Math.round(50 * Math.pow(2.0, level));
     return { gold: 0, wood: 0, meat: 0, souls: cost };
   }
   // Geists: one-shot racial upgrades cost souls (race_special tab only; race_ability handled by per-race table below)
@@ -1079,7 +1100,7 @@ export function getResearchUpgradeCost(id: string, level: number, race: Race): {
         crown_ability_3: { gold: 400, wood: 0, meat: 0 },   // Aegis Wrath: +25% dmg while shielded — 200 eff, army-wide
         crown_ability_4: { gold: 360, wood: 0, meat: 0 },   // Timber Surplus: +40% wood income — 180 eff, huge economy
 
-        // Horde (gold + meat) — Trophy Hunter snowballs, Wide Aura is strong, rest are niche
+        // Horde (gold + meat + wood) — Trophy Hunter snowballs, Wide Aura is strong, rest are niche
         horde_ability_1: { gold: 200, wood: 0, meat: 30 },  // Trample: AoE on War Troll — 130 eff
         horde_ability_2: { gold: 80,  wood: 0, meat: 20 },  // Troll Discount: 30% cheaper — 60 eff, narrow
         horde_ability_3: { gold: 200, wood: 0, meat: 40 },  // Wide Aura: doubled range — 140 eff, force multiplier

@@ -152,7 +152,7 @@ interface RaceProfile {
 //   Don't rush — units too expensive. Invest in upgrades mid-game.
 //   Diamond: YES (gold harvesters can pivot to center easily)
 //
-// HORDE (Gold+Meat, 200g/25s start, 20g/2s passive)
+// HORDE (Gold+Meat+Wood, 100g/50w/50m start, all 3 passive)
 //   Best DPS/cost in game (Brute 12dps @ 60 total cost = 0.20 dps/$).
 //   Strategy: Rush 2 melee immediately (20g+40s each), overwhelm early.
 //   Minimal econ — just 1 hut, spend everything on melee pressure.
@@ -225,7 +225,7 @@ const RACE_PROFILES: Record<Race, RaceProfile> = {
     vsSwarmExtraCasters: 1, vsTankExtraRanged: 1, vsGlassCannonExtraMelee: 1,
     maxHuts: 5, pushThreshold: 1.2,
   },
-  // HORDE (Gold+Meat): Brute is best DPS/cost (40m). 3-resource economy needs huts.
+  // HORDE (Gold+Meat+Wood): Brute is best DPS/cost (40m). 3-resource economy needs huts.
   // Go taller than other races — diversify auras. War Chanter (caster) supports.
   [Race.Horde]: {
     earlyMelee: 2, earlyRanged: 0, earlyHuts: 2, earlyTowers: 0,
@@ -1371,8 +1371,8 @@ const UNIT_ABILITY_VALUE: Record<Race, Record<string, { survMult: number; dmgMul
   [Race.Horde]: {
     // Brute: knockback every 3rd hit + 10% melee lifesteal. 130 HP tank.
     melee:  { survMult: 1.20, dmgMult: 1.05 },
-    // Bowcleaver: best ranged DPS in game (13.8 base with 18 dmg).
-    ranged: { survMult: 1.00, dmgMult: 1.05 },
+    // Bowcleaver: 18 dmg, split shot path (2→3 projectiles). High volume damage.
+    ranged: { survMult: 1.00, dmgMult: 1.15 },
     // War Chanter: haste pulse + chain heal (B-path). +25% dmg with Berserker Howl.
     // Chain heal gives Horde sustain they desperately need.
     caster: { survMult: 1.00, dmgMult: 2.2 },
@@ -1637,6 +1637,14 @@ function estimateUpgradeValue(
     const volumeBonus = Math.max(0.5, sameTypeCount * 0.7);
 
     value = (throughputDelta * (1 + spikeBonus + matchupBonus) * volumeBonus) / totalCost;
+
+    // Siege penalty: siege units are bad vs units, only useful when pushing buildings.
+    // Heavily penalize siege upgrades unless game is late (8+ min) and we're ahead or even.
+    if (nodeDef.special?.isSiegeUnit) {
+      const gameMin = state.tick / TICK_RATE / 60;
+      if (gameMin < 8) value *= 0.1;  // almost never pick siege early
+      else value *= 0.4;               // still deprioritize late
+    }
   } else {
     // Stat-based (non-nightmare or towers)
     const hpGain = (nodeDef.hpMult ?? 1) - 1;
@@ -2441,6 +2449,14 @@ function botValueBasedBuild(
         const volumeBonus = Math.max(1, sameTypeCount * 0.6);
 
         uv = (throughputDelta * (1 + spikeBonus + matchupBonus) * volumeBonus) / totalCost;
+
+        // Siege penalty: avoid siege upgrades until late game
+        const nodeDef2 = UPGRADE_TREES[race]?.[b.type]?.[choice as 'B'|'C'|'D'|'E'|'F'|'G'];
+        if (nodeDef2?.special?.isSiegeUnit) {
+          const gameMin2 = state.tick / TICK_RATE / 60;
+          if (gameMin2 < 8) uv *= 0.1;
+          else uv *= 0.4;
+        }
 
         // Boost for effective category
         const cat = buildingCategory(b.type);
@@ -3478,9 +3494,18 @@ function botUseAbility(state: GameState, playerId: number, emit: Emit): void {
 
     // Wild targets allies (buff), others target enemies (damage/summon)
     const isAllyTarget = player.race === Race.Wild;
-    const targets = isAllyTarget
-      ? state.units.filter(u => u.team === player.team && u.hp > 0)
-      : state.units.filter(u => u.team === enemyTeam && u.hp > 0);
+    const enemies = state.units.filter(u => u.team === enemyTeam && u.hp > 0);
+    let targets: GameState['units'];
+
+    if (isAllyTarget) {
+      // Wild frenzy: only consider allies that are near enemy units (in combat)
+      const combatRange = 12 * 12; // 12 tiles — units actively fighting or about to fight
+      const alliesInCombat = state.units.filter(u => u.team === player.team && u.hp > 0 &&
+        enemies.some(e => (e.x - u.x) ** 2 + (e.y - u.y) ** 2 <= combatRange));
+      targets = alliesInCombat.length >= 2 ? alliesInCombat : state.units.filter(u => u.team === player.team && u.hp > 0);
+    } else {
+      targets = enemies;
+    }
     if (targets.length < 2) return;
 
     // Find densest cluster center
