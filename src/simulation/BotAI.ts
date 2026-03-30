@@ -194,7 +194,7 @@ interface RaceProfile {
 //   2 melee early, 1 hut, ranged mid. Grind enemies down.
 //   Diamond: SKIP until late (meat economy, center gives gold)
 //
-// TENDERS (Wood+Gold, 50g/150w start, 2g/20w passive)
+// TENDERS (Wood+Gold+Meat, 50g/150w start, 2g/20w passive, huts generate all 3)
 //   Tanky healers (120hp melee + regen). Expensive (75 total melee).
 //   Strategy: Econ-first — 2 huts then melee. Sustain = win long fights.
 //   Push aggressively once army built. Regen means attrition favors you.
@@ -296,7 +296,7 @@ const RACE_PROFILES: Record<Race, RaceProfile> = {
     vsSwarmExtraCasters: 1, vsTankExtraRanged: 1, vsGlassCannonExtraMelee: 0,
     maxHuts: 5, pushThreshold: 1.0,
   },
-  // TENDERS (Wood+Gold): Spread of units. Treant melee wall + Tinker ranged + Grove Keeper healer.
+  // TENDERS (Wood+Gold+Meat): Spread of units. Treant melee wall + Tinker ranged + Grove Keeper healer.
   // Econ-heavy to sustain expensive units. Spawn seeds, time them to pop together.
   [Race.Tenders]: {
     earlyMelee: 1, earlyRanged: 1, earlyHuts: 2, earlyTowers: 0,

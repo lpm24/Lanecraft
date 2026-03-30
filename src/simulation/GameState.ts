@@ -55,7 +55,7 @@ export const PASSIVE_INCOME: Record<Race, { gold: number; wood: number; meat: nu
   [Race.Deep]:     { gold: 1,   wood: 1,   meat: 0 },    // wood primary, gold secondary
   [Race.Wild]:     { gold: 0,   wood: 1.5, meat: 0.75 }, // wood primary, meat secondary
   [Race.Geists]:   { gold: 1.5, wood: 0,   meat: 1.5 },  // meat primary, gold secondary
-  [Race.Tenders]:  { gold: 1,   wood: 1,   meat: 0 },    // wood primary, gold secondary
+  [Race.Tenders]:  { gold: 1,   wood: 1,   meat: 0 },    // wood primary, gold secondary (huts also generate meat)
 };
 
 const INITIAL_RESOURCES: Record<Race, { gold: number; wood: number; meat: number }> = {

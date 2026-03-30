@@ -808,11 +808,7 @@ export class InputHandler {
           );
           if (building) {
             this.hoveredBuildingId = building.id;
-            // Don't show tooltip if a popup is open — it overlaps the menu
-            const popupOpen = this.buildingPopup.isOpen() || this.hutPopup.isOpen() || this.seedPopup.isOpen() || this.researchPopup.isOpen();
-            if (!popupOpen) {
-              this.tooltip = { text: this.getBuildingTooltip(building), x: e.clientX, y: e.clientY - 20 };
-            }
+            this.tooltip = { text: this.getBuildingTooltip(building), x: e.clientX, y: e.clientY - 20 };
           }
         }
       }
@@ -2316,14 +2312,19 @@ export class InputHandler {
     }
 
     if (this.tooltip) {
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.88)';
-      ctx.font = '14px monospace';
-      const w = ctx.measureText(this.tooltip.text).width + 16;
-      ctx.fillRect(this.tooltip.x - w / 2, this.tooltip.y - 18, w, 24);
-      ctx.fillStyle = '#ddd';
-      ctx.textAlign = 'center';
-      ctx.fillText(this.tooltip.text, this.tooltip.x, this.tooltip.y);
-      ctx.textAlign = 'start';
+      // Hide tooltip when any popup is open — it overlaps menus
+      const anyPopupOpen = this.buildingPopup.isOpen() || this.hutPopup.isOpen()
+        || this.seedPopup.isOpen() || this.researchPopup.isOpen();
+      if (!anyPopupOpen) {
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.88)';
+        ctx.font = '14px monospace';
+        const w = ctx.measureText(this.tooltip.text).width + 16;
+        ctx.fillRect(this.tooltip.x - w / 2, this.tooltip.y - 18, w, 24);
+        ctx.fillStyle = '#ddd';
+        ctx.textAlign = 'center';
+        ctx.fillText(this.tooltip.text, this.tooltip.x, this.tooltip.y);
+        ctx.textAlign = 'start';
+      }
     }
 
     if (this.devOverlayOpen) {

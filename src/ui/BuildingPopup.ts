@@ -133,7 +133,7 @@ export class BuildingPopup {
   private selectedChoice: string | null = null; // mobile confirmation flow
   // Cached layout for hit testing (screen space)
   private rect = { x: 0, y: 0, w: 0, h: 0 };
-  private upgradeBtnRects: { x: number; y: number; w: number; h: number; choice: string }[] = [];
+  private upgradeBtnRects: { x: number; y: number; w: number; h: number; choice: string; canAfford: boolean }[] = [];
   private sellBtnRect = { x: 0, y: 0, w: 0, h: 0 };
   private closeBtnRect = { x: 0, y: 0, w: 0, h: 0 };
   private laneBtnRect = { x: 0, y: 0, w: 0, h: 0 };
@@ -180,12 +180,15 @@ export class BuildingPopup {
     for (const btn of this.upgradeBtnRects) {
       if (this.hitTest(cx, cy, btn)) {
         if (isMobile) {
-          // Mobile: first click selects, second click on same button confirms
           if (this.selectedChoice === btn.choice) {
-            this.selectedChoice = null;
-            return { action: 'upgrade', choice: btn.choice };
+            // Second tap on same button — confirm upgrade (only if affordable)
+            if (btn.canAfford) {
+              this.selectedChoice = null;
+              return { action: 'upgrade', choice: btn.choice };
+            }
+            return null; // can't afford, stay selected
           }
-          // Select this option (deselect other)
+          // First tap — select this option
           this.selectedChoice = btn.choice;
           return null;
         }
@@ -348,7 +351,7 @@ export class BuildingPopup {
           && (essenceCost <= 0 || playerEssence >= essenceCost)
           && (soulsCost <= 0 || playerSouls >= soulsCost);
 
-        this.upgradeBtnRects.push({ x: bx, y: by, w: btnW, h: UPGRADE_BTN_H, choice: opt.choice });
+        this.upgradeBtnRects.push({ x: bx, y: by, w: btnW, h: UPGRADE_BTN_H, choice: opt.choice, canAfford });
         const isHovered = this.hoveredChoice === opt.choice;
         this.drawUpgradeButton(ctx, ui, bx, by, btnW, UPGRADE_BTN_H, opt, canAfford,
           building, race, category, sprites ?? null, SPRITE_SIZE, ICON_SIZE, isMobile, isHovered, sharedTexts);
@@ -523,18 +526,19 @@ export class BuildingPopup {
       ctx.globalAlpha = 1;
     }
 
-    // Hover glow border
-    if (isHovered && canAfford) {
-      ctx.strokeStyle = '#ffd740';
+    // Hover/selection glow border (shown even when can't afford)
+    if (isHovered) {
+      ctx.strokeStyle = canAfford ? '#ffd740' : '#aa8820';
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.roundRect(x - btnPad + 2, y - btnPad + 2, w + btnPad * 2 - 4, h + btnPad * 2 - 4, 6);
       ctx.stroke();
-      // Subtle brightness overlay
-      ctx.fillStyle = 'rgba(255, 215, 64, 0.08)';
-      ctx.beginPath();
-      ctx.roundRect(x - btnPad + 2, y - btnPad + 2, w + btnPad * 2 - 4, h + btnPad * 2 - 4, 6);
-      ctx.fill();
+      if (canAfford) {
+        ctx.fillStyle = 'rgba(255, 215, 64, 0.08)';
+        ctx.beginPath();
+        ctx.roundRect(x - btnPad + 2, y - btnPad + 2, w + btnPad * 2 - 4, h + btnPad * 2 - 4, 6);
+        ctx.fill();
+      }
     }
 
     // Content inset — keep all text/sprites inside the button's visible region
@@ -660,44 +664,47 @@ export class BuildingPopup {
       }
     }
 
-    // Row 3: Cost (or "UPGRADE" confirmation on mobile when selected)
+    // Row 3: Cost + optional "TAP TO CONFIRM" label on mobile when selected
     const costFontSize = isMobile ? 11 : 12;
     ctx.font = `bold ${costFontSize}px monospace`;
-    const costRowY = cy + rowH * 3 + Math.round(rowH / 2) + Math.round(costFontSize / 3);
 
     const isSelected = isMobile && this.selectedChoice === opt.choice;
-    if (isSelected && canAfford) {
-      // Mobile confirmation: show "UPGRADE" + cost on same row
+
+    // "TAP TO CONFIRM" label above cost when selected on mobile
+    if (isSelected) {
+      const confirmY = cy + rowH * 3 + 4;
       ctx.textAlign = 'center';
-      shadowText('UPGRADE', cx + cw / 2, costRowY);
-      ctx.fillStyle = '#69f0ae';
-      ctx.fillText('UPGRADE', cx + cw / 2, costRowY);
-    } else {
-      // Normal cost display
-      const costItems: { icon: IconName; val: number; color: string; dimColor: string }[] = [];
-      if (opt.cost.gold > 0) costItems.push({ icon: 'gold', val: opt.cost.gold, color: '#ffd740', dimColor: '#665500' });
-      if (opt.cost.wood > 0) costItems.push({ icon: 'wood', val: opt.cost.wood, color: '#81c784', dimColor: '#2e5530' });
-      if (opt.cost.meat > 0) costItems.push({ icon: 'meat', val: opt.cost.meat, color: '#e57373', dimColor: '#6d2828' });
-      if ((opt.cost.deathEssence ?? 0) > 0) costItems.push({ icon: 'ooze', val: opt.cost.deathEssence!, color: '#69f0ae', dimColor: '#1b5e20' });
-      if ((opt.cost.souls ?? 0) > 0) costItems.push({ icon: 'souls', val: opt.cost.souls!, color: '#ce93d8', dimColor: '#4a148c' });
+      ctx.font = `bold ${isMobile ? 8 : 9}px monospace`;
+      ctx.fillStyle = canAfford ? '#69f0ae' : '#ff6666';
+      ctx.fillText(canAfford ? 'TAP TO CONFIRM' : 'CAN\'T AFFORD', cx + cw / 2, confirmY);
+      ctx.font = `bold ${costFontSize}px monospace`;
+    }
 
-      let totalCostW = 0;
-      for (const item of costItems) {
-        totalCostW += iconSize + 1 + ctx.measureText(`${item.val}`).width + 6;
-      }
-      if (totalCostW > 0) totalCostW -= 6;
+    // Cost always shown
+    const costRowY = cy + rowH * 3 + Math.round(rowH / 2) + Math.round(costFontSize / 3) + (isSelected ? 2 : 0);
+    const costItems: { icon: IconName; val: number; color: string; dimColor: string }[] = [];
+    if (opt.cost.gold > 0) costItems.push({ icon: 'gold', val: opt.cost.gold, color: '#ffd740', dimColor: '#665500' });
+    if (opt.cost.wood > 0) costItems.push({ icon: 'wood', val: opt.cost.wood, color: '#81c784', dimColor: '#2e5530' });
+    if (opt.cost.meat > 0) costItems.push({ icon: 'meat', val: opt.cost.meat, color: '#e57373', dimColor: '#6d2828' });
+    if ((opt.cost.deathEssence ?? 0) > 0) costItems.push({ icon: 'ooze', val: opt.cost.deathEssence!, color: '#69f0ae', dimColor: '#1b5e20' });
+    if ((opt.cost.souls ?? 0) > 0) costItems.push({ icon: 'souls', val: opt.cost.souls!, color: '#ce93d8', dimColor: '#4a148c' });
 
-      let costX = cx + Math.round((cw - totalCostW) / 2);
-      for (const item of costItems) {
-        ctx.globalAlpha = canAfford ? 1 : 0.4;
-        ui.drawIcon(ctx, item.icon, costX, costRowY - iconSize + 1, iconSize);
-        ctx.globalAlpha = 1;
-        ctx.textAlign = 'left';
-        shadowText(`${item.val}`, costX + iconSize + 1, costRowY);
-        ctx.fillStyle = canAfford ? item.color : item.dimColor;
-        ctx.fillText(`${item.val}`, costX + iconSize + 1, costRowY);
-        costX += iconSize + ctx.measureText(`${item.val}`).width + 6;
-      }
+    let totalCostW = 0;
+    for (const item of costItems) {
+      totalCostW += iconSize + 1 + ctx.measureText(`${item.val}`).width + 6;
+    }
+    if (totalCostW > 0) totalCostW -= 6;
+
+    let costX = cx + Math.round((cw - totalCostW) / 2);
+    for (const item of costItems) {
+      ctx.globalAlpha = canAfford ? 1 : 0.4;
+      ui.drawIcon(ctx, item.icon, costX, costRowY - iconSize + 1, iconSize);
+      ctx.globalAlpha = 1;
+      ctx.textAlign = 'left';
+      shadowText(`${item.val}`, costX + iconSize + 1, costRowY);
+      ctx.fillStyle = canAfford ? item.color : item.dimColor;
+      ctx.fillText(`${item.val}`, costX + iconSize + 1, costRowY);
+      costX += iconSize + ctx.measureText(`${item.val}`).width + 6;
     }
   }
 

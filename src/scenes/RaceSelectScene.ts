@@ -27,7 +27,7 @@ const RACES: RaceOption[] = [
   { race: Race.Deep, label: 'DEEP', desc: 'Crush them slowly', econ: ['uiWood', 'uiGold'] },
   { race: Race.Wild, label: 'WILD', desc: 'Feral and relentless', econ: ['uiWood', 'uiMeat'] },
   { race: Race.Geists, label: 'GEISTS', desc: 'Death is only the beginning', econ: ['uiMeat', 'uiGold', 'uiSouls'] },
-  { race: Race.Tenders, label: 'TENDERS', desc: 'Outlast and overgrow', econ: ['uiWood', 'uiGold'] },
+  { race: Race.Tenders, label: 'TENDERS', desc: 'Outlast and overgrow', econ: ['uiWood', 'uiGold', 'uiMeat'] },
 ];
 
 const RANDOM_INDEX = RACES.length; // index 9

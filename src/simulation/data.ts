@@ -75,7 +75,7 @@ export const RACE_BUILDING_COSTS: Record<Race, Record<BuildingType, { gold: numb
     [BuildingType.HarvesterHut]:  { gold: 8,  wood: 0,  meat: 22, hp: 130 },
     [BuildingType.Research]:      { gold: 0,  wood: 0,  meat: 0,  hp: 500 },
   },
-  // Tenders: Wood+Gold economy. Durable natural buildings.
+  // Tenders: Wood+Gold+Meat economy. Durable natural buildings.
   [Race.Tenders]: {
     [BuildingType.MeleeSpawner]:  { gold: 0,  wood: 48, meat: 0,  hp: 320 },
     [BuildingType.RangedSpawner]: { gold: 60,  wood: 0,  meat: 0,  hp: 270 },
@@ -1121,7 +1121,7 @@ export function getResearchUpgradeCost(id: string, level: number, race: Race): {
         geists_ability_3: { gold: 60,  wood: 0, meat: 0, souls: 20 }, // Death Defiance: 5% avoid death — 60 eff, weakest
         geists_ability_4: { gold: 250, wood: 0, meat: 0, souls: 60 }, // Hungering Dark: lifesteal=+dmg — 240 eff, elite
 
-        // Tenders (wood + gold) — all solid, none game-warping
+        // Tenders (wood + gold + meat) — all solid, none game-warping
         tenders_ability_1: { gold: 30, wood: 100, meat: 0 },  // Fast Growth: 40% faster seeds — 130 eff
         tenders_ability_2: { gold: 30, wood: 100, meat: 0 },  // Quick Seeds: -30% CD — 130 eff
         tenders_ability_3: { gold: 20, wood: 70,  meat: 0 },  // Reseed: 30% replant — 90 eff

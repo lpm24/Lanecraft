@@ -43,7 +43,7 @@ The game uses **Gold, Wood, Meat** (NOT Stone). "Stone" appears in the old GDD b
 | Deep | Wood + Gold | Tank + control, slow |
 | Wild | Wood + Meat | Aggro + poison. **No gold economy.** |
 | Geists | Meat + Gold | Undying, lifesteal |
-| Tenders | Wood + Gold | Regen + healing |
+| Tenders | Wood + Gold + Meat | Regen + healing |
 
 ### Identity locks (never change these)
 - Oozlings always spawn 2 units per tick (spawnCount mechanic)

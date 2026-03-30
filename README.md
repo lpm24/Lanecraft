@@ -35,7 +35,7 @@ npm run balance -- --quick  # mirror-team round robin only
 | Deep | Wood + Gold | Tank + control, slow |
 | Wild | Wood + Meat | Aggro + poison |
 | Geists | Meat + Gold | Undying, lifesteal |
-| Tenders | Wood + Gold | Regen + healing |
+| Tenders | Wood + Gold + Meat | Regen + healing |
 
 ## Controls
 
