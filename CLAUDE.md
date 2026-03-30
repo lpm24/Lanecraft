@@ -205,6 +205,54 @@ Each race has a unique ability building with 4 upgrade tiers (defined in `RACE_A
 - **Ability buildings share `BuildingType.Tower`** but are NOT real towers. They have marker flags (`isFoundry`, `isPotionShop`, `isGlobule`, `isSeed`). Use `isAbilityBuilding()` from `types.ts` to exclude them from tower cost escalation, tower targeting, tower counting, etc.
 - **When adding a new race ability building** that uses `BuildingType.Tower`, add its marker flag to `BuildingState` and to `isAbilityBuilding()` in `types.ts`.
 
+## Upgrade System
+
+- **216 upgrade nodes** (9 races × 4 building types × 6 nodes: B, C, D, E, F, G). Node A is the base unit.
+- **Tree shape:** A → B or C (tier 1) → D/E under B, F/G under C (tier 2). Each building has exactly 2 choices at each tier.
+- **Per-node costs:** Every upgrade node has an explicit `cost: { gold, wood, meat }` in `UPGRADE_TREES` (data.ts). B vs C paths deliberately favor different resources, creating economic tradeoffs.
+- **Upgrade cost function:** `getNodeUpgradeCost()` in data.ts returns the node's cost. If no `cost` field exists, falls back to the flat `RACE_UPGRADE_COSTS` table.
+- **Stat multipliers:** `getUnitUpgradeMultipliers()` in GameState.ts walks the upgrade path and compounds all multipliers (hp, damage, attackSpeed, moveSpeed, range, spawnSpeed).
+- **Specials:** `UpgradeSpecial` (data.ts) — per-node special effects like `dodgeChance`, `extraBurnStacks`, `splashRadius`, `auraDamageBonus`, `isSiegeUnit`, etc.
+
+## Aura System
+
+Horde (and potentially other races) have upgrade nodes that grant **aura buffs** to nearby allied units within range.
+
+- **Source fields** (in `UpgradeSpecial`): `auraDamageBonus`, `auraSpeedBonus`, `auraArmorBonus`, `auraAttackSpeedBonus`, `auraHealPerSec`, `auraDodgeBonus`
+- **Runtime fields** (transient, set per tick on affected units): `_auraDmg`, `_auraSpd`, `_auraArmor`, `_auraAtkSpd`, `_auraHeal`, `_auraDodge`
+- **Reset each tick** in `tickAbilityEffects()` before recomputing — auras are non-stacking, best-value-wins.
+- **Mechanics:**
+  - `_auraDmg` / `_auraArmor` / `_auraSpd`: applied directly to combat math
+  - `_auraAtkSpd`: extra attack timer tick-down (10% = extra tick every 10th game tick)
+  - `_auraHeal`: heals N HP/sec (applied once per second via `state.tick % TICK_RATE === 0`)
+  - `_auraDodge`: added to dodge chance in `dealDamage()`
+- **Visuals** (Renderer.ts): rotating colored ring on source units, small pulsing dot at feet of buffed allies. Colors: red=damage, blue=armor, green=speed, yellow=atkSpeed, softGreen=healing, purple=dodge.
+
+## Siege Units
+
+Some upgrade paths produce **siege units** — slow, fragile, devastating vs buildings.
+
+- **Marker:** `UpgradeSpecial.isSiegeUnit = true`
+- **Traits:** High damage + `buildingDamageMult` (3-5x vs buildings), large splash, very slow move speed, long attack cooldown, reduced HP
+- **Races with siege paths:** Crown (Cannon), Horde (Orc Catapult→Bombard/Doom Catapult), Goblins (Goblin Mortar), Oozlings (Glob Siege), Demon (Brimstone Cannon), Deep (Depth Charge)
+- **Bot AI:** Siege upgrades are heavily penalized (0.1x value before 8 min, 0.4x after) — bots almost never pick siege early.
+
+## Tri-Resource Economies
+
+Most races use 2 resources. Two races use all 3:
+
+- **Horde (Gold+Meat+Wood):** Melee costs meat, ranged costs wood, caster costs gold. Towers/huts cost a mix. Upgrade B vs C paths split across resources. Starting resources: 100g/50w/50m.
+- **Tenders (Wood+Gold+Meat):** Building costs are wood+gold only. Meat comes from **Growth Pod** huts which cycle through generating gold → wood → meat (3s per resource, +3 each). Passive income is wood+gold. Starting: 50g/150w/0m.
+
+## Multishot System
+
+Some ranged units fire multiple projectiles per attack:
+
+- **Marker:** `UpgradeSpecial.multishotCount` = number of extra projectiles (1 = 2 total, 2 = 3 total)
+- **Damage:** Each projectile deals `multishotDamagePct` of base damage (e.g., 0.70 = 70%)
+- **Races:** Horde Bowcleaver B-path (2→3 projectiles), Goblins Fan Knifer (2 projectiles)
+- **Projectiles target different enemies** within range — multishot is area denial, not single-target burst.
+
 ## Common Pitfalls
 
 - Adding a `console.log` in `simulation/` files won't cause issues, but adding `Math.random()` will cause desync.
@@ -214,3 +262,7 @@ Each race has a unique ability building with 4 upgrade tiers (defined in `RACE_A
 - First tower is free per player. Tower alley is shared per team. Tower sell refund is prorated by HP: `50% × (currentHp / maxHp)`.
 - Hut cost escalates: `baseCost × 1.35^hutCount`.
 - Burn/poison suppresses regen entirely (BLIGHT combo at 3+ burn stacks).
+- Aura `_runtime` fields (e.g., `_auraDmg`) are **transient** — they're reset to 0 every tick and recomputed. Never save/serialize them.
+- Per-node upgrade costs must use the race's actual resources. Crown nodes use gold+wood, Demon nodes use meat+wood (never gold), etc.
+- Siege units (`isSiegeUnit: true`) should only appear at T2 (terminal nodes D-G). They're too impactful for T1.
+- Building sprites are clamped to tile width in iso mode — don't set tier scaling so high that buildings overflow their tile.
