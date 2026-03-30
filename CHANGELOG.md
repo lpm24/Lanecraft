@@ -2,7 +2,7 @@
 
 ## 2026-03-29 — v1.1.0 (since iOS 1.0.7 build 10)
 
-_42 commits: 8133aac → 1276820_
+_44 commits: 8133aac → 8540c90_
 
 ### New Features
 - **Tutorial system** — 16-step guided first-time match (miner hut → melee → tower → research → nuke → full menu tour) with spotlight overlays, gated input, and localStorage persistence
@@ -17,13 +17,18 @@ _42 commits: 8133aac → 1276820_
 - **Race combat music** — Per-race thematic music tracks during matches
 - **Quick chat radial menu** — Ping targets radial center position; 3 new chat styles (Save Us, Sending Now, Random)
 - **Tenders tri-resource economy** — Huts cycle through generating Gold → Wood → Meat; "Growth Pod" popup with animated 3-segment progress bar
+- **Horde tri-resource economy** — Horde now uses Gold+Meat+Wood; huts generate all 3 resources
+- **Per-node upgrade costs** — All 9 races have explicit resource costs on every upgrade node; B vs C paths favor different resources creating meaningful economic choices
+- **Horde aura system expansion** — 3 new aura types: attack speed, heal-per-second, dodge. Casters and melee provide army-wide buffs with color-coded ground ring and glow visuals
+- **Bowcleaver multishot identity** — B-path reworked to fire 2→3 projectiles per tier (was generic stat buffs)
 
 ### UI & Rendering
 - **Title screen duels** — Rotating subtitle with roll animation, dead unit strikethrough names, type filter
 - **Deep deluge vignette** — Blue screen-edge effect during Deluge ability
 - **Skill research icons** — Nhance Spell Icons (92 painted icons) for all upgrade nodes
 - **Mobile two-tap upgrades** — BuildingPopup: first tap selects (shows preview), second tap confirms
-- **Isometric building sizing** — Tier scaling [0.85, 1.0, 1.15], centered on diamond
+- **Aura visuals** — Rotating colored ring on source units, pulsing dot at feet of buffed allies (color-coded: red=damage, blue=armor, green=speed, yellow=atk speed, purple=dodge)
+- **Isometric building sizing** — Tier scaling [0.85, 1.0, 1.15], width clamped to tile, bottom-anchored
 - **Minimap ping improvements** — Larger/pulsing markers, combat glow
 - **Two-column party layout** — Join popup buttons, mobile keyboard support, resource icons
 - **Unit gallery overhaul** — Shared StatBarUtils, per-node Elo ratings, responsive columns
@@ -36,6 +41,10 @@ _42 commits: 8133aac → 1276820_
 - Building tooltip hidden at render-time when popup is open (hover tracking still active)
 - Wider title screen subtitle ribbon
 - Mobile upgrade buttons: "TAP TO CONFIRM" / "CAN'T AFFORD" label, cost always visible, dim glow on unaffordable
+- Info/help button removed; MVP button takes its position (one less button in HUD)
+- Touch devices: suppress unit/building hover tooltips (prevents synthetic mousemove flash)
+- HUD resource rate drops "/s" suffix for cleaner display
+- BuildingPopup clears stale upgrade selection when options change
 
 ### Balance
 - **Stone → Meat** resource rename across entire codebase
@@ -48,6 +57,9 @@ _42 commits: 8133aac → 1276820_
 - Burn/poison suppresses regen (BLIGHT combo at 3+ burn stacks)
 - Tower sell refund prorated by HP: 50% × (currentHp / maxHp)
 - Spectator achievement now requires 10 duels (was 1)
+- Tenders Treant 135→155 HP, Tinker 12→13 dmg
+- Geists Mini Skeleton 25→15 HP
+- Goblin rename: War Pig→War Boar, King Pig→King Boar
 
 ### Simulation
 - `isAbilityBuilding()` centralized helper — replaces scattered manual flag checks
@@ -68,6 +80,9 @@ _42 commits: 8133aac → 1276820_
 - Diamond workers: send 2 instead of 1 (need to contest the node)
 - Demon mana worker capped at 1 (extras redirected to bottleneck resource)
 - Harvester reassignment hysteresis (10s cooldown prevents toggling)
+- Siege upgrade penalty (0.1x value before 8 min, 0.4x after)
+- Wild frenzy targets only allies within combat range (12 tiles from enemies)
+- Bowcleaver value function 1.05→1.15 for multishot throughput
 
 ### Multiplayer & Networking
 - **CommandSync race condition fix** — Buffer all remote turn data on disconnect
