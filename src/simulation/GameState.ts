@@ -3545,8 +3545,10 @@ function applyCasterSupport(state: GameState, caster: UnitState, race: Race, sp:
       const gobP = state.players[caster.playerId];
       for (const e of enemies) {
         applyStatus(e, StatusType.Slow, 1 + (sp?.extraSlowStacks ?? 0), state);
-        // Potent Hex: +1 Burn on caster AoE
-        if (gobP?.researchUpgrades.raceUpgrades['goblins_caster_1']) applyStatus(e, StatusType.Burn, 1, state);
+        // Burn from upgrade path (extraBurnStacks) + Potent Hex research (+1 Burn)
+        const burnFromUpgrade = sp?.extraBurnStacks ?? 0;
+        const burnFromResearch = gobP?.researchUpgrades.raceUpgrades['goblins_caster_1'] ? 1 : 0;
+        if (burnFromUpgrade + burnFromResearch > 0) applyStatus(e, StatusType.Burn, burnFromUpgrade + burnFromResearch, state);
       }
       if (enemies.length > 0) {
         addFloatingText(state, caster.x, caster.y - 0.5, '', '#2e7d32', undefined, true,
@@ -4539,7 +4541,8 @@ function tickCombat(state: GameState): void {
               speed: 12, aoeRadius: 0, team: unit.team, visual: 'circle',
               sourcePlayerId: unit.playerId, sourceUnitId: unit.id,
               extraBurnStacks: sp?.extraBurnStacks,
-              lifestealPct: 0.1,
+              lifestealPct: sp?.lifeDrainPct ?? 0.1,
+              applyVulnerable: sp?.applyVulnerable,
             });
           } else if (isCrownMage) {
             // Crown mage branch: high-damage AoE with spell effects
@@ -4560,8 +4563,8 @@ function tickCombat(state: GameState): void {
             const cbuGen = state.players[unit.playerId]?.researchUpgrades;
             if (cbuGen?.raceUpgrades['wild_caster_1']) aoeRadius += 1;
             const effDmg = getEffectiveDamage(unit, state);
-            // Oozlings caster chain lightning: fire chain projectiles to nearby enemies
-            const casterChainCount = (race === Race.Oozlings && sp?.extraChainTargets) ? sp.extraChainTargets : 0;
+            // Caster chain lightning: fire chain projectiles to nearby enemies (Oozlings, Goblins, Tenders)
+            const casterChainCount = sp?.extraChainTargets ?? 0;
             if (casterChainCount > 0) {
               // Primary single-target hit (no AoE) + chain bounces
               state.projectiles.push({
@@ -4570,6 +4573,8 @@ function tickCombat(state: GameState): void {
                 speed: 12, aoeRadius: 0, team: unit.team, visual: 'orb',
                 sourcePlayerId: unit.playerId, sourceUnitId: unit.id,
                 extraSlowStacks: sp?.extraSlowStacks,
+                applyWound: sp?.applyWound,
+                applyVulnerable: sp?.applyVulnerable,
               });
               const chainPct = sp?.chainDamagePct ?? 0.5;
               const chained: number[] = [target.id];
@@ -4601,6 +4606,8 @@ function tickCombat(state: GameState): void {
                 sourcePlayerId: unit.playerId, sourceUnitId: unit.id,
                 extraBurnStacks: sp?.extraBurnStacks,
                 extraSlowStacks: sp?.extraSlowStacks,
+                applyWound: sp?.applyWound,
+                applyVulnerable: sp?.applyVulnerable,
               });
             }
           }
@@ -5371,6 +5378,9 @@ function tickProjectiles(state: GameState): void {
             }
           }
         }
+        // Upgrade special: apply Vulnerable/Wound on projectile hit
+        if (p.applyVulnerable) applyVulnerable(target, state);
+        if (p.applyWound) applyWound(target);
         // Research race one-shot ranged effects
         const pbu = sourcePlayer.researchUpgrades;
         // Goblins Incendiary Tips: +1 Burn on ranged
@@ -5457,6 +5467,9 @@ function tickProjectiles(state: GameState): void {
               // Oozlings caster_2 (Mass Division → Corrosive Aura): AoE applies Wound
               if (race === Race.Oozlings && sourcePlayer.researchUpgrades.raceUpgrades['oozlings_caster_2'])
                 applyWound(u);
+              // Upgrade special: apply Vulnerable/Wound on AoE hit
+              if (p.applyVulnerable) applyVulnerable(u, state);
+              if (p.applyWound) applyWound(u);
               // AoE lifesteal
               if (p.lifestealPct && p.lifestealPct > 0) {
                 const source = p.sourceUnitId != null ? unitById.get(p.sourceUnitId) : undefined;

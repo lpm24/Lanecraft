@@ -18,7 +18,7 @@ import { ResearchPopup } from './ResearchPopup';
 import { SeedPopup } from './SeedPopup';
 import { getSafeBottom, getSafeTop, getPopupSafeY } from './SafeArea';
 import { getAudioSettings, updateAudioSettings } from '../audio/AudioSettings';
-import { getVisualSettings, updateVisualSettings } from '../rendering/VisualSettings';
+import { getVisualSettings, updateVisualSettings, type TouchControlsMode } from '../rendering/VisualSettings';
 import { tileToPixel, pixelToTile } from '../rendering/Projection';
 import { drawStatVisualIcon, type StatVisualKey } from './StatBarUtils';
 import {
@@ -147,7 +147,15 @@ export class InputHandler {
   private seedPopup = new SeedPopup();
   private trayTick = 0;
   private trayBldgSpriteCache = new Map<string, HTMLImageElement | null>();
-  private get isTouchDevice(): boolean { return 'ontouchstart' in window || navigator.maxTouchPoints > 0; }
+  /** Last observed input type — updated on real mouse/touch events. */
+  private lastInputType: 'mouse' | 'touch' = ('ontouchstart' in window || navigator.maxTouchPoints > 0) ? 'touch' : 'mouse';
+  /** Whether to use touch interaction mode (tap-to-confirm, no hover tooltips, hide key hints). */
+  private get isTouchDevice(): boolean {
+    const mode: TouchControlsMode = getVisualSettings().touchControls;
+    if (mode === 'on') return true;
+    if (mode === 'off') return false;
+    return this.lastInputType === 'touch';
+  }
   /** Active rally override — all spawners send to this lane while set. 'random' = each spawner gets a random lane. */
   private rallyOverride: Lane | 'random' | null = null;
   /** Saved per-building lane assignments before rally override was activated. */
@@ -282,7 +290,7 @@ export class InputHandler {
     this.saveUiFeedbackEnabled();
     this.saveRadialSettings();
     this.saveGameplaySettings();
-    updateVisualSettings({ screenShake: true, weather: true, dayNight: true });
+    updateVisualSettings({ screenShake: true, weather: true, dayNight: true, touchControls: 'auto' });
   }
 
   private initMobileHint(): void {
@@ -330,6 +338,7 @@ export class InputHandler {
 
     // Controls section
     const controlsHeaderY = y; y += 14;
+    const touchControlsRowY = y; y += rowH + gap;
     const laneRowY = y; y += rowH + gap;
     const feedbackRowY = y; y += rowH + gap;
     const cameraSnapRowY = y; y += rowH + gap;
@@ -352,7 +361,7 @@ export class InputHandler {
       sx, sy, pw, panelH, pad, rowH,
       audioHeaderY, musicRowY, sfxRowY,
       visualHeaderY, shakeRowY, weatherRowY, dayNightRowY,
-      controlsHeaderY, laneRowY, feedbackRowY, cameraSnapRowY, minimapRowY,
+      controlsHeaderY, touchControlsRowY, laneRowY, feedbackRowY, cameraSnapRowY, minimapRowY,
       stickyRowY, holdDelayRowY, radialSizeRowY, radialA11yRowY,
       helpRowY, resetRowY, concedeRowY, quitRowY,
     };
@@ -460,6 +469,35 @@ export class InputHandler {
 
     // ── CONTROLS ──
     drawHeader(L.controlsHeaderY, 'CONTROLS');
+    // Touch controls: 3-state cycle (auto / on / off)
+    {
+      const tc = vis.touchControls;
+      ctx.fillStyle = 'rgba(20,20,20,0.9)';
+      ctx.fillRect(rx, sy + L.touchControlsRowY, rw, rowH);
+      ctx.strokeStyle = '#b39ddb';
+      ctx.strokeRect(rx, sy + L.touchControlsRowY, rw, rowH);
+      ctx.fillStyle = '#b39ddb';
+      ctx.font = 'bold 11px monospace';
+      ctx.fillText(`Touch: ${tc}`, rx + 8, sy + L.touchControlsRowY + 15);
+      const states: Array<'auto' | 'on' | 'off'> = ['auto', 'on', 'off'];
+      const btnW = 22; const bGap = 2;
+      const totalW = btnW * 3 + bGap * 2;
+      const bx = rx + rw - totalW - 4;
+      const by = sy + L.touchControlsRowY + 4;
+      const bh = 14;
+      for (let i = 0; i < states.length; i++) {
+        const bsx = bx + i * (btnW + bGap);
+        const active = tc === states[i];
+        ctx.fillStyle = active ? '#b39ddb' : '#333';
+        ctx.fillRect(bsx, by, btnW, bh);
+        ctx.fillStyle = active ? '#000' : '#888';
+        ctx.font = 'bold 8px monospace';
+        ctx.textAlign = 'center';
+        const lbl = states[i] === 'auto' ? 'A' : states[i] === 'on' ? '1' : '0';
+        ctx.fillText(lbl, bsx + btnW / 2, by + 10);
+        ctx.textAlign = 'start';
+      }
+    }
     // Lane tap: special value-cycle row (not a simple on/off toggle)
     ctx.fillStyle = 'rgba(20,20,20,0.9)';
     ctx.fillRect(rx, sy + L.laneRowY, rw, rowH);
@@ -561,6 +599,13 @@ export class InputHandler {
     }
 
     // Controls toggles
+    if (inRow(L.touchControlsRowY)) {
+      const vis = getVisualSettings();
+      const cycle: Record<string, 'auto' | 'on' | 'off'> = { auto: 'on', on: 'off', off: 'auto' };
+      updateVisualSettings({ touchControls: cycle[vis.touchControls] });
+      this.game.sfx.playUIToggle();
+      return true;
+    }
     if (inRow(L.laneRowY)) {
       this.laneToggleMode = this.laneToggleMode === 'double' ? 'single' : 'double';
       this.saveLaneMode();
@@ -805,6 +850,7 @@ export class InputHandler {
   private setupMouse(): void {
     const sig = { signal: this.abortController.signal };
     this.canvas.addEventListener('mousemove', (e) => {
+      this.lastInputType = 'mouse';
       const rect = this.canvas.getBoundingClientRect();
       this.pointerX = e.clientX - rect.left;
       this.pointerY = e.clientY - rect.top;
@@ -1048,6 +1094,7 @@ export class InputHandler {
 
     this.canvas.addEventListener('pointerdown', (e) => {
       if (e.pointerType !== 'touch') return;
+      this.lastInputType = 'touch';
       this.activeTouchPointers.add(e.pointerId);
 
       // Only start hold timer for single-finger touch, and not during UI interactions
@@ -2163,12 +2210,16 @@ export class InputHandler {
         b => b.playerId === this.pid && b.type === BuildingType.Research
       );
       if (resBuilding) {
-        this.buildingPopup.close();
-        this.hutPopup.close();
-        this.seedPopup.close();
-        this.researchPopup.open(resBuilding.id);
-        this.selectedBuildingId = resBuilding.id;
-        this.game.sfx.playUIOpen();
+        if (this.researchPopup.isOpen()) {
+          this.researchPopup.close();
+        } else {
+          this.buildingPopup.close();
+          this.hutPopup.close();
+          this.seedPopup.close();
+          this.researchPopup.open(resBuilding.id);
+          this.selectedBuildingId = resBuilding.id;
+          this.game.sfx.playUIOpen();
+        }
       }
       return true;
     }
@@ -3013,7 +3064,7 @@ export class InputHandler {
     if (this.buildingPopup.isOpen()) {
       this.buildingPopup.draw(ctx, this.camera, this.game.state, this.ui,
         W, this.canvas.clientHeight, player.gold, player.wood, player.meat, this.sprites,
-        this.pointerX, this.pointerY);
+        this.pointerX, this.pointerY, this.isTouchDevice);
     }
 
     // Hut popup (in-world)

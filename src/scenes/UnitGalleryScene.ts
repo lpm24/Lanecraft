@@ -46,16 +46,17 @@ const TAB_PATHS: { label: string; path: string[]; desc: string }[] = [
 const DISPLAY_SCALE = 1.8;
 
 // Race innate traits for melee/ranged/caster (verified against GameState.ts combat logic)
-const RACE_INNATE_TRAITS: Record<Race, Record<string, string[]>> = {
-  [Race.Crown]:    { melee: ['10% damage reduction'], ranged: [], caster: ['Shields nearby allies'] },
-  [Race.Horde]:    { melee: ['Knockback every 3rd hit', '10% lifesteal'], ranged: ['Wound on hit'], caster: ['Grants Haste to allies', 'AoE damage'] },
-  [Race.Goblins]:  { melee: ['15% dodge', 'Wound on hit'], ranged: ['Burn on hit', 'Wound on hit'], caster: ['Slows enemies', 'AoE damage', 'Wound on hit'] },
-  [Race.Oozlings]: { melee: ['Spawns x2', '15% chance Haste on hit'], ranged: ['Spawns x2'], caster: ['Spawns x2', 'Haste allies', 'AoE damage'] },
-  [Race.Demon]:    { melee: ['Burn on hit', 'Wound on hit'], ranged: ['Burn on hit', 'Wound on hit'], caster: ['AoE burn (pure damage, no support)'] },
-  [Race.Deep]:     { melee: ['Slow on hit'], ranged: ['2 Slow on hit'], caster: ['Cleanses burn from allies', 'AoE damage'] },
-  [Race.Wild]:     { melee: ['Burn (poison) on hit'], ranged: ['Burn on hit', 'Wound on hit'], caster: ['Haste allies', 'AoE damage'] },
-  [Race.Geists]:   { melee: ['Burn on hit', '20% lifesteal', 'Wound on hit'], ranged: ['Burn on hit', '20% lifesteal', 'Wound on hit'], caster: ['Single-target attacker', '20% lifesteal', 'Skeleton summon on nearby death'] },
-  [Race.Tenders]:  { melee: ['1 HP/s regen'], ranged: ['Slow on hit'], caster: ['Heals most injured ally', 'AoE damage'] },
+interface InnateTrait { text: string; icon: StatVisualKey; }
+const RACE_INNATE_TRAITS: Record<Race, Record<string, InnateTrait[]>> = {
+  [Race.Crown]:    { melee: [{ text: '10% damage reduction', icon: 'damage-reduction' }], ranged: [], caster: [{ text: 'Shields nearby allies', icon: 'shield' }] },
+  [Race.Horde]:    { melee: [{ text: 'Knockback every 3rd hit', icon: 'knockback' }, { text: '10% lifesteal', icon: 'lifesteal' }], ranged: [{ text: 'Wound on hit', icon: 'wound' }], caster: [{ text: 'Grants Haste to allies', icon: 'haste' }, { text: 'AoE damage', icon: 'aoe' }] },
+  [Race.Goblins]:  { melee: [{ text: '15% dodge', icon: 'dodge' }, { text: 'Wound on hit', icon: 'wound' }], ranged: [{ text: 'Burn on hit', icon: 'burn' }, { text: 'Wound on hit', icon: 'wound' }], caster: [{ text: 'Slows enemies', icon: 'slow' }, { text: 'AoE damage', icon: 'aoe' }, { text: 'Wound on hit', icon: 'wound' }] },
+  [Race.Oozlings]: { melee: [{ text: 'Spawns x2', icon: 'spawn-rate' }, { text: '15% chance Haste on hit', icon: 'haste' }], ranged: [{ text: 'Spawns x2', icon: 'spawn-rate' }], caster: [{ text: 'Spawns x2', icon: 'spawn-rate' }, { text: 'Haste allies', icon: 'haste' }, { text: 'AoE damage', icon: 'aoe' }] },
+  [Race.Demon]:    { melee: [{ text: 'Burn on hit', icon: 'burn' }, { text: 'Wound on hit', icon: 'wound' }], ranged: [{ text: 'Burn on hit', icon: 'burn' }, { text: 'Wound on hit', icon: 'wound' }], caster: [{ text: 'AoE burn (pure damage)', icon: 'burn' }] },
+  [Race.Deep]:     { melee: [{ text: 'Slow on hit', icon: 'slow' }], ranged: [{ text: '2 Slow on hit', icon: 'slow' }], caster: [{ text: 'Cleanses burn from allies', icon: 'cleanse' }, { text: 'AoE damage', icon: 'aoe' }] },
+  [Race.Wild]:     { melee: [{ text: 'Burn (poison) on hit', icon: 'burn' }], ranged: [{ text: 'Burn on hit', icon: 'burn' }, { text: 'Wound on hit', icon: 'wound' }], caster: [{ text: 'Haste allies', icon: 'haste' }, { text: 'AoE damage', icon: 'aoe' }] },
+  [Race.Geists]:   { melee: [{ text: 'Burn on hit', icon: 'burn' }, { text: '20% lifesteal', icon: 'lifesteal' }, { text: 'Wound on hit', icon: 'wound' }], ranged: [{ text: 'Burn on hit', icon: 'burn' }, { text: '20% lifesteal', icon: 'lifesteal' }, { text: 'Wound on hit', icon: 'wound' }], caster: [{ text: 'Single-target attacker', icon: 'damage' }, { text: '20% lifesteal', icon: 'lifesteal' }, { text: 'Skeleton summon on nearby death', icon: 'summon' }] },
+  [Race.Tenders]:  { melee: [{ text: '1 HP/s regen', icon: 'regen' }], ranged: [{ text: 'Slow on hit', icon: 'slow' }], caster: [{ text: 'Heals most injured ally', icon: 'healing' }, { text: 'AoE damage', icon: 'aoe' }] },
 };
 
 interface DetailSelection {
@@ -929,9 +930,10 @@ export class UnitGalleryScene implements Scene {
       ctx.fillText('INNATE TRAITS', barX, y + 10);
       y += 20;
       for (const trait of traits) {
+        drawStatVisualIcon(ctx, this.ui, trait.icon, barX + 4, y - 2, 14);
         ctx.fillStyle = '#78c878';
         ctx.font = '12px monospace';
-        ctx.fillText(`  ${trait}`, barX, y + 10);
+        ctx.fillText(trait.text, barX + 22, y + 10);
         y += 17;
       }
       y += secPad;
@@ -977,9 +979,8 @@ export class UnitGalleryScene implements Scene {
         ctx.textAlign = 'left';
         ctx.fillText(res.name, barX + 4, y + 10);
         y += 16;
-        ctx.fillStyle = '#888';
         ctx.font = '11px monospace';
-        ctx.fillText(res.desc, barX + 12, y + 10);
+        this.drawRichLine(ctx, this.ui, res.desc, barX + 12, y + 10, 11, '#888');
         y += 16;
       }
       y += secPad;
@@ -1012,6 +1013,25 @@ export class UnitGalleryScene implements Scene {
     }
 
     ctx.textAlign = 'start';
+  }
+
+  /** Draw a line of text that may contain {icon} markers inline. */
+  private drawRichLine(ctx: CanvasRenderingContext2D, ui: UIAssets, line: string, x: number, y: number, fontSize: number, textColor: string): void {
+    const iconSize = fontSize;
+    const parts = line.split(/(\{[a-z-]+\})/);
+    let cx = x;
+    for (const part of parts) {
+      const iconMatch = part.match(/^\{([a-z-]+)\}$/);
+      if (iconMatch) {
+        const key = iconMatch[1] as StatVisualKey;
+        drawStatVisualIcon(ctx, ui, key, cx, y - fontSize + 2, iconSize);
+        cx += iconSize + 2;
+      } else if (part) {
+        ctx.fillStyle = textColor;
+        ctx.fillText(part, cx, y);
+        cx += ctx.measureText(part).width;
+      }
+    }
   }
 
   private getDetailContentHeight(

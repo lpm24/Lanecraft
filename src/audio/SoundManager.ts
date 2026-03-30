@@ -219,6 +219,13 @@ export class SoundManager {
       this.master = this.actx.createGain();
       this.master.connect(comp);
       this.applyAudioSettings();
+      // Ramp master gain from 0 over ~50ms to avoid the compressor
+      // producing an audible thud/knock on the very first real sound.
+      this.master.gain.setValueAtTime(0, this.actx.currentTime);
+      this.master.gain.linearRampToValueAtTime(
+        this._muted ? 0 : SFX_MASTER_GAIN * this.settings.sfxVolume,
+        this.actx.currentTime + 0.05
+      );
     }
     if (this.actx.state === 'suspended') void this.actx.resume();
     return this.actx;

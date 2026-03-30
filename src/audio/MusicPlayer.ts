@@ -195,6 +195,8 @@ export class MusicPlayer {
       this.playNextInCategory();
     };
 
+    // Ensure gain is 0 before starting so there's no audible pop/thud
+    if (this.gainNode) this.gainNode.gain.value = 0;
     source.start();
     this.sourceNode = source;
     this.playing = true;

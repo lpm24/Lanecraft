@@ -561,6 +561,8 @@ export interface ProjectileState {
   buildingDamageMult?: number;  // on impact, deal damage * mult to buildings in aoeRadius
   critChance?: number;          // chance (0-1) to deal critical hit (rolled on impact)
   critMult?: number;            // critical hit damage multiplier
+  applyVulnerable?: boolean;    // apply Vulnerable status on hit (upgrade special)
+  applyWound?: boolean;         // apply Wound status on hit (upgrade special)
 }
 
 export interface FloatingText {

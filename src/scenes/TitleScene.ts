@@ -532,9 +532,11 @@ export class TitleScene implements Scene {
         mapId: s.mapId ?? 'duel',
         maxSlots: s.maxSlots ?? mapDef.maxPlayers,
         bots: s.bots ? { ...s.bots } : {},
+        botRaces: s.botRaces ? { ...s.botRaces } : undefined,
         playerSlot: localSlot,
         playerRace: s.players[String(localSlot)]?.race ?? 'random',
         teamSize: s.teamSize ?? mapDef.playersPerTeam,
+        fogOfWar: s.fogOfWar,
       });
     }
     if (s && s.status === 'starting' && this.onPartyStart && !this.partyStartFired) {

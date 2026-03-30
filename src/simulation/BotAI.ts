@@ -225,25 +225,25 @@ const RACE_PROFILES: Record<Race, RaceProfile> = {
     vsSwarmExtraCasters: 1, vsTankExtraRanged: 1, vsGlassCannonExtraMelee: 1,
     maxHuts: 5, pushThreshold: 1.2,
   },
-  // HORDE (Gold+Meat+Wood): Brute is best DPS/cost (40m). 3-resource economy needs huts.
-  // Go taller than other races — diversify auras. War Chanter (caster) supports.
+  // HORDE (Gold+Meat+Wood): Brute is best DPS/cost. 3-resource economy needs huts.
+  // Diversify early for aura collection — melee wall + ranged + caster support.
   [Race.Horde]: {
-    earlyMelee: 2, earlyRanged: 0, earlyHuts: 2, earlyTowers: 0,
-    midMelee: 3, midRanged: 2, midCasters: 1, midTowers: 0, midHuts: 4,
+    earlyMelee: 2, earlyRanged: 1, earlyHuts: 2, earlyTowers: 0,
+    midMelee: 3, midRanged: 2, midCasters: 2, midTowers: 0, midHuts: 4,
     lateTowers: 1, alleyTowers: 2,
-    meleeUpgradeBias: 'B', rangedUpgradeBias: 'C', casterUpgradeBias: 'C', towerUpgradeBias: 'B',
+    meleeUpgradeBias: 'B', rangedUpgradeBias: 'B', casterUpgradeBias: 'B', towerUpgradeBias: 'B',
     vsSwarmExtraCasters: 1, vsTankExtraRanged: 1, vsGlassCannonExtraMelee: 0,
     maxHuts: 5, pushThreshold: 1.0,
   },
-  // GOBLINS (Gold+Wood): Everything is cheap. Swarm first, delay casters (Hexers).
-  // Go super wide with melee+ranged, poison stacks from volume.
+  // GOBLINS (Gold+Wood): Everything is cheap. Swarm melee+ranged, mix in Hexer casters for burn/slow.
+  // Cheap huts — invest in economy early. Hexers now have burn (C-path) and slow (B-path) forks.
   [Race.Goblins]: {
-    earlyMelee: 2, earlyRanged: 2, earlyHuts: 1, earlyTowers: 0,
-    midMelee: 4, midRanged: 4, midCasters: 0, midTowers: 0, midHuts: 3,
+    earlyMelee: 2, earlyRanged: 2, earlyHuts: 2, earlyTowers: 0,
+    midMelee: 4, midRanged: 4, midCasters: 1, midTowers: 0, midHuts: 4,
     lateTowers: 1, alleyTowers: 1,
     meleeUpgradeBias: 'C', rangedUpgradeBias: 'C', casterUpgradeBias: 'C', towerUpgradeBias: 'C',
-    vsSwarmExtraCasters: 0, vsTankExtraRanged: 1, vsGlassCannonExtraMelee: 1,
-    maxHuts: 4, pushThreshold: 0.9,
+    vsSwarmExtraCasters: 1, vsTankExtraRanged: 1, vsGlassCannonExtraMelee: 1,
+    maxHuts: 5, pushThreshold: 0.9,
   },
   // OOZLINGS (Gold+Meat): x2 swarm on everything. Go super wide, deaths fuel ooze economy.
   // Lots of melee, some ranged/caster. Split ooze between upgrades and more spawners.
@@ -1220,6 +1220,12 @@ function scoreUpgradeNode(
 
   // Lifesteal / heal is always decent
   if (s.healBonus) score += 2;
+  if (s.lifeDrainPct) score += s.lifeDrainPct * 20; // sustain via damage
+  if (s.skeletonSummonChance) score += s.skeletonSummonChance * 30; // free units from deaths
+
+  // Debuff application specials — always valuable
+  if (s.applyVulnerable) score += 8; // army-wide damage amplifier
+  if (s.applyWound) score += 6; // anti-healing
 
   // Siege units vs turtling/towers
   if (threats.wantSiege) {
@@ -1524,6 +1530,12 @@ function detectPowerSpike(
   if (s.dodgeChance && s.dodgeChance >= 0.25) return 0.20;
   // Heavy slow stacking = force multiplier (enemies can't close or retreat)
   if (s.extraSlowStacks && s.extraSlowStacks >= 2) return 0.15;
+  // Vulnerable = 20% army-wide damage amplifier
+  if (s.applyVulnerable) return 0.20;
+  // Lifedrain = significant sustain spike on fast attackers
+  if (s.lifeDrainPct && s.lifeDrainPct >= 0.15) return 0.15;
+  // Skeleton summon = free unit generation from nearby deaths
+  if (s.skeletonSummonChance && s.skeletonSummonChance >= 0.15) return 0.15;
   return 0;
 }
 
@@ -3518,7 +3530,9 @@ function botUseAbility(state: GameState, playerId: number, emit: Emit): void {
       if (score > bestScore) { bestScore = score; bestX = t.x; bestY = t.y; }
     }
 
-    if (bestScore >= 2) {
+    // Wild frenzy needs a real cluster (3+) to be worth the meat cost; others just need 2
+    const minCluster = isAllyTarget ? 3 : 2;
+    if (bestScore >= minCluster) {
       emit({ type: 'use_ability', playerId, x: bestX, y: bestY });
     }
   } else if (def.targetMode === AbilityTargetMode.BuildSlot) {

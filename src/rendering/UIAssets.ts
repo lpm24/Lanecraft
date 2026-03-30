@@ -343,24 +343,28 @@ export class UIAssets {
     x: number, y: number, size: number,
     color: string,
   ): void {
+    const dpr = window.devicePixelRatio || 1;
+    const hiRes = Math.ceil(size * dpr);
     const canvas = this.tintCanvas ?? document.createElement('canvas');
     this.tintCanvas = canvas;
-    if (canvas.width !== size) canvas.width = size;
-    if (canvas.height !== size) canvas.height = size;
+    if (canvas.width !== hiRes || canvas.height !== hiRes) {
+      canvas.width = hiRes;
+      canvas.height = hiRes;
+    }
     const tctx = canvas.getContext('2d');
     if (!tctx) {
       ctx.drawImage(img, x, y, size, size);
       return;
     }
 
-    tctx.clearRect(0, 0, size, size);
-    tctx.drawImage(img, 0, 0, size, size);
+    tctx.clearRect(0, 0, hiRes, hiRes);
+    tctx.drawImage(img, 0, 0, hiRes, hiRes);
     tctx.globalCompositeOperation = 'source-atop';
     tctx.fillStyle = color;
-    tctx.fillRect(0, 0, size, size);
+    tctx.fillRect(0, 0, hiRes, hiRes);
     tctx.globalCompositeOperation = 'source-over';
 
-    ctx.drawImage(canvas, x, y, size, size);
+    ctx.drawImage(canvas, 0, 0, hiRes, hiRes, x, y, size, size);
   }
 
   drawTintedIcon(ctx: CanvasRenderingContext2D, name: IconName, x: number, y: number, size: number, color: string): boolean {

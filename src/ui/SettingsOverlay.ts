@@ -1,5 +1,5 @@
 import { type AudioSettings, updateAudioSettings } from '../audio/AudioSettings';
-import { getVisualSettings, updateVisualSettings } from '../rendering/VisualSettings';
+import { getVisualSettings, updateVisualSettings, type TouchControlsMode } from '../rendering/VisualSettings';
 import type { UIAssets } from '../rendering/UIAssets';
 import { getSafeTop } from './SafeArea';
 
@@ -20,6 +20,7 @@ export interface SettingsOverlayLayout {
   weatherRow: Rect;
   dayNightRow: Rect;
   damageNumbersRow: Rect;
+  touchControlsRow: Rect;
 }
 
 export function hitRect(x: number, y: number, rect: Rect, pad = 0): boolean {
@@ -30,8 +31,9 @@ export function getSettingsOverlayLayout(width: number, _height: number): Settin
   const size = 46;
   const button = { x: width - size - 14, y: 13 + getSafeTop(), w: size, h: size };
   // Panel height: title(24) + audioHeader(16) + music(30) + sfx(30) + gap(6)
-  //   + visualHeader(16) + shake(30) + weather(30) + dayNight(30) + dmgNums(30) + pad(8) = 250
-  const panelH = 250;
+  //   + visualHeader(16) + shake(30) + weather(30) + dayNight(30) + dmgNums(30)
+  //   + gap(6) + inputHeader(16) + touchControls(30) + pad(8) = 282
+  const panelH = 282;
   const panel = { x: button.x + button.w - 210, y: button.y + button.h + 4, w: 210, h: panelH };
   const rowH = 28;
   const px = panel.x + 8;
@@ -46,6 +48,9 @@ export function getSettingsOverlayLayout(width: number, _height: number): Settin
   const weatherY = shakeY + rowH + 2;
   const dayNightY = weatherY + rowH + 2;
   const damageNumbersY = dayNightY + rowH + 2;
+  // Input section
+  const inputHeaderY = damageNumbersY + rowH + 6;
+  const touchControlsY = inputHeaderY + 16;
   return {
     button,
     panel,
@@ -56,6 +61,7 @@ export function getSettingsOverlayLayout(width: number, _height: number): Settin
     weatherRow: { x: px, y: weatherY, w: pw, h: rowH },
     dayNightRow: { x: px, y: dayNightY, w: pw, h: rowH },
     damageNumbersRow: { x: px, y: damageNumbersY, w: pw, h: rowH },
+    touchControlsRow: { x: px, y: touchControlsY, w: pw, h: rowH },
   };
 }
 
@@ -99,6 +105,35 @@ function drawToggleRow(
   ctx.fillRect(on ? tX + tW - 12 : tX, tY, 12, tH);
 }
 
+function drawTriStateRow(
+  ctx: CanvasRenderingContext2D, rect: Rect, label: string, value: TouchControlsMode, color: string,
+): void {
+  ctx.fillStyle = 'rgba(20,20,20,0.9)';
+  ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+  ctx.strokeStyle = color;
+  ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
+  ctx.fillStyle = color;
+  ctx.font = 'bold 12px monospace';
+  ctx.fillText(`${label}: ${value}`, rect.x + 8, rect.y + 18);
+  const states: TouchControlsMode[] = ['auto', 'on', 'off'];
+  const btnW = 28; const gap = 2;
+  const totalW = btnW * 3 + gap * 2;
+  const bx = rect.x + rect.w - totalW - 4;
+  const by = rect.y + 5; const bh = 18;
+  for (let i = 0; i < states.length; i++) {
+    const sx = bx + i * (btnW + gap);
+    const active = value === states[i];
+    ctx.fillStyle = active ? color : '#333';
+    ctx.fillRect(sx, by, btnW, bh);
+    ctx.fillStyle = active ? '#000' : '#888';
+    ctx.font = 'bold 9px monospace';
+    ctx.textAlign = 'center';
+    const lbl = states[i] === 'auto' ? 'A' : states[i] === 'on' ? '1' : '0';
+    ctx.fillText(lbl, sx + btnW / 2, by + 13);
+    ctx.textAlign = 'start';
+  }
+}
+
 function drawSectionHeader(ctx: CanvasRenderingContext2D, x: number, y: number, label: string): void {
   ctx.fillStyle = '#8fa7bf';
   ctx.font = 'bold 11px monospace';
@@ -138,7 +173,7 @@ export function drawSettingsOverlay(
   layout: SettingsOverlayLayout,
   audioSettings: AudioSettings,
 ): void {
-  const { panel, close, musicRow, sfxRow, shakeRow, weatherRow, dayNightRow, damageNumbersRow } = layout;
+  const { panel, close, musicRow, sfxRow, shakeRow, weatherRow, dayNightRow, damageNumbersRow, touchControlsRow } = layout;
   const vis = getVisualSettings();
 
   const bgPadX = panel.w * 0.10;
@@ -183,6 +218,10 @@ export function drawSettingsOverlay(
   drawToggleRow(ctx, weatherRow, 'Weather', vis.weather, '#a5d6a7');
   drawToggleRow(ctx, dayNightRow, 'Day/Night', vis.dayNight, '#a5d6a7');
   drawToggleRow(ctx, damageNumbersRow, 'Dmg Numbers', vis.damageNumbers, '#a5d6a7');
+
+  // ── Input Section ──
+  drawSectionHeader(ctx, panel.x + 8, damageNumbersRow.y + damageNumbersRow.h + 2, 'INPUT');
+  drawTriStateRow(ctx, touchControlsRow, 'Touch', vis.touchControls, '#b39ddb');
 }
 
 /** Handle clicks on visual toggle rows. Returns true if a toggle was hit. */
@@ -202,6 +241,11 @@ export function handleVisualToggleClick(cx: number, cy: number, layout: Settings
   }
   if (hitRect(cx, cy, layout.damageNumbersRow)) {
     updateVisualSettings({ damageNumbers: !vis.damageNumbers });
+    return true;
+  }
+  if (hitRect(cx, cy, layout.touchControlsRow)) {
+    const cycle: Record<TouchControlsMode, TouchControlsMode> = { auto: 'on', on: 'off', off: 'auto' };
+    updateVisualSettings({ touchControls: cycle[vis.touchControls] });
     return true;
   }
   return false;

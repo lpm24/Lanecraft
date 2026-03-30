@@ -188,6 +188,7 @@ export class PartyManager {
     this._isHost = true;
     this._localSlot = 0;
     this.partyCode = code;
+    this._state = party; // Set immediately so callers don't race the onValue callback
     this.startHeartbeat();
     this.subscribeToParty(code);
     return code;

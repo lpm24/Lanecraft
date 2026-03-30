@@ -13,6 +13,7 @@ npm run balance          # Headless bot-vs-bot balance sim (full matchup grid)
 npm run sanity           # Quick 1-match balance check
 npm run cost-analysis    # Effective cost report for all 9 races
 npm run profile-sim      # Bot composition profile comparison
+python scripts/generate_store_screenshots.py  # App Store screenshots from marketing/z/
 ```
 
 ## Critical Rules
@@ -252,6 +253,17 @@ Some ranged units fire multiple projectiles per attack:
 - **Damage:** Each projectile deals `multishotDamagePct` of base damage (e.g., 0.70 = 70%)
 - **Races:** Horde Bowcleaver B-path (2→3 projectiles), Goblins Fan Knifer (2 projectiles)
 - **Projectiles target different enemies** within range — multishot is area denial, not single-target burst.
+
+## App Store Screenshots
+
+`scripts/generate_store_screenshots.py` generates marketing screenshots for iOS App Store from raw gameplay captures.
+
+- **Input:** `marketing/z/` — raw phone screenshots (1179×2556). Filename = caption text.
+- **Output:** `marketing/apple/` (iPhone 1284×2778) and `marketing/apple-ipad/` (iPad 2048×2732)
+- **Layout:** Dark teal gradient background, uppercase Impact caption at top, gameplay screenshot centered with rounded corners
+- **Format:** RGB PNG, no alpha (App Store requirement)
+- **To update:** rename/add/remove files in `marketing/z/`, then re-run the script. Captions are derived from filenames.
+- **Accepted iPhone dimensions:** 1242×2688, 1284×2778, or 2778×1284 (landscape). Current: 1284×2778.
 
 ## Common Pitfalls
 

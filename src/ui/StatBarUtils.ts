@@ -80,7 +80,7 @@ interface StatVisualMeta {
 export const STAT_VISUALS: Record<StatVisualKey, StatVisualMeta> = {
   health: { color: STAT_COLORS.hp, statIcon: 'health' },
   damage: { color: STAT_COLORS.damage, statIcon: 'damage', fallbackIcon: 'sword' },
-  dps: { color: STAT_COLORS.dps, statIcon: 'damage', fallbackIcon: 'sword' },
+  dps: { color: STAT_COLORS.dps, statIcon: 'dps', fallbackIcon: 'sword' },
   'attack-speed': { color: STAT_COLORS.atkSpeed, statIcon: 'attack-speed', fallbackIcon: 'sword' },
   'move-speed': { color: STAT_COLORS.moveSpeed, statIcon: 'move-speed' },
   range: { color: STAT_COLORS.range, statIcon: 'range' },
@@ -131,8 +131,18 @@ export function drawStatVisualIcon(
   x: number, y: number, size: number,
 ): boolean {
   const visual = getStatVisual(key);
-  if (visual.statIcon && ui.drawStatIcon(ctx, visual.statIcon, x, y, size, visual.color)) return true;
-  if (visual.fallbackIcon) return ui.drawTintedIcon(ctx, visual.fallbackIcon, x, y, size, visual.color);
+  // Draw a dark rounded background for contrast
+  ctx.fillStyle = 'rgba(0,0,0,0.55)';
+  ctx.beginPath();
+  ctx.roundRect(x, y, size, size, 3);
+  ctx.fill();
+  // Draw the icon 5% smaller, centered within the background
+  const iconSize = size * 0.95;
+  const offset = (size - iconSize) / 2;
+  const ix = x + offset;
+  const iy = y + offset;
+  if (visual.statIcon && ui.drawStatIcon(ctx, visual.statIcon, ix, iy, iconSize, visual.color)) return true;
+  if (visual.fallbackIcon) return ui.drawTintedIcon(ctx, visual.fallbackIcon, ix, iy, iconSize, visual.color);
   return false;
 }
 

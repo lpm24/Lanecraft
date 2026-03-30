@@ -85,41 +85,41 @@ export function getRaceBuildingName(race: Race | undefined, type: BuildingType, 
 
 // Per-race caster support ability descriptions
 const CASTER_SUPPORT_DESC: Record<Race, string> = {
-  [Race.Crown]: 'Shields 2 nearby allies, absorbing 12 dmg each.',
-  [Race.Horde]: 'Hastes up to 5 nearby allies, boosting attack speed.',
-  [Race.Goblins]: 'Hexes nearby enemies, slowing their movement.',
-  [Race.Oozlings]: 'Hastes up to 3 nearby allies.',
-  [Race.Demon]: 'Pure damage. Fires AoE blasts at enemies.',
-  [Race.Deep]: 'Cleanses burn from nearby allies. Fires AoE.',
-  [Race.Wild]: 'Hastes up to 3 nearby allies. Fires AoE.',
-  [Race.Geists]: 'Heals 2 HP to 3 lowest-HP allies. Fires AoE.',
-  [Race.Tenders]: 'Heals 3 HP to all nearby allies. Fires AoE.',
+  [Race.Crown]: '{shield} Shields 2 nearby allies, absorbing 12 dmg.',
+  [Race.Horde]: '{haste} Hastes up to 5 allies, boosting {attack-speed} atk speed.',
+  [Race.Goblins]: '{slow} Hexes nearby enemies, slowing movement.',
+  [Race.Oozlings]: '{haste} Hastes up to 3 nearby allies.',
+  [Race.Demon]: '{burn} Pure damage. Fires {aoe} AoE blasts.',
+  [Race.Deep]: '{cleanse} Cleanses burn from allies. Fires {aoe} AoE.',
+  [Race.Wild]: '{haste} Hastes up to 3 allies. Fires {aoe} AoE.',
+  [Race.Geists]: '{healing} Heals 2 HP to 3 lowest-HP allies. {aoe} AoE.',
+  [Race.Tenders]: '{healing} Heals 3 HP to all nearby allies. {aoe} AoE.',
 };
 
 // Per-race melee on-hit descriptions
 const MELEE_ONHIT_DESC: Record<Race, string> = {
-  [Race.Crown]: '10% damage reduction.',
-  [Race.Horde]: 'Knockback every 3rd hit. 10% lifesteal.',
-  [Race.Goblins]: '15% dodge chance.',
-  [Race.Oozlings]: '15% chance to self-haste on hit. Spawns 2 at half power.',
-  [Race.Demon]: 'Burns enemies on every melee hit.',
-  [Race.Deep]: 'Slows enemies on hit.',
-  [Race.Wild]: 'Poisons enemies on hit (burn).',
-  [Race.Geists]: 'Burns enemies on hit. 15% lifesteal.',
-  [Race.Tenders]: 'Regenerates 1 HP/s passively.',
+  [Race.Crown]: '{damage-reduction} 10% damage reduction.',
+  [Race.Horde]: '{knockback} Knockback every 3rd hit. {lifesteal} 10% lifesteal.',
+  [Race.Goblins]: '{dodge} 15% dodge chance.',
+  [Race.Oozlings]: '{haste} 15% chance haste on hit. {spawn-rate} Spawns x2.',
+  [Race.Demon]: '{burn} Burns enemies on every hit.',
+  [Race.Deep]: '{slow} Slows enemies on hit.',
+  [Race.Wild]: '{burn} Poisons enemies on hit.',
+  [Race.Geists]: '{burn} Burns on hit. {lifesteal} 15% lifesteal.',
+  [Race.Tenders]: '{regen} Regenerates 1 HP/s passively.',
 };
 
 // Per-race ranged on-hit descriptions
 const RANGED_ONHIT_DESC: Record<Race, string> = {
-  [Race.Crown]: 'Balanced ranged attacker.',
-  [Race.Horde]: 'Heavy damage ranged cleaver.',
-  [Race.Goblins]: 'Burns enemies on hit.',
-  [Race.Oozlings]: 'Spawns 2 at half power.',
-  [Race.Demon]: 'High damage, long range sniper.',
-  [Race.Deep]: 'Slows enemies on hit.',
-  [Race.Wild]: 'Poisons enemies on hit (burn).',
-  [Race.Geists]: 'Burns enemies on hit.',
-  [Race.Tenders]: 'Balanced ranged attacker.',
+  [Race.Crown]: '{damage} Balanced ranged attacker.',
+  [Race.Horde]: '{cleave} Heavy damage ranged cleaver.',
+  [Race.Goblins]: '{burn} Burns enemies on hit.',
+  [Race.Oozlings]: '{spawn-rate} Spawns 2 at half power.',
+  [Race.Demon]: '{damage} High damage, long range sniper.',
+  [Race.Deep]: '{slow} Slows enemies on hit.',
+  [Race.Wild]: '{burn} Poisons enemies on hit.',
+  [Race.Geists]: '{burn} Burns enemies on hit.',
+  [Race.Tenders]: '{damage} Balanced ranged attacker.',
 };
 
 // Remember whether the user has closed the info panel
@@ -213,6 +213,7 @@ export class BuildingPopup {
     playerGold: number, playerWood: number, playerMeat: number,
     sprites?: SpriteLoader | null,
     pointerX?: number, pointerY?: number,
+    touchMode?: boolean,
   ): void {
     if (this.targetBuildingId === null) return;
 
@@ -223,11 +224,14 @@ export class BuildingPopup {
     if (!race) return;
 
     const isMobile = canvasW < 600;
+    // Touch mode controls interaction (tap-to-confirm vs hover preview).
+    // Small screens always use touch interaction regardless of setting.
+    const isTouch = isMobile || (touchMode ?? false);
 
     // Hover/selection detection
-    // Desktop: driven by mouse position. Mobile: driven by tap selection.
+    // Desktop: driven by mouse position. Touch: driven by tap selection.
     this.hoveredChoice = null;
-    if (isMobile) {
+    if (isTouch) {
       this.hoveredChoice = this.selectedChoice;
     } else if (pointerX !== undefined && pointerY !== undefined) {
       for (const btn of this.upgradeBtnRects) {
@@ -359,7 +363,7 @@ export class BuildingPopup {
         this.upgradeBtnRects.push({ x: bx, y: by, w: btnW, h: UPGRADE_BTN_H, choice: opt.choice, canAfford });
         const isHovered = this.hoveredChoice === opt.choice;
         this.drawUpgradeButton(ctx, ui, bx, by, btnW, UPGRADE_BTN_H, opt, canAfford,
-          building, race, category, sprites ?? null, SPRITE_SIZE, ICON_SIZE, isMobile, isHovered, sharedTexts);
+          building, race, category, sprites ?? null, SPRITE_SIZE, ICON_SIZE, isMobile, isHovered, sharedTexts, isTouch);
       }
       curY += UPGRADE_BTN_H + GAP;
     } else if (building.upgradePath.length >= 3) {
@@ -520,6 +524,7 @@ export class BuildingPopup {
     _spriteSize: number, iconSize: number, isMobile: boolean,
     isHovered = false,
     sharedTexts?: Set<string>,
+    isTouch = false,
   ): void {
     // 9-slice button background — draw oversized so text sits well inside the visual border
     const btnPad = 8;
@@ -677,7 +682,7 @@ export class BuildingPopup {
     const costFontSize = isMobile ? 11 : 12;
     ctx.font = `bold ${costFontSize}px monospace`;
 
-    const isSelected = isMobile && this.selectedChoice === opt.choice;
+    const isSelected = isTouch && this.selectedChoice === opt.choice;
 
     // "TAP TO CONFIRM" label above cost when selected on mobile
     if (isSelected) {
@@ -852,8 +857,9 @@ export class BuildingPopup {
 
     // Description (spawners only)
     if (!isTower) {
+      const fontSize = isMobile ? 10 : 11;
       ctx.fillStyle = '#b0bec5';
-      ctx.font = `${isMobile ? 10 : 11}px monospace`;
+      ctx.font = `${fontSize}px monospace`;
       ctx.textAlign = 'left';
       let desc = '';
       const category = building.type === BuildingType.CasterSpawner ? 'caster'
@@ -863,11 +869,11 @@ export class BuildingPopup {
       else if (category === 'ranged') desc = RANGED_ONHIT_DESC[race] ?? '';
       const base = UNIT_STATS[race]?.[building.type];
       if (base?.spawnCount && base.spawnCount > 1 && !desc.includes('Spawn')) {
-        desc += ` Spawns ${base.spawnCount} per cycle.`;
+        desc += ` {spawn-rate} Spawns ${base.spawnCount} per cycle.`;
       }
-      const descLines = this.wordWrap(ctx, desc, barW, 2);
+      const descLines = this.wordWrapRich(ctx, desc, barW, 2, fontSize);
       for (const line of descLines) {
-        ctx.fillText(line, col1, ly + 10);
+        this.drawRichLine(ctx, _ui, line, col1, ly + 10, fontSize);
         ly += 13;
       }
       ly += 4;
@@ -952,6 +958,50 @@ export class BuildingPopup {
       }
     }
     return lines.length > 0 ? lines : [text.slice(0, 10)];
+  }
+
+  /** Word-wrap text that may contain {icon} markers. Icon tokens count as iconSize width. */
+  private wordWrapRich(ctx: CanvasRenderingContext2D, text: string, maxWidth: number, maxLines: number, fontSize: number): string[] {
+    const iconW = fontSize + 2; // inline icon width including spacing
+    const tokens = text.split(' ');
+    const lines: string[] = [];
+    let current = '';
+    let currentW = 0;
+    for (const token of tokens) {
+      const isIcon = /^\{[a-z-]+\}$/.test(token);
+      const tokenW = isIcon ? iconW : ctx.measureText(token).width;
+      const spaceW = current ? ctx.measureText(' ').width : 0;
+      if (current && currentW + spaceW + tokenW > maxWidth) {
+        lines.push(current);
+        if (lines.length >= maxLines) { current = ''; break; }
+        current = token;
+        currentW = tokenW;
+      } else {
+        current = current ? current + ' ' + token : token;
+        currentW += spaceW + tokenW;
+      }
+    }
+    if (current && lines.length < maxLines) lines.push(current);
+    return lines.length > 0 ? lines : [text.slice(0, 10)];
+  }
+
+  /** Draw a line of text that may contain {icon} markers inline. */
+  private drawRichLine(ctx: CanvasRenderingContext2D, ui: UIAssets, line: string, x: number, y: number, fontSize: number): void {
+    const iconSize = fontSize;
+    const parts = line.split(/(\{[a-z-]+\})/);
+    let cx = x;
+    for (const part of parts) {
+      const iconMatch = part.match(/^\{([a-z-]+)\}$/);
+      if (iconMatch) {
+        const key = iconMatch[1] as StatVisualKey;
+        drawStatVisualIcon(ctx, ui, key, cx, y - fontSize + 2, iconSize);
+        cx += iconSize + 2;
+      } else if (part) {
+        ctx.fillStyle = '#b0bec5';
+        ctx.fillText(part, cx, y);
+        cx += ctx.measureText(part).width;
+      }
+    }
   }
 
   private getUpgradeOptions(building: BuildingState, race: Race, state?: GameState): UpgradeOption[] {
