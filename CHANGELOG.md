@@ -2,7 +2,7 @@
 
 ## 2026-03-29 — v1.1.0 (since iOS 1.0.7 build 10)
 
-_40 commits: 8133aac → 13e6ac7_
+_42 commits: 8133aac → 1276820_
 
 ### New Features
 - **Tutorial system** — 16-step guided first-time match (miner hut → melee → tower → research → nuke → full menu tour) with spotlight overlays, gated input, and localStorage persistence
@@ -16,6 +16,7 @@ _40 commits: 8133aac → 13e6ac7_
 - **Bot composition profiles** — Difficulty-gated random strategy selection with tick fairness shuffles
 - **Race combat music** — Per-race thematic music tracks during matches
 - **Quick chat radial menu** — Ping targets radial center position; 3 new chat styles (Save Us, Sending Now, Random)
+- **Tenders tri-resource economy** — Huts cycle through generating Gold → Wood → Meat; "Growth Pod" popup with animated 3-segment progress bar
 
 ### UI & Rendering
 - **Title screen duels** — Rotating subtitle with roll animation, dead unit strikethrough names, type filter
@@ -32,8 +33,9 @@ _40 commits: 8133aac → 13e6ac7_
 - Mobile UX: suppress long-press context menu, text truncation, gallery click-through
 - Post-match hero cards: fixed-width sprite column, better award icons (nuke/diamond/mana/star)
 - Bot name abbreviations in summary (Medium→Med, Nightmare→NM)
-- Suppress building tooltip when popup is open
+- Building tooltip hidden at render-time when popup is open (hover tracking still active)
 - Wider title screen subtitle ribbon
+- Mobile upgrade buttons: "TAP TO CONFIRM" / "CAN'T AFFORD" label, cost always visible, dim glow on unaffordable
 
 ### Balance
 - **Stone → Meat** resource rename across entire codebase
