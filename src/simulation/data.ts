@@ -12,7 +12,7 @@ export const RACE_BUILDING_COSTS: Record<Race, Record<BuildingType, { gold: numb
     [BuildingType.HarvesterHut]:  { gold: 42,  wood: 0,  meat: 0,  hp: 150 },
     [BuildingType.Research]:      { gold: 0,   wood: 0,  meat: 0,  hp: 500 },
   },
-  // Horde: All 3 resources. Melee=meat, Ranged=wood, Caster=gold. Collect one of each T3 for auras.
+  // Horde: All 3 resources. Melee=meat, Ranged=wood, Caster=gold. Upgraded units grant aura buffs to nearby allies.
   [Race.Horde]: {
     [BuildingType.MeleeSpawner]:  { gold: 0,   wood: 0,  meat: 40, hp: 350 },
     [BuildingType.RangedSpawner]: { gold: 0,   wood: 40, meat: 0,  hp: 300 },

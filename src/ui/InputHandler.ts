@@ -1450,7 +1450,7 @@ export class InputHandler {
       line('[WASD/drag] pan  [Scroll] zoom  [Esc] cancel');
       line('[L] flip all lanes  [N] arm nuke  [5] race ability');
     }
-    line('Reopen via Settings > Help / Controls.', '#9bb7ff');
+    line('Press [H] to toggle controls overlay.', '#9bb7ff');
 
     // "Don't show on game start" checkbox
     y += compact ? 4 : 8;
