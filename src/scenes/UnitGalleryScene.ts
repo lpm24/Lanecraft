@@ -4,14 +4,15 @@ import { UIAssets, IconName } from '../rendering/UIAssets';
 import { Race, BuildingType, TILE_SIZE } from '../simulation/types';
 import { loadProfile, checkNonMatchAchievement, ACHIEVEMENTS } from '../profile/ProfileData';
 import {
-  UNIT_STATS, RACE_COLORS, RACE_LABELS, UPGRADE_TREES, UpgradeNodeDef, UpgradeSpecial,
+  UNIT_STATS, RACE_COLORS, RACE_LABELS, UPGRADE_TREES, UpgradeNodeDef,
   RACE_BUILDING_COSTS, RACE_RESEARCH_UPGRADES, SPAWN_INTERVAL_TICKS,
   getNodeUpgradeCost, TOWER_STATS,
 } from '../simulation/data';
 import { getUnitUpgradeMultipliers } from '../simulation/GameState';
 import { getElo, ELO_DEFAULT } from './TitleElo';
 import { getSafeTop } from '../ui/SafeArea';
-import { MAX_STATS } from '../ui/StatBarUtils';
+import { MAX_STATS, STAT_COLORS, drawStatBar, drawStatVisualIcon, formatSpecialBonuses, type StatVisualKey } from '../ui/StatBarUtils';
+import { SoundManager } from '../audio/SoundManager';
 
 const T = TILE_SIZE;
 
@@ -83,6 +84,7 @@ export class UnitGalleryScene implements Scene {
   /** Per-sprite fade-in alpha (0→1), keyed by "race:cat:node" */
   private spriteAlpha: Map<string, number> = new Map();
   private lastDt = 16;
+  private sfx = new SoundManager();
 
   constructor(manager: SceneManager, canvas: HTMLCanvasElement, sprites: SpriteLoader, ui: UIAssets) {
     this.manager = manager;
@@ -157,7 +159,8 @@ export class UnitGalleryScene implements Scene {
 
     this.keyHandler = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        if (this.detail) { this.detail = null; return; }
+        if (this.detail) { this.detail = null; this.sfx.playUIClose(); return; }
+        this.sfx.playUIBack();
         this.manager.switchTo('title');
       }
       if (this.detail) {
@@ -166,7 +169,13 @@ export class UnitGalleryScene implements Scene {
         return;
       }
       const num = parseInt(e.key);
-      if (num >= 1 && num <= 7) { this.activeTab = num - 1; this.scrollY = 0; this.spriteAlpha.clear(); }
+      if (num >= 1 && num <= 7) {
+        const nextTab = num - 1;
+        if (nextTab !== this.activeTab) this.sfx.playUITab();
+        this.activeTab = nextTab;
+        this.scrollY = 0;
+        this.spriteAlpha.clear();
+      }
     };
 
     this.canvas.addEventListener('click', this.clickHandler);
@@ -175,6 +184,7 @@ export class UnitGalleryScene implements Scene {
     this.canvas.addEventListener('touchend', this.touchEndHandler, { passive: false });
     this.canvas.addEventListener('wheel', this.wheelHandler, { passive: true });
     window.addEventListener('keydown', this.keyHandler);
+    this.sfx.enableTabSuspend();
   }
 
   exit(): void {
@@ -186,6 +196,7 @@ export class UnitGalleryScene implements Scene {
     if (this.touchEndHandler) this.canvas.removeEventListener('touchend', this.touchEndHandler);
     if (this.wheelHandler) this.canvas.removeEventListener('wheel', this.wheelHandler);
     if (this.keyHandler) window.removeEventListener('keydown', this.keyHandler);
+    this.sfx.disableTabSuspend();
     this.clickHandler = null;
     this.touchHandler = null;
     this.touchEndHandler = null;
@@ -201,6 +212,7 @@ export class UnitGalleryScene implements Scene {
     const next = (curIdx + dir + ALL_RACES.length) % ALL_RACES.length;
     this.detail = { race: ALL_RACES[next], catIndex: this.detail.catIndex };
     this.detailScrollY = 0;
+    this.sfx.playUIClick();
   }
 
   // Store arrow button positions for click detection
@@ -222,6 +234,7 @@ export class UnitGalleryScene implements Scene {
       const closeY = panelY + 4;
       if (cx >= closeX && cx <= closeX + closeBtnSize && cy >= closeY && cy <= closeY + closeBtnSize) {
         this.detail = null;
+        this.sfx.playUIClose();
         return;
       }
       // Left/right arrow buttons (in fixed header, not scrolled)
@@ -238,6 +251,7 @@ export class UnitGalleryScene implements Scene {
       // Click outside panel closes it
       if (cx < panelX || cx > panelX + panelW || cy < panelY || cy > panelY + panelH) {
         this.detail = null;
+        this.sfx.playUIClose();
         return;
       }
       // Check upgrade path node clicks (in fixed header area, not scrolled)
@@ -247,6 +261,7 @@ export class UnitGalleryScene implements Scene {
 
     // Back button
     if (cy < 36 + getSafeTop() && cy > getSafeTop() && cx < 100) {
+      this.sfx.playUIBack();
       this.manager.switchTo('title');
       return;
     }
@@ -258,6 +273,7 @@ export class UnitGalleryScene implements Scene {
       for (let i = 0; i < tabLayout.length; i++) {
         const t = tabLayout[i];
         if (cx >= t.x && cx <= t.x + t.w) {
+          if (this.activeTab !== i) this.sfx.playUITab();
           this.activeTab = i;
           this.scrollY = 0;
           this.spriteAlpha.clear();
@@ -291,6 +307,7 @@ export class UnitGalleryScene implements Scene {
         }
         this.detail = { race, catIndex: c };
         this.detailScrollY = 0;
+        this.sfx.playUIOpen();
         return;
       }
     }
@@ -303,6 +320,7 @@ export class UnitGalleryScene implements Scene {
     // Node positions are in screen-space (fixed header, not scrolled)
     for (const node of this.upgradeNodePositions) {
       if (cx >= node.x && cx <= node.x + node.w && cy >= node.y && cy <= node.y + node.h) {
+        if (this.activeTab !== node.tabIndex) this.sfx.playUITab();
         this.activeTab = node.tabIndex;
         this.detailScrollY = 0;
         this.spriteAlpha.clear();
@@ -834,67 +852,58 @@ export class UnitGalleryScene implements Scene {
     y += 20 + secPad;
     y += secGap;
 
-    // ========== SECTION 2: Stats + Spawn ==========
-    const statsH = 26 * 6 + 4 + 18; // stat bars + spawn info
+    // ========== SECTION 2: Stats ==========
+    const stats: { key: StatVisualKey; label: string; value: number; max: number; display: string; color: string }[] = [
+      { key: 'health', label: 'HEALTH', value: hp, max: MAX_STATS.hp, display: `${hp}`, color: STAT_COLORS.hp },
+      { key: 'damage', label: 'DAMAGE', value: dmg, max: MAX_STATS.damage, display: `${dmg}`, color: STAT_COLORS.damage },
+      { key: 'dps', label: 'DPS', value: dps, max: MAX_STATS.dps, display: `${dps.toFixed(1)}`, color: STAT_COLORS.dps },
+      { key: 'attack-speed', label: 'ATK SPEED', value: 1 / atkSpd, max: MAX_STATS.atkRate, display: `${atkSpd.toFixed(2)}s`, color: STAT_COLORS.atkSpeed },
+      { key: 'move-speed', label: 'MOVE SPEED', value: spd, max: MAX_STATS.moveSpeed, display: `${spd.toFixed(1)}`, color: STAT_COLORS.moveSpeed },
+      { key: 'range', label: 'RANGE', value: range, max: MAX_STATS.range, display: `${range}`, color: STAT_COLORS.range },
+    ];
+    const spawnSec = (SPAWN_INTERVAL_TICKS / 20) * (upgrade.spawnSpeed);
+    stats.push({
+      key: 'spawn-rate',
+      label: 'SPAWN',
+      value: 1 / spawnSec,
+      max: MAX_STATS.spawnRate,
+      display: spawnCount > 1 ? `${spawnCount}x / ${spawnSec.toFixed(1)}s` : `${spawnSec.toFixed(1)}s`,
+      color: STAT_COLORS.spawnSpeed,
+    });
+    if ((upgrade.special?.dodgeChance ?? 0) > 0) {
+      stats.push({
+        key: 'dodge',
+        label: 'DODGE',
+        value: upgrade.special.dodgeChance ?? 0,
+        max: 1,
+        display: `${Math.round((upgrade.special.dodgeChance ?? 0) * 100)}%`,
+        color: '#80cbc4',
+      });
+    }
+    if ((upgrade.special?.damageReductionPct ?? 0) > 0) {
+      stats.push({
+        key: 'damage-reduction',
+        label: 'DMG REDUC',
+        value: upgrade.special.damageReductionPct ?? 0,
+        max: 1,
+        display: `${Math.round((upgrade.special.damageReductionPct ?? 0) * 100)}%`,
+        color: '#90a4ae',
+      });
+    }
+
+    const statsH = 26 * stats.length;
     drawSectionBg(y, statsH + secPad * 2, 0.25);
     y += secPad;
 
     const barW = contentW;
     const barH = 14;
     const barGap = 26;
-    const labelW = 90;
-
-    const stats: { label: string; value: number; max: number; display: string; color: string }[] = [
-      { label: 'HEALTH', value: hp, max: MAX_STATS.hp, display: `${hp}`, color: '#4caf50' },
-      { label: 'DAMAGE', value: dmg, max: MAX_STATS.damage, display: `${dmg}`, color: '#f44336' },
-      { label: 'DPS', value: dps, max: MAX_STATS.dps, display: `${dps.toFixed(1)}`, color: '#ff9800' },
-      { label: 'ATK SPEED', value: 1 / atkSpd, max: MAX_STATS.atkRate, display: `${atkSpd.toFixed(2)}s`, color: '#e91e63' },
-      { label: 'MOVE SPEED', value: spd, max: MAX_STATS.moveSpeed, display: `${spd.toFixed(1)}`, color: '#2196f3' },
-      { label: 'RANGE', value: range, max: MAX_STATS.range, display: `${range}`, color: '#9c27b0' },
-    ];
 
     for (const stat of stats) {
-      ctx.fillStyle = '#aaa';
-      ctx.font = '11px monospace';
-      ctx.textAlign = 'left';
-      ctx.fillText(stat.label, barX, y + 10);
-
-      ctx.fillStyle = '#e0e0e0';
-      ctx.font = 'bold 11px monospace';
-      ctx.textAlign = 'right';
-      ctx.fillText(stat.display, barX + barW, y + 10);
-
-      const bx = barX + labelW;
-      const bw = barW - labelW - 50;
-      const by = y + 2;
-      ctx.fillStyle = 'rgba(255,255,255,0.08)';
-      roundRect(ctx, bx, by, bw, barH, 3);
-      ctx.fill();
-
-      const pct = Math.min(1, Math.max(0, stat.value / stat.max));
-      if (pct > 0) {
-        ctx.fillStyle = stat.color;
-        ctx.globalAlpha = 0.8;
-        roundRect(ctx, bx, by, bw * pct, barH, 3);
-        ctx.fill();
-        ctx.globalAlpha = 1;
-      }
-
+      drawStatBar(ctx, barX, y, barW, barH, stat.label, stat.value, stat.max, stat.display, stat.color, this.ui, stat.key);
       y += barGap;
     }
-
-    y += 4;
-
-    // Spawn Info
-    ctx.fillStyle = '#999';
-    ctx.font = '11px monospace';
-    ctx.textAlign = 'left';
-    const spawnSec = (SPAWN_INTERVAL_TICKS / 20) * (upgrade.spawnSpeed);
-    const spawnInfo = spawnCount > 1
-      ? `Spawns ${spawnCount} units every ${spawnSec.toFixed(1)}s`
-      : `Spawns every ${spawnSec.toFixed(1)}s`;
-    ctx.fillText(spawnInfo, barX, y + 10);
-    y += 18 + secPad;
+    y += secPad;
     y += secGap;
 
     // ========== SECTION 3: Cost Breakdown ==========
@@ -931,7 +940,7 @@ export class UnitGalleryScene implements Scene {
 
     // ========== SECTION 5: Upgrade Specials ==========
     if (upgrade.special && Object.keys(upgrade.special).length > 0) {
-      const specials = describeSpecials(upgrade.special);
+      const specials = formatSpecialBonuses(upgrade.special);
       const specialsH = secPad + 20 + specials.length * 17 + secPad;
       drawSectionBg(y, specialsH, 0.3);
       y += secPad;
@@ -941,9 +950,10 @@ export class UnitGalleryScene implements Scene {
       ctx.fillText('UPGRADE SPECIALS', barX, y + 10);
       y += 20;
       for (const s of specials) {
+        drawStatVisualIcon(ctx, this.ui, s.key, barX + 4, y - 2, 14);
         ctx.fillStyle = '#e0c860';
         ctx.font = '12px monospace';
-        ctx.fillText(`  ${s}`, barX, y + 10);
+        ctx.fillText(s.text, barX + 22, y + 10);
         y += 17;
       }
       y += secPad;
@@ -1015,8 +1025,11 @@ export class UnitGalleryScene implements Scene {
     // Section 1: Name + sprite + ELO
     h += secPad + 32 + (nodeDef?.desc ? 22 : 0) + 130 + 8 + 20 + secPad + secGap;
 
-    // Section 2: Stats + spawn
-    h += secPad + 26 * 6 + 4 + 18 + secPad + secGap;
+    // Section 2: Stats
+    const statRows = 7
+      + ((upgrade.special?.dodgeChance ?? 0) > 0 ? 1 : 0)
+      + ((upgrade.special?.damageReductionPct ?? 0) > 0 ? 1 : 0);
+    h += secPad + 26 * statRows + secPad + secGap;
 
     // Section 3: Cost breakdown
     const upgradeTier = TAB_PATHS[this.activeTab].path.length - 1;
@@ -1029,7 +1042,7 @@ export class UnitGalleryScene implements Scene {
 
     // Section 5: Upgrade specials
     if (upgrade.special && Object.keys(upgrade.special).length > 0) {
-      const specials = describeSpecials(upgrade.special);
+      const specials = formatSpecialBonuses(upgrade.special);
       h += secPad + 20 + specials.length * 17 + secPad + secGap;
     }
 
@@ -1260,46 +1273,19 @@ export class UnitGalleryScene implements Scene {
     }
     y += spriteAreaH + 8;
 
-    // Stats: HP, DAMAGE, DPS, ATK SPEED, RANGE (no MOVE SPEED)
+    // Stats: HP, DAMAGE, DPS, ATK SPEED, RANGE
     const barW = contentW;
     const barH = 14;
     const barGap = 26;
-    const labelW = 90;
-
-    const roundRect = (cx: CanvasRenderingContext2D, rx: number, ry: number, rw: number, rh: number, r: number) => {
-      cx.beginPath(); cx.roundRect(rx, ry, rw, rh, r);
-    };
-
-    const stats = [
-      { label: 'HEALTH', value: hp, max: MAX_STATS.hp * 4, display: `${hp}`, color: '#4caf50' },
-      { label: 'DAMAGE', value: dmg, max: MAX_STATS.damage, display: `${dmg}`, color: '#f44336' },
-      { label: 'DPS', value: dps, max: MAX_STATS.dps, display: `${dps.toFixed(1)}`, color: '#ff9800' },
-      { label: 'ATK SPEED', value: 1 / atkSpd, max: MAX_STATS.atkRate, display: `${atkSpd.toFixed(2)}s`, color: '#e91e63' },
-      { label: 'RANGE', value: range, max: MAX_STATS.range * 2, display: `${range}`, color: '#9c27b0' },
+    const stats: { key: StatVisualKey; label: string; value: number; max: number; display: string; color: string }[] = [
+      { key: 'health', label: 'HEALTH', value: hp, max: MAX_STATS.hp * 4, display: `${hp}`, color: STAT_COLORS.hp },
+      { key: 'damage', label: 'DAMAGE', value: dmg, max: MAX_STATS.damage, display: `${dmg}`, color: STAT_COLORS.damage },
+      { key: 'dps', label: 'DPS', value: dps, max: MAX_STATS.dps, display: `${dps.toFixed(1)}`, color: STAT_COLORS.dps },
+      { key: 'attack-speed', label: 'ATK SPEED', value: 1 / atkSpd, max: MAX_STATS.atkRate, display: `${atkSpd.toFixed(2)}s`, color: STAT_COLORS.atkSpeed },
+      { key: 'range', label: 'RANGE', value: range, max: MAX_STATS.range * 2, display: `${range}`, color: STAT_COLORS.range },
     ];
-
     for (const stat of stats) {
-      ctx.fillStyle = '#aaa';
-      ctx.font = '11px monospace';
-      ctx.textAlign = 'left';
-      ctx.fillText(stat.label, barX, y + 10);
-      ctx.fillStyle = '#e0e0e0';
-      ctx.font = 'bold 11px monospace';
-      ctx.textAlign = 'right';
-      ctx.fillText(stat.display, barX + barW, y + 10);
-
-      const bx = barX + labelW;
-      const bw = barW - labelW - 50;
-      const by = y + 2;
-      ctx.fillStyle = 'rgba(255,255,255,0.08)';
-      roundRect(ctx, bx, by, bw, barH, 3); ctx.fill();
-      const pct = Math.min(1, Math.max(0, stat.value / stat.max));
-      if (pct > 0) {
-        ctx.fillStyle = stat.color;
-        ctx.globalAlpha = 0.8;
-        roundRect(ctx, bx, by, bw * pct, barH, 3); ctx.fill();
-        ctx.globalAlpha = 1;
-      }
+      drawStatBar(ctx, barX, y, barW, barH, stat.label, stat.value, stat.max, stat.display, stat.color, this.ui, stat.key);
       y += barGap;
     }
 
@@ -1311,7 +1297,7 @@ export class UnitGalleryScene implements Scene {
 
     // Special traits from upgrade
     if (nodeDef) {
-      const specials = describeSpecials(nodeDef.special ?? {});
+      const specials = formatSpecialBonuses(nodeDef.special ?? {});
       if (specials.length > 0) {
         ctx.fillStyle = '#aaa';
         ctx.font = 'bold 12px monospace';
@@ -1319,9 +1305,10 @@ export class UnitGalleryScene implements Scene {
         ctx.fillText('UPGRADE BONUSES', barX, y + 10);
         y += 20;
         for (const s of specials) {
+          drawStatVisualIcon(ctx, this.ui, s.key, barX + 4, y - 2, 14);
           ctx.fillStyle = '#78c878';
           ctx.font = '11px monospace';
-          ctx.fillText(`• ${s}`, barX + 8, y + 10);
+          ctx.fillText(s.text, barX + 22, y + 10);
           y += 17;
         }
       }
@@ -1479,36 +1466,3 @@ function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: numbe
   ctx.closePath();
 }
 
-function describeSpecials(sp: UpgradeSpecial): string[] {
-  const lines: string[] = [];
-  if (sp.dodgeChance) lines.push(`${(sp.dodgeChance * 100).toFixed(0)}% dodge chance`);
-  if (sp.knockbackEveryN) lines.push(`Knockback every ${sp.knockbackEveryN} hits`);
-  if (sp.goldOnKill) lines.push(`+${sp.goldOnKill} gold on kill`);
-  if (sp.goldOnDeath) lines.push(`+${sp.goldOnDeath} gold on death`);
-  if (sp.splashRadius) lines.push(`Splash ${sp.splashRadius}t at ${((sp.splashDamagePct ?? 0.5) * 100).toFixed(0)}%`);
-  if (sp.extraChainTargets) lines.push(`Chain to ${sp.extraChainTargets} extra targets`);
-  if (sp.extraBurnStacks) lines.push(`+${sp.extraBurnStacks} burn stacks on hit`);
-  if (sp.extraSlowStacks) lines.push(`+${sp.extraSlowStacks} slow stacks on hit`);
-  if (sp.shieldTargetBonus) lines.push(`Shield +${sp.shieldTargetBonus} extra targets`);
-  if (sp.shieldAbsorbBonus) lines.push(`+${sp.shieldAbsorbBonus} shield absorb`);
-  if (sp.regenPerSec) lines.push(`Regen ${sp.regenPerSec} HP/s`);
-  if (sp.damageReductionPct) lines.push(`${sp.damageReductionPct}% damage reduction`);
-  if (sp.reviveHpPct) lines.push(`Revive at ${(sp.reviveHpPct * 100).toFixed(0)}% HP`);
-  if (sp.multishotCount) lines.push(`+${sp.multishotCount} projectiles at ${((sp.multishotDamagePct ?? 0.5) * 100).toFixed(0)}%`);
-  if (sp.healBonus) lines.push(`+${sp.healBonus} heal amount`);
-  if (sp.cleaveTargets) lines.push(`Cleave ${sp.cleaveTargets} adjacent enemies`);
-  if (sp.hopAttack) lines.push('Leap attack with AoE slow');
-  if (sp.explodeOnDeath) lines.push(`Explode on death: ${sp.explodeDamage ?? 0} dmg in ${sp.explodeRadius ?? 0}t`);
-  if (sp.skeletonSummonChance) lines.push(`${(sp.skeletonSummonChance * 100).toFixed(0)}% skeleton summon on death`);
-  if (sp.crownMage) lines.push('Fire AoE damage (mage mode)');
-  if (sp.isSiegeUnit) lines.push(`Siege: ${sp.buildingDamageMult ?? 1}x building dmg`);
-  if (sp.auraDamageBonus) lines.push(`Aura: +${sp.auraDamageBonus} dmg to allies`);
-  if (sp.auraSpeedBonus) lines.push(`Aura: +${((sp.auraSpeedBonus ?? 0) * 100).toFixed(0)}% speed to allies`);
-  if (sp.auraArmorBonus) lines.push(`Aura: ${((sp.auraArmorBonus ?? 0) * 100).toFixed(0)}% DR to allies`);
-  if (sp.guaranteedHaste) lines.push('Guaranteed haste on hit');
-  if (sp.towerRangeBonus) lines.push(`+${sp.towerRangeBonus} tower range`);
-  if (sp.soulHarvest) lines.push(`Soul harvest: grows from nearby deaths`);
-  if (sp.killScaling) lines.push(`Kill scaling: +${((sp.killDmgPct ?? 0.05) * 100).toFixed(0)}% dmg/kill`);
-  if (sp.spawnCount) lines.push(`Spawns ${sp.spawnCount} units`);
-  return lines;
-}

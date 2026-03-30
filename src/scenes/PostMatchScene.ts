@@ -262,7 +262,7 @@ export class PostMatchScene implements Scene {
     this.touchHandler = null;
     this.wheelHandler = null;
     this.touchMoveHandler = null;
-    this.sfx.dispose();
+    this.sfx.disableTabSuspend();
   }
 
   private handleTabClick(cx: number, cy: number): boolean {

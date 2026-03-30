@@ -2,6 +2,7 @@ import { SoundEvent, Race, BuildingType } from '../simulation/types';
 import { Camera } from '../rendering/Camera';
 import { subscribeToAudioSettings, type AudioSettings } from './AudioSettings';
 import type { WeatherType } from '../rendering/VisualEffects';
+import rainLoopUrl from '../assets/audio/Weather/freesound-soft-rain-loop-preview.mp3?url';
 
 const TILE_SIZE = 16;
 
@@ -170,6 +171,11 @@ export class SoundManager {
   private weatherGain: GainNode | null = null;
   private weatherNoiseSource: AudioBufferSourceNode | null = null;
   private weatherNoiseFilter: BiquadFilterNode | null = null;
+  private weatherRainSource: AudioBufferSourceNode | null = null;
+  private weatherRainGain: GainNode | null = null;
+  private weatherRainBuffer: AudioBuffer | null = null;
+  private weatherRainLoad: Promise<AudioBuffer> | null = null;
+  private weatherRainRequested = false;
   private weatherWindOsc: OscillatorNode | null = null;
   private weatherWindLfo: OscillatorNode | null = null;
   private weatherWindGain: GainNode | null = null;
@@ -776,11 +782,10 @@ export class SoundManager {
   }
 
   private playAbilityDeluge(v: number, d: GainNode): void {
-    // Rolling thunder + rain wash
-    this.sweep(80, 40, 0.8, v * 0.3, d, 'sine');
-    this.filteredNoise(0.6, v * 0.25, d, 400, 1);
-    this.sweep(200, 60, 0.5, v * 0.2, d, 'triangle', 0.1);
-    this.filteredNoise(0.4, v * 0.15, d, 3000, 0.5, 0.2);
+    // Deluge uses the shared storm/rain loop instead of a separate one-shot.
+    // Intentionally silent here to avoid layering a fake rain sound on top.
+    void v;
+    void d;
   }
 
   private playAbilityFrenzy(v: number, d: GainNode): void {
@@ -812,41 +817,24 @@ export class SoundManager {
   }
 
   private playNukeIncoming(v: number, d: GainNode): void {
-    // Slow-attack warning siren — NOT startling.
-    // Soft filtered tone that swells over 0.8s, then repeats.
-    // Uses sine (smooth) at mid-range (600-900 Hz) to cut through without being shrill.
+    // Short low warning pulse — readable without sounding like a siren.
     const ac = this.ctx();
     const t0 = ac.currentTime;
-    for (let i = 0; i < 2; i++) {
-      const offset = i * 0.7;
-      const osc = ac.createOscillator();
-      const g = ac.createGain();
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(600, t0 + offset);
-      osc.frequency.linearRampToValueAtTime(900, t0 + offset + 0.6);
-      // Slow attack: ramp from 0 → peak over 100ms (prevents startle)
-      g.gain.setValueAtTime(0.001, t0 + offset);
-      g.gain.linearRampToValueAtTime(v * 0.3, t0 + offset + 0.1);
-      g.gain.setValueAtTime(v * 0.3, t0 + offset + 0.5);
-      g.gain.exponentialRampToValueAtTime(0.001, t0 + offset + 0.65);
-      osc.connect(g);
-      g.connect(d);
-      osc.start(t0 + offset);
-      osc.stop(t0 + offset + 0.7);
-      // Sub-harmonic for body
-      const sub = ac.createOscillator();
-      const sg = ac.createGain();
-      sub.type = 'triangle';
-      sub.frequency.setValueAtTime(300, t0 + offset);
-      sub.frequency.linearRampToValueAtTime(450, t0 + offset + 0.6);
-      sg.gain.setValueAtTime(0.001, t0 + offset);
-      sg.gain.linearRampToValueAtTime(v * 0.15, t0 + offset + 0.1);
-      sg.gain.exponentialRampToValueAtTime(0.001, t0 + offset + 0.65);
-      sub.connect(sg);
-      sg.connect(d);
-      sub.start(t0 + offset);
-      sub.stop(t0 + offset + 0.7);
-    }
+    const osc = ac.createOscillator();
+    const g = ac.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(220, t0);
+    osc.frequency.linearRampToValueAtTime(300, t0 + 0.28);
+    g.gain.setValueAtTime(0.001, t0);
+    g.gain.linearRampToValueAtTime(v * 0.16, t0 + 0.05);
+    g.gain.exponentialRampToValueAtTime(0.001, t0 + 0.32);
+    osc.connect(g);
+    g.connect(d);
+    osc.start(t0);
+    osc.stop(t0 + 0.34);
+
+    // Small filtered-noise tail so it reads as "warning" not "tone".
+    this.filteredNoise(0.07, v * 0.06, d, 700, 1.2, 0.06);
   }
 
   private playNukeDetonated(v: number, d: GainNode): void {
@@ -1098,6 +1086,15 @@ export class SoundManager {
     this.note(850, 0.02, v, d, 'triangle');
   }
 
+  /** Subtle slider tick with built-in throttling for drag feedback */
+  playUISlider(): void {
+    if (!this.shouldPlay('ui_slider', 90, 1)) return;
+    const d = this.dest();
+    const v = 0.12 * this.settings.sfxVolume;
+    const p = this.pitchVar(0.03);
+    this.note(720 * p, 0.015, v, d, 'sine');
+  }
+
   // ─── Mute toggle ───────────────────────────────────────────────
 
   private _muted = false;
@@ -1291,8 +1288,14 @@ export class SoundManager {
     const isSand = weatherType === 'sandstorm';
     const isWindy = weatherType === 'storm' || weatherType === 'blizzard' || isSand;
 
-    const needsNoise = isRain || isSnow || isSand;
+    const needsNoise = isSnow || isSand;
     const needsWind = isWindy || weatherType === 'overcast';
+
+    if (isRain) {
+      this.startWeatherRain(ac);
+    } else {
+      this.stopWeatherRain(now);
+    }
 
     // Start/stop noise source
     if (needsNoise && !this.weatherNoiseSource) {
@@ -1315,8 +1318,9 @@ export class SoundManager {
     if (typeChanged) {
       const sfxVol = this.settings.sfxVolume;
       let targetNoiseGain = 0;
-      if (weatherType === 'rain') targetNoiseGain = 0.035 * sfxVol;
-      else if (weatherType === 'storm') targetNoiseGain = 0.07 * sfxVol;
+      let targetRainGain = 0;
+      if (weatherType === 'rain') targetRainGain = 0.08 * sfxVol;
+      else if (weatherType === 'storm') targetRainGain = 0.14 * sfxVol;
       else if (weatherType === 'snow') targetNoiseGain = 0.02 * sfxVol;
       else if (weatherType === 'blizzard') targetNoiseGain = 0.08 * sfxVol;
       else if (weatherType === 'sandstorm') targetNoiseGain = 0.07 * sfxVol;
@@ -1325,6 +1329,11 @@ export class SoundManager {
         this.weatherGain.gain.cancelScheduledValues(now);
         this.weatherGain.gain.setValueAtTime(this.weatherGain.gain.value, now);
         this.weatherGain.gain.linearRampToValueAtTime(targetNoiseGain, now + 3);
+      }
+      if (this.weatherRainGain) {
+        this.weatherRainGain.gain.cancelScheduledValues(now);
+        this.weatherRainGain.gain.setValueAtTime(this.weatherRainGain.gain.value, now);
+        this.weatherRainGain.gain.linearRampToValueAtTime(targetRainGain, now + 3);
       }
       this.weatherLastType = weatherType;
     }
@@ -1347,6 +1356,63 @@ export class SoundManager {
     }
     if (lightningFlash < 0.1) {
       this.weatherThunderArmed = true;
+    }
+  }
+
+  private async loadWeatherRainBuffer(ac: AudioContext): Promise<AudioBuffer> {
+    if (this.weatherRainBuffer) return this.weatherRainBuffer;
+    if (!this.weatherRainLoad) {
+      this.weatherRainLoad = fetch(rainLoopUrl)
+        .then((response) => response.arrayBuffer())
+        .then((arrayBuffer) => ac.decodeAudioData(arrayBuffer.slice(0)))
+        .then((buffer) => {
+          this.weatherRainBuffer = buffer;
+          return buffer;
+        })
+        .finally(() => {
+          this.weatherRainLoad = null;
+        });
+    }
+    return this.weatherRainLoad;
+  }
+
+  private startWeatherRain(ac: AudioContext): void {
+    this.weatherRainRequested = true;
+    if (!this.weatherRainGain) {
+      this.weatherRainGain = ac.createGain();
+      this.weatherRainGain.gain.value = 0;
+      this.weatherRainGain.connect(this.master!);
+    }
+    if (this.weatherRainSource) return;
+
+    void this.loadWeatherRainBuffer(ac).then((buffer) => {
+      if (!this.weatherRainRequested || this.weatherRainSource || ac !== this.actx) return;
+      const src = ac.createBufferSource();
+      src.buffer = buffer;
+      src.loop = true;
+      src.connect(this.weatherRainGain!);
+      src.onended = () => {
+        if (this.weatherRainSource === src) {
+          this.weatherRainSource = null;
+        }
+        try { src.disconnect(); } catch {}
+      };
+      src.start();
+      this.weatherRainSource = src;
+    }).catch(() => {});
+  }
+
+  private stopWeatherRain(now: number): void {
+    this.weatherRainRequested = false;
+    if (this.weatherRainGain && this.actx) {
+      this.weatherRainGain.gain.cancelScheduledValues(now);
+      this.weatherRainGain.gain.setValueAtTime(this.weatherRainGain.gain.value, now);
+      this.weatherRainGain.gain.linearRampToValueAtTime(0, now + 2);
+    }
+    if (this.weatherRainSource) {
+      const src = this.weatherRainSource;
+      this.weatherRainSource = null;
+      try { src.stop(now + 2.1); } catch {}
     }
   }
 
@@ -1400,17 +1466,17 @@ export class SoundManager {
   }
 
   private startWeatherWind(ac: AudioContext): void {
-    // Low-frequency oscillator for wind howl
+    // Low-frequency rumble for wind — avoid pitched whine.
     const osc = ac.createOscillator();
-    osc.type = 'sine';
-    osc.frequency.value = 80;
+    osc.type = 'triangle';
+    osc.frequency.value = 36;
 
     // LFO for wind modulation
     const lfo = ac.createOscillator();
     lfo.type = 'sine';
-    lfo.frequency.value = 0.15; // very slow modulation — less pulsing
+    lfo.frequency.value = 0.08; // extremely slow modulation
     const lfoGain = ac.createGain();
-    lfoGain.gain.value = 12; // gentle frequency wobble range
+    lfoGain.gain.value = 5; // tiny wobble range
 
     lfo.connect(lfoGain);
     lfoGain.connect(osc.frequency);
@@ -1421,8 +1487,8 @@ export class SoundManager {
     // Low-pass to remove harshness
     const lpf = ac.createBiquadFilter();
     lpf.type = 'lowpass';
-    lpf.frequency.value = 200;
-    lpf.Q.value = 1;
+    lpf.frequency.value = 110;
+    lpf.Q.value = 0.7;
 
     osc.connect(lpf);
     lpf.connect(windGain);
@@ -1475,11 +1541,16 @@ export class SoundManager {
   stopWeatherAudio(): void {
     if (!this.actx) return;
     const now = this.actx.currentTime;
+    this.stopWeatherRain(now);
     this.stopWeatherNoise(now);
     this.stopWeatherWind(now);
     if (this.weatherGain) {
       this.weatherGain.gain.cancelScheduledValues(now);
       this.weatherGain.gain.setValueAtTime(0, now);
+    }
+    if (this.weatherRainGain) {
+      this.weatherRainGain.gain.cancelScheduledValues(now);
+      this.weatherRainGain.gain.setValueAtTime(0, now);
     }
   }
 

@@ -20,6 +20,7 @@ import { getSafeBottom, getSafeTop, getPopupSafeY } from './SafeArea';
 import { getAudioSettings, updateAudioSettings } from '../audio/AudioSettings';
 import { getVisualSettings, updateVisualSettings } from '../rendering/VisualSettings';
 import { tileToPixel, pixelToTile } from '../rendering/Projection';
+import { drawStatVisualIcon, type StatVisualKey } from './StatBarUtils';
 import {
   getTutorialStep, advanceTutorial, skipTutorial,
   isMatchTutorial, getMatchPopupInfo, TUTORIAL_TIMEOUT_MS,
@@ -48,15 +49,28 @@ const ASSIGNMENT_LABELS: Record<HarvesterAssignment, string> = {
 };
 
 // Buff/debuff icon metadata for the WoW-style status bar
-const BUFF_ICON_META: Record<StatusType, { icon: string; color: string; isDebuff: boolean; maxDur: number }> = {
-  [StatusType.Burn]:       { icon: '\u{1F525}', color: '#ff6622', isDebuff: true,  maxDur: 3 },
-  [StatusType.Slow]:       { icon: '\u2744',    color: '#66ccff', isDebuff: true,  maxDur: 3 },
-  [StatusType.Wound]:      { icon: '\u2620',    color: '#cc44ff', isDebuff: true,  maxDur: 6 },
-  [StatusType.Vulnerable]: { icon: '\u{1F534}', color: '#ff4466', isDebuff: true,  maxDur: 3 },
-  [StatusType.Haste]:      { icon: '\u26A1',    color: '#ffdd44', isDebuff: false, maxDur: 3 },
-  [StatusType.Shield]:     { icon: '\u{1F6E1}', color: '#44ddff', isDebuff: false, maxDur: 4 },
-  [StatusType.Frenzy]:     { icon: '\u2694',    color: '#ff8844', isDebuff: false, maxDur: 4 },
+const BUFF_ICON_META: Record<StatusType, { key: StatVisualKey; isDebuff: boolean; maxDur: number }> = {
+  [StatusType.Burn]:       { key: 'burn', isDebuff: true,  maxDur: 3 },
+  [StatusType.Slow]:       { key: 'slow', isDebuff: true,  maxDur: 3 },
+  [StatusType.Wound]:      { key: 'wound', isDebuff: true,  maxDur: 6 },
+  [StatusType.Vulnerable]: { key: 'vulnerable', isDebuff: true,  maxDur: 3 },
+  [StatusType.Haste]:      { key: 'haste', isDebuff: false, maxDur: 3 },
+  [StatusType.Shield]:     { key: 'shield', isDebuff: false, maxDur: 4 },
+  [StatusType.Frenzy]:     { key: 'frenzy', isDebuff: false, maxDur: 4 },
 };
+
+function statLineToken(key: StatVisualKey, text: string): string {
+  return `__stat__:${key}:${text}`;
+}
+
+function displayLineText(line: string): string {
+  if (line.startsWith('__stat__:')) {
+    const parts = line.split(':');
+    return parts.slice(2).join(':');
+  }
+  if (line.startsWith('__research__:')) return 'Research';
+  return line;
+}
 
 const LANE_MODE_STORAGE_KEY = 'lanecraft.laneToggleMode';
 const UI_FEEDBACK_STORAGE_KEY = 'lanecraft.uiFeedbackEnabled';
@@ -514,6 +528,7 @@ export class InputHandler {
       const trackW = rw - 100;
       const v = Math.max(0, Math.min(1, (cx - trackX) / trackW));
       updateAudioSettings({ musicVolume: v });
+      this.game.sfx.playUISlider();
       return true;
     }
     if (inRow(L.sfxRowY)) {
@@ -521,6 +536,7 @@ export class InputHandler {
       const trackW = rw - 100;
       const v = Math.max(0, Math.min(1, (cx - trackX) / trackW));
       updateAudioSettings({ sfxVolume: v });
+      this.game.sfx.playUISlider();
       return true;
     }
 
@@ -621,8 +637,10 @@ export class InputHandler {
     const v = Math.max(0, Math.min(1, (cx - trackX) / trackW));
     if (this.settingsSliderDrag === 'music') {
       updateAudioSettings({ musicVolume: v });
+      this.game.sfx.playUISlider();
     } else if (this.settingsSliderDrag === 'sfx') {
       updateAudioSettings({ sfxVolume: v });
+      this.game.sfx.playUISlider();
     }
   }
 
@@ -3112,8 +3130,9 @@ export class InputHandler {
       const bldType = `${u.category}_spawner` as BuildingType;
       const upgradeName = race ? getUpgradeNodeDef(race, bldType, u.upgradeNode)?.name : undefined;
       lines.push(upgradeName ?? u.type);
-      lines.push(`${teamLabel} ${u.category}  HP: ${u.hp}/${u.maxHp}${u.shieldHp > 0 ? ` +${u.shieldHp} shield` : ''}`);
-      lines.push(`DMG: ${u.damage}  SPD: ${u.attackSpeed.toFixed(1)}s  RNG: ${u.range}  Move: ${u.moveSpeed.toFixed(1)}`);
+      lines.push(`${teamLabel} ${u.category}`);
+      lines.push(statLineToken('health', `HP ${u.hp}/${u.maxHp}${u.shieldHp > 0 ? `  +${u.shieldHp} shield` : ''}`));
+      lines.push(statLineToken('damage', `DMG ${u.damage}  SPD ${u.attackSpeed.toFixed(1)}s  RNG ${u.range}  Move ${u.moveSpeed.toFixed(1)}`));
       // Research upgrade levels for this unit's category
       const research = player?.researchUpgrades;
       if (research) {
@@ -3140,7 +3159,7 @@ export class InputHandler {
       raceColor = race ? (RACE_COLORS[race]?.primary ?? '#fff') : '#fff';
       const assignLabel = ASSIGNMENT_LABELS[h.assignment] ?? h.assignment;
       lines.push('Miner');
-      lines.push(`HP: ${h.hp}/${h.maxHp}  Task: ${assignLabel}`);
+      lines.push(statLineToken('health', `HP ${h.hp}/${h.maxHp}  Task ${assignLabel}`));
       lines.push(`State: ${h.state}${h.carryingDiamond ? '  Carrying diamond' : ''}${h.carryingResource ? `  Carrying ${h.carryingResource}` : ''}`);
     }
 
@@ -3186,7 +3205,9 @@ export class InputHandler {
     ctx.font = '12px monospace';
     let maxW = 0;
     for (const line of lines) {
-      const m = ctx.measureText(line).width;
+      const lineText = displayLineText(line);
+      const iconPad = line.startsWith('__stat__:') || line.startsWith('__research__:') ? 18 : 0;
+      const m = ctx.measureText(lineText).width + iconPad;
       if (m > maxW) maxW = m;
     }
     const boxW = Math.max(maxW + padX * 2, followW + padX * 2 + 38);
@@ -3236,6 +3257,16 @@ export class InputHandler {
     const textStartX = boxX + 38;
     for (let i = 0; i < lines.length; i++) {
       const lineY = boxY + padY + (i + 1) * lineH - 3;
+      if (lines[i].startsWith('__stat__:')) {
+        const parts = lines[i].split(':');
+        const key = parts[1] as StatVisualKey;
+        const text = parts.slice(2).join(':');
+        drawStatVisualIcon(ctx, this.ui, key, textStartX, lineY - 10, 14);
+        ctx.fillStyle = '#ccc';
+        ctx.font = '12px monospace';
+        ctx.fillText(text, textStartX + 18, lineY);
+        continue;
+      }
       // Special research upgrade line: draw sword/shield icons with levels
       if (lines[i].startsWith('__research__:')) {
         const parts = lines[i].split(':');
@@ -3293,10 +3324,7 @@ export class InputHandler {
 
         // Icon symbol
         ctx.globalAlpha = 1;
-        ctx.fillStyle = meta.color;
-        ctx.font = 'bold 13px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.fillText(meta.icon, ix + buffIconSize / 2, iy + 14);
+        drawStatVisualIcon(ctx, this.ui, meta.key, ix + 2, iy + 2, buffIconSize - 4);
 
         // Duration sweep: dark overlay that winds clockwise like a cooldown clock
         // Covers the portion of time that has elapsed, clipped to icon bounds

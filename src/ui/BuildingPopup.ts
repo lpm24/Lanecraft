@@ -6,7 +6,7 @@ import { tileToPixel } from '../rendering/Projection';
 import { UPGRADE_TREES, UNIT_STATS, TOWER_STATS, SPAWN_INTERVAL_TICKS, getBuildingCost, getNodeUpgradeCost, getUpgradeNodeDef, type UpgradeNodeDef } from '../simulation/data';
 import { getUnitUpgradeMultipliers } from '../simulation/GameState';
 import { getPopupSafeY } from './SafeArea';
-import { MAX_STATS, STAT_COLORS, drawStatBar, drawStatBarDelta, formatNodeStatChanges, formatSpecialBonuses, formatSpecialOnlyChanges } from './StatBarUtils';
+import { MAX_STATS, STAT_COLORS, drawStatBar, drawStatBarDelta, drawStatVisualIcon, formatNodeStatChanges, formatSpecialBonuses, formatSpecialOnlyChanges, type StatVisualKey } from './StatBarUtils';
 
 export interface UpgradeOption {
   choice: string;
@@ -642,19 +642,23 @@ export class BuildingPopup {
 
     if (statChanges.length > 0) {
       ctx.font = `${descFontSize}px monospace`;
+      const iconSize = descFontSize + 4;
+      const textStartX = textLeft + iconSize + 6;
+      const textWidth = textW - iconSize - 6;
       for (let i = 0; i < Math.min(statChanges.length, maxDescLines); i++) {
         const lineY = descStartY + i * descLineH;
         const change = statChanges[i];
+        drawStatVisualIcon(ctx, ui, change.key, textLeft, lineY - iconSize + 3, iconSize);
         ctx.fillStyle = canAfford
           ? (change.isBuff ? '#69f0ae' : '#ff6666')
           : '#888';
         // Truncate text that overflows button width
         let text = change.text;
-        if (ctx.measureText(text).width > textW) {
-          while (text.length > 4 && ctx.measureText(text + '..').width > textW) text = text.slice(0, -1);
+        if (ctx.measureText(text).width > textWidth) {
+          while (text.length > 4 && ctx.measureText(text + '..').width > textWidth) text = text.slice(0, -1);
           text += '..';
         }
-        ctx.fillText(text, textLeft, lineY);
+        ctx.fillText(text, textStartX, lineY);
       }
     } else {
       // Fallback to original desc
@@ -718,7 +722,7 @@ export class BuildingPopup {
     building: BuildingState, race: Race,
     upgrade: ReturnType<typeof getUnitUpgradeMultipliers>,
     projected: ReturnType<typeof getUnitUpgradeMultipliers> | null,
-  ): { label: string; val: number; projVal: number; max: number; disp: string; projDisp: string; color: string }[] {
+  ): { key: StatVisualKey; label: string; val: number; projVal: number; max: number; disp: string; projDisp: string; color: string }[] {
     const isTower = building.type === BuildingType.Tower;
     const base = isTower ? TOWER_STATS[race] : UNIT_STATS[race]?.[building.type];
     if (!base) return [];
@@ -741,27 +745,27 @@ export class BuildingPopup {
     const rngMax = isTower ? MAX_STATS.range * 2 : MAX_STATS.range;
 
     // All possible bars — we'll filter to only show non-zero ones
-    const all: { label: string; val: number; projVal: number; max: number; disp: string; projDisp: string; color: string }[] = [];
+    const all: { key: StatVisualKey; label: string; val: number; projVal: number; max: number; disp: string; projDisp: string; color: string }[] = [];
 
     // Core stats (always shown for units/towers that have them)
-    all.push({ label: 'HEALTH',    val: hp,  projVal: pHp,  max: hpMax,            disp: `${hp}`,  projDisp: `${pHp}`,  color: STAT_COLORS.hp });
-    all.push({ label: 'DAMAGE',    val: dmg, projVal: pDmg, max: MAX_STATS.damage, disp: `${dmg}`, projDisp: `${pDmg}`, color: STAT_COLORS.damage });
+    all.push({ key: 'health', label: 'HEALTH',    val: hp,  projVal: pHp,  max: hpMax,            disp: `${hp}`,  projDisp: `${pHp}`,  color: STAT_COLORS.hp });
+    all.push({ key: 'damage', label: 'DAMAGE',    val: dmg, projVal: pDmg, max: MAX_STATS.damage, disp: `${dmg}`, projDisp: `${pDmg}`, color: STAT_COLORS.damage });
 
     if (!isTower) {
       const dps = dmg / atkSpd;
       const pDps = pDmg / pAtkSpd;
-      all.push({ label: 'DPS', val: dps, projVal: pDps, max: MAX_STATS.dps, disp: `${dps.toFixed(1)}`, projDisp: `${pDps.toFixed(1)}`, color: STAT_COLORS.dps });
+      all.push({ key: 'dps', label: 'DPS', val: dps, projVal: pDps, max: MAX_STATS.dps, disp: `${dps.toFixed(1)}`, projDisp: `${pDps.toFixed(1)}`, color: STAT_COLORS.dps });
     }
 
-    all.push({ label: 'ATK SPEED', val: 1 / atkSpd, projVal: 1 / pAtkSpd, max: MAX_STATS.atkRate, disp: `${atkSpd.toFixed(2)}s`, projDisp: `${pAtkSpd.toFixed(2)}s`, color: STAT_COLORS.atkSpeed });
+    all.push({ key: 'attack-speed', label: 'ATK SPEED', val: 1 / atkSpd, projVal: 1 / pAtkSpd, max: MAX_STATS.atkRate, disp: `${atkSpd.toFixed(2)}s`, projDisp: `${pAtkSpd.toFixed(2)}s`, color: STAT_COLORS.atkSpeed });
 
     if (!isTower) {
       const spd = Math.max(0.5, (base as any).moveSpeed * upgrade.moveSpeed);
       const pSpd = projected ? Math.max(0.5, (base as any).moveSpeed * projected.moveSpeed) : spd;
-      all.push({ label: 'SPEED', val: spd, projVal: pSpd, max: MAX_STATS.moveSpeed, disp: `${spd.toFixed(1)}`, projDisp: `${pSpd.toFixed(1)}`, color: STAT_COLORS.moveSpeed });
+      all.push({ key: 'move-speed', label: 'SPEED', val: spd, projVal: pSpd, max: MAX_STATS.moveSpeed, disp: `${spd.toFixed(1)}`, projDisp: `${pSpd.toFixed(1)}`, color: STAT_COLORS.moveSpeed });
     }
 
-    all.push({ label: 'RANGE', val: totalRng, projVal: pTotalRng, max: rngMax, disp: `${totalRng}`, projDisp: `${pTotalRng}`, color: STAT_COLORS.range });
+    all.push({ key: 'range', label: 'RANGE', val: totalRng, projVal: pTotalRng, max: rngMax, disp: `${totalRng}`, projDisp: `${pTotalRng}`, color: STAT_COLORS.range });
 
     // Spawn speed (only for spawners) — displayed as seconds per spawn
     if (!isTower) {
@@ -769,20 +773,20 @@ export class BuildingPopup {
       const spawnSec = baseSpawnSec * upgrade.spawnSpeed;
       const pSpawnSec = projected ? baseSpawnSec * projected.spawnSpeed : spawnSec;
       // Bar value: 1/seconds (higher = faster), so lower seconds = bigger bar
-      all.push({ label: 'SPAWN', val: 1 / spawnSec, projVal: 1 / pSpawnSec, max: MAX_STATS.spawnRate, disp: `${spawnSec.toFixed(1)}s`, projDisp: `${pSpawnSec.toFixed(1)}s`, color: STAT_COLORS.spawnSpeed });
+      all.push({ key: 'spawn-rate', label: 'SPAWN', val: 1 / spawnSec, projVal: 1 / pSpawnSec, max: MAX_STATS.spawnRate, disp: `${spawnSec.toFixed(1)}s`, projDisp: `${pSpawnSec.toFixed(1)}s`, color: STAT_COLORS.spawnSpeed });
     }
 
     // Conditional bars: only shown when current OR projected value > 0
     const dodge = upgrade.special.dodgeChance ?? 0;
     const pDodge = projected ? (projected.special.dodgeChance ?? 0) : dodge;
     if (dodge > 0 || pDodge > 0) {
-      all.push({ label: 'DODGE', val: dodge, projVal: pDodge, max: 1, disp: `${Math.round(dodge * 100)}%`, projDisp: `${Math.round(pDodge * 100)}%`, color: '#80cbc4' });
+      all.push({ key: 'dodge', label: 'DODGE', val: dodge, projVal: pDodge, max: 1, disp: `${Math.round(dodge * 100)}%`, projDisp: `${Math.round(pDodge * 100)}%`, color: '#80cbc4' });
     }
 
     const dr = upgrade.special.damageReductionPct ?? 0;
     const pDr = projected ? (projected.special.damageReductionPct ?? 0) : dr;
     if (dr > 0 || pDr > 0) {
-      all.push({ label: 'DMG REDUC', val: dr, projVal: pDr, max: 1, disp: `${Math.round(dr * 100)}%`, projDisp: `${Math.round(pDr * 100)}%`, color: '#90a4ae' });
+      all.push({ key: 'damage-reduction', label: 'DMG REDUC', val: dr, projVal: pDr, max: 1, disp: `${Math.round(dr * 100)}%`, projDisp: `${Math.round(pDr * 100)}%`, color: '#90a4ae' });
     }
 
     return all;
@@ -839,7 +843,7 @@ export class BuildingPopup {
     // Dynamic stat bars
     const stats = this.buildStatBars(building, race, upgrade, projected);
     for (const s of stats) {
-      drawStatBar(ctx, col1, ly, barW, barH, s.label, s.val, s.max, s.disp, s.color);
+      drawStatBar(ctx, col1, ly, barW, barH, s.label, s.val, s.max, s.disp, s.color, _ui, s.key);
       if (projected && s.projDisp !== s.disp) {
         drawStatBarDelta(ctx, col1, ly, barW, barH, s.val, s.projVal, s.max, s.projDisp);
       }
@@ -870,12 +874,13 @@ export class BuildingPopup {
     }
 
     // Special bonuses area: always show current, highlight new on hover
-    this.drawSpecialBonuses(ctx, col1, ly, barW, upgrade.special, hoveredNode, isMobile);
+    this.drawSpecialBonuses(ctx, _ui, col1, ly, barW, upgrade.special, hoveredNode, isMobile);
   }
 
   /** Draw special bonus lines: current specials in neutral color, new hover specials in green */
   private drawSpecialBonuses(
     ctx: CanvasRenderingContext2D,
+    ui: UIAssets,
     x: number, y: number, _w: number,
     currentSpecial: ReturnType<typeof getUnitUpgradeMultipliers>['special'],
     hoveredNode: UpgradeNodeDef | undefined, isMobile: boolean,
@@ -891,8 +896,9 @@ export class BuildingPopup {
     const currentLines = formatSpecialBonuses(currentSpecial);
     for (const line of currentLines) {
       if (lineCount >= maxLines) break;
+      drawStatVisualIcon(ctx, ui, line.key, x, ly - 2, fontSize + 4);
       ctx.fillStyle = '#b0bec5';
-      ctx.fillText(line.text, x, ly + fontSize);
+      ctx.fillText(line.text, x + fontSize + 8, ly + fontSize);
       ly += fontSize + 3;
       lineCount++;
     }
@@ -904,8 +910,9 @@ export class BuildingPopup {
       for (const line of hoverLines) {
         if (lineCount >= maxLines) break;
         if (currentTexts.has(line.text)) continue; // already shown above
+        drawStatVisualIcon(ctx, ui, line.key, x, ly - 2, fontSize + 4);
         ctx.fillStyle = line.isBuff ? '#69f0ae' : '#ff6666';
-        ctx.fillText(line.text, x, ly + fontSize);
+        ctx.fillText(line.text, x + fontSize + 8, ly + fontSize);
         ly += fontSize + 3;
         lineCount++;
       }

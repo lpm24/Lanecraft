@@ -60,6 +60,7 @@ uiReady.then(() => {
   // Achievement toast sound
   const toastSfx = new SoundManager();
   manager.setOnToastShow(() => toastSfx.playAchievement());
+  manager.setOnToastDismiss(() => toastSfx.playUIClose());
 
   // Shared music player for mp3 tracks (menu, race select, combat)
   const musicPlayer = new MusicPlayer();

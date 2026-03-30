@@ -3235,7 +3235,7 @@ function dealDamage(state: GameState, target: UnitState, amount: number, showFlo
     const dodgeRoll = state.rng(), dodgeTextRoll = state.rng();
     if (dodgeRoll < dodge) {
       if (dodgeTextRoll < 0.3) addFloatingText(state, target.x, target.y, 'DODGE', '#ffffff', undefined, true,
-        { ftType: 'status' });
+        { ftType: 'status', miniIcon: 'dodge' });
       addCombatEvent(state, { type: 'dodge', x: target.x, y: target.y, color: '#ffffff' });
       return;
     }
@@ -3373,7 +3373,7 @@ function dealDamage(state: GameState, target: UnitState, amount: number, showFlo
               const baseDmg = killer.upgradeSpecial._baseDmg ?? killer.damage;
               killer.damage = Math.round(baseDmg * (1 + pct * killer.kills));
               addFloatingText(state, killer.x, killer.y - 0.5, `+DMG`, '#ff6600', undefined, undefined,
-                { ftType: 'status' });
+                { ftType: 'status', miniIcon: 'sword' });
             }
           }
           // Horde Trophy Hunter: War Troll gains +2% HP/dmg per kill, carries over between trolls
@@ -3594,7 +3594,7 @@ function applyCasterSupport(state: GameState, caster: UnitState, race: Race, sp:
       }
       if (cleansed > 0) {
         addFloatingText(state, caster.x, caster.y - 0.5, 'CLEANSE', '#1565c0', undefined, true,
-          { ftType: 'heal' });
+          { ftType: 'heal', miniIcon: 'cleanse' });
       }
       break;
     }
@@ -3689,7 +3689,7 @@ function applyOnHitEffects(state: GameState, attacker: UnitState, target: UnitSt
           addCombatEvent(state, { type: 'knockback', x: target.x, y: target.y, color: '#ffab40' });
           addSound(state, 'combat_knockback', target.x, target.y);
           if (state.rng() < 0.3) addFloatingText(state, target.x, target.y - 0.3, 'KNOCK', '#ffab40', undefined, true,
-            { ftType: 'status' });
+            { ftType: 'status', miniIcon: 'knockback' });
         }
         const hordeSteal = Math.round(attacker.damage * 0.10);
         if (hordeSteal > 0) {
@@ -4844,7 +4844,7 @@ function tickCombat(state: GameState): void {
             if (cleaved.length > 0) {
               addSound(state, 'ability_cleave', unit.x, unit.y);
               if (state.rng() < 0.3) addFloatingText(state, unit.x, unit.y - 0.3, 'CLEAVE', '#ff9800', undefined, true,
-                { ftType: 'status', miniIcon: 'sword' });
+                { ftType: 'status', miniIcon: 'cleave' });
             }
           }
         }
@@ -5723,7 +5723,7 @@ function applyTowerSpecial(state: GameState, building: BuildingState, race: Race
             applyKnockback(nearest, 0.02, state.mapDef);
             addDeathParticles(state, nearest.x, nearest.y, '#ffab40', 3);
             if (textRoll < 0.3) addFloatingText(state, nearest.x, nearest.y - 0.3, 'KNOCK', '#ffab40', undefined, true,
-              { ftType: 'status' });
+              { ftType: 'status', miniIcon: 'knockback' });
           }
         }
         addDeathParticles(state, nearest.x, nearest.y, '#c62828', 2);

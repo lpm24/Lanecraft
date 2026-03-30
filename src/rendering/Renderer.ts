@@ -20,6 +20,7 @@ import {
   ProjectileTrails, ConstructionAnims, HitFlashTracker, CombatVFX, triggerHaptic,
 } from './VisualEffects';
 import { getSafeTop, getSafeBottom } from '../ui/SafeArea';
+import { drawStatVisualIcon, type StatVisualKey } from '../ui/StatBarUtils';
 import { getVisualSettings } from './VisualSettings';
 import { tileToPixel, isoWorldBounds, ISO_TILE_W, ISO_TILE_H } from './Projection';
 
@@ -27,6 +28,24 @@ const T = TILE_SIZE;
 const LANE_LEFT_COLOR = '#4fc3f7';
 const LANE_RIGHT_COLOR = '#ff8a65';
 const DEAD_UNIT_LIFETIME_SEC = 0.9;
+
+const FLOATING_TEXT_ICON_MAP: Record<string, StatVisualKey> = {
+  sword: 'damage',
+  arrow: 'range',
+  fire: 'burn',
+  skull: 'wound',
+  dodge: 'dodge',
+  cleanse: 'cleanse',
+  knockback: 'knockback',
+  cleave: 'cleave',
+  shield_icon: 'shield',
+  lightning: 'haste',
+  poison: 'wound',
+  heart: 'healing',
+  potion_blue: 'move-speed',
+  potion_red: 'frenzy',
+  potion_green: 'shield',
+};
 
 type UnitCategory = 'melee' | 'ranged' | 'caster';
 
@@ -2343,14 +2362,6 @@ export class Renderer {
           ctx.drawImage(sprite, drawX, drawY, drawW, drawH);
         }
 
-        // Tenders huts: green tint to indicate passive resource generation
-        if (b.type === BuildingType.HarvesterHut && player.race === Race.Tenders) {
-          ctx.globalAlpha = 0.2;
-          ctx.fillStyle = '#4caf50';
-          ctx.fillRect(drawX, drawY, drawW, drawH);
-          ctx.globalAlpha = 1;
-        }
-
         // Special ability buildings (non-seed)
         if (b.isFoundry) {
           // Crown Foundry — new AI sprite includes the foundry visual, no overlay needed
@@ -4067,8 +4078,11 @@ export class Renderer {
     ctx.textAlign = 'start';
   }
 
-  /** Draw a small canvas icon for floating text (sword, arrow, fire, etc.) */
+  /** Draw a floating-text mini icon using the shared stat/effect icon language when possible. */
   private drawMiniIcon(ctx: CanvasRenderingContext2D, icon: string, x: number, y: number, sz: number, color: string): void {
+    const mapped = FLOATING_TEXT_ICON_MAP[icon];
+    if (mapped && drawStatVisualIcon(ctx, this.ui, mapped, x, y, sz)) return;
+
     const cx = x + sz / 2, cy = y + sz / 2;
     const r = sz * 0.4;
     ctx.fillStyle = color;

@@ -221,7 +221,7 @@ export class DifficultySelectScene implements Scene {
     this.clickHandler = null;
     this.moveHandler = null;
     this.touchHandler = null;
-    this.sfx.dispose();
+    this.sfx.disableTabSuspend();
   }
 
   update(_dt: number): void { this.tick++; this.sceneAge += _dt; }

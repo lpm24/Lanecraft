@@ -1,6 +1,7 @@
 import { Race, BuildingType, TICK_RATE } from '../simulation/types';
 import { UNIT_STATS, SPAWN_INTERVAL_TICKS, type UpgradeNodeDef, type UpgradeSpecial } from '../simulation/data';
 import { getUnitUpgradeMultipliers } from '../simulation/GameState';
+import type { IconName, UIAssets } from '../rendering/UIAssets';
 
 // ── All races & categories for max-stat sweep ──
 const ALL_RACES: Race[] = [
@@ -63,33 +64,101 @@ export const STAT_COLORS = {
   spawnSpeed: '#ffb74d',
 } as const;
 
-// ── Emoji stat icons (temp measure) ──
-export const STAT_EMOJI: Record<string, string> = {
-  hp: '\u2764\uFE0F', damage: '\u2694\uFE0F', atkSpeed: '\u26A1', moveSpeed: '\uD83C\uDFC3',
-  range: '\uD83C\uDFAF', spawnSpeed: '\u23F0', burn: '\uD83D\uDD25', slow: '\u2744\uFE0F',
-  dodge: '\uD83D\uDCA8', shield: '\uD83D\uDEE1\uFE0F', heal: '\uD83D\uDC9A', aoe: '\uD83D\uDCA5',
-  knockback: '\uD83D\uDCAA', gold: '\uD83E\uDE99', regen: '\u267B\uFE0F', summon: '\uD83D\uDC80',
-  splash: '\uD83D\uDCA6', chain: '\u26D3\uFE0F', armor: '\uD83D\uDEE1\uFE0F', haste: '\u2728',
-  aura: '\uD83D\uDCE2', siege: '\uD83C\uDFF0', explode: '\uD83D\uDCA3', revive: '\u271D\uFE0F',
-  wound: '\uD83E\uDE79', lifesteal: '\uD83E\uDE78', frenzy: '\uD83D\uDE24', vulnerable: '\u26A0\uFE0F',
-  killScale: '\uD83D\uDCC8',
+export type StatVisualKey =
+  | 'health' | 'damage' | 'dps' | 'attack-speed' | 'move-speed' | 'range' | 'spawn-rate'
+  | 'burn' | 'slow' | 'dodge' | 'damage-reduction' | 'shield' | 'aoe' | 'splash'
+  | 'additional-projectile' | 'chain' | 'chain-heal' | 'healing' | 'regen' | 'wound' | 'cleanse'
+  | 'cleave' | 'siege' | 'knockback' | 'gold' | 'haste' | 'revive' | 'summon'
+  | 'kill-scale' | 'aura' | 'explode' | 'lifesteal' | 'frenzy' | 'vulnerable';
+
+interface StatVisualMeta {
+  color: string;
+  statIcon?: string;
+  fallbackIcon?: IconName;
+}
+
+export const STAT_VISUALS: Record<StatVisualKey, StatVisualMeta> = {
+  health: { color: STAT_COLORS.hp, statIcon: 'health' },
+  damage: { color: STAT_COLORS.damage, statIcon: 'damage', fallbackIcon: 'sword' },
+  dps: { color: STAT_COLORS.dps, statIcon: 'damage', fallbackIcon: 'sword' },
+  'attack-speed': { color: STAT_COLORS.atkSpeed, statIcon: 'attack-speed', fallbackIcon: 'sword' },
+  'move-speed': { color: STAT_COLORS.moveSpeed, statIcon: 'move-speed' },
+  range: { color: STAT_COLORS.range, statIcon: 'range' },
+  'spawn-rate': { color: STAT_COLORS.spawnSpeed, statIcon: 'spawn-rate', fallbackIcon: 'research' },
+  burn: { color: '#ff7043', statIcon: 'burn' },
+  slow: { color: '#4fc3f7', statIcon: 'slow' },
+  dodge: { color: '#80cbc4', statIcon: 'dodge' },
+  'damage-reduction': { color: '#90a4ae', statIcon: 'damage-reduction', fallbackIcon: 'shield' },
+  shield: { color: '#42a5f5', statIcon: 'shield', fallbackIcon: 'shield' },
+  aoe: { color: '#ffb74d', statIcon: 'aoe' },
+  splash: { color: '#4dd0e1', statIcon: 'splash' },
+  'additional-projectile': { color: '#ffd54f', statIcon: 'multishot' },
+  chain: { color: '#80cbc4', statIcon: 'chain-heal' },
+  'chain-heal': { color: '#80cbc4', statIcon: 'chain-heal' },
+  healing: { color: '#66bb6a', statIcon: 'healing' },
+  regen: { color: '#9ccc65', statIcon: 'regen' },
+  wound: { color: '#ef5350', statIcon: 'wound' },
+  cleanse: { color: '#64b5f6', statIcon: 'cleanse' },
+  cleave: { color: '#ffa726', statIcon: 'cleave' },
+  siege: { color: '#8d6e63', statIcon: 'siege' },
+  knockback: { color: '#ffb74d', statIcon: 'knockback' },
+  gold: { color: '#ffd740', fallbackIcon: 'gold' },
+  haste: { color: '#ec407a', statIcon: 'move-speed' },
+  revive: { color: '#aed581', fallbackIcon: 'star' },
+  summon: { color: '#bcaaa4', fallbackIcon: 'souls' },
+  'kill-scale': { color: '#ffee58', statIcon: 'damage', fallbackIcon: 'star' },
+  aura: { color: '#fff176', statIcon: 'aoe', fallbackIcon: 'star' },
+  explode: { color: '#ff8a65', statIcon: 'aoe' },
+  lifesteal: { color: '#ab47bc', statIcon: 'wound', fallbackIcon: 'souls' },
+  frenzy: { color: '#ef5350', statIcon: 'damage', fallbackIcon: 'sword' },
+  vulnerable: { color: '#ffca28', statIcon: 'wound', fallbackIcon: 'info' },
 };
 
+export interface StatTextLine {
+  key: StatVisualKey;
+  text: string;
+  isBuff: boolean;
+}
+
+export function getStatVisual(key: StatVisualKey): StatVisualMeta {
+  return STAT_VISUALS[key];
+}
+
+export function drawStatVisualIcon(
+  ctx: CanvasRenderingContext2D,
+  ui: UIAssets,
+  key: StatVisualKey,
+  x: number, y: number, size: number,
+): boolean {
+  const visual = getStatVisual(key);
+  if (visual.statIcon && ui.drawStatIcon(ctx, visual.statIcon, x, y, size, visual.color)) return true;
+  if (visual.fallbackIcon) return ui.drawTintedIcon(ctx, visual.fallbackIcon, x, y, size, visual.color);
+  return false;
+}
+
 // ── Shared bar layout constants ──
-const BAR_LABEL_W = 70;
-const BAR_VALUE_W = 36;
+const BAR_LABEL_W = 86;
+const BAR_VALUE_W = 40;
 
 // ── Draw a single stat bar ──
 export function drawStatBar(
   ctx: CanvasRenderingContext2D,
   x: number, y: number, barW: number, barH: number,
   label: string, value: number, max: number, display: string, color: string,
+  ui?: UIAssets,
+  iconKey?: StatVisualKey,
 ): void {
+  const iconSize = barH + 4;
+  const iconOffset = ui && iconKey ? iconSize + 6 : 0;
+  if (ui && iconKey) {
+    drawStatVisualIcon(ctx, ui, iconKey, x, y - 1, iconSize);
+  }
+
   // Label
   ctx.fillStyle = '#aaa';
   ctx.font = '10px monospace';
   ctx.textAlign = 'left';
-  ctx.fillText(label, x, y + barH - 2);
+  ctx.fillText(label, x + iconOffset, y + barH - 2);
 
   // Value (right-aligned)
   ctx.fillStyle = '#e0e0e0';
@@ -172,37 +241,37 @@ export function drawStatBarDelta(
 // ── Generate ALL stat change lines for an upgrade node (used in upgrade button descriptions) ──
 // Special/unique abilities come FIRST so they aren't truncated by the 3-line limit.
 // Stat multipliers come after since the bars already show those visually.
-export function formatNodeStatChanges(node: UpgradeNodeDef): { text: string; isBuff: boolean }[] {
+export function formatNodeStatChanges(node: UpgradeNodeDef): StatTextLine[] {
   // Specials first (unique abilities the player needs to read)
-  const specials: { text: string; isBuff: boolean }[] = [];
+  const specials: StatTextLine[] = [];
   if (node.special) specials.push(...formatSpecialBonuses(node.special));
 
   // Stat multipliers second (bars show these, but text reinforces)
-  const stats: { text: string; isBuff: boolean }[] = [];
+  const stats: StatTextLine[] = [];
   if (node.hpMult && node.hpMult !== 1) {
     const pct = Math.round((node.hpMult - 1) * 100);
-    stats.push({ text: `${STAT_EMOJI.hp} ${pct > 0 ? '+' : ''}${pct}% HP`, isBuff: pct > 0 });
+    stats.push({ key: 'health', text: `${pct > 0 ? '+' : ''}${pct}% HP`, isBuff: pct > 0 });
   }
   if (node.damageMult && node.damageMult !== 1) {
     const pct = Math.round((node.damageMult - 1) * 100);
-    stats.push({ text: `${STAT_EMOJI.damage} ${pct > 0 ? '+' : ''}${pct}% damage`, isBuff: pct > 0 });
+    stats.push({ key: 'damage', text: `${pct > 0 ? '+' : ''}${pct}% damage`, isBuff: pct > 0 });
   }
   if (node.attackSpeedMult && node.attackSpeedMult !== 1) {
     const pct = Math.round((1 - node.attackSpeedMult) * 100);
     const label = pct > 0 ? 'faster attacks' : 'slower attacks';
-    stats.push({ text: `${STAT_EMOJI.atkSpeed} ${Math.abs(pct)}% ${label}`, isBuff: pct > 0 });
+    stats.push({ key: 'attack-speed', text: `${Math.abs(pct)}% ${label}`, isBuff: pct > 0 });
   }
   if (node.moveSpeedMult && node.moveSpeedMult !== 1) {
     const pct = Math.round((node.moveSpeedMult - 1) * 100);
-    stats.push({ text: `${STAT_EMOJI.moveSpeed} ${pct > 0 ? '+' : ''}${pct}% move speed`, isBuff: pct > 0 });
+    stats.push({ key: 'move-speed', text: `${pct > 0 ? '+' : ''}${pct}% move speed`, isBuff: pct > 0 });
   }
   if (node.rangeMult && node.rangeMult !== 1) {
     const pct = Math.round((node.rangeMult - 1) * 100);
-    stats.push({ text: `${STAT_EMOJI.range} ${pct > 0 ? '+' : ''}${pct}% range`, isBuff: pct > 0 });
+    stats.push({ key: 'range', text: `${pct > 0 ? '+' : ''}${pct}% range`, isBuff: pct > 0 });
   }
   if (node.spawnSpeedMult && node.spawnSpeedMult !== 1) {
     const pct = Math.round((1 - node.spawnSpeedMult) * 100);
-    stats.push({ text: `${STAT_EMOJI.spawnSpeed} ${Math.abs(pct)}% ${pct > 0 ? 'faster' : 'slower'} spawns`, isBuff: pct > 0 });
+    stats.push({ key: 'spawn-rate', text: `${Math.abs(pct)}% ${pct > 0 ? 'faster' : 'slower'} spawns`, isBuff: pct > 0 });
   }
 
   return [...specials, ...stats];
@@ -210,45 +279,45 @@ export function formatNodeStatChanges(node: UpgradeNodeDef): { text: string; isB
 
 // ── Generate only special/abstract effect lines (used in hover bonuses below stat bars) ──
 // Excludes stat multipliers and dodge/DR since those are shown as bars.
-export function formatSpecialOnlyChanges(node: UpgradeNodeDef): { text: string; isBuff: boolean }[] {
+export function formatSpecialOnlyChanges(node: UpgradeNodeDef): StatTextLine[] {
   if (!node.special) return [];
   return formatSpecialBonuses(node.special);
 }
 
 // ── Generate readable lines for UpgradeSpecial effects ──
-export function formatSpecialBonuses(special: UpgradeSpecial): { text: string; isBuff: boolean }[] {
-  const lines: { text: string; isBuff: boolean }[] = [];
+export function formatSpecialBonuses(special: UpgradeSpecial): StatTextLine[] {
+  const lines: StatTextLine[] = [];
 
-  if (special.goldOnKill) lines.push({ text: `${STAT_EMOJI.gold} +${special.goldOnKill} gold per kill`, isBuff: true });
-  if (special.goldOnDeath) lines.push({ text: `${STAT_EMOJI.gold} +${special.goldOnDeath} gold on death`, isBuff: true });
+  if (special.goldOnKill) lines.push({ key: 'gold', text: `+${special.goldOnKill} gold per kill`, isBuff: true });
+  if (special.goldOnDeath) lines.push({ key: 'gold', text: `+${special.goldOnDeath} gold on death`, isBuff: true });
   // dodgeChance and damageReductionPct are shown as stat bars, not text lines
-  if (special.extraBurnStacks) lines.push({ text: `${STAT_EMOJI.burn} +${special.extraBurnStacks} burn on hit`, isBuff: true });
-  if (special.extraSlowStacks) lines.push({ text: `${STAT_EMOJI.slow} +${special.extraSlowStacks} slow on hit`, isBuff: true });
-  if (special.knockbackEveryN) lines.push({ text: `${STAT_EMOJI.knockback} Knockback every ${special.knockbackEveryN} hits`, isBuff: true });
-  if (special.guaranteedHaste) lines.push({ text: `${STAT_EMOJI.haste} Haste on hit`, isBuff: true });
-  if (special.shieldTargetBonus) lines.push({ text: `${STAT_EMOJI.shield} Shield +${special.shieldTargetBonus} targets`, isBuff: true });
-  if (special.shieldAbsorbBonus) lines.push({ text: `${STAT_EMOJI.shield} Shield +${special.shieldAbsorbBonus} absorb`, isBuff: true });
-  if (special.crownMage) lines.push({ text: `${STAT_EMOJI.aoe} AoE damage mode`, isBuff: true });
-  if (special.aoeRadiusBonus) lines.push({ text: `${STAT_EMOJI.aoe} +${special.aoeRadiusBonus} AoE radius`, isBuff: true });
-  if (special.splashRadius) lines.push({ text: `${STAT_EMOJI.splash} Splash ${special.splashRadius}t at ${Math.round((special.splashDamagePct ?? 0.5) * 100)}%`, isBuff: true });
-  if (special.multishotCount) lines.push({ text: `${STAT_EMOJI.range} +${special.multishotCount} projectile at ${Math.round((special.multishotDamagePct ?? 0.5) * 100)}%`, isBuff: true });
-  if (special.chainHeal) lines.push({ text: `${STAT_EMOJI.heal} Chain heal ${special.chainHeal} allies`, isBuff: true });
-  if (special.healBonus) lines.push({ text: `${STAT_EMOJI.heal} +${special.healBonus} heal amount`, isBuff: true });
-  if (special.regenPerSec) lines.push({ text: `${STAT_EMOJI.regen} ${special.regenPerSec} HP/s regen`, isBuff: true });
-  if (special.reviveHpPct) lines.push({ text: `${STAT_EMOJI.revive} Revive at ${Math.round(special.reviveHpPct * 100)}% HP`, isBuff: true });
-  if (special.cleaveTargets) lines.push({ text: `${STAT_EMOJI.damage} Cleave ${special.cleaveTargets} targets`, isBuff: true });
-  if (special.hopAttack) lines.push({ text: `${STAT_EMOJI.moveSpeed} Leap attack + AoE slow`, isBuff: true });
-  if (special.explodeOnDeath) lines.push({ text: `${STAT_EMOJI.explode} Explode on death (${special.explodeDamage ?? 0} dmg, ${special.explodeRadius ?? 0}t)`, isBuff: true });
-  if (special.skeletonSummonChance) lines.push({ text: `${STAT_EMOJI.summon} ${Math.round(special.skeletonSummonChance * 100)}% summon chance`, isBuff: true });
-  if (special.soulHarvest) lines.push({ text: `${STAT_EMOJI.summon} Grows from nearby deaths (max ${special.soulMaxStacks ?? 20})`, isBuff: true });
-  if (special.killScaling) lines.push({ text: `${STAT_EMOJI.killScale} +${Math.round((special.killDmgPct ?? 0.05) * 100)}% dmg/kill (max ${special.killMaxStacks ?? 10})`, isBuff: true });
-  if (special.isSiegeUnit) lines.push({ text: `${STAT_EMOJI.siege} SIEGE: ${special.buildingDamageMult ?? 3}x building damage`, isBuff: true });
-  if (special.towerRangeBonus) lines.push({ text: `${STAT_EMOJI.range} +${special.towerRangeBonus} tower range`, isBuff: true });
-  if (special.spawnCount) lines.push({ text: `${STAT_EMOJI.spawnSpeed} Spawn ${special.spawnCount} per cycle`, isBuff: special.spawnCount > 1 });
-  if (special.extraChainTargets) lines.push({ text: `${STAT_EMOJI.chain} Chain to ${special.extraChainTargets} targets`, isBuff: true });
-  if (special.auraDamageBonus) lines.push({ text: `${STAT_EMOJI.aura} AURA: +${special.auraDamageBonus} damage nearby`, isBuff: true });
-  if (special.auraSpeedBonus) lines.push({ text: `${STAT_EMOJI.aura} AURA: +${Math.round(special.auraSpeedBonus * 100)}% speed nearby`, isBuff: true });
-  if (special.auraArmorBonus) lines.push({ text: `${STAT_EMOJI.aura} AURA: +${Math.round(special.auraArmorBonus * 100)}% armor nearby`, isBuff: true });
+  if (special.extraBurnStacks) lines.push({ key: 'burn', text: `+${special.extraBurnStacks} burn on hit`, isBuff: true });
+  if (special.extraSlowStacks) lines.push({ key: 'slow', text: `+${special.extraSlowStacks} slow on hit`, isBuff: true });
+  if (special.knockbackEveryN) lines.push({ key: 'knockback', text: `Knockback every ${special.knockbackEveryN} hits`, isBuff: true });
+  if (special.guaranteedHaste) lines.push({ key: 'haste', text: 'Haste on hit', isBuff: true });
+  if (special.shieldTargetBonus) lines.push({ key: 'shield', text: `Shield +${special.shieldTargetBonus} targets`, isBuff: true });
+  if (special.shieldAbsorbBonus) lines.push({ key: 'shield', text: `Shield +${special.shieldAbsorbBonus} absorb`, isBuff: true });
+  if (special.crownMage) lines.push({ key: 'aoe', text: 'AoE damage mode', isBuff: true });
+  if (special.aoeRadiusBonus) lines.push({ key: 'aoe', text: `+${special.aoeRadiusBonus} AoE radius`, isBuff: true });
+  if (special.splashRadius) lines.push({ key: 'splash', text: `Splash ${special.splashRadius}t at ${Math.round((special.splashDamagePct ?? 0.5) * 100)}%`, isBuff: true });
+  if (special.multishotCount) lines.push({ key: 'additional-projectile', text: `+${special.multishotCount} projectile at ${Math.round((special.multishotDamagePct ?? 0.5) * 100)}%`, isBuff: true });
+  if (special.chainHeal) lines.push({ key: 'chain-heal', text: `Chain heal ${special.chainHeal} allies`, isBuff: true });
+  if (special.healBonus) lines.push({ key: 'healing', text: `+${special.healBonus} heal amount`, isBuff: true });
+  if (special.regenPerSec) lines.push({ key: 'regen', text: `${special.regenPerSec} HP/s regen`, isBuff: true });
+  if (special.reviveHpPct) lines.push({ key: 'revive', text: `Revive at ${Math.round(special.reviveHpPct * 100)}% HP`, isBuff: true });
+  if (special.cleaveTargets) lines.push({ key: 'cleave', text: `Cleave ${special.cleaveTargets} targets`, isBuff: true });
+  if (special.hopAttack) lines.push({ key: 'move-speed', text: 'Leap attack + AoE slow', isBuff: true });
+  if (special.explodeOnDeath) lines.push({ key: 'explode', text: `Explode on death (${special.explodeDamage ?? 0} dmg, ${special.explodeRadius ?? 0}t)`, isBuff: true });
+  if (special.skeletonSummonChance) lines.push({ key: 'summon', text: `${Math.round(special.skeletonSummonChance * 100)}% summon chance`, isBuff: true });
+  if (special.soulHarvest) lines.push({ key: 'summon', text: `Grows from nearby deaths (max ${special.soulMaxStacks ?? 20})`, isBuff: true });
+  if (special.killScaling) lines.push({ key: 'kill-scale', text: `+${Math.round((special.killDmgPct ?? 0.05) * 100)}% dmg/kill (max ${special.killMaxStacks ?? 10})`, isBuff: true });
+  if (special.isSiegeUnit) lines.push({ key: 'siege', text: `SIEGE: ${special.buildingDamageMult ?? 3}x building damage`, isBuff: true });
+  if (special.towerRangeBonus) lines.push({ key: 'range', text: `+${special.towerRangeBonus} tower range`, isBuff: true });
+  if (special.spawnCount) lines.push({ key: 'spawn-rate', text: `Spawn ${special.spawnCount} per cycle`, isBuff: special.spawnCount > 1 });
+  if (special.extraChainTargets) lines.push({ key: 'chain', text: `Chain to ${special.extraChainTargets} targets`, isBuff: true });
+  if (special.auraDamageBonus) lines.push({ key: 'aura', text: `AURA: +${special.auraDamageBonus} damage nearby`, isBuff: true });
+  if (special.auraSpeedBonus) lines.push({ key: 'aura', text: `AURA: +${Math.round(special.auraSpeedBonus * 100)}% speed nearby`, isBuff: true });
+  if (special.auraArmorBonus) lines.push({ key: 'aura', text: `AURA: +${Math.round(special.auraArmorBonus * 100)}% armor nearby`, isBuff: true });
 
   return lines;
 }

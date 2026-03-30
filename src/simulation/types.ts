@@ -577,7 +577,7 @@ export interface FloatingText {
   vy?: number;     // initial vertical velocity for arc/gravity
   ftType?: 'damage' | 'heal' | 'resource' | 'status' | 'ability'; // animation variant
   magnitude?: number; // for scaling text size (e.g. damage amount)
-  miniIcon?: string;  // canvas-drawn mini icon: 'sword', 'arrow', 'fire', 'skull', 'shield_icon', 'lightning', 'poison', 'heart'
+  miniIcon?: string;  // shared gameplay icon key or legacy alias used by floating combat text
   ownerOnly?: number; // if set, only render for this player index (e.g. mana/souls/ooze)
 }
 

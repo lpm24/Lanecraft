@@ -321,6 +321,7 @@ export class TitleScene implements Scene {
       const cx = touch.clientX - rect.left;
       const settingsLayout = getSettingsOverlayLayout(this.canvas.clientWidth, this.canvas.clientHeight);
       this.sliderDrag.move(cx, settingsLayout);
+      this.menuMusic.playUISlider();
     };
     this.touchEndHandler = () => {
       this.sliderDrag.end();
@@ -422,6 +423,7 @@ export class TitleScene implements Scene {
         const cx = e.clientX - rect.left;
         const settingsLayout = getSettingsOverlayLayout(this.canvas.clientWidth, this.canvas.clientHeight);
         this.sliderDrag.move(cx, settingsLayout);
+        this.menuMusic.playUISlider();
         return;
       }
       if (this.dragSlot < 0) return;
@@ -511,7 +513,8 @@ export class TitleScene implements Scene {
     this.audioSettingsUnsub?.();
     this.audioSettingsUnsub = null;
     this.blurJoinHiddenInput();
-    this.menuMusic.dispose();
+    this.menuMusic.stopMusic();
+    this.menuMusic.disableTabSuspend();
     this.clearMatchmakingTimeout();
     if (this.party) {
       this.party.removeListener(this.partyListener);
@@ -795,10 +798,12 @@ export class TitleScene implements Scene {
       }
       if (hitOverlayRect(cx, cy, settingsLayout.musicRow)) {
         updateAudioSettings({ musicVolume: sliderValueFromPoint(cx, settingsLayout.musicRow) });
+        this.menuMusic.playUISlider();
         return;
       }
       if (hitOverlayRect(cx, cy, settingsLayout.sfxRow)) {
         updateAudioSettings({ sfxVolume: sliderValueFromPoint(cx, settingsLayout.sfxRow) });
+        this.menuMusic.playUISlider();
         return;
       }
       if (handleVisualToggleClick(cx, cy, settingsLayout)) { this.menuMusic.playUIToggle(); return; }

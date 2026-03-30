@@ -167,6 +167,7 @@ export class RaceSelectScene implements Scene {
         const [cx] = this.toCanvasCoords(e.clientX, e.clientY);
         const layout = getSettingsOverlayLayout(this.canvas.clientWidth, this.canvas.clientHeight);
         this.sliderDrag.move(cx, layout);
+        this.music.playUISlider();
         return;
       }
       const [cx, cy] = this.toCanvasCoords(e.clientX, e.clientY);
@@ -212,6 +213,7 @@ export class RaceSelectScene implements Scene {
       const [cx] = this.toCanvasCoords(touch.clientX, touch.clientY);
       const layout = getSettingsOverlayLayout(this.canvas.clientWidth, this.canvas.clientHeight);
       this.sliderDrag.move(cx, layout);
+      this.music.playUISlider();
     };
     this.touchEndHandler = () => { this.sliderDrag.end(); };
 
@@ -245,7 +247,8 @@ export class RaceSelectScene implements Scene {
     this.sliderDrag.end();
     this.audioSettingsUnsub?.();
     this.audioSettingsUnsub = null;
-    this.music.dispose();
+    this.music.stopMusic();
+    this.music.disableTabSuspend();
   }
 
   private handleSettingsClick(cx: number, cy: number): boolean {
@@ -263,14 +266,17 @@ export class RaceSelectScene implements Scene {
     }
     if (hitRect(cx, cy, layout.musicRow)) {
       updateAudioSettings({ musicVolume: sliderValueFromPoint(cx, layout.musicRow) });
+      this.music.playUISlider();
       return true;
     }
     if (hitRect(cx, cy, layout.sfxRow)) {
       updateAudioSettings({ sfxVolume: sliderValueFromPoint(cx, layout.sfxRow) });
+      this.music.playUISlider();
       return true;
     }
-    if (handleVisualToggleClick(cx, cy, layout)) return true;
+    if (handleVisualToggleClick(cx, cy, layout)) { this.music.playUIToggle(); return true; }
     if (hitRect(cx, cy, layout.panel)) return true;
+    this.music.playUIClose();
     this.settingsOpen = false;
     return false;
   }

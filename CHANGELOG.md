@@ -4,6 +4,13 @@
 
 _44 commits: 8133aac → 8540c90_
 
+### Pending Polish Before Ship
+- **Weather ambience upgrade** — Replaced synthetic rain with looped rain audio, softened wind rumble, and added weather preview assets for rain, wind, snow, and sand states
+- **Stat icon pass** — Replaced remaining emoji-style stat markers with tinted SVG icons across upgrade buttons, unit gallery bars, hover tooltips, buff icons, and floating combat text
+- **UI audio polish** — Added toast dismiss SFX, slider tick feedback, and better tab/back/open/close sounds in title, race select, profile, difficulty, post-match, and unit gallery scenes
+- **Unit gallery cleanup** — Unified gallery/detail stat rendering with shared stat bar helpers and surfaced dodge / damage reduction rows where applicable
+- **Minor rendering cleanup** — Removed the old Tenders harvester hut green tint overlay so building art renders unmodified
+
 ### New Features
 - **Tutorial system** — 16-step guided first-time match (miner hut → melee → tower → research → nuke → full menu tour) with spotlight overlays, gated input, and localStorage persistence
 - **Weather system** — 8 weather types across 5 biomes, split-depth particle rendering, gradual transitions with wind cues, procedural rain/wind/thunder audio
