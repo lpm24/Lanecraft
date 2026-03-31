@@ -318,6 +318,10 @@ import bush2 from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pa
 import bush3 from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Terrain/Decorations/Bushes/Bushe3.png?url';
 import bush4 from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Terrain/Decorations/Bushes/Bushe4.png?url';
 import tilemapColor2 from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Terrain/Tileset/Tilemap_color2.png?url';
+import tilemapColor3 from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Terrain/Tileset/Tilemap_color3.png?url';
+import tilemapColor4 from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Terrain/Tileset/Tilemap_color4.png?url';
+import tilemapColor5 from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Terrain/Tileset/Tilemap_color5.png?url';
+import terrainShadow from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Terrain/Tileset/Shadow.png?url';
 import rock2 from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Terrain/Decorations/Rocks/Rock2.png?url';
 import rock3 from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Terrain/Decorations/Rocks/Rock3.png?url';
 import rock4 from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Terrain/Decorations/Rocks/Rock4.png?url';
@@ -998,119 +1002,113 @@ function N(n: number) { return extractBldgUrl(nightElfBldgModules, n); }
 // Missing nodes inherit from parent: D→B→A, E→B→A, F→C→A, G→C→A.
 const RACE_BUILDING_SPRITES: Record<string, string | undefined> = {
   // === CROWN (T0 = Tiny Swords, upgrades from Human Pack) ===
-  'crown:research:A': H(6), 'crown:foundry:A': H(21),
-  'crown:melee:B': H(20), 'crown:melee:C': H(17),
-  'crown:melee:D': H(44), 'crown:melee:E': H(42), 'crown:melee:F': H(56), 'crown:melee:G': H(19),
-  'crown:ranged:B': H(22), 'crown:ranged:C': H(33),
-  'crown:ranged:D': H(52), 'crown:ranged:E': H(50), 'crown:ranged:F': H(43), 'crown:ranged:G': H(41),
-  'crown:caster:B': H(11), 'crown:caster:C': H(28),
-  'crown:caster:D': H(15), 'crown:caster:E': H(37), 'crown:caster:F': H(38), 'crown:caster:G': H(53),
-  'crown:tower:B': H(24), 'crown:tower:C': H(32),
-  'crown:tower:D': H(36), 'crown:tower:E': H(47), 'crown:tower:F': H(35), 'crown:tower:G': H(8),
+  'crown:research:A': H(6), 'crown:foundry:A': H(102),
+  'crown:melee:A': H(103), 'crown:melee:B': H(104), 'crown:melee:C': H(105),
+  'crown:melee:D': H(106), 'crown:melee:E': H(107), 'crown:melee:F': H(108), 'crown:melee:G': H(109),
+  'crown:ranged:A': H(110), 'crown:ranged:B': H(111), 'crown:ranged:C': H(112),
+  'crown:ranged:D': H(113), 'crown:ranged:E': H(114), 'crown:ranged:F': H(115), 'crown:ranged:G': H(116),
+  'crown:caster:A': H(95), 'crown:caster:B': H(96), 'crown:caster:C': H(97),
+  'crown:caster:D': H(98), 'crown:caster:E': H(99), 'crown:caster:F': H(100), 'crown:caster:G': H(101),
+  'crown:tower:A': H(117), 'crown:tower:B': H(118), 'crown:tower:C': H(119),
+  'crown:tower:D': H(120), 'crown:tower:E': H(121), 'crown:tower:F': H(122), 'crown:tower:G': H(123),
 
   // === GOBLINS (Human Pack) ===
-  'goblins:research:A': H(18), 'goblins:hut:A': O(52), 'goblins:potionshop:A': H(48),
-  'goblins:melee:A': H(29), 'goblins:melee:B': H(34), 'goblins:melee:C': H(3),
-  'goblins:melee:D': H(12), 'goblins:melee:E': H(5), 'goblins:melee:F': H(10), 'goblins:melee:G': H(4),
-  'goblins:ranged:A': H(14), 'goblins:ranged:B': H(31), 'goblins:ranged:C': H(30),
-  'goblins:ranged:D': H(2), 'goblins:ranged:E': H(26), 'goblins:ranged:F': H(25), 'goblins:ranged:G': H(49),
-  'goblins:caster:A': H(57), 'goblins:caster:B': H(7), 'goblins:caster:C': H(16),
-  'goblins:caster:D': H(9), 'goblins:caster:E': H(23), 'goblins:caster:F': H(45), 'goblins:caster:G': H(46),
-  'goblins:tower:A': H(55), 'goblins:tower:B': H(51), 'goblins:tower:C': H(27),
-  'goblins:tower:D': H(40), 'goblins:tower:E': H(39), 'goblins:tower:F': H(54), 'goblins:tower:G': H(13),
+  'goblins:research:A': H(18), 'goblins:hut:A': H(79), 'goblins:potionshop:A': H(87),
+  'goblins:melee:A': H(80), 'goblins:melee:B': H(81), 'goblins:melee:C': H(82),
+  'goblins:melee:D': H(83), 'goblins:melee:E': H(84), 'goblins:melee:F': H(85), 'goblins:melee:G': H(86),
+  'goblins:ranged:A': H(88), 'goblins:ranged:B': H(89), 'goblins:ranged:C': H(90),
+  'goblins:ranged:D': H(91), 'goblins:ranged:E': H(92), 'goblins:ranged:F': H(93), 'goblins:ranged:G': H(94),
+  'goblins:caster:A': H(72), 'goblins:caster:B': H(73), 'goblins:caster:C': H(74),
+  'goblins:caster:D': H(75), 'goblins:caster:E': H(76), 'goblins:caster:F': H(77), 'goblins:caster:G': H(78),
+  'goblins:tower:A': H(65), 'goblins:tower:B': H(66), 'goblins:tower:C': H(67),
+  'goblins:tower:D': H(68), 'goblins:tower:E': H(69), 'goblins:tower:F': H(70), 'goblins:tower:G': H(71),
 
   // === HORDE (Orc Pack — warm tribal) ===
-  'horde:research:A': O(38), 'horde:hut:A': O(7),
-  'horde:melee:A': O(9), 'horde:melee:B': O(34), 'horde:melee:C': O(21),
-  'horde:melee:D': O(45), 'horde:melee:E': O(56), 'horde:melee:F': O(47), 'horde:melee:G': O(48),
-  'horde:ranged:A': O(46), 'horde:ranged:B': O(17), 'horde:ranged:C': O(43),
-  'horde:ranged:D': O(1), 'horde:ranged:E': O(12), 'horde:ranged:F': O(37), 'horde:ranged:G': O(18),
-  'horde:caster:A': O(51), 'horde:caster:B': O(6), 'horde:caster:C': O(8),
-  'horde:caster:D': O(53), 'horde:caster:E': O(2), 'horde:caster:F': O(22), 'horde:caster:G': O(14),
-  'horde:tower:A': O(3), 'horde:tower:B': O(19), 'horde:tower:C': O(16),
-  'horde:tower:D': O(24), 'horde:tower:E': O(25),
-  // F inherits C=O(16), G inherits C=O(16) — no unique art
+  'horde:research:A': O(38), 'horde:hut:A': O(66),
+  'horde:melee:A': O(67), 'horde:melee:B': O(68), 'horde:melee:C': O(69),
+  'horde:melee:D': O(70), 'horde:melee:E': O(71), 'horde:melee:F': O(72), 'horde:melee:G': O(73),
+  'horde:ranged:A': O(74), 'horde:ranged:B': O(75), 'horde:ranged:C': O(76),
+  'horde:ranged:D': O(77), 'horde:ranged:E': O(78), 'horde:ranged:F': O(79), 'horde:ranged:G': O(80),
+  'horde:caster:A': O(59), 'horde:caster:B': O(60), 'horde:caster:C': O(61),
+  'horde:caster:D': O(62), 'horde:caster:E': O(63), 'horde:caster:F': O(64), 'horde:caster:G': O(65),
+  'horde:tower:A': O(81), 'horde:tower:B': O(82), 'horde:tower:C': O(83),
+  'horde:tower:D': O(84), 'horde:tower:E': O(85), 'horde:tower:F': O(86), 'horde:tower:G': O(87),
 
   // === DEMON (Orc Pack — dark/fire/menace) ===
-  'demon:research:A': O(33), 'demon:hut:A': O(27),
-  'demon:melee:A': O(5), 'demon:melee:B': O(40), 'demon:melee:C': O(55),
-  'demon:melee:D': O(32), 'demon:melee:E': O(4), 'demon:melee:F': O(58), 'demon:melee:G': O(57),
-  'demon:ranged:A': O(50), 'demon:ranged:B': O(20), 'demon:ranged:C': O(13),
-  'demon:ranged:D': O(42), 'demon:ranged:E': O(44), 'demon:ranged:F': O(29), 'demon:ranged:G': O(39),
-  'demon:caster:A': O(54), 'demon:caster:B': O(28), 'demon:caster:C': O(30),
-  'demon:caster:D': O(35), 'demon:caster:E': O(41), 'demon:caster:F': O(31), 'demon:caster:G': O(49),
-  'demon:tower:A': O(23), 'demon:tower:B': O(15), 'demon:tower:C': O(36),
-  'demon:tower:D': O(26),
-  // E inherits B=O(15), F inherits C=O(36), G inherits C=O(36)
+  'demon:research:A': O(33), 'demon:hut:A': O(95),
+  'demon:melee:A': O(96), 'demon:melee:B': O(97), 'demon:melee:C': O(98),
+  'demon:melee:D': O(99), 'demon:melee:E': O(100), 'demon:melee:F': O(101), 'demon:melee:G': O(102),
+  'demon:ranged:A': O(103), 'demon:ranged:B': O(104), 'demon:ranged:C': O(105),
+  'demon:ranged:D': O(106), 'demon:ranged:E': O(107), 'demon:ranged:F': O(108), 'demon:ranged:G': O(109),
+  'demon:caster:A': O(88), 'demon:caster:B': O(89), 'demon:caster:C': O(90),
+  'demon:caster:D': O(91), 'demon:caster:E': O(92), 'demon:caster:F': O(93), 'demon:caster:G': O(94),
+  'demon:tower:A': O(110), 'demon:tower:B': O(111), 'demon:tower:C': O(112),
+  'demon:tower:D': O(113), 'demon:tower:E': O(114), 'demon:tower:F': O(115), 'demon:tower:G': O(116),
 
   // === TENDERS (Elf Pack — nature/healing) ===
-  'tenders:research:A': E(1), 'tenders:hut:A': E(35),
-  'tenders:melee:A': E(33), 'tenders:melee:B': E(27), 'tenders:melee:C': E(24),
-  'tenders:melee:D': E(9), 'tenders:melee:E': E(42), 'tenders:melee:F': E(12), 'tenders:melee:G': E(34),
-  'tenders:ranged:A': E(5), 'tenders:ranged:B': E(10), 'tenders:ranged:C': E(39),
-  'tenders:ranged:D': E(22), 'tenders:ranged:E': E(8), 'tenders:ranged:F': E(15), 'tenders:ranged:G': E(41),
-  'tenders:caster:A': E(26), 'tenders:caster:B': E(13), 'tenders:caster:C': E(43),
-  'tenders:caster:D': E(6), 'tenders:caster:E': E(11), 'tenders:caster:F': E(14), 'tenders:caster:G': E(37),
-  'tenders:tower:A': E(4), 'tenders:tower:B': E(18), 'tenders:tower:C': E(19),
-  'tenders:tower:D': E(16), 'tenders:tower:G': E(7),
+  'tenders:research:A': E(1), 'tenders:hut:A': E(90),
+  'tenders:melee:A': E(91), 'tenders:melee:B': E(92), 'tenders:melee:C': E(93),
+  'tenders:melee:D': E(94), 'tenders:melee:E': E(95), 'tenders:melee:F': E(96), 'tenders:melee:G': E(97),
+  'tenders:ranged:A': E(98), 'tenders:ranged:B': E(99), 'tenders:ranged:C': E(100),
+  'tenders:ranged:D': E(101), 'tenders:ranged:E': E(102), 'tenders:ranged:F': E(103), 'tenders:ranged:G': E(104),
+  'tenders:caster:A': E(83), 'tenders:caster:B': E(84), 'tenders:caster:C': E(85),
+  'tenders:caster:D': E(86), 'tenders:caster:E': E(87), 'tenders:caster:F': E(88), 'tenders:caster:G': E(89),
+  'tenders:tower:A': E(105), 'tenders:tower:B': E(106), 'tenders:tower:C': E(107),
+  'tenders:tower:D': E(108), 'tenders:tower:E': E(109), 'tenders:tower:F': E(110), 'tenders:tower:G': E(111),
   // E inherits B=E(18), F inherits C=E(19)
 
   // === WILD (Elf Pack — feral/aggressive) ===
-  'wild:research:A': E(2), 'wild:hut:A': E(38),
-  'wild:melee:A': E(29), 'wild:melee:B': E(20), 'wild:melee:C': E(28),
-  'wild:melee:D': E(21), 'wild:melee:E': E(17),
+  'wild:research:A': E(2), 'wild:hut:A': E(61),
+  'wild:melee:A': E(62), 'wild:melee:B': E(63), 'wild:melee:C': E(64),
+  'wild:melee:D': E(65), 'wild:melee:E': E(66), 'wild:melee:F': E(67), 'wild:melee:G': E(68),
   // F inherits C=E(28), G inherits C=E(28)
-  'wild:ranged:A': E(3), 'wild:ranged:B': E(31), 'wild:ranged:C': E(30),
-  'wild:ranged:D': E(32), 'wild:ranged:E': E(36), 'wild:ranged:F': E(45), 'wild:ranged:G': E(40),
-  'wild:caster:A': E(25), 'wild:caster:B': E(23), 'wild:caster:C': E(44),
+  'wild:ranged:A': E(69), 'wild:ranged:B': E(70), 'wild:ranged:C': E(71),
+  'wild:ranged:D': E(72), 'wild:ranged:E': E(73), 'wild:ranged:F': E(74), 'wild:ranged:G': E(75),
+  'wild:caster:A': E(54), 'wild:caster:B': E(55), 'wild:caster:C': E(56),
+  'wild:caster:D': E(57), 'wild:caster:E': E(58), 'wild:caster:F': E(59), 'wild:caster:G': E(60),
   // D/E inherit B=E(23), F/G inherit C=E(44)
-  'wild:tower:A': E(21), // thorny platform — tower-like, shared with melee:D (acceptable: prefer thematic over Tiny Swords fallback)
+  'wild:tower:A': E(76), 'wild:tower:B': E(77), 'wild:tower:C': E(78),
+  'wild:tower:D': E(79), 'wild:tower:E': E(80), 'wild:tower:F': E(81), 'wild:tower:G': E(82),
 
   // === DEEP (NightElf Pack — teal/aquatic) ===
-  'deep:research:A': N(22), 'deep:hut:A': N(34),
-  'deep:melee:A': N(45), 'deep:melee:B': N(42), 'deep:melee:C': N(39),
-  'deep:melee:D': N(31),
-  // E inherits B=N(42), F/G inherit C=N(39)
-  'deep:ranged:A': N(26), 'deep:ranged:B': N(13), 'deep:ranged:C': N(12),
-  'deep:ranged:D': N(29), 'deep:ranged:E': N(35),
-  // F inherits C=N(12), G inherits C=N(12)
-  'deep:caster:A': N(9), 'deep:caster:B': N(20), 'deep:caster:C': N(19),
-  'deep:caster:D': N(11), 'deep:caster:E': N(38), 'deep:caster:G': N(7),
-  // F inherits C=N(19)
-  'deep:tower:A': N(35), // teal dome — shared with ranged:E (acceptable: prefer thematic over Tiny Swords fallback)
+  'deep:research:A': N(22), 'deep:hut:A': N(129),
+  'deep:melee:A': N(130), 'deep:melee:B': N(131), 'deep:melee:C': N(132),
+  'deep:melee:D': N(133), 'deep:melee:E': N(134), 'deep:melee:F': N(135), 'deep:melee:G': N(136),
+  'deep:ranged:A': N(137), 'deep:ranged:B': N(138), 'deep:ranged:C': N(139),
+  'deep:ranged:D': N(140), 'deep:ranged:E': N(141), 'deep:ranged:F': N(142), 'deep:ranged:G': N(143),
+  'deep:caster:A': N(122), 'deep:caster:B': N(123), 'deep:caster:C': N(124),
+  'deep:caster:D': N(125), 'deep:caster:E': N(126), 'deep:caster:F': N(127), 'deep:caster:G': N(128),
+  'deep:tower:A': N(56), 'deep:tower:B': N(57), 'deep:tower:C': N(58),
+  'deep:tower:D': N(59), 'deep:tower:E': N(60), 'deep:tower:F': N(61), 'deep:tower:G': N(62),
 
   // === GEISTS (NightElf Pack — purple/dark/undead) ===
   // 16 assets: N(1,10,14,15,16,17,21,24,27,30,32,33,36,37,40,43)
   // research=N(1), hut=N(14), melee=N(15), ranged=N(17), caster=N(21), tower=N(36)
   // Remaining for upgrades: N(10,16,24,27,30,32,33,37,40,43)
-  'geists:research:A': N(1), 'geists:hut:A': N(14),
-  'geists:melee:A': N(15), 'geists:melee:B': N(43), 'geists:melee:C': N(40),
-  'geists:melee:D': N(24), 'geists:melee:E': N(33), 'geists:melee:G': N(37),
-  // F inherits C=N(40)
-  'geists:ranged:A': N(17), 'geists:ranged:B': N(16), 'geists:ranged:C': N(32),
-  'geists:ranged:G': N(27),
-  // D inherits B=N(16), E inherits B=N(16), F inherits C=N(32)
-  'geists:caster:A': N(21), 'geists:caster:B': N(30),
-  'geists:caster:G': N(10),
-  // C inherits A=N(21), D/E inherit B=N(30), F inherits C=A=N(21)
-  'geists:tower:A': N(36),
+  'geists:research:A': N(1), 'geists:hut:A': N(107),
+  'geists:melee:A': N(108), 'geists:melee:B': N(109), 'geists:melee:C': N(110),
+  'geists:melee:D': N(111), 'geists:melee:E': N(112), 'geists:melee:F': N(113), 'geists:melee:G': N(114),
+  'geists:ranged:A': N(115), 'geists:ranged:B': N(116), 'geists:ranged:C': N(117),
+  'geists:ranged:D': N(118), 'geists:ranged:E': N(119), 'geists:ranged:F': N(120), 'geists:ranged:G': N(121),
+  'geists:caster:A': N(100), 'geists:caster:B': N(101), 'geists:caster:C': N(102),
+  'geists:caster:D': N(103), 'geists:caster:E': N(104), 'geists:caster:F': N(105), 'geists:caster:G': N(106),
+  'geists:tower:A': N(93), 'geists:tower:B': N(94), 'geists:tower:C': N(98),
+  'geists:tower:D': N(96), 'geists:tower:E': N(97), 'geists:tower:F': N(95), 'geists:tower:G': N(99),
   // all tower upgrades inherit base — N(36) only used here
 
   // === OOZLINGS (NightElf Pack — green/alchemical) ===
   // 12 assets: N(2,3,4,5,6,8,18,23,25,28,41,44)
   // research=N(3), hut=N(28), melee=N(5), ranged=N(8), caster=N(18), tower=N(41)
   // Remaining unique for upgrades: N(2,4,6,23,25,44)
-  'oozlings:research:A': N(3), 'oozlings:hut:A': N(28),
-  'oozlings:melee:A': N(5), 'oozlings:melee:B': N(44), 'oozlings:melee:C': N(4),
-  // D inherits B=N(44), E inherits B=N(44), F inherits C=N(4), G=N(23)
-  'oozlings:melee:G': N(23),
-  'oozlings:ranged:A': N(8), 'oozlings:ranged:B': N(2), 'oozlings:ranged:C': N(6),
-  // D inherits B=N(2), E inherits B=N(2), F inherits C=N(6), G=N(25)
-  'oozlings:ranged:G': N(25),
-  'oozlings:caster:A': N(18),
-  // all caster upgrades inherit base — limited unique assets
-  'oozlings:tower:A': N(41),
-  // all tower upgrades inherit base
+  'oozlings:research:A': N(3), 'oozlings:hut:A': N(77),
+  'oozlings:melee:A': N(78), 'oozlings:melee:B': N(79), 'oozlings:melee:C': N(80),
+  'oozlings:melee:D': N(81), 'oozlings:melee:E': N(82), 'oozlings:melee:F': N(83), 'oozlings:melee:G': N(84),
+  'oozlings:ranged:A': N(86), 'oozlings:ranged:B': N(87), 'oozlings:ranged:C': N(88),
+  'oozlings:ranged:D': N(89), 'oozlings:ranged:E': N(90), 'oozlings:ranged:F': N(91), 'oozlings:ranged:G': N(92),
+  'oozlings:caster:A': N(70), 'oozlings:caster:B': N(71), 'oozlings:caster:C': N(72),
+  'oozlings:caster:D': N(73), 'oozlings:caster:E': N(74), 'oozlings:caster:F': N(75), 'oozlings:caster:G': N(76),
+  'oozlings:tower:A': N(63), 'oozlings:tower:B': N(64), 'oozlings:tower:C': N(65),
+  'oozlings:tower:D': N(66), 'oozlings:tower:E': N(67), 'oozlings:tower:F': N(68), 'oozlings:tower:G': N(69),
 };
 
 const RACE_KEY: Record<Race, string> = {
@@ -1161,6 +1159,10 @@ export const TERRAIN_SPRITES = {
   bush3: tsSheet(bush3, 1024, 128),
   bush4: tsSheet(bush4, 1024, 128),
   tilemap2: singleFrame(tilemapColor2, 576, 384),
+  tilemap3: singleFrame(tilemapColor3, 576, 384),
+  tilemap4: singleFrame(tilemapColor4, 576, 384),
+  tilemap5: singleFrame(tilemapColor5, 576, 384),
+  shadow: singleFrame(terrainShadow, 128, 128),
   rock2: singleFrame(rock2, 64, 64),
   rock3: singleFrame(rock3, 64, 64),
   rock4: singleFrame(rock4, 64, 64),

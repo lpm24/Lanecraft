@@ -79,6 +79,17 @@
             ".write": "auth != null && data.parent().parent().child('hostUid').val() === auth.uid",
             ".validate": "newData.isString() && newData.val().length <= 20"
           }
+        },
+        "hostPing": {
+          ".write": "auth != null && data.parent().child('hostUid').val() === auth.uid",
+          ".validate": "newData.isNumber()"
+        },
+        "fogOfWar": {
+          ".write": "auth != null && data.parent().child('hostUid').val() === auth.uid",
+          ".validate": "newData.isBoolean()"
+        },
+        "createdAt": {
+          ".validate": "newData.isNumber()"
         }
       }
     },

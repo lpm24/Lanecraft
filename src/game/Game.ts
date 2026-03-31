@@ -290,6 +290,7 @@ export class Game {
   stop(): void {
     if (this.connectingInterval) { clearInterval(this.connectingInterval); this.connectingInterval = null; }
     this.loop.stop();
+    this.sounds.stopWeatherAudio();
     this.sounds.dispose();
     this.input.destroy();
     this.renderer.destroy();
@@ -548,6 +549,9 @@ export class Game {
     this.renderer.placingBuilding = this.input.placingBuilding;
     const latencyMs = this.isMultiplayer ? this.networkLatencyMs : undefined;
     this.renderer.render(this.state, latencyMs, this.desyncDetected, this.peerDisconnected, this.waitingForAllyMs);
+    // Update weather ambient audio
+    const w = this.renderer.weather;
+    this.sounds.updateWeatherAudio(w.type, w.lightningFlash, w.windStrength);
     this.input.render(this.renderer, latencyMs);
   }
 

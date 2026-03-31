@@ -339,6 +339,9 @@ const _combatOrder: UnitState[] = [];
 const _spawnOrder: GameState['buildings'] = [];
 const _moveOrder: UnitState[] = [];
 const _projectileRemoveSet = new Set<number>();
+// Cached alley buildings per team — rebuilt once per tick for unit movement stop check
+const _alleyBuildingsBottom: Array<{ x: number; y: number }> = [];
+const _alleyBuildingsTop: Array<{ x: number; y: number }> = [];
 
 // Diamond cell map — rebuilt once per tick in simulateTick, integer keys for hot-path collision lookups
 let _diamondCellMapInt = new Map<number, GoldCell>();
@@ -843,6 +846,10 @@ export function simulateTick(state: GameState, commands: GameCommand[]): void {
       addSound(state, 'match_start');
     }
     tickEffects(state);
+    // Update fog of war during prematch so buildings placed in the build phase reveal the map
+    if (state.fogOfWar && state.tick % 3 === 0) {
+      updateVisibility(state);
+    }
     state.tick++;
     return;
   }
@@ -1132,7 +1139,7 @@ function processResearchUpgrade(state: GameState, cmd: Extract<GameCommand, { ty
     const id = cmd.upgradeId;
     // HP bonuses for existing melee units
     const hpMults: Record<string, number> = {
-      'crown_melee_2': 1.15, 'horde_melee_2': 1.20, 'deep_melee_1': 1.15,
+      'crown_melee_2': 1.15, 'horde_melee_2': 1.25, 'deep_melee_1': 1.15,
     };
     if (hpMults[id]) {
       const mult = hpMults[id];
@@ -1204,7 +1211,7 @@ function placeBuilding(state: GameState, cmd: Extract<GameCommand, { type: 'plac
   // Towers escalate faster than other slots — each additional tower after the first costs more
   let effectiveCost = cost;
   if (cmd.buildingType === BuildingType.Tower && !isFirstTower) {
-    const myTowers = state.buildings.filter(b => b.playerId === cmd.playerId && b.type === BuildingType.Tower).length;
+    const myTowers = state.buildings.filter(b => b.playerId === cmd.playerId && b.type === BuildingType.Tower && !b.isSeed).length;
     const mult = Math.pow(TOWER_COST_SCALE, Math.max(0, myTowers - 1));
     effectiveCost = {
       gold: Math.floor(cost.gold * mult),
@@ -1351,9 +1358,6 @@ function buildHut(state: GameState, cmd: Extract<GameCommand, { type: 'build_hut
   const woodCost = Math.floor(hutRes.wood * mult);
   const meatCost = Math.floor(hutRes.meat * mult);
   if (player.gold < goldCost || player.wood < woodCost || player.meat < meatCost) return;
-  player.gold -= goldCost;
-  player.wood -= woodCost;
-  player.meat -= meatCost;
 
   const origin = getHutGridOrigin(cmd.playerId, state.mapDef, state.players);
   const hCols = state.mapDef.hutGridCols;
@@ -1374,34 +1378,33 @@ function buildHut(state: GameState, cmd: Extract<GameCommand, { type: 'build_hut
     }
     targetSlot = CENTER_OUT.find(s => !occupiedHuts.has(s));
   }
-  if (targetSlot != null) {
-    const slot = targetSlot;
-    {
-      const gx = slot % hCols;
-      const gy = Math.floor(slot / hCols);
-      const world = { x: origin.x + gx, y: origin.y + gy };
-      const building: BuildingState = {
-        id: genId(state), type: BuildingType.HarvesterHut, playerId: cmd.playerId, buildGrid: 'hut',
-        gridX: slot, gridY: 0, worldX: world.x, worldY: world.y,
-        lane: Lane.Left, hp: getBuildingCost(player.race, BuildingType.HarvesterHut).hp, maxHp: getBuildingCost(player.race, BuildingType.HarvesterHut).hp, actionTimer: 0, placedTick: state.tick, upgradePath: [],
-      };
-      state.buildings.push(building);
-      // Tenders: no harvester workers — huts passively generate resources
-      if (player.race !== Race.Tenders) {
-        state.harvesters.push({
-          id: genId(state), hutId: building.id, playerId: cmd.playerId, team: player.team,
-          x: world.x, y: world.y, hp: 30, maxHp: 30, damage: 0,
-          assignment: getSmartHarvesterAssignment(player.race, state, cmd.playerId),
-          state: 'walking_to_node', miningTimer: 0, respawnTimer: 0,
-          carryingDiamond: false, carryingResource: null, carryAmount: 0,
-          queuedWoodAmount: 0, woodCarryTarget: 0, woodDropsCreated: 0,
-          targetCellIdx: -1, diamondCellsMinedThisTrip: 0, fightTargetId: null, path: [],
-        });
-      }
-      addSound(state, 'building_placed', world.x, world.y);
-      return;
-    }
+  if (targetSlot == null) return;
+  player.gold -= goldCost;
+  player.wood -= woodCost;
+  player.meat -= meatCost;
+  const slot = targetSlot;
+  const gx = slot % hCols;
+  const gy = Math.floor(slot / hCols);
+  const world = { x: origin.x + gx, y: origin.y + gy };
+  const building: BuildingState = {
+    id: genId(state), type: BuildingType.HarvesterHut, playerId: cmd.playerId, buildGrid: 'hut',
+    gridX: slot, gridY: 0, worldX: world.x, worldY: world.y,
+    lane: Lane.Left, hp: getBuildingCost(player.race, BuildingType.HarvesterHut).hp, maxHp: getBuildingCost(player.race, BuildingType.HarvesterHut).hp, actionTimer: 0, placedTick: state.tick, upgradePath: [],
+  };
+  state.buildings.push(building);
+  // Tenders: no harvester workers — huts passively generate resources
+  if (player.race !== Race.Tenders) {
+    state.harvesters.push({
+      id: genId(state), hutId: building.id, playerId: cmd.playerId, team: player.team,
+      x: world.x, y: world.y, hp: 30, maxHp: 30, damage: 0,
+      assignment: getSmartHarvesterAssignment(player.race, state, cmd.playerId),
+      state: 'walking_to_node', miningTimer: 0, respawnTimer: 0,
+      carryingDiamond: false, carryingResource: null, carryAmount: 0,
+      queuedWoodAmount: 0, woodCarryTarget: 0, woodDropsCreated: 0,
+      targetCellIdx: -1, diamondCellsMinedThisTrip: 0, fightTargetId: null, path: [],
+    });
   }
+  addSound(state, 'building_placed', world.x, world.y);
 }
 
 function setHutAssignment(state: GameState, cmd: Extract<GameCommand, { type: 'set_hut_assignment' }>): void {
@@ -1541,7 +1544,7 @@ function deepAbility(state: GameState, player: PlayerState): void {
   state.abilityEffects.push({
     id: genId(state), type: 'deep_rain',
     playerId: player.id, team: player.team,
-    duration: 8 * TICK_RATE,
+    duration: Math.round(4.8 * TICK_RATE),
   });
   addSound(state, 'ability_deluge');
 }
@@ -1774,7 +1777,7 @@ function spawnGeistSkeletons(state: GameState, eff: AbilityEffect): void {
     state.units.push({
       id: genId(state), type: 'Skeleton', playerId: player.id, team: player.team,
       x: sx, y: sy,
-      hp: 60, maxHp: 60, damage: 18,
+      hp: 55, maxHp: 55, damage: 18,
       attackSpeed: 1.2, attackTimer: 0, moveSpeed: 2.8, range: 1.5,
       targetId: null, lane, pathProgress, carryingDiamond: false,
       statusEffects: [], hitCount: 0, shieldHp: 0,
@@ -1792,7 +1795,7 @@ function spawnGeistSkeletons(state: GameState, eff: AbilityEffect): void {
       state.units.push({
         id: genId(state), type: 'Skeleton Archer', playerId: player.id, team: player.team,
         x: ax, y: ay,
-        hp: 40, maxHp: 40, damage: 14,
+        hp: 35, maxHp: 35, damage: 14,
         attackSpeed: 1.4, attackTimer: 0, moveSpeed: 2.5, range: 6,
         targetId: null, lane, pathProgress, carryingDiamond: false,
         statusEffects: [], hitCount: 0, shieldHp: 0,
@@ -1841,7 +1844,7 @@ function oozlingsAbility(state: GameState, player: PlayerState, cmd: Extract<Gam
   addSound(state, 'building_placed', world.x, world.y);
 }
 
-export const SEED_GROW_TIMES = [30 * TICK_RATE, 60 * TICK_RATE, 120 * TICK_RATE]; // T1=30s, T2=60s, T3=120s
+export const SEED_GROW_TIMES = [18 * TICK_RATE, 36 * TICK_RATE, 72 * TICK_RATE]; // T1=18s, T2=36s, T3=72s
 
 function tendersAbility(state: GameState, player: PlayerState, cmd: Extract<GameCommand, { type: 'use_ability' }>): void {
   const slot = (cmd.gridX != null && cmd.gridY != null) ? { gx: cmd.gridX, gy: cmd.gridY } : findOpenAlleySlot(state, player);
@@ -2281,8 +2284,10 @@ function trackDeathResources(state: GameState, deadUnit: UnitState): void {
     if (chance <= 0) continue;
     const dx = deadUnit.x - caster.x, dy = deadUnit.y - caster.y;
     if (dx * dx + dy * dy > summonRange * summonRange) continue;
-    if (state.rng() < chance) {
-      const lane = state.rng() < 0.5 ? Lane.Left : Lane.Right;
+    { // Always consume 2 RNG values to keep sequence stable
+      const summonRoll = state.rng(), laneRoll = state.rng();
+    if (summonRoll < chance) {
+      const lane = laneRoll < 0.5 ? Lane.Left : Lane.Right;
       const msPath = getLanePath(caster.team, lane, state.mapDef);
       const msProg = findNearestPathProgress(msPath, deadUnit.x, deadUnit.y);
       // Geists Empowered Minions: +5 damage, +25% move speed
@@ -2292,7 +2297,7 @@ function trackDeathResources(state: GameState, deadUnit: UnitState): void {
       state.units.push({
         id: genId(state), type: 'Mini Skeleton', playerId: caster.playerId, team: caster.team,
         x: deadUnit.x, y: deadUnit.y,
-        hp: 30, maxHp: 30, damage: miniDmg,
+        hp: 25, maxHp: 25, damage: miniDmg,
         attackSpeed: 1.0, attackTimer: 0, moveSpeed: miniSpd, range: 1.5,
         targetId: null, lane, pathProgress: msProg, carryingDiamond: false,
         statusEffects: [], hitCount: 0, shieldHp: 0,
@@ -2302,6 +2307,7 @@ function trackDeathResources(state: GameState, deadUnit: UnitState): void {
       });
       addDeathParticles(state, deadUnit.x, deadUnit.y, '#b39ddb', 2);
     }
+    } // end RNG pre-consumption block
   }
 
   // Geist Soul Gorger: gain soul stacks from any nearby death (friend or foe)
@@ -2602,7 +2608,7 @@ function tickSpawners(state: GameState): void {
       let raceMoveSpeedMult = 1;
       if (category === 'melee') {
         if (bu.raceUpgrades['crown_melee_2']) raceHpMult *= 1.15;
-        if (bu.raceUpgrades['horde_melee_2']) raceHpMult *= 1.20;
+        if (bu.raceUpgrades['horde_melee_2']) raceHpMult *= 1.25;
         if (bu.raceUpgrades['deep_melee_1']) raceHpMult *= 1.15;
         if (bu.raceUpgrades['goblins_melee_2']) raceMoveSpeedMult *= 1.35;
       }
@@ -2692,6 +2698,18 @@ function getEffectiveDamage(unit: UnitState, state?: GameState): number {
 }
 
 function tickUnitMovement(state: GameState): void {
+  // Pre-filter alley buildings per team once (avoids O(units × buildings) inner loop)
+  _alleyBuildingsBottom.length = 0;
+  _alleyBuildingsTop.length = 0;
+  for (const b of state.buildings) {
+    if (b.buildGrid !== 'alley' || b.hp <= 0) continue;
+    const bp = state.players[b.playerId];
+    if (!bp) continue;
+    const entry = { x: b.worldX + 0.5, y: b.worldY + 0.5 };
+    if (bp.team === Team.Bottom) _alleyBuildingsBottom.push(entry);
+    else _alleyBuildingsTop.push(entry);
+  }
+
   // Shuffle movement order to prevent first-mover positional advantage
   _moveOrder.length = 0;
   for (const u of state.units) _moveOrder.push(u);
@@ -2707,13 +2725,13 @@ function tickUnitMovement(state: GameState): void {
     // Siege units skip this; they have their own building-targeting logic.
     if (!unit.upgradeSpecial?.isSiegeUnit) {
       const tRange = unit.range + 1.5;
+      const tRange2 = tRange * tRange;
       let stopForBuilding = false;
-      for (const b of state.buildings) {
-        if (b.buildGrid !== 'alley' || b.hp <= 0) continue;
-        const bp = state.players[b.playerId];
-        if (!bp || bp.team === unit.team) continue;
-        const td = Math.sqrt((b.worldX + 0.5 - unit.x) ** 2 + (b.worldY + 0.5 - unit.y) ** 2);
-        if (td <= tRange) { stopForBuilding = true; break; }
+      // Check only enemy team's alley buildings (pre-filtered)
+      const enemyAlleyBuildings = unit.team === Team.Bottom ? _alleyBuildingsTop : _alleyBuildingsBottom;
+      for (const ab of enemyAlleyBuildings) {
+        const dx = ab.x - unit.x, dy = ab.y - unit.y;
+        if (dx * dx + dy * dy <= tRange2) { stopForBuilding = true; break; }
       }
       if (!stopForBuilding) {
         // Also stop for enemy HQ
@@ -2722,8 +2740,9 @@ function tickUnitMovement(state: GameState): void {
         const hqCx = hq.x + HQ_WIDTH / 2;
         const hqCy = hq.y + HQ_HEIGHT / 2;
         const hqRadius = Math.max(HQ_WIDTH, HQ_HEIGHT) * 0.5;
-        const distToHq = Math.sqrt((unit.x - hqCx) ** 2 + (unit.y - hqCy) ** 2);
-        if (distToHq <= unit.range + hqRadius) stopForBuilding = true;
+        const hqDist2 = (unit.x - hqCx) ** 2 + (unit.y - hqCy) ** 2;
+        const hqThresh = unit.range + hqRadius;
+        if (hqDist2 <= hqThresh * hqThresh) stopForBuilding = true;
       }
       if (stopForBuilding) continue;
     }
@@ -2962,11 +2981,12 @@ function tickPotionPickups(state: GameState): void {
     const potTeamPlayers = state.players.filter(p => p.team === potion.team && p.race === Race.Goblins);
     if (potTeamPlayers.some(p => p.researchUpgrades.raceUpgrades['goblins_ability_1'])) {
       let closestDist = 16; // 4 tiles squared
-      let closestUnit: { x: number; y: number } | null = null;
-      for (const u of state.units) {
+      let closestUnit: UnitState | null = null;
+      const potNearby = _combatGrid.getNearby(potion.x, potion.y, 4);
+      for (const u of potNearby) {
         if (u.hp <= 0 || u.team !== potion.team) continue;
         const d2 = (u.x - potion.x) ** 2 + (u.y - potion.y) ** 2;
-        if (d2 < closestDist) { closestDist = d2; closestUnit = u; }
+        if (d2 < closestDist || (d2 === closestDist && closestUnit && u.id < closestUnit.id)) { closestDist = d2; closestUnit = u; }
       }
       if (closestUnit) {
         const adx = closestUnit.x - potion.x, ady = closestUnit.y - potion.y;
@@ -2979,8 +2999,9 @@ function tickPotionPickups(state: GameState): void {
       }
     }
 
-    // Check if any allied unit walks over this potion
-    for (const u of state.units) {
+    // Check if any allied unit walks over this potion (spatial grid lookup)
+    const pickupNearby = _combatGrid.getNearby(potion.x, potion.y, POTION_PICKUP_RADIUS);
+    for (const u of pickupNearby) {
       if (u.hp <= 0 || u.team !== potion.team) continue;
       const d2 = (u.x - potion.x) ** 2 + (u.y - potion.y) ** 2;
       if (d2 <= POTION_PICKUP_RADIUS * POTION_PICKUP_RADIUS) {
@@ -3129,11 +3150,15 @@ function dealDamage(state: GameState, target: UnitState, amount: number, showFlo
       dodge = Math.min(1, dodge + 0.05);
     }
   }
-  if (dodge > 0 && state.rng() < dodge) {
-    if (state.rng() < 0.3) addFloatingText(state, target.x, target.y, 'DODGE', '#ffffff', undefined, true,
-      { ftType: 'status' });
-    addCombatEvent(state, { type: 'dodge', x: target.x, y: target.y, color: '#ffffff' });
-    return;
+  if (dodge > 0) {
+    // Always consume 2 RNG values to keep sequence stable
+    const dodgeRoll = state.rng(), dodgeTextRoll = state.rng();
+    if (dodgeRoll < dodge) {
+      if (dodgeTextRoll < 0.3) addFloatingText(state, target.x, target.y, 'DODGE', '#ffffff', undefined, true,
+        { ftType: 'status' });
+      addCombatEvent(state, { type: 'dodge', x: target.x, y: target.y, color: '#ffffff' });
+      return;
+    }
   }
   // Damage reduction (upgrade tree)
   const reduction = target.upgradeSpecial?.damageReductionPct ?? 0;
@@ -3306,7 +3331,8 @@ function dealDamage(state: GameState, target: UnitState, amount: number, showFlo
             const frenzyRadius = wildPlayer?.researchUpgrades.raceUpgrades['wild_ability_2'] ? 12 : 6;
             applyStatus(killer, StatusType.Frenzy, 1);
             applyStatus(killer, StatusType.Haste, 1);
-            for (const ally of state.units) {
+            const frenzyNearby = _combatGrid.getNearby(killer.x, killer.y, frenzyRadius);
+            for (const ally of frenzyNearby) {
               if (ally.team !== killer.team || ally.id === killer.id || ally.hp <= 0) continue;
               if (state.players[ally.playerId]?.race !== Race.Wild) continue;
               const dx = ally.x - killer.x, dy = ally.y - killer.y;
@@ -3396,6 +3422,19 @@ function applyCasterSupport(state: GameState, caster: UnitState, race: Race, sp:
           if (hordeHasteCount >= 5 + healBonus) break;
         }
       }
+      // Chain heal: heal most injured allies (Battle Chanter B-path upgrade)
+      const chainHealCount = sp?.chainHeal ?? 0;
+      if (chainHealCount > 0) {
+        const injured = allies.filter(a => a.hp < a.maxHp).sort((a, b) => (a.hp / a.maxHp) - (b.hp / b.maxHp) || a.id - b.id);
+        let healed = 0;
+        const healAmt = caster.damage; // heal amount = caster damage stat
+        for (const a of injured) {
+          if (healed >= chainHealCount) break;
+          const ah = healUnit(a, healAmt);
+          if (ah > 0) { trackHealing(state, caster, ah); healed++; }
+        }
+        if (healed > 0) addCombatEvent(state, { type: 'pulse', x: caster.x, y: caster.y, radius: supportRange, color: '#66bb6a' });
+      }
       if (hordeHasteCount > 0) addCombatEvent(state, { type: 'pulse', x: caster.x, y: caster.y, radius: supportRange, color: '#ffab40' });
       break;
     }
@@ -3450,6 +3489,14 @@ function applyCasterSupport(state: GameState, caster: UnitState, race: Race, sp:
           addDeathParticles(state, a.x, a.y, '#1565c0', 1);
           addCombatEvent(state, { type: 'cleanse', x: a.x, y: a.y, color: '#1565c0' });
           cleansed++;
+        }
+      }
+      // Research: Purifying Tide — also grant +25% move speed via haste to cleansed/nearby allies
+      if (extraCleanse > 0) {
+        for (const a of allies.slice(0, 5)) {
+          if (!a.statusEffects.some(e => e.type === StatusType.Haste)) {
+            applyStatus(a, StatusType.Haste, 1);
+          }
         }
       }
       // Research: Abyssal Ward — shield 3 HP to nearby allies
@@ -3658,6 +3705,10 @@ const COLLISION_BUILDING_RADIUS = 0.8;
 const COLLISION_GOLD_CELL_RADIUS = 0.58;
 const UNIT_COLLISION_RADIUS = 0.45; // hard collision circle per unit
 const UNIT_COLLISION_PUSH_STRENGTH = 0.5; // how aggressively units push apart (0-1)
+// 8-direction unit vectors for deterministic overlap push (avoids platform-dependent trig)
+const INV_SQRT2 = 0.7071067811865476; // 1/√2, exact IEEE 754 double
+const PUSH_DIR_X = [1, INV_SQRT2, 0, -INV_SQRT2, -1, -INV_SQRT2, 0, INV_SQRT2] as const;
+const PUSH_DIR_Y = [0, INV_SQRT2, 1, INV_SQRT2, 0, -INV_SQRT2, -1, -INV_SQRT2] as const;
 
 function pushOutFromPoint(unit: UnitState, cx: number, cy: number, radius: number): void {
   const dx = unit.x - cx;
@@ -4074,10 +4125,11 @@ function tickUnitCollision(state: GameState): void {
           if (dist >= minSep) continue;
 
           // Exact overlap — push apart in deterministic direction based on IDs
+          // Uses 8-direction lookup to avoid platform-dependent Math.cos/sin
           if (dist < 0.0001) {
-            const angle = ((u.id * 7 + o.id * 13) % 628) / 100; // deterministic pseudo-angle
-            dx = Math.cos(angle);
-            dy = Math.sin(angle);
+            const dir = (u.id * 7 + o.id * 13) & 7; // 0-7
+            dx = PUSH_DIR_X[dir];
+            dy = PUSH_DIR_Y[dir];
             dist = 1; // dx,dy are already a unit vector — don't re-normalize
           }
 
@@ -4216,7 +4268,7 @@ function tickCombat(state: GameState): void {
           ? Math.min(attackers * 1.2, 3.0)
           : attackers * 0.3;
         const score = d + crowdPenalty;
-        if (score < bestScore) { best = o; bestScore = score; }
+        if (score < bestScore || (score === bestScore && best && o.id < best.id)) { best = o; bestScore = score; }
       }
       if (best) {
         unit.targetId = best.id;
@@ -4415,14 +4467,49 @@ function tickCombat(state: GameState): void {
             const cbuGen = state.players[unit.playerId]?.researchUpgrades;
             if (cbuGen?.raceUpgrades['wild_caster_1']) aoeRadius += 1;
             const effDmg = getEffectiveDamage(unit, state);
-            state.projectiles.push({
-              id: genId(state), x: unit.x, y: unit.y,
-              targetId: target.id, damage: effDmg,
-              speed: 10, aoeRadius, team: unit.team, visual: 'circle',
-              sourcePlayerId: unit.playerId, sourceUnitId: unit.id,
-              extraBurnStacks: sp?.extraBurnStacks,
-              extraSlowStacks: sp?.extraSlowStacks,
-            });
+            // Oozlings caster chain lightning: fire chain projectiles to nearby enemies
+            const casterChainCount = (race === Race.Oozlings && sp?.extraChainTargets) ? sp.extraChainTargets : 0;
+            if (casterChainCount > 0) {
+              // Primary single-target hit (no AoE) + chain bounces
+              state.projectiles.push({
+                id: genId(state), x: unit.x, y: unit.y,
+                targetId: target.id, damage: effDmg,
+                speed: 12, aoeRadius: 0, team: unit.team, visual: 'orb',
+                sourcePlayerId: unit.playerId, sourceUnitId: unit.id,
+                extraSlowStacks: sp?.extraSlowStacks,
+              });
+              const chainPct = sp?.chainDamagePct ?? 0.5;
+              const chained: number[] = [target.id];
+              let lastX = target.x, lastY = target.y;
+              for (let ci = 0; ci < casterChainCount; ci++) {
+                let chainTgt: UnitState | null = null;
+                let chainDist = Infinity;
+                for (const o of _combatGrid.getNearby(lastX, lastY, 4)) {
+                  if (o.team === unit.team || chained.includes(o.id)) continue;
+                  const d = (o.x - lastX) ** 2 + (o.y - lastY) ** 2;
+                  if (d <= 16 && (d < chainDist || (d === chainDist && chainTgt && o.id < chainTgt.id))) { chainTgt = o; chainDist = d; }
+                }
+                if (!chainTgt) break;
+                chained.push(chainTgt.id);
+                addCombatEvent(state, { type: 'chain', x: lastX, y: lastY, x2: chainTgt.x, y2: chainTgt.y, color: '#7c4dff' });
+                state.projectiles.push({
+                  id: genId(state), x: lastX, y: lastY,
+                  targetId: chainTgt.id, damage: Math.round(effDmg * chainPct),
+                  speed: 20, aoeRadius: 0, team: unit.team, visual: 'orb',
+                  sourcePlayerId: unit.playerId, sourceUnitId: unit.id,
+                });
+                lastX = chainTgt.x; lastY = chainTgt.y;
+              }
+            } else {
+              state.projectiles.push({
+                id: genId(state), x: unit.x, y: unit.y,
+                targetId: target.id, damage: effDmg,
+                speed: 10, aoeRadius, team: unit.team, visual: 'circle',
+                sourcePlayerId: unit.playerId, sourceUnitId: unit.id,
+                extraBurnStacks: sp?.extraBurnStacks,
+                extraSlowStacks: sp?.extraSlowStacks,
+              });
+            }
           }
         } else if (isCaster) {
           // Demon caster: pure damage AoE, no support
@@ -4456,10 +4543,10 @@ function tickCombat(state: GameState): void {
             if (rbu.raceUpgrades['demon_ranged_1']) effDmg = Math.round(effDmg * 1.10);
             // Horde Bombardier: add AoE to ranged projectiles
             if (rbu.raceUpgrades['horde_ranged_2'] && rangedAoe === 0) { rangedAoe = 2.5; rangedSplashPct = 0.30; }
-            // Horde Berserker Howl: +15% ranged damage while hasted
-            if (rbu.raceUpgrades['horde_caster_2'] && unit.statusEffects.some(e => e.type === StatusType.Haste)) effDmg = Math.round(effDmg * 1.15);
-            // Deep Anchor Shot: +50% damage for siege units
-            if (rbu.raceUpgrades['deep_ranged_2'] && (sp?.isSiegeUnit ?? false)) effDmg = Math.round(effDmg * 1.50);
+            // Horde Berserker Howl: +25% ranged damage while hasted
+            if (rbu.raceUpgrades['horde_caster_2'] && unit.statusEffects.some(e => e.type === StatusType.Haste)) effDmg = Math.round(effDmg * 1.25);
+            // Deep Anchor Shot: +100% damage for siege units
+            if (rbu.raceUpgrades['deep_ranged_2'] && (sp?.isSiegeUnit ?? false)) effDmg = Math.round(effDmg * 2.00);
           }
           const isSiege = sp?.isSiegeUnit ?? false;
           state.projectiles.push({
@@ -4474,6 +4561,8 @@ function tickCombat(state: GameState): void {
             splashDamagePct: rangedSplashPct,
             lifestealPct: isSiege ? (sp?.lifestealPct) : (race === Race.Geists ? 0.1 : undefined),
             buildingDamageMult: isSiege ? (sp?.buildingDamageMult ?? 3.0) : undefined,
+            critChance: UNIT_STATS[race]?.[BuildingType.RangedSpawner]?.critChance,
+            critMult: UNIT_STATS[race]?.[BuildingType.RangedSpawner]?.critMult,
           });
           // Research: Crown Volley — fire extra projectile at 40% damage
           if (rbu?.raceUpgrades['crown_ranged_2']) {
@@ -4550,8 +4639,8 @@ function tickCombat(state: GameState): void {
               let chainDist = Infinity;
               for (const o of _combatGrid.getNearby(lastX, lastY, 4)) {
                 if (o.team === unit.team || chained.includes(o.id)) continue;
-                const d = Math.sqrt((o.x - lastX) ** 2 + (o.y - lastY) ** 2);
-                if (d <= 4 && d < chainDist) { chainTarget = o; chainDist = d; }
+                const d = (o.x - lastX) ** 2 + (o.y - lastY) ** 2;
+                if (d <= 16 && (d < chainDist || (d === chainDist && chainTarget && o.id < chainTarget.id))) { chainTarget = o; chainDist = d; }
               }
               if (!chainTarget) break;
               chained.push(chainTarget.id);
@@ -4597,12 +4686,15 @@ function tickCombat(state: GameState): void {
           const mPlayer = state.players[unit.playerId];
           if (mPlayer) {
             const mbu = mPlayer.researchUpgrades;
-            // Horde Blood Rage: +20% when <50% HP
-            if (mbu.raceUpgrades['horde_melee_1'] && unit.hp < unit.maxHp * 0.5) meleeDmg = Math.round(meleeDmg * 1.20);
+            // Horde Blood Rage: up to +40% dmg based on missing HP (linear: 0% at full, 40% at 50% HP, 80% at 0 HP)
+            if (mbu.raceUpgrades['horde_melee_1'] && unit.hp < unit.maxHp) {
+              const missingPct = 1 - unit.hp / unit.maxHp; // 0 at full, 1 at 0 HP
+              meleeDmg = Math.round(meleeDmg * (1 + 0.80 * missingPct));
+            }
             // Demon Infernal Rage: +25% vs burning
             if (mbu.raceUpgrades['demon_melee_1'] && target.statusEffects.some(e => e.type === StatusType.Burn)) meleeDmg = Math.round(meleeDmg * 1.25);
-            // Deep Crushing Depths: +20% vs slowed
-            if (mbu.raceUpgrades['deep_melee_2'] && target.statusEffects.some(e => e.type === StatusType.Slow)) meleeDmg = Math.round(meleeDmg * 1.20);
+            // Deep Crushing Depths: +50% vs slowed
+            if (mbu.raceUpgrades['deep_melee_2'] && target.statusEffects.some(e => e.type === StatusType.Slow)) meleeDmg = Math.round(meleeDmg * 1.50);
             // Wild Pack Hunter: +5% per nearby ally, max +40%
             if (mbu.raceUpgrades['wild_melee_2']) {
               let nearAllies = 0;
@@ -4615,8 +4707,8 @@ function tickCombat(state: GameState): void {
             }
             // Wild Savage Frenzy: +10% extra damage during frenzy
             if (mbu.raceUpgrades['wild_melee_1'] && unit.statusEffects.some(e => e.type === StatusType.Frenzy)) meleeDmg = Math.round(meleeDmg * 1.10);
-            // Horde Berserker Howl: +15% damage while hasted
-            if (mbu.raceUpgrades['horde_caster_2'] && unit.statusEffects.some(e => e.type === StatusType.Haste)) meleeDmg = Math.round(meleeDmg * 1.15);
+            // Horde Berserker Howl: +25% damage while hasted
+            if (mbu.raceUpgrades['horde_caster_2'] && unit.statusEffects.some(e => e.type === StatusType.Haste)) meleeDmg = Math.round(meleeDmg * 1.25);
           }
           dealDamage(state, target, meleeDmg, meleeDmg >= 5, unit.playerId, unit.id);
           if (meleeHitSounds < 4) { addSound(state, 'melee_hit', unit.x, unit.y); meleeHitSounds++; }
@@ -4732,6 +4824,14 @@ function tickCombat(state: GameState): void {
       }
     } else {
       if (unit.attackTimer > 0) unit.attackTimer--;
+    }
+
+    // Horde War Drums: hasted units attack 20% faster (extra tick every 5th tick)
+    const warDrumPlayer = state.players[unit.playerId];
+    if (warDrumPlayer?.researchUpgrades.raceUpgrades['horde_caster_1']
+      && unit.statusEffects.some(e => e.type === StatusType.Haste)
+      && unit.attackTimer > 0 && state.tick % 5 === 0) {
+      unit.attackTimer--;
     }
   }
 
@@ -4880,8 +4980,8 @@ function tickHQDefense(state: GameState): void {
     const hqNearby = _combatGrid.getNearby(hx, hy, HQ_RANGE);
     for (const u of hqNearby) {
       if (u.team !== enemyTeam) continue;
-      const d = Math.sqrt((u.x - hx) ** 2 + (u.y - hy) ** 2);
-      if (d <= HQ_RANGE && d < closestDist) {
+      const d = (u.x - hx) ** 2 + (u.y - hy) ** 2;
+      if (d <= HQ_RANGE * HQ_RANGE && (d < closestDist || (d === closestDist && closest && u.id < closest.id))) {
         closest = u;
         closestDist = d;
       }
@@ -4909,8 +5009,8 @@ function tickHQDefense(state: GameState): void {
     let closestHarvDist = Infinity;
     for (const h of state.harvesters) {
       if (h.team !== enemyTeam || h.state === 'dead') continue;
-      const d = Math.sqrt((h.x - hx) ** 2 + (h.y - hy) ** 2);
-      if (d <= HQ_RANGE && d < closestHarvDist) {
+      const d = (h.x - hx) ** 2 + (h.y - hy) ** 2;
+      if (d <= HQ_RANGE * HQ_RANGE && (d < closestHarvDist || (d === closestHarvDist && closestHarv && h.id < closestHarv.id))) {
         closestHarv = h;
         closestHarvDist = d;
       }
@@ -4979,8 +5079,8 @@ function tickTowers(state: GameState): void {
     for (const u of defaultNearby) {
       if (u.team !== enemyTeam) continue;
       const dx = u.x - tx, dy = u.y - ty;
-      const dist = Math.sqrt(dx * dx + dy * dy);
-      if (dist <= stats.range && dist < closestDist) {
+      const dist = dx * dx + dy * dy;
+      if (dist <= stats.range * stats.range && (dist < closestDist || (dist === closestDist && closest && u.id < closest.id))) {
         closest = u;
         closestDist = dist;
       }
@@ -5013,8 +5113,8 @@ function tickTowers(state: GameState): void {
     for (const h of state.harvesters) {
       if (h.team !== enemyTeam || h.state === 'dead') continue;
       const dx = h.x - tx, dy = h.y - ty;
-      const dist = Math.sqrt(dx * dx + dy * dy);
-      if (dist <= stats.range && dist < closestHarvDist) {
+      const dist = dx * dx + dy * dy;
+      if (dist <= stats.range * stats.range && (dist < closestHarvDist || (dist === closestHarvDist && closestHarv && h.id < closestHarv.id))) {
         closestHarv = h;
         closestHarvDist = dist;
       }
@@ -5130,8 +5230,16 @@ function tickProjectiles(state: GameState): void {
         continue;
       }
 
+      // Critical hit: always consume 1 RNG to keep sequence stable
+      let hitDmg = p.damage;
+      { const critRoll = state.rng();
+        if (p.critChance && p.critMult && critRoll < p.critChance) {
+          hitDmg = Math.round(hitDmg * p.critMult);
+          addFloatingText(state, target.x, target.y - 0.5, 'CRIT!', '#ff4444', undefined, undefined, { ftType: 'status' });
+        }
+      }
       // Hit! Apply damage through shield
-      dealDamage(state, target, p.damage, true, p.sourcePlayerId, p.sourceUnitId, p.isTowerShot);
+      dealDamage(state, target, hitDmg, true, p.sourcePlayerId, p.sourceUnitId, p.isTowerShot);
       if (rangedHitSounds < 3) { addSound(state, 'ranged_hit', target.x, target.y); rangedHitSounds++; }
       addDeathParticles(state, target.x, target.y, '#ffaa00', 2);
 
@@ -5147,8 +5255,8 @@ function tickProjectiles(state: GameState): void {
         // Burn races: Demon, Geists, Wild, Goblins (Knifer poison)
         if (race === Race.Demon || race === Race.Geists || race === Race.Wild || race === Race.Goblins)
           applyStatus(target, StatusType.Burn, (p.aoeRadius > 0 ? 2 : 1) + extraBurn);
-        // Anti-heal: Wound on ranged/caster hits for Goblins, Demon, Geists, Wild, Horde
-        if (race === Race.Goblins || race === Race.Demon || race === Race.Geists || race === Race.Wild || race === Race.Horde)
+        // Anti-heal: Wound on ranged/caster hits for Goblins, Demon, Wild, Horde (Geists melee only)
+        if (race === Race.Goblins || race === Race.Demon || race === Race.Wild || race === Race.Horde)
           applyWound(target);
         // Geists Wraith Bow: ranged lifesteal
         if (p.lifestealPct && p.lifestealPct > 0) {
@@ -5209,7 +5317,7 @@ function tickProjectiles(state: GameState): void {
               const d2 = (u.x - target.x) ** 2 + (u.y - target.y) ** 2;
               if (d2 > 64) continue; // 8 tile radius
               const hpPct = u.hp / u.maxHp;
-              if (hpPct < lowestHpPct) { lowestHpPct = hpPct; lowestAlly = u; }
+              if (hpPct < lowestHpPct || (hpPct === lowestHpPct && lowestAlly && u.id < lowestAlly.id)) { lowestHpPct = hpPct; lowestAlly = u; }
             }
             if (lowestAlly) {
               const ah = healUnit(lowestAlly, healAmt);
@@ -5480,12 +5588,12 @@ function applyTowerSpecial(state: GameState, building: BuildingState, race: Race
   // Helper: find nearest enemy in spatial grid within range
   const findNearest = (range: number): UnitState | null => {
     let nearest: UnitState | null = null;
-    let nearestDist = range;
+    let nearestDist = range * range;
     const nearby = _combatGrid.getNearby(tx, ty, range);
     for (const u of nearby) {
       if (u.team !== enemyTeam) continue;
-      const d = Math.sqrt((u.x - tx) ** 2 + (u.y - ty) ** 2);
-      if (d <= nearestDist) { nearest = u; nearestDist = d; }
+      const d = (u.x - tx) ** 2 + (u.y - ty) ** 2;
+      if (d < nearestDist || (d === nearestDist && nearest && u.id < nearest.id)) { nearest = u; nearestDist = d; }
     }
     return nearest;
   };
@@ -5508,11 +5616,14 @@ function applyTowerSpecial(state: GameState, building: BuildingState, race: Race
       if (nearest) {
         towerVisualProjectile(state, building, nearest);
         dealDamage(state, nearest, stats.damage, false, building.playerId, undefined, true);
-        if (state.rng() < 0.3) {
-          applyKnockback(nearest, 0.02, state.mapDef);
-          addDeathParticles(state, nearest.x, nearest.y, '#ffab40', 3);
-          if (state.rng() < 0.3) addFloatingText(state, nearest.x, nearest.y - 0.3, 'KNOCK', '#ffab40', undefined, true,
-            { ftType: 'status' });
+        { // Always consume 2 RNG values to keep sequence stable
+          const knockRoll = state.rng(), textRoll = state.rng();
+          if (knockRoll < 0.3) {
+            applyKnockback(nearest, 0.02, state.mapDef);
+            addDeathParticles(state, nearest.x, nearest.y, '#ffab40', 3);
+            if (textRoll < 0.3) addFloatingText(state, nearest.x, nearest.y - 0.3, 'KNOCK', '#ffab40', undefined, true,
+              { ftType: 'status' });
+          }
         }
         addDeathParticles(state, nearest.x, nearest.y, '#c62828', 2);
         building.actionTimer = Math.round(stats.attackSpeed * TICK_RATE);
@@ -5526,13 +5637,14 @@ function applyTowerSpecial(state: GameState, building: BuildingState, race: Race
       let lastX = tx, lastY = ty;
       for (let chain = 0; chain < chainMax; chain++) {
         let best: UnitState | null = null;
-        let bestDist = chain === 0 ? stats.range : 4;
+        const chainRange = chain === 0 ? stats.range : 4;
+        let bestDist = chainRange * chainRange;
         // Copy nearby results since we call getNearby multiple times in loop
-        const chainNearby = _combatGrid.getNearby(lastX, lastY, bestDist).slice();
+        const chainNearby = _combatGrid.getNearby(lastX, lastY, chainRange).slice();
         for (const u of chainNearby) {
           if (u.team !== enemyTeam || targets.some(t => t.id === u.id)) continue;
-          const d = Math.sqrt((u.x - lastX) ** 2 + (u.y - lastY) ** 2);
-          if (d <= bestDist) { best = u; bestDist = d; }
+          const d = (u.x - lastX) ** 2 + (u.y - lastY) ** 2;
+          if (d <= bestDist && (d < bestDist || (best && u.id < best.id))) { best = u; bestDist = d; }
         }
         if (best) {
           targets.push(best);
@@ -6027,7 +6139,7 @@ function findMinableDiamondCell(
 
     const dx = adjBest.x - h.x, dy = adjBest.y - h.y;
     const d = dx * dx + dy * dy;
-    if (d < bestDist) {
+    if (d < bestDist || (d === bestDist && i < bestIdx)) {
       bestDist = d;
       bestIdx = i;
       bestPos = adjBest;
@@ -6370,13 +6482,21 @@ export function computeStateHash(state: GameState): number {
     mix(p.meat * 100 | 0);
   }
 
-  // Sample unit positions (first 10 units for speed)
-  for (let i = 0; i < Math.min(state.units.length, 10); i++) {
+  // Hash all units — FNV-1a is fast enough even with hundreds of units
+  for (let i = 0; i < state.units.length; i++) {
     const u = state.units[i];
     mix(u.id);
     mix(u.hp * 100 | 0);
     mix(u.x * 100 | 0);
     mix(u.y * 100 | 0);
+  }
+
+  // Hash building state
+  for (let i = 0; i < state.buildings.length; i++) {
+    const b = state.buildings[i];
+    mix(b.id);
+    mix(b.hp * 100 | 0);
+    mix(b.upgradePath.length);
   }
 
   return h >>> 0; // unsigned 32-bit

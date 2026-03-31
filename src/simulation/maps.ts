@@ -31,6 +31,7 @@ export const DUEL_MAP: MapDef = {
   maxPlayers: 4,
   playersPerTeam: 2,
   shapeAxis: 'y',
+  biome: 'temperate',
 
   teams: [
     // Team 0 (Bottom)
@@ -265,6 +266,7 @@ export const SKIRMISH_MAP: MapDef = {
   maxPlayers: 6,
   playersPerTeam: 3,
   shapeAxis: 'x',
+  biome: 'swamp',
 
   teams: [
     // Team 0 (Left) — HQ near left edge, tower alley right of HQ
@@ -421,6 +423,7 @@ export const WARZONE_MAP: MapDef = {
   maxPlayers: 8,
   playersPerTeam: 4,
   shapeAxis: 'x',
+  biome: 'volcanic',
 
   teams: [
     // Team 0 (Left)

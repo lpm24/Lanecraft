@@ -1,6 +1,7 @@
 import { SoundEvent, Race } from '../simulation/types';
 import { Camera } from '../rendering/Camera';
 import { subscribeToAudioSettings, type AudioSettings } from './AudioSettings';
+import type { WeatherType } from '../rendering/VisualEffects';
 
 const TILE_SIZE = 16;
 
@@ -164,6 +165,18 @@ export class SoundManager {
   private rhythmGain: GainNode | null = null;
   private arpGain: GainNode | null = null;
   private warningGain: GainNode | null = null;
+
+  // Weather audio
+  private weatherGain: GainNode | null = null;
+  private weatherNoiseSource: AudioBufferSourceNode | null = null;
+  private weatherNoiseFilter: BiquadFilterNode | null = null;
+  private weatherWindOsc: OscillatorNode | null = null;
+  private weatherWindLfo: OscillatorNode | null = null;
+  private weatherWindGain: GainNode | null = null;
+  private weatherThunderArmed = true; // false while flash is active, prevents duplicate thunder
+  private weatherLastType: string = '';
+  private weatherLastWindStr = 0;
+  private weatherNoiseBuffer: AudioBuffer | null = null;
 
   constructor() {
     this.settings = { musicVolume: 0.2, sfxVolume: 0.5 };
@@ -964,6 +977,220 @@ export class SoundManager {
   setIntensity(level: number): void {
     if (this.musicMode !== 'battle') return;
     this.targetIntensity = Math.max(0, Math.min(2, Math.floor(level)));
+  }
+
+  // ─── Weather Audio ─────────────────────────────────────────────
+
+  /** Update weather ambient audio — call each frame with current weather type.
+   *  Smoothly crossfades between weather states. */
+  updateWeatherAudio(weatherType: WeatherType, lightningFlash: number, windStrength: number): void {
+    if (!this.actx) return;
+
+    const ac = this.actx;
+    const now = ac.currentTime;
+
+    // Create weather gain chain if needed
+    if (!this.weatherGain) {
+      this.weatherGain = ac.createGain();
+      this.weatherGain.gain.value = 0;
+      this.weatherGain.connect(this.master!);
+    }
+
+    const isRain = weatherType === 'rain' || weatherType === 'storm';
+    const isSnow = weatherType === 'snow' || weatherType === 'blizzard';
+    const isSand = weatherType === 'sandstorm';
+    const isWindy = weatherType === 'storm' || weatherType === 'blizzard' || isSand;
+
+    const needsNoise = isRain || isSnow || isSand;
+    const needsWind = isWindy || weatherType === 'overcast';
+
+    // Start/stop noise source
+    if (needsNoise && !this.weatherNoiseSource) {
+      this.startWeatherNoise(ac, isRain, isSand);
+    } else if (!needsNoise && this.weatherNoiseSource) {
+      this.stopWeatherNoise(now);
+    }
+
+    // Start/stop wind
+    if (needsWind && !this.weatherWindOsc) {
+      this.startWeatherWind(ac);
+    } else if (!needsWind && this.weatherWindOsc) {
+      this.stopWeatherWind(now);
+    }
+
+    // Only reschedule audio ramps when weather type or wind changes significantly
+    const windChanged = Math.abs(windStrength - this.weatherLastWindStr) > 2;
+    const typeChanged = weatherType !== this.weatherLastType;
+
+    if (typeChanged) {
+      const sfxVol = this.settings.sfxVolume;
+      let targetNoiseGain = 0;
+      if (weatherType === 'rain') targetNoiseGain = 0.06 * sfxVol;
+      else if (weatherType === 'storm') targetNoiseGain = 0.12 * sfxVol;
+      else if (weatherType === 'snow') targetNoiseGain = 0.02 * sfxVol;
+      else if (weatherType === 'blizzard') targetNoiseGain = 0.08 * sfxVol;
+      else if (weatherType === 'sandstorm') targetNoiseGain = 0.07 * sfxVol;
+
+      if (this.weatherGain) {
+        this.weatherGain.gain.cancelScheduledValues(now);
+        this.weatherGain.gain.setValueAtTime(this.weatherGain.gain.value, now);
+        this.weatherGain.gain.linearRampToValueAtTime(targetNoiseGain, now + 3);
+      }
+      this.weatherLastType = weatherType;
+    }
+
+    if (windChanged && this.weatherWindOsc && this.weatherWindGain) {
+      const sfxVol = this.settings.sfxVolume;
+      const windVol = Math.min(0.08, Math.abs(windStrength) * 0.001) * sfxVol;
+      this.weatherWindGain.gain.cancelScheduledValues(now);
+      this.weatherWindGain.gain.setValueAtTime(this.weatherWindGain.gain.value, now);
+      this.weatherWindGain.gain.linearRampToValueAtTime(windVol, now + 0.5);
+      const baseFreq = isSand ? 120 : 80;
+      this.weatherWindOsc.frequency.setValueAtTime(baseFreq + Math.abs(windStrength) * 0.5, now);
+      this.weatherLastWindStr = windStrength;
+    }
+
+    // Lightning thunder — arm on flash start, fire once
+    if (lightningFlash > 0.7 && this.weatherThunderArmed) {
+      this.playThunder(this.settings.sfxVolume);
+      this.weatherThunderArmed = false;
+    }
+    if (lightningFlash < 0.1) {
+      this.weatherThunderArmed = true;
+    }
+  }
+
+  private startWeatherNoise(ac: AudioContext, isRain: boolean, isSand: boolean): void {
+    // Create a 2-second looping noise buffer
+    const bufLen = ac.sampleRate * 2;
+    if (!this.weatherNoiseBuffer) {
+      this.weatherNoiseBuffer = ac.createBuffer(1, bufLen, ac.sampleRate);
+      const data = this.weatherNoiseBuffer.getChannelData(0);
+      for (let i = 0; i < bufLen; i++) data[i] = Math.random() * 2 - 1;
+    }
+
+    const src = ac.createBufferSource();
+    src.buffer = this.weatherNoiseBuffer;
+    src.loop = true;
+
+    // Shape the noise: bandpass for rain, lowpass for sand, highpass for snow
+    const filter = ac.createBiquadFilter();
+    if (isRain) {
+      filter.type = 'bandpass';
+      filter.frequency.value = 2500;
+      filter.Q.value = 0.4;
+    } else if (isSand) {
+      filter.type = 'lowpass';
+      filter.frequency.value = 800;
+      filter.Q.value = 0.3;
+    } else {
+      // Snow/blizzard: high-pass whisper
+      filter.type = 'highpass';
+      filter.frequency.value = 4000;
+      filter.Q.value = 0.3;
+    }
+
+    src.connect(filter);
+    filter.connect(this.weatherGain!);
+    src.start();
+    this.weatherNoiseSource = src;
+    this.weatherNoiseFilter = filter;
+  }
+
+  private stopWeatherNoise(now: number): void {
+    if (this.weatherNoiseSource) {
+      try { this.weatherNoiseSource.stop(now + 3); } catch { /* already stopped */ }
+      this.weatherNoiseSource.disconnect();
+      this.weatherNoiseSource = null;
+    }
+    if (this.weatherNoiseFilter) {
+      this.weatherNoiseFilter.disconnect();
+      this.weatherNoiseFilter = null;
+    }
+  }
+
+  private startWeatherWind(ac: AudioContext): void {
+    // Low-frequency oscillator for wind howl
+    const osc = ac.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.value = 80;
+
+    // LFO for wind modulation
+    const lfo = ac.createOscillator();
+    lfo.type = 'sine';
+    lfo.frequency.value = 0.3; // slow modulation
+    const lfoGain = ac.createGain();
+    lfoGain.gain.value = 30; // frequency wobble range
+
+    lfo.connect(lfoGain);
+    lfoGain.connect(osc.frequency);
+
+    const windGain = ac.createGain();
+    windGain.gain.value = 0;
+
+    // Low-pass to remove harshness
+    const lpf = ac.createBiquadFilter();
+    lpf.type = 'lowpass';
+    lpf.frequency.value = 200;
+    lpf.Q.value = 1;
+
+    osc.connect(lpf);
+    lpf.connect(windGain);
+    windGain.connect(this.master!);
+
+    osc.start();
+    lfo.start();
+
+    this.weatherWindOsc = osc;
+    this.weatherWindLfo = lfo;
+    this.weatherWindGain = windGain;
+  }
+
+  private stopWeatherWind(now: number): void {
+    if (this.weatherWindOsc) {
+      try { this.weatherWindOsc.stop(now + 2); } catch { /* already stopped */ }
+      this.weatherWindOsc.disconnect();
+      this.weatherWindOsc = null;
+    }
+    if (this.weatherWindLfo) {
+      try { this.weatherWindLfo.stop(now + 2); } catch { /* already stopped */ }
+      this.weatherWindLfo.disconnect();
+      this.weatherWindLfo = null;
+    }
+    if (this.weatherWindGain) {
+      this.weatherWindGain.gain.cancelScheduledValues(now);
+      this.weatherWindGain.gain.setValueAtTime(this.weatherWindGain.gain.value, now);
+      this.weatherWindGain.gain.linearRampToValueAtTime(0, now + 2);
+      this.weatherWindGain = null;
+    }
+  }
+
+  private playThunder(sfxVol: number): void {
+    const d = this.dest();
+    const vol = 0.15 * sfxVol;
+
+    // Delay 0.5-2s after flash (speed of sound)
+    const delay = 0.5 + Math.random() * 1.5;
+
+    // Low rumble: frequency sweep 80Hz → 30Hz
+    this.sweep(80, 30, 2, vol, d, 'sine', delay);
+    // Noise crack at the start
+    this.filteredNoise(0.4, vol * 0.6, d, 150, 0.5, delay);
+    // Second rumble (echo) with more delay
+    const echoDelay = delay + 0.8 + Math.random() * 0.5;
+    this.sweep(50, 25, 1.5, vol * 0.5, d, 'sine', echoDelay);
+  }
+
+  /** Stop all weather audio — call when match ends */
+  stopWeatherAudio(): void {
+    if (!this.actx) return;
+    const now = this.actx.currentTime;
+    this.stopWeatherNoise(now);
+    this.stopWeatherWind(now);
+    if (this.weatherGain) {
+      this.weatherGain.gain.cancelScheduledValues(now);
+      this.weatherGain.gain.setValueAtTime(0, now);
+    }
   }
 
   /** Non-spatial achievement fanfare — bright ascending arpeggio with shimmer */

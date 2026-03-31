@@ -207,6 +207,8 @@ export interface MapDef {
   shapeAxis: 'y' | 'x';
   /** Multiplier for wood/meat harvester deposits. Default 1. */
   resourceYield?: number;
+  /** Weather biome — determines which weather types can appear. Default 'temperate'. */
+  biome?: 'temperate' | 'arctic' | 'desert' | 'swamp' | 'volcanic';
 }
 
 // === Enums ===
@@ -548,6 +550,8 @@ export interface ProjectileState {
   targetX?: number;
   targetY?: number;
   buildingDamageMult?: number;  // on impact, deal damage * mult to buildings in aoeRadius
+  critChance?: number;          // chance (0-1) to deal critical hit (rolled on impact)
+  critMult?: number;            // critical hit damage multiplier
 }
 
 export interface FloatingText {

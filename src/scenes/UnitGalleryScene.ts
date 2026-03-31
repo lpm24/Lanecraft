@@ -109,6 +109,9 @@ export class UnitGalleryScene implements Scene {
   private touchStartY = 0;
   private touchMoved = false;
   private touchEndHandler: ((e: TouchEvent) => void) | null = null;
+  /** Per-sprite fade-in alpha (0→1), keyed by "race:cat:node" */
+  private spriteAlpha: Map<string, number> = new Map();
+  private lastDt = 16;
 
   constructor(manager: SceneManager, canvas: HTMLCanvasElement, sprites: SpriteLoader, ui: UIAssets) {
     this.manager = manager;
@@ -122,6 +125,7 @@ export class UnitGalleryScene implements Scene {
     this.animTime = 0;
     this.activeTab = 0;
     this.detail = null;
+    this.spriteAlpha.clear();
     this.touchMoved = true; // ignore orphaned touchend from scene that opened us
 
     // Track gallery visit achievement
@@ -191,7 +195,7 @@ export class UnitGalleryScene implements Scene {
         return;
       }
       const num = parseInt(e.key);
-      if (num >= 1 && num <= 7) { this.activeTab = num - 1; this.scrollY = 0; }
+      if (num >= 1 && num <= 7) { this.activeTab = num - 1; this.scrollY = 0; this.spriteAlpha.clear(); }
     };
 
     this.canvas.addEventListener('click', this.clickHandler);
@@ -285,6 +289,7 @@ export class UnitGalleryScene implements Scene {
         if (cx >= t.x && cx <= t.x + t.w) {
           this.activeTab = i;
           this.scrollY = 0;
+          this.spriteAlpha.clear();
           return;
         }
       }
@@ -329,6 +334,7 @@ export class UnitGalleryScene implements Scene {
       if (cx >= node.x && cx <= node.x + node.w && cy >= node.y && cy <= node.y + node.h) {
         this.activeTab = node.tabIndex;
         this.detailScrollY = 0;
+        this.spriteAlpha.clear();
         return;
       }
     }
@@ -353,6 +359,7 @@ export class UnitGalleryScene implements Scene {
 
   update(dt: number): void {
     this.animTime += dt;
+    this.lastDt = dt;
   }
 
   render(ctx: CanvasRenderingContext2D): void {
@@ -384,6 +391,7 @@ export class UnitGalleryScene implements Scene {
 
     // Tick for animation (simulate 20tps)
     const tick = Math.floor(this.animTime / 50);
+    const dt = this.lastDt;
 
     // Draw each race row
     for (let r = 0; r < ALL_RACES.length; r++) {
@@ -437,13 +445,19 @@ export class UnitGalleryScene implements Scene {
         if (!baseStats) continue;
         const displayName = nodeDef?.name ?? baseStats.name;
 
+        // Fade-in alpha for this cell
+        const fadeKey = `${race}:${cat}:${nodeKey}`;
+        const prevAlpha = this.spriteAlpha.get(fadeKey) ?? 0;
+        const cellAlpha = Math.min(1, prevAlpha + dt * 0.004); // ~250ms fade
+        this.spriteAlpha.set(fadeKey, cellAlpha);
+
         // Draw building sprite behind unit (offset up-left)
         const bldgImg = this.sprites.getBuildingSprite(bt, 0, false, race, tab.path);
         if (bldgImg) {
           const bldgMaxH = rowH * 0.45;
           const bAsp = bldgImg.width / bldgImg.height;
           const bldgW = bldgMaxH * bAsp;
-          ctx.globalAlpha = 0.45;
+          ctx.globalAlpha = 0.45 * cellAlpha;
           ctx.drawImage(bldgImg, unitCX - bldgW * 0.65 - 7, unitCY - bldgMaxH * 0.3 - 13, bldgW, bldgMaxH);
           ctx.globalAlpha = 1;
         }
@@ -468,6 +482,8 @@ export class UnitGalleryScene implements Scene {
           // Animate
           const frame = getSpriteFrame(tick, def);
 
+          ctx.globalAlpha = cellAlpha;
+
           // Drop shadow
           ctx.fillStyle = 'rgba(0,0,0,0.25)';
           ctx.beginPath();
@@ -484,37 +500,45 @@ export class UnitGalleryScene implements Scene {
 
           // Tier glow
           if (upgradeTier >= 1) {
-            ctx.globalAlpha = 0.12 + upgradeTier * 0.06;
+            ctx.globalAlpha = cellAlpha * (0.12 + upgradeTier * 0.06);
             ctx.globalCompositeOperation = 'lighter';
             drawSpriteFrame(ctx, img, def, frame, drawX, drawY, drawW, drawH);
             ctx.globalCompositeOperation = 'source-over';
-            ctx.globalAlpha = 1;
+            ctx.globalAlpha = cellAlpha;
           }
 
           drawSpriteFrame(ctx, img, def, frame, drawX, drawY, drawW, drawH);
+
+          ctx.globalAlpha = 1;
 
           if (def.flipX) {
             ctx.restore();
           }
 
           // Ground line
-          ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+          ctx.globalAlpha = 0.08 * cellAlpha;
+          ctx.strokeStyle = '#fff';
           ctx.beginPath();
           ctx.moveTo(unitCX - 35, feetY);
           ctx.lineTo(unitCX + 35, feetY);
           ctx.stroke();
+          ctx.globalAlpha = 1;
         } else {
+          ctx.globalAlpha = cellAlpha;
           ctx.fillStyle = rc.primary;
           ctx.beginPath();
           ctx.arc(unitCX, unitCY, 10, 0, Math.PI * 2);
           ctx.fill();
+          ctx.globalAlpha = 1;
         }
 
         // Unit name (truncated)
+        ctx.globalAlpha = cellAlpha;
         ctx.fillStyle = nodeDef ? '#e0c860' : '#ccc';
         ctx.font = 'bold 11px monospace';
         ctx.textAlign = 'center';
         this.drawTruncatedText(ctx, displayName, unitCX, unitCY + 38, unitSpacing - 8);
+        ctx.globalAlpha = 1;
       }
     }
 

@@ -154,7 +154,8 @@ export class PostMatchScene implements Scene {
     this.scrollY = 0;
     this.maxScrollY = 0;
 
-    const continueTarget = this.stats?.wasPartyGame ? 'title' : 'raceSelect';
+    // Party games return to lobby, solo/tutorial games return to title menu
+    const continueTarget = 'title';
 
     let lastTouchTime = 0;
     this.clickHandler = (e) => {
