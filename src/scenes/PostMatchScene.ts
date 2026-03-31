@@ -1,5 +1,5 @@
 import { Scene, SceneManager } from './Scene';
-import { GameState, Team, PlayerStats, MinimapFrame, HQ_WIDTH, HQ_HEIGHT, WarHero } from '../simulation/types';
+import { GameState, Team, PlayerStats, MinimapFrame, HQ_WIDTH, HQ_HEIGHT, HQ_HP, WarHero } from '../simulation/types';
 import { PLAYER_COLORS, RACE_COLORS } from '../simulation/data';
 import { UIAssets, IconName } from '../rendering/UIAssets';
 import { SpriteLoader, getSpriteFrame } from '../rendering/SpriteLoader';
@@ -604,7 +604,9 @@ export class PostMatchScene implements Scene {
       return startY + 80;
     }
 
-    return startY + this.drawMinimapReplay(ctx, state, frames, canvasW, startY, fontSize);
+    const minimapH = this.drawMinimapReplay(ctx, state, frames, canvasW, startY, fontSize);
+    const graphsBottom = this.drawGraphPanel(ctx, state, frames, canvasW, startY + minimapH + Math.round(fontSize * 0.8), fontSize);
+    return graphsBottom;
   }
 
   // ---- AWARDS TAB ----
@@ -935,6 +937,243 @@ export class PostMatchScene implements Scene {
     ctx.fillText(`\u21bb REPLAY  ${mm}:${ss}`, canvasW / 2, labelY);
 
     return totalH;
+  }
+
+  /** Draws all stat graphs below the minimap. Returns the bottom Y consumed. */
+  private drawGraphPanel(
+    ctx: CanvasRenderingContext2D,
+    state: GameState,
+    frames: MinimapFrame[],
+    canvasW: number,
+    startY: number,
+    fontSize: number,
+  ): number {
+    if (frames.length < 2) return startY;
+
+    const graphW = Math.min(canvasW * 0.9, 520);
+    const graphX = Math.round((canvasW - graphW) / 2);
+    const graphH = Math.round(fontSize * 5.5);
+    const gap = Math.round(fontSize * 1.2);
+    const cursorIdx = this.replayFrameIdx;
+
+    // Aggregate per-team series from per-player snapshots
+    const teamColors: Record<Team, string> = {
+      [Team.Bottom]: '#4a9eff',
+      [Team.Top]:    '#ff5252',
+    };
+    const teamLabels: Record<Team, string> = {
+      [Team.Bottom]: 'Blue',
+      [Team.Top]:    'Red',
+    };
+
+    // Build per-frame team arrays
+    const hqHpTeam0 = frames.map(f => f.hqHp[Team.Bottom]);
+    const hqHpTeam1 = frames.map(f => f.hqHp[Team.Top]);
+
+    const unitsTeam0 = frames.map(f => f.units.filter(u => u.team === Team.Bottom).length);
+    const unitsTeam1 = frames.map(f => f.units.filter(u => u.team === Team.Top).length);
+
+    // Aggregate per-player stats by team
+    const damageTeam0: number[] = [];
+    const damageTeam1: number[] = [];
+    const resourcesTeam0: number[] = [];
+    const resourcesTeam1: number[] = [];
+
+    for (const f of frames) {
+      let d0 = 0, d1 = 0, r0 = 0, r1 = 0;
+      for (let pid = 0; pid < (f.playerStats?.length ?? 0); pid++) {
+        const ps = f.playerStats[pid];
+        if (!ps) continue;
+        const team = state.players[pid]?.team;
+        const totalRes = ps.goldEarned + ps.woodEarned + ps.meatEarned;
+        if (team === Team.Bottom) { d0 += ps.damageDealt; r0 += totalRes; }
+        else if (team === Team.Top) { d1 += ps.damageDealt; r1 += totalRes; }
+      }
+      damageTeam0.push(d0);
+      damageTeam1.push(d1);
+      resourcesTeam0.push(r0);
+      resourcesTeam1.push(r1);
+    }
+
+    // Power score: weighted composite (unit share + HQ HP share + damage share + resource share)
+    const powerTeam0: number[] = [];
+    const powerTeam1: number[] = [];
+    for (let i = 0; i < frames.length; i++) {
+      const u0 = unitsTeam0[i], u1 = unitsTeam1[i];
+      const h0 = hqHpTeam0[i],  h1 = hqHpTeam1[i];
+      const d0 = damageTeam0[i], d1 = damageTeam1[i];
+      const r0 = resourcesTeam0[i], r1 = resourcesTeam1[i];
+      const unitShare0 = (u0 + u1) > 0 ? u0 / (u0 + u1) : 0.5;
+      const hpShare0   = (h0 + h1) > 0 ? h0 / (h0 + h1) : 0.5;
+      const dmgShare0  = (d0 + d1) > 0 ? d0 / (d0 + d1) : 0.5;
+      const resShare0  = (r0 + r1) > 0 ? r0 / (r0 + r1) : 0.5;
+      const score0 = Math.round((35 * unitShare0 + 35 * hpShare0 + 15 * dmgShare0 + 15 * resShare0));
+      powerTeam0.push(score0);
+      powerTeam1.push(100 - score0);
+    }
+
+    const graphs: Array<{ title: string; series: Array<{ values: number[]; color: string; label: string }>; yMin: number; yMax?: number }> = [
+      {
+        title: 'POWER SCORE',
+        series: [
+          { values: powerTeam0,    color: teamColors[Team.Bottom], label: teamLabels[Team.Bottom] },
+          { values: powerTeam1,    color: teamColors[Team.Top],    label: teamLabels[Team.Top] },
+        ],
+        yMin: 0, yMax: 100,
+      },
+      {
+        title: 'HQ HP',
+        series: [
+          { values: hqHpTeam0, color: teamColors[Team.Bottom], label: teamLabels[Team.Bottom] },
+          { values: hqHpTeam1, color: teamColors[Team.Top],    label: teamLabels[Team.Top] },
+        ],
+        yMin: 0, yMax: HQ_HP,
+      },
+      {
+        title: 'UNITS ON FIELD',
+        series: [
+          { values: unitsTeam0, color: teamColors[Team.Bottom], label: teamLabels[Team.Bottom] },
+          { values: unitsTeam1, color: teamColors[Team.Top],    label: teamLabels[Team.Top] },
+        ],
+        yMin: 0,
+      },
+      {
+        title: 'DAMAGE DEALT',
+        series: [
+          { values: damageTeam0, color: teamColors[Team.Bottom], label: teamLabels[Team.Bottom] },
+          { values: damageTeam1, color: teamColors[Team.Top],    label: teamLabels[Team.Top] },
+        ],
+        yMin: 0,
+      },
+      {
+        title: 'RESOURCES EARNED',
+        series: [
+          { values: resourcesTeam0, color: teamColors[Team.Bottom], label: teamLabels[Team.Bottom] },
+          { values: resourcesTeam1, color: teamColors[Team.Top],    label: teamLabels[Team.Top] },
+        ],
+        yMin: 0,
+      },
+    ];
+
+    let y = startY;
+    for (const g of graphs) {
+      this.drawLineGraph(ctx, graphX, y, graphW, graphH, g.title, g.series, frames, cursorIdx, fontSize, g.yMin, g.yMax);
+      y += graphH + gap;
+    }
+    return y;
+  }
+
+  /** Draws a single line chart. */
+  private drawLineGraph(
+    ctx: CanvasRenderingContext2D,
+    x: number, y: number, w: number, h: number,
+    title: string,
+    series: Array<{ values: number[]; color: string; label: string }>,
+    frames: MinimapFrame[],
+    cursorIdx: number,
+    fontSize: number,
+    yMin: number,
+    yMax?: number,
+  ): void {
+    const n = frames.length;
+    if (n < 2) return;
+
+    const titleH = Math.round(fontSize * 0.65);
+    const axisLabelW = Math.round(fontSize * 2.2);
+    const chartX = x + axisLabelW;
+    const chartY = y + titleH + 4;
+    const chartW = w - axisLabelW;
+    const chartH = h - titleH - 4;
+
+    // Compute yMax from data if not supplied
+    let dataMax = yMax ?? 1;
+    if (yMax === undefined) {
+      for (const s of series) dataMax = Math.max(dataMax, ...s.values);
+      if (dataMax === 0) dataMax = 1;
+    }
+    const yRange = dataMax - yMin;
+
+    // Background
+    ctx.fillStyle = 'rgba(0,0,0,0.25)';
+    ctx.fillRect(chartX, chartY, chartW, chartH);
+
+    // Grid lines (3 horizontal)
+    ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+    ctx.lineWidth = 1;
+    for (let g = 1; g <= 3; g++) {
+      const gy = chartY + chartH * (1 - g / 4);
+      ctx.beginPath();
+      ctx.moveTo(chartX, gy);
+      ctx.lineTo(chartX + chartW, gy);
+      ctx.stroke();
+    }
+
+    // Series lines
+    for (const s of series) {
+      ctx.strokeStyle = s.color;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      for (let i = 0; i < n; i++) {
+        const px = chartX + (i / (n - 1)) * chartW;
+        const normalised = Math.max(0, Math.min(1, (s.values[i] - yMin) / yRange));
+        const py = chartY + chartH * (1 - normalised);
+        if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      }
+      ctx.stroke();
+    }
+
+    // Cursor line (current replay position)
+    const cx = chartX + (cursorIdx / (n - 1)) * chartW;
+    ctx.strokeStyle = 'rgba(255,255,255,0.45)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([3, 3]);
+    ctx.beginPath();
+    ctx.moveTo(cx, chartY);
+    ctx.lineTo(cx, chartY + chartH);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Title
+    ctx.font = `bold ${Math.round(fontSize * 0.5)}px monospace`;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillStyle = 'rgba(255,255,255,0.6)';
+    ctx.fillText(title, chartX, y);
+
+    // Y-axis label (max value)
+    ctx.font = `${Math.round(fontSize * 0.42)}px monospace`;
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'top';
+    ctx.fillStyle = 'rgba(255,255,255,0.35)';
+    const maxLabel = dataMax >= 1000 ? `${Math.round(dataMax / 100) / 10}k` : String(Math.round(dataMax));
+    ctx.fillText(maxLabel, chartX - 2, chartY);
+
+    // X-axis time labels (start + mid + end)
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    const tickFmt = (frameIdx: number): string => {
+      const secs = Math.floor((frames[frameIdx]?.tick ?? 0) / 20);
+      return `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
+    };
+    ctx.fillText(tickFmt(0),       chartX,                          chartY + chartH + Math.round(fontSize * 0.4));
+    ctx.fillText(tickFmt(Math.floor(n / 2)), chartX + chartW / 2,  chartY + chartH + Math.round(fontSize * 0.4));
+    ctx.fillText(tickFmt(n - 1),   chartX + chartW,                 chartY + chartH + Math.round(fontSize * 0.4));
+
+    // Legend dots (right-aligned, one per series)
+    const legendItemW = Math.round(fontSize * 2.2);
+    const dotSize = Math.round(fontSize * 0.4);
+    for (let si = 0; si < series.length; si++) {
+      const s = series[si];
+      const itemX = chartX + chartW - (series.length - si) * legendItemW;
+      ctx.fillStyle = s.color;
+      ctx.fillRect(itemX + Math.round(fontSize * 0.2), y + 2, dotSize, dotSize);
+      ctx.font = `${Math.round(fontSize * 0.42)}px monospace`;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+      ctx.fillStyle = 'rgba(255,255,255,0.55)';
+      ctx.fillText(s.label, itemX + Math.round(fontSize * 0.7), y + 1);
+    }
+    ctx.textBaseline = 'alphabetic';
   }
 
   /** Get display name for a slot: player name, bot difficulty, or fallback P{n}. */

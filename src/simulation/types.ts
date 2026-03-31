@@ -457,6 +457,8 @@ export interface MinimapFrame {
   nukes: Array<{ x: number; y: number; radius: number; playerId: number }>;
   /** Top-kill unit position per player (war hero candidate while alive). */
   warHeroPositions: Array<{ x: number; y: number; playerId: number }>;
+  /** Cumulative per-player resource and damage totals at this tick. Indexed by playerId. */
+  playerStats: Array<{ goldEarned: number; woodEarned: number; meatEarned: number; damageDealt: number }>;
 }
 
 // A single gold cell in the diamond obstacle

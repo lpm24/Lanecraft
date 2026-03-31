@@ -514,6 +514,13 @@ export class Game {
       diamond: d ? { x: d.x, y: d.y, carried: d.carrierId !== null } : null,
       nukes: s.nukeTelegraphs.map(t => ({ x: t.x, y: t.y, radius: t.radius, playerId: t.playerId })),
       warHeroPositions: [...topKillers.values()].map(({ x, y, playerId }) => ({ x, y, playerId })),
+      playerStats: s.players.map((_, pid) => {
+        const ps = s.playerStats[pid];
+        return ps
+          ? { goldEarned: ps.totalGoldEarned, woodEarned: ps.totalWoodEarned,
+              meatEarned: ps.totalMeatEarned, damageDealt: ps.totalDamageDealt }
+          : { goldEarned: 0, woodEarned: 0, meatEarned: 0, damageDealt: 0 };
+      }),
     });
   }
 
