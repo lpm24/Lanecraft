@@ -64,10 +64,10 @@ Path       |            Name |  Power |  Total $ |   Eff |  Interval |   Special
 T0 (base)  |         Sticker |    610 |     15.0 |  2.42 |      16.8 |          -
 B          |     Troll Brute |    912 |     45.0 |  1.51 |      13.4 |          -
 C          |   Quick Sticker |    718 |     47.5 |  1.12 |      13.4 |          -
-B→D        |   Troll Smasher |   2243 |    100.0 |  2.38 |       9.4 |    burn +2
-B→E        |   Troll Warlord |   1481 |    110.0 |  1.00 |      13.4 |    slow +2
-C→F        |  Shadow Sticker |   1025 |    102.5 |  1.06 |       9.4 |  dodge 30%
-C→G        |      Goblin Ace |   1530 |    117.5 |  0.97 |      13.4 |  dodge 15%
+B→D        |   Troll Smasher |   3140 |    100.0 |  3.34 |       9.4 |    burn +2
+B→E        |   Troll Warlord |   1999 |    110.0 |  1.35 |      13.4 |    slow +2
+C→F        |  Shadow Sticker |   1333 |    102.5 |  1.38 |       9.4 |  dodge 30%
+C→G        |      Goblin Ace |   1636 |    117.5 |  1.04 |      13.4 |  dodge 15%
 
   Oozlings — Globule ×2 (building: 25.0 eff)
 Path       |          Name |  Power |  Total $ |   Eff |  Interval |                 Specials
@@ -89,7 +89,7 @@ C          |        Blaze Smasher |   1271 |     85.0 |  1.01 |      14.8 |     
 B→D        |         Doom Smasher |   4247 |    185.0 |  1.89 |      12.1 |     burn +2
 B→E        |  Bloodfire Berserker |   2843 |    170.0 |  1.38 |      12.1 |   killScale
 C→F        |        Phoenix Blade |   2440 |    170.0 |  1.18 |      12.1 |  revive 60%
-C→G        |        Magma Smasher |   3875 |    170.0 |  1.88 |      12.1 |     burn +3
+C→G        |           Hellstrike |   4053 |    170.0 |  1.97 |      12.1 |   cleave +2
 
   Deep — Shell Guard (building: 47.5 eff)
 Path       |           Name |  Power |  Total $ |   Eff |  Interval |                 Specials
@@ -110,19 +110,19 @@ B          |     Cave Bear |   1417 |     82.0 |  1.17 |      14.8 |          -
 C          |  Spider Brood |   1115 |     82.0 |  0.92 |      14.8 |          -
 B→D        |      Minotaur |   4922 |    162.0 |  2.51 |      12.1 |  cleave +1
 B→E        |     Dire Bear |   3947 |    162.0 |  2.01 |      12.1 |     DR 20%
-C→F        |    Viper Nest |    546 |    152.0 |  0.30 |      12.1 |    slow +2
+C→F        |    Viper Nest |   2082 |    152.0 |  1.13 |      12.1 |    burn +2
 C→G        |  Spider Swarm |    876 |    162.0 |  0.45 |      12.1 |    slow +2
 
   Geists — Bone Knight (building: 55.0 eff)
 Path       |            Name |  Power |  Total $ |   Eff |  Interval |                Specials
 -----------+-----------------+--------+----------+-------+-----------+------------------------
 T0 (base)  |     Bone Knight |    567 |     55.0 |  0.61 |      16.8 |                       -
-B          |      Iron Bones |    993 |     85.0 |  0.77 |      15.1 |                       -
-C          |    Ambush Chest |    756 |     82.5 |  0.61 |      15.1 |               dodge 25%
-B→D        |    Death Knight |   2680 |    140.0 |  1.49 |      12.9 |                 burn +2
-B→E        |      Soul Eater |   2321 |    140.0 |  1.29 |      12.9 |               regen 3/s
-C→F        |  Snapping Mimic |   1091 |    137.5 |  0.62 |      12.9 |               dodge 35%
-C→G        |     Soul Gorger |   1994 |    137.5 |  1.13 |      12.9 |  dodge 25%, soulHarvest
+B          |      Iron Bones |    993 |     87.0 |  0.75 |      15.1 |                       -
+C          |    Ambush Chest |    756 |     84.5 |  0.59 |      15.1 |               dodge 25%
+B→D        |    Death Knight |   2680 |    149.0 |  1.40 |      12.9 |                 burn +2
+B→E        |      Soul Eater |   2321 |    149.0 |  1.21 |      12.9 |               regen 3/s
+C→F        |  Snapping Mimic |   1091 |    146.5 |  0.58 |      12.9 |               dodge 35%
+C→G        |     Soul Gorger |   1994 |    146.5 |  1.06 |      12.9 |  dodge 25%, soulHarvest
 
   Tenders — Treant (building: 48.0 eff)
 Path       |          Name |  Power |  Total $ |   Eff |  Interval |            Specials
@@ -156,7 +156,7 @@ T0 (base)  |      Bowcleaver |   1052 |     40.0 |  1.57 |      16.8 |          
 B          |   Heavy Cleaver |   1789 |     85.0 |  1.42 |      14.8 |                                                  multi ×2@70%
 C          |    Orc Catapult |    828 |     85.0 |  0.66 |      14.8 |                  auraDmg +2, siege ×3vsBldg, siegeSplash r2.5
 B→D        |     War Thrower |   2334 |    175.0 |  1.10 |      12.1 |                                   multi ×3@60%, auraDodge +8%
-B→E        |  Battle Cleaver |   2707 |    175.0 |  1.28 |      12.1 |                                      multi ×2@70%, auraDmg +3
+B→E        |  Battle Cleaver |   2731 |    175.0 |  1.29 |      12.1 |                                    multi ×2@70%, auraHeal 2/s
 C→F        |   Horde Bombard |    984 |    175.0 |  0.46 |      12.1 |  auraDmg +2, auraArmor +10%, siege ×4vsBldg, siegeSplash r3.5
 C→G        |   Doom Catapult |   1317 |    175.0 |  0.62 |      12.1 |                    auraDmg +4, siege ×5vsBldg, siegeSplash r4
 
@@ -199,7 +199,7 @@ Path       |          Name |  Power |  Total $ |   Eff |  Interval |            
 T0 (base)  |     Harpooner |    719 |     52.0 |  0.82 |      16.8 |                                          -
 B          |    Reef Shark |    914 |     87.0 |  0.69 |      15.1 |                                    slow +1
 C          |    Spray Crab |   1043 |     87.0 |  0.79 |      15.1 |                                    slow +2
-B→D        |    Hammerhead |   1617 |    142.0 |  0.89 |      12.9 |                                    slow +2
+B→D        |    Hammerhead |   2709 |    142.0 |  1.48 |      12.9 |                         splash r2, slow +1
 B→E        |   Great White |   1364 |    144.5 |  0.73 |      12.9 |                                    slow +3
 C→F        |  Depth Charge |    563 |    164.5 |  0.27 |      12.9 |  slow +3, siege ×4vsBldg, siegeSplash r3.5
 C→G        |     King Crab |   2928 |    152.0 |  1.50 |      12.9 |                         splash r3, slow +2
@@ -219,12 +219,12 @@ C→G        |      Hydra Spit |   2557 |    161.0 |  1.31 |      12.1 |        
 Path       |           Name |  Power |  Total $ |   Eff |  Interval |                                 Specials
 -----------+----------------+--------+----------+-------+-----------+-----------------------------------------
 T0 (base)  |     Wraith Bow |    250 |     42.5 |  0.35 |      16.8 |                                        -
-B          |   Venom Wraith |    588 |     70.0 |  0.56 |      15.1 |                                  burn +2
-C          |     Bone Skull |    313 |     72.5 |  0.29 |      15.1 |                                        -
-B→D        |   Plague Arrow |    864 |    125.0 |  0.54 |      12.9 |                                  burn +3
-B→E        |     Hex Volley |    841 |    125.0 |  0.52 |      12.9 |                    multi ×2@75%, burn +2
-C→F        |  Wailing Skull |    500 |    127.5 |  0.31 |      12.9 |                                dodge 25%
-C→G        |  Bone Ballista |    197 |    127.5 |  0.12 |      12.9 |  burn +1, siege ×4vsBldg, siegeSplash r3
+B          |   Venom Wraith |    588 |     72.0 |  0.54 |      15.1 |                                  burn +2
+C          |     Bone Skull |    313 |     74.5 |  0.28 |      15.1 |                                        -
+B→D        |   Plague Arrow |    864 |    134.0 |  0.50 |      12.9 |                                  burn +3
+B→E        |     Hex Volley |    841 |    134.0 |  0.49 |      12.9 |                    multi ×2@75%, burn +2
+C→F        |  Wailing Skull |    500 |    136.5 |  0.29 |      12.9 |                                dodge 25%
+C→G        |  Bone Ballista |    197 |    136.5 |  0.11 |      12.9 |  burn +1, siege ×4vsBldg, siegeSplash r3
 
   Tenders — Tinker (building: 30.0 eff)
 Path       |           Name |  Power |  Total $ |   Eff |  Interval |                                 Specials
@@ -233,7 +233,7 @@ T0 (base)  |         Tinker |    390 |     30.0 |  0.77 |      16.8 |           
 B          |   Heavy Tinker |    684 |     52.5 |  0.86 |      15.1 |                                        -
 C          |  Thorn Thrower |    565 |     75.0 |  0.50 |      15.1 |                                  slow +2
 B→D        |  Blight Tinker |   1725 |     97.5 |  1.38 |      12.9 |                                splash r2
-B→E        |   Grand Tinker |   2064 |     97.5 |  1.65 |      12.9 |                                splash r3
+B→E        |   Grand Tinker |   1112 |     97.5 |  0.89 |      12.9 |                                  slow +2
 C→F        |   Toxic Hurler |   1546 |    165.0 |  0.73 |      12.9 |                  burn +2 SEARED, slow +2
 C→G        |     Vine Siege |    303 |    165.0 |  0.14 |      12.9 |  slow +2, siege ×3vsBldg, siegeSplash r3
 
@@ -263,15 +263,15 @@ C→F        |   Swift Chanter |   1536 |    172.5 |  0.73 |      12.1 |        
 C→G        |    Doom Chanter |   1274 |    172.5 |  0.61 |      12.1 |                              auraAtkSpd +15%
 
   Goblins — Hexer (building: 35.0 eff)
-Path       |          Name |  Power |  Total $ |   Eff |  Interval |         Specials
------------+---------------+--------+----------+-------+-----------+-----------------
-T0 (base)  |         Hexer |    294 |     35.0 |  0.50 |      16.8 |                -
-B          |    Hex Master |    546 |     70.0 |  0.58 |      13.4 |          slow +3
-C          |  Curse Weaver |    422 |     67.5 |  0.47 |      13.4 |                -
-B→D        |   Grand Hexer |    872 |    135.0 |  0.69 |       9.4 |          slow +4
-B→E        |  Plague Hexer |   1311 |    132.5 |  0.74 |      13.4 |  slow +3, aoe +2
-C→F        |   Rapid Hexer |    779 |    132.5 |  0.63 |       9.4 |                -
-C→G        |    Doom Hexer |    718 |    142.5 |  0.37 |      13.4 |                -
+Path       |          Name |  Power |  Total $ |   Eff |  Interval |           Specials
+-----------+---------------+--------+----------+-------+-----------+-------------------
+T0 (base)  |         Hexer |    294 |     35.0 |  0.50 |      16.8 |                  -
+B          |    Hex Master |    546 |     70.0 |  0.58 |      13.4 |            slow +3
+C          |  Curse Weaver |    700 |     67.5 |  0.77 |      13.4 |            burn +2
+B→D        |   Grand Hexer |   1395 |    135.0 |  1.10 |       9.4 |    slow +4, aoe +2
+B→E        |  Plague Hexer |   1788 |    132.5 |  1.00 |      13.4 |  slow +2, chain +3
+C→F        |   Venom Hexer |   1608 |    132.5 |  1.29 |       9.4 |    burn +3, aoe +2
+C→G        |    Doom Hexer |    964 |    142.5 |  0.50 |      13.4 |            burn +2
 
   Oozlings — Bloater ×2 (building: 45.0 eff)
 Path       |           Name |  Power |  Total $ |   Eff |  Interval |         Specials
@@ -292,7 +292,7 @@ B          |    Hellfire Lord |   1138 |    110.0 |  0.70 |      14.8 |         
 C          |        Pyro Lord |    813 |    105.0 |  0.52 |      14.8 |          -
 B→D        |  Apocalypse Lord |   2437 |    210.0 |  0.96 |      12.1 |    burn +3
 B→E        |    Eruption Lord |   2144 |    200.0 |  0.88 |      12.1 |     aoe +1
-C→F        |    Flame Conduit |   1625 |    185.0 |  0.72 |      12.1 |     aoe +1
+C→F        |    Flame Conduit |   2000 |    170.0 |  0.97 |      12.1 |    burn +2
 C→G        |        Soul Pyre |   1219 |    170.0 |  0.59 |      12.1 |  killScale
 
   Deep — Tidecaller (building: 60.0 eff)
@@ -313,31 +313,31 @@ T0 (base)  |  Scaled Sage |    307 |     45.0 |  0.41 |      16.8 |             
 B          |   Elder Sage |    403 |     85.0 |  0.32 |      14.8 |          heal +5
 C          |   Swift Sage |    384 |     80.0 |  0.32 |      14.8 |                -
 B→D        |  Primal Sage |    566 |    160.0 |  0.29 |      12.1 |          heal +8
-B→E        |   Storm Sage |    931 |    165.0 |  0.47 |      12.1 |  aoe +2, heal +5
-C→F        |   Feral Sage |    596 |    145.0 |  0.34 |      12.1 |          heal +6
+B→E        |   Storm Sage |    732 |    165.0 |  0.37 |      12.1 |  aoe +1, heal +6
+C→F        |   Feral Sage |   1136 |    145.0 |  0.65 |      12.1 |          burn +2
 C→G        |   Alpha Sage |    576 |    155.0 |  0.31 |      12.1 |                -
 
   Geists — Necromancer (building: 52.5 eff)
-Path       |             Name |  Power |  Total $ |   Eff |  Interval |                 Specials
------------+------------------+--------+----------+-------+-----------+-------------------------
-T0 (base)  |      Necromancer |    169 |     52.5 |  0.19 |      16.8 |                        -
-B          |      Plague Mage |    273 |     82.5 |  0.22 |      15.1 |           skelSummon 15%
-C          |    Dark Sorcerer |    211 |     80.0 |  0.17 |      15.1 |                        -
-B→D        |      Necromancer |    372 |    137.5 |  0.21 |      12.9 |           skelSummon 18%
-B→E        |   Soul Harvester |    548 |    137.5 |  0.31 |      12.9 |  burn +2, skelSummon 15%
-C→F        |  Shadow Sorcerer |    397 |    135.0 |  0.23 |      12.9 |           skelSummon 20%
-C→G        |        Arch Lich |    435 |    135.0 |  0.25 |      12.9 |           skelSummon 30%
+Path       |             Name |  Power |  Total $ |   Eff |  Interval |                Specials
+-----------+------------------+--------+----------+-------+-----------+------------------------
+T0 (base)  |      Necromancer |    169 |     52.5 |  0.19 |      16.8 |                       -
+B          |      Plague Mage |    273 |     84.5 |  0.21 |      15.1 |          skelSummon 15%
+C          |    Dark Sorcerer |    211 |     82.0 |  0.17 |      15.1 |                       -
+B→D        |      Necromancer |    372 |    146.5 |  0.20 |      12.9 |          skelSummon 18%
+B→E        |   Soul Harvester |    546 |    146.5 |  0.29 |      12.9 |  aoe +2, skelSummon 25%
+C→F        |  Shadow Sorcerer |    389 |    144.0 |  0.21 |      12.9 |                       -
+C→G        |        Arch Lich |    348 |    144.0 |  0.19 |      12.9 |                       -
 
   Tenders — Grove Keeper (building: 58.0 eff)
-Path       |           Name |  Power |  Total $ |   Eff |  Interval |          Specials
------------+----------------+--------+----------+-------+-----------+------------------
-T0 (base)  |   Grove Keeper |    318 |     58.0 |  0.33 |      16.8 |                 -
-B          |      Deep Root |    519 |    103.0 |  0.33 |      15.1 |           heal +5
-C          |   Spore Weaver |    493 |    103.0 |  0.32 |      15.1 |           slow +3
-B→D        |    Fungal Hulk |    814 |    193.0 |  0.33 |      12.9 |  slow +2, heal +8
-B→E        |   Bloom Shaper |   1241 |    193.0 |  0.50 |      12.9 |   aoe +2, heal +5
-C→F        |  Mycelium Sage |    764 |    193.0 |  0.31 |      12.9 |  slow +3, heal +6
-C→G        |    Fungal Lord |    814 |    193.0 |  0.33 |      12.9 |           slow +3
+Path       |           Name |  Power |  Total $ |   Eff |  Interval |           Specials
+-----------+----------------+--------+----------+-------+-----------+-------------------
+T0 (base)  |   Grove Keeper |    318 |     58.0 |  0.33 |      16.8 |                  -
+B          |      Deep Root |    519 |    103.0 |  0.33 |      15.1 |            heal +5
+C          |   Spore Weaver |    493 |    103.0 |  0.32 |      15.1 |            slow +3
+B→D        |    Fungal Hulk |    814 |    193.0 |  0.33 |      12.9 |   slow +2, heal +8
+B→E        |   Bloom Shaper |   1241 |    193.0 |  0.50 |      12.9 |    aoe +2, heal +5
+C→F        |  Mycelium Sage |   1615 |    193.0 |  0.65 |      12.9 |  slow +4, chain +2
+C→G        |    Fungal Lord |    814 |    193.0 |  0.33 |      12.9 |            slow +3
 
 
 ## RESEARCH COSTS (cumulative eff for ONE category atk+def)
@@ -363,37 +363,37 @@ Horde     |   B→D |     15104 |     1245.9 |  290.0 |    460.0 |     2.709
 Oozlings  |   C→G |      6368 |      676.9 |  203.0 |    330.5 |     2.048
 Wild      |   B→D |     10766 |      888.1 |  290.0 |    452.0 |     1.965
 Deep      |   B→D |     11040 |      859.0 |  290.0 |    445.0 |     1.930
+Goblins   |   B→D |      6869 |      730.1 |  290.0 |    390.0 |     1.872
 Demon     |   B→D |      9291 |      766.4 |  290.0 |    475.0 |     1.613
 Crown     |   C→G |      6843 |      564.5 |  290.0 |    412.5 |     1.368
-Goblins   |   B→D |      4906 |      521.5 |  290.0 |    390.0 |     1.337
 Tenders   |   B→D |      7324 |      569.9 |  290.0 |    473.0 |     1.205
-Geists    |   B→D |      5863 |      456.2 |  290.0 |    430.0 |     1.061
+Geists    |   B→D |      5863 |      456.2 |  290.0 |    439.0 |     1.039
 
   Ranged:
 Race      |  Path |  Late Pwr |  Late Rate |  Res $ |  Total $ |  Late Eff
 ----------+-------+-----------+------------+--------+----------+----------
 Deep      |   C→G |      6406 |      498.4 |  290.0 |    442.0 |     1.128
-Horde     |   B→E |      5922 |      488.5 |  290.0 |    465.0 |     1.051
+Horde     |   B→E |      5975 |      492.9 |  290.0 |    465.0 |     1.060
 Wild      |   C→G |      5593 |      461.3 |  290.0 |    451.0 |     1.023
-Tenders   |   B→E |      4516 |      351.4 |  290.0 |    387.5 |     0.907
+Tenders   |   B→D |      3773 |      293.6 |  290.0 |    387.5 |     0.758
 Oozlings  |   C→G |      2751 |      249.6 |  203.0 |    337.5 |     0.740
 Crown     |   B→E |      3282 |      270.8 |  290.0 |    396.5 |     0.683
 Demon     |   B→D |      3645 |      300.7 |  290.0 |    468.0 |     0.642
 Goblins   |   B→D |      2212 |      235.2 |  290.0 |    417.5 |     0.563
-Geists    |   B→D |      1891 |      147.1 |  290.0 |    415.0 |     0.355
+Geists    |   B→D |      1891 |      147.1 |  290.0 |    424.0 |     0.347
 
   Caster:
 Race      |  Path |  Late Pwr |  Late Rate |  Res $ |  Total $ |  Late Eff
 ----------+-------+-----------+------------+--------+----------+----------
 Crown     |   C→G |      5581 |      460.4 |  290.0 |    425.0 |     1.083
 Oozlings  |   C→F |      3260 |      346.5 |  203.0 |    348.0 |     0.996
+Goblins   |   C→F |      3518 |      374.0 |  290.0 |    422.5 |     0.885
 Demon     |   B→D |      5332 |      439.8 |  290.0 |    500.0 |     0.880
 Horde     |   B→E |      3261 |      269.0 |  290.0 |    395.0 |     0.681
 Deep      |   C→F |      3328 |      258.9 |  290.0 |    437.5 |     0.592
-Goblins   |   B→E |      2867 |      213.3 |  290.0 |    422.5 |     0.505
-Tenders   |   B→E |      2715 |      211.2 |  290.0 |    483.0 |     0.437
-Wild      |   B→E |      2036 |      167.9 |  290.0 |    455.0 |     0.369
-Geists    |   B→E |      1198 |       93.2 |  290.0 |    427.5 |     0.218
+Tenders   |   C→F |      3534 |      274.9 |  290.0 |    483.0 |     0.569
+Wild      |   C→F |      2486 |      205.0 |  290.0 |    435.0 |     0.471
+Geists    |   B→E |      1195 |       93.0 |  290.0 |    436.5 |     0.213
 
 
 ## TOWER VALUE
@@ -435,11 +435,11 @@ Tenders   |    26.5 |   93s |    35.0 |  134s |    48.0 |  183s |    64.5 |  246
     2. Oozlings   2.048
     3. Wild       1.965
     4. Deep       1.930
-    5. Demon      1.613
-    6. Crown      1.368
-    7. Goblins    1.337
+    5. Goblins    1.872
+    6. Demon      1.613
+    7. Crown      1.368
     8. Tenders    1.205
-    9. Geists     1.061
+    9. Geists     1.039
 
   Cheapest Melee Opening:
     1. Goblins    15.0 eff

@@ -255,7 +255,7 @@ export const UNIT_STATS: Record<Race, RaceUnits> = {
       name: 'Knifer', hp: 29, damage: 10, attackSpeed: 1.0, moveSpeed: 4.5, range: 6, ascii: '~>',
     },
     [BuildingType.CasterSpawner]: {
-      name: 'Hexer', hp: 38, damage: 17, attackSpeed: 2.2, moveSpeed: 3.5, range: 7, ascii: '{G}',
+      name: 'Hexer', hp: 38, damage: 19, attackSpeed: 2.2, moveSpeed: 3.5, range: 7, ascii: '{G}',
     },
   },
   // === OOZLINGS (Slimes) — Adaptive Swarm ===
@@ -409,11 +409,13 @@ export interface UpgradeSpecial {
   spawnCount?: number;          // override base spawnCount (e.g. Spider Brood=3, Spider Swarm=5)
   goldOnKill?: number;          // earn N gold when this unit kills an enemy
   goldOnDeath?: number;         // earn N gold when this unit dies
-  explodeOnDeath?: boolean;     // Oozlings baneling: explode on death dealing AoE damage
-  explodeDamage?: number;       // damage dealt by explosion
-  explodeRadius?: number;       // explosion radius in tiles
+  explodeOnDeath?: boolean;     // (unused — kept for future use)
+  suicideAttack?: boolean;      // Oozlings Boomling: explode on first melee attack, killing self (AoE damage)
+  explodeDamage?: number;       // damage dealt by explosion (used by suicideAttack)
+  explodeRadius?: number;       // explosion radius in tiles (used by suicideAttack)
   skeletonSummonChance?: number; // Geists caster: chance (0-1) to summon mini-skeleton on nearby death
   crownMage?: boolean;           // Crown caster mage branch: fire AoE damage instead of shielding
+  shieldSelf?: boolean;           // Crown Battle Magus: applies shield to self on attack
   // Siege unit properties
   isSiegeUnit?: boolean;         // marks this as a siege unit (targets buildings, slow, long range, AoE)
   buildingDamageMult?: number;   // damage multiplier vs buildings on projectile impact (e.g. 4.0 = 4x)
@@ -488,7 +490,7 @@ export const UPGRADE_TREES: Record<Race, Partial<Record<BuildingType, Record<Upg
       C: { name: 'War Mage', desc: 'AoE damage, +40% dmg', damageMult: 1.40, special: { crownMage: true, aoeRadiusBonus: 1 }, spawnSpeedMult: 0.88, cost: { gold: 10, wood: 25, meat: 0 } },
       D: { name: 'Arch Bishop', desc: '+50% HP, +25% dmg, shield +3 targets', hpMult: 1.50, damageMult: 1.25, special: { shieldTargetBonus: 3 }, spawnSpeedMult: 0.82, cost: { gold: 85, wood: 10, meat: 0 } },
       E: { name: 'War Cleric', desc: '+50% dmg, shield +25 absorb', damageMult: 1.50, special: { shieldAbsorbBonus: 25 }, spawnSpeedMult: 0.82, cost: { gold: 70, wood: 25, meat: 0 } },
-      F: { name: 'Battle Magus', desc: '+50% dmg, burn on hit', damageMult: 1.50, special: { crownMage: true, aoeRadiusBonus: 2, extraBurnStacks: 1 }, spawnSpeedMult: 0.82, cost: { gold: 20, wood: 50, meat: 0 } },
+      F: { name: 'Battle Magus', desc: '-30% range, +80% HP, +30% dmg, shields self, burn', rangeMult: 0.70, hpMult: 1.80, damageMult: 1.30, special: { crownMage: true, aoeRadiusBonus: 1, extraBurnStacks: 1, shieldSelf: true }, spawnSpeedMult: 0.82, cost: { gold: 20, wood: 50, meat: 0 } },
       G: { name: 'Archmage', desc: '+80% dmg, large AoE, burn', damageMult: 1.80, rangeMult: 1.25, special: { crownMage: true, aoeRadiusBonus: 3, extraBurnStacks: 2 }, spawnSpeedMult: 0.82, cost: { gold: 30, wood: 60, meat: 0 } },
     },
     // Tower B-path = gold-heavy (fortification), C-path = wood-heavy (range/speed)
@@ -557,49 +559,49 @@ export const UPGRADE_TREES: Record<Race, Partial<Record<BuildingType, Record<Upg
     [BuildingType.MeleeSpawner]: {
       B: { name: 'Troll Brute', desc: '+30% HP, +15% dmg', hpMult: 1.30, damageMult: 1.15, spawnSpeedMult: 0.80, cost: { gold: 10, wood: 25, meat: 0 } },
       C: { name: 'Quick Sticker', desc: '+25% speed, faster atk', moveSpeedMult: 1.25, attackSpeedMult: 0.85, spawnSpeedMult: 0.80, cost: { gold: 55, wood: 5, meat: 0 } },
-      D: { name: 'Troll Smasher', desc: '+40% HP, +30% dmg, +2 burn', hpMult: 1.40, damageMult: 1.30, special: { extraBurnStacks: 2 }, spawnSpeedMult: 0.70, cost: { gold: 20, wood: 45, meat: 0 } },
-      E: { name: 'Troll Warlord', desc: '+35% HP, +40% dmg, +2 slow', hpMult: 1.35, damageMult: 1.40, special: { extraSlowStacks: 2 }, cost: { gold: 30, wood: 50, meat: 0 } },
-      F: { name: 'Shadow Sticker', desc: '+30% dmg, +35% speed, 30% dodge', damageMult: 1.30, moveSpeedMult: 1.35, special: { dodgeChance: 0.30 }, spawnSpeedMult: 0.70, cost: { gold: 90, wood: 10, meat: 0 } },
-      G: { name: 'Goblin Ace', desc: '+55% dmg, faster atk, dodge 15%', damageMult: 1.55, attackSpeedMult: 0.80, special: { dodgeChance: 0.15 }, cost: { gold: 110, wood: 15, meat: 0 } },
+      D: { name: 'Troll Smasher', desc: '+40% HP, +30% dmg, +2 burn', hpMult: 1.40, damageMult: 1.30, special: { extraBurnStacks: 2 }, spawnSpeedMult: 0.70, cost: { gold: 18, wood: 40, meat: 0 } },
+      E: { name: 'Troll Warlord', desc: '+35% HP, +40% dmg, +2 slow', hpMult: 1.35, damageMult: 1.40, special: { extraSlowStacks: 2 }, cost: { gold: 27, wood: 45, meat: 0 } },
+      F: { name: 'Shadow Sticker', desc: '+30% dmg, +35% speed, 30% dodge', damageMult: 1.30, moveSpeedMult: 1.35, special: { dodgeChance: 0.30 }, spawnSpeedMult: 0.70, cost: { gold: 81, wood: 9, meat: 0 } },
+      G: { name: 'Goblin Ace', desc: '+55% dmg, faster atk, dodge 15%', damageMult: 1.55, attackSpeedMult: 0.80, special: { dodgeChance: 0.15 }, cost: { gold: 99, wood: 14, meat: 0 } },
     },
     // Ranged B-path = gold-heavy (damage/burn), C-path = wood-heavy (utility→siege)
     [BuildingType.RangedSpawner]: {
       B: { name: 'Venom Knifer', desc: '+25% dmg, +2 burn', damageMult: 1.25, special: { extraBurnStacks: 2 }, spawnSpeedMult: 0.80, cost: { gold: 50, wood: 10, meat: 0 } },
       C: { name: 'War Boar', desc: 'Faster atk, +20% range', attackSpeedMult: 0.80, rangeMult: 1.20, spawnSpeedMult: 0.80, cost: { gold: 15, wood: 25, meat: 0 } },
-      D: { name: 'Plague Knifer', desc: '+35% dmg, +3 burn', damageMult: 1.35, special: { extraBurnStacks: 3 }, spawnSpeedMult: 0.70, cost: { gold: 100, wood: 15, meat: 0 } },
-      E: { name: 'Fan Knifer', desc: 'Fires 2 projectiles', special: { multishotCount: 1, multishotDamagePct: 0.70 }, cost: { gold: 80, wood: 20, meat: 0 } },
-      F: { name: 'King Boar', desc: '+30% speed, 25% dodge', moveSpeedMult: 1.30, special: { dodgeChance: 0.25 }, spawnSpeedMult: 0.70, cost: { gold: 15, wood: 35, meat: 0 } },
-      G: { name: 'Goblin Mortar', desc: 'SIEGE: 13 range, slow, devastating vs buildings', hpMult: 0.50, damageMult: 2.40, attackSpeedMult: 3.20, moveSpeedMult: 0.38, rangeMult: 1.88, spawnSpeedMult: 0.82, special: { isSiegeUnit: true, buildingDamageMult: 4.0, splashRadius: 3, splashDamagePct: 0.65, extraBurnStacks: 1 }, cost: { gold: 30, wood: 60, meat: 0 } },
+      D: { name: 'Plague Knifer', desc: '+35% dmg, +3 burn', damageMult: 1.35, special: { extraBurnStacks: 3 }, spawnSpeedMult: 0.70, cost: { gold: 90, wood: 14, meat: 0 } },
+      E: { name: 'Fan Knifer', desc: 'Fires 2 projectiles', special: { multishotCount: 1, multishotDamagePct: 0.70 }, cost: { gold: 72, wood: 18, meat: 0 } },
+      F: { name: 'King Boar', desc: '+30% speed, 25% dodge', moveSpeedMult: 1.30, special: { dodgeChance: 0.25 }, spawnSpeedMult: 0.70, cost: { gold: 14, wood: 32, meat: 0 } },
+      G: { name: 'Goblin Mortar', desc: 'SIEGE: 13 range, slow, devastating vs buildings', hpMult: 0.50, damageMult: 2.40, attackSpeedMult: 3.20, moveSpeedMult: 0.38, rangeMult: 1.88, spawnSpeedMult: 0.82, special: { isSiegeUnit: true, buildingDamageMult: 4.0, splashRadius: 3, splashDamagePct: 0.65, extraBurnStacks: 1 }, cost: { gold: 27, wood: 54, meat: 0 } },
     },
     // Caster B-path = wood-heavy (control/slow), C-path = gold-heavy (burn/AoE damage)
     [BuildingType.CasterSpawner]: {
       B: { name: 'Hex Master', desc: '+25% HP, +20% dmg, +3 slow', hpMult: 1.25, damageMult: 1.20, special: { extraSlowStacks: 3 }, spawnSpeedMult: 0.80, cost: { gold: 10, wood: 30, meat: 0 } },
       C: { name: 'Curse Weaver', desc: '+20% dmg, +2 burn, faster atk', damageMult: 1.20, attackSpeedMult: 0.80, special: { extraBurnStacks: 2 }, spawnSpeedMult: 0.80, cost: { gold: 55, wood: 5, meat: 0 } },
-      D: { name: 'Grand Hexer', desc: '+50% dmg, +4 slow, +2 AoE', damageMult: 1.50, special: { extraSlowStacks: 4, aoeRadiusBonus: 2 }, spawnSpeedMult: 0.70, cost: { gold: 20, wood: 55, meat: 0 } },
-      E: { name: 'Plague Hexer', desc: '+40% dmg, chain 3, +2 slow', damageMult: 1.40, special: { extraChainTargets: 3, extraSlowStacks: 2 }, cost: { gold: 25, wood: 50, meat: 0 } },
-      F: { name: 'Venom Hexer', desc: '+40% dmg, +3 burn, +2 AoE', damageMult: 1.40, special: { extraBurnStacks: 3, aoeRadiusBonus: 2 }, spawnSpeedMult: 0.70, cost: { gold: 110, wood: 10, meat: 0 } },
-      G: { name: 'Doom Hexer', desc: '+60% dmg, applies vulnerable, +30% range', damageMult: 1.60, special: { applyVulnerable: true }, rangeMult: 1.30, cost: { gold: 120, wood: 15, meat: 0 } },
+      D: { name: 'Grand Hexer', desc: '+50% dmg, +4 slow, +2 AoE', damageMult: 1.50, special: { extraSlowStacks: 4, aoeRadiusBonus: 2 }, spawnSpeedMult: 0.70, cost: { gold: 18, wood: 50, meat: 0 } },
+      E: { name: 'Plague Hexer', desc: '+40% dmg, chain 3, +2 slow', damageMult: 1.40, special: { extraChainTargets: 3, extraSlowStacks: 2 }, cost: { gold: 23, wood: 45, meat: 0 } },
+      F: { name: 'Venom Hexer', desc: '+40% dmg, +3 burn, +2 AoE', damageMult: 1.40, special: { extraBurnStacks: 3, aoeRadiusBonus: 2 }, spawnSpeedMult: 0.70, cost: { gold: 99, wood: 9, meat: 0 } },
+      G: { name: 'Doom Hexer', desc: '+60% dmg, applies vulnerable, +30% range', damageMult: 1.60, special: { applyVulnerable: true }, rangeMult: 1.30, cost: { gold: 108, wood: 14, meat: 0 } },
     },
     // Tower B-path = wood-heavy (burn/tank), C-path = gold-heavy (speed/range)
     [BuildingType.Tower]: {
       B: { name: 'Goblin Fort', desc: '+50% HP, +30% dmg', hpMult: 1.50, damageMult: 1.30, cost: { gold: 10, wood: 25, meat: 0 } },
       C: { name: 'Rapid Fort', desc: 'Much faster, +range', attackSpeedMult: 0.70, special: { towerRangeBonus: 1 }, cost: { gold: 50, wood: 5, meat: 0 } },
-      D: { name: 'Poison Fort', desc: '+80% HP, +2 burn', hpMult: 1.80, special: { extraBurnStacks: 2 }, cost: { gold: 20, wood: 50, meat: 0 } },
-      E: { name: 'Venom Fort', desc: '+40% dmg, +3 burn', damageMult: 1.40, special: { extraBurnStacks: 3 }, cost: { gold: 25, wood: 45, meat: 0 } },
-      F: { name: 'Blitz Fort', desc: 'Very fast, +2 range', attackSpeedMult: 0.55, special: { towerRangeBonus: 2 }, cost: { gold: 90, wood: 10, meat: 0 } },
-      G: { name: 'Plague Fort', desc: '+55% dmg, +3 range', damageMult: 1.55, special: { towerRangeBonus: 3 }, cost: { gold: 100, wood: 15, meat: 0 } },
+      D: { name: 'Poison Fort', desc: '+80% HP, +2 burn', hpMult: 1.80, special: { extraBurnStacks: 2 }, cost: { gold: 18, wood: 45, meat: 0 } },
+      E: { name: 'Venom Fort', desc: '+40% dmg, +3 burn', damageMult: 1.40, special: { extraBurnStacks: 3 }, cost: { gold: 23, wood: 40, meat: 0 } },
+      F: { name: 'Blitz Fort', desc: 'Very fast, +2 range', attackSpeedMult: 0.55, special: { towerRangeBonus: 2 }, cost: { gold: 81, wood: 9, meat: 0 } },
+      G: { name: 'Plague Fort', desc: '+55% dmg, +3 range', damageMult: 1.55, special: { towerRangeBonus: 3 }, cost: { gold: 90, wood: 14, meat: 0 } },
     },
   },
   // ============ OOZLINGS (Slimes) — Swarm & Haste [WIDE] ============
   [Race.Oozlings]: {
-    // Melee B-path = gold-heavy (tank), C-path = meat-heavy (baneling/explode)
+    // Melee B-path = gold-heavy (tank), C-path = meat-heavy (boomling/suicide AoE)
     [BuildingType.MeleeSpawner]: {
       B: { name: 'Tough Glob', desc: '+35% HP, +20% dmg', hpMult: 1.35, damageMult: 1.20, spawnSpeedMult: 0.80, cost: { gold: 50, wood: 0, meat: 5 } },
-      C: { name: 'Baneling', desc: '+40% speed, explodes on death', moveSpeedMult: 1.40, spawnSpeedMult: 0.80, special: { explodeOnDeath: true, explodeDamage: 35, explodeRadius: 3 }, cost: { gold: 10, wood: 0, meat: 25 } },
+      C: { name: 'Boomling', desc: '+40% speed, suicide AoE attack', moveSpeedMult: 1.40, spawnSpeedMult: 0.80, special: { suicideAttack: true, explodeDamage: 35, explodeRadius: 3 }, cost: { gold: 10, wood: 0, meat: 25 } },
       D: { name: 'Armored Glob', desc: '+55% HP, 15% dmg reduction', hpMult: 1.55, special: { damageReductionPct: 0.15 }, spawnSpeedMult: 0.70, cost: { gold: 95, wood: 0, meat: 10 } },
       E: { name: 'Acid Glob', desc: '+40% dmg, +2 burn', damageMult: 1.40, special: { extraBurnStacks: 2 }, cost: { gold: 85, wood: 0, meat: 20 } },
-      F: { name: 'Volatile', desc: '+50% speed, big explosion', moveSpeedMult: 1.50, spawnSpeedMult: 0.70, special: { explodeOnDeath: true, explodeDamage: 60, explodeRadius: 4 }, cost: { gold: 20, wood: 0, meat: 50 } },
-      G: { name: 'Detonator', desc: 'Huge explosion, +3 burn', moveSpeedMult: 1.30, spawnSpeedMult: 0.70, special: { explodeOnDeath: true, explodeDamage: 70, explodeRadius: 5, extraBurnStacks: 3 }, cost: { gold: 25, wood: 0, meat: 60 } },
+      F: { name: 'Volatile', desc: '+50% speed, big suicide AoE', moveSpeedMult: 1.50, spawnSpeedMult: 0.70, special: { suicideAttack: true, explodeDamage: 60, explodeRadius: 4 }, cost: { gold: 20, wood: 0, meat: 50 } },
+      G: { name: 'Detonator', desc: 'Huge suicide AoE, +3 burn', moveSpeedMult: 1.30, spawnSpeedMult: 0.70, special: { suicideAttack: true, explodeDamage: 70, explodeRadius: 5, extraBurnStacks: 3 }, cost: { gold: 25, wood: 0, meat: 60 } },
     },
     // Ranged B-path = meat-heavy (brawler), C-path = gold-heavy (speed→siege)
     [BuildingType.RangedSpawner]: {
@@ -1091,6 +1093,10 @@ export function getResearchUpgradeCost(id: string, level: number, race: Race): {
     return { gold: 0, wood: 0, meat: 0, deathEssence: cost };
   }
   if (def.oneShot) {
+    // Goblins: everything is cheap — racial one-shots cost a gold+wood mix at half the normal rate
+    if (race === Race.Goblins && id.startsWith('goblins_') && def.type !== 'race_ability') {
+      return { gold: 40, wood: 30, meat: 0 }; // 70 raw = 50 eff (vs 150g = 75 eff for other gold races)
+    }
     // Demon racial one-shots: melee/ranged/caster cost mana; ability tab costs resources
     if (race === Race.Demon && id.startsWith('demon_') && def.type !== 'race_ability') {
       const demonManaCosts: Record<string, number> = {
@@ -1109,7 +1115,7 @@ export function getResearchUpgradeCost(id: string, level: number, race: Race): {
       const abilityCosts: Record<string, { gold: number; wood: number; meat: number; souls?: number; deathEssence?: number }> = {
         // Crown (gold economy) — Royal Forge is narrow, the other 3 are army/economy-wide
         crown_ability_1: { gold: 360, wood: 0, meat: 0 },   // Swift Workers: +40% worker speed — 180 eff, huge economy
-        crown_ability_2: { gold: 80,  wood: 0, meat: 0 },   // Royal Forge: foundry no wood — 40 eff, very narrow
+        crown_ability_2: { gold: 20,  wood: 80, meat: 0 },  // Royal Forge: foundry no wood — 100 eff, very narrow
         crown_ability_3: { gold: 400, wood: 0, meat: 0 },   // Aegis Wrath: +25% dmg while shielded — 200 eff, army-wide
         crown_ability_4: { gold: 360, wood: 0, meat: 0 },   // Timber Surplus: +40% wood income — 180 eff, huge economy
 
@@ -1119,11 +1125,11 @@ export function getResearchUpgradeCost(id: string, level: number, race: Race): {
         horde_ability_3: { gold: 200, wood: 0, meat: 40 },  // Wide Aura: doubled range — 140 eff, force multiplier
         horde_ability_4: { gold: 400, wood: 0, meat: 50 },  // Trophy Hunter: +2%/kill snowball — 250 eff, infinite scaling
 
-        // Goblins (gold economy) — Elixir Mastery is #1 ability in the game
-        goblins_ability_1: { gold: 240, wood: 0, meat: 0 }, // Quick Brew: 33% faster potions — 120 eff
-        goblins_ability_2: { gold: 120, wood: 0, meat: 0 }, // Cower Reflexes: dodge while fleeing — 60 eff, weak
-        goblins_ability_3: { gold: 480, wood: 0, meat: 0 }, // Potent Potions: 2x effect — 240 eff, elite
-        goblins_ability_4: { gold: 560, wood: 0, meat: 0 }, // Elixir Mastery: permanent potions — 280 eff, game-changing
+        // Goblins (gold+wood) — everything cheap, mixed resources. Elixir Mastery still premium
+        goblins_ability_1: { gold: 60,  wood: 50,  meat: 0 }, // Quick Brew: 33% faster potions — 80 eff
+        goblins_ability_2: { gold: 30,  wood: 30,  meat: 0 }, // Cower Reflexes: dodge while fleeing — 45 eff, weak
+        goblins_ability_3: { gold: 120, wood: 100, meat: 0 }, // Potent Potions: 2x effect — 160 eff, elite
+        goblins_ability_4: { gold: 140, wood: 120, meat: 0 }, // Elixir Mastery: permanent potions — 190 eff, game-changing
 
         // Oozlings (deathEssence) — Ooze Vitality is huge on swarm, Death Burst is reactive
         oozlings_ability_1: { gold: 0, wood: 0, meat: 0, deathEssence: 60 },  // Spitter Mound — moderate
@@ -1174,6 +1180,11 @@ export function getResearchUpgradeCost(id: string, level: number, race: Race): {
   // Infinite scaling: 80 base x 1.5^level
   // Gold races pay in gold (80g = 40 eff). Non-gold races pay half raw in wood/meat
   // so effective cost is equal (e.g. 20w+20s = 40 eff ≈ 80g/2 = 40 eff).
+  // Goblins: cheap identity — 50% of normal, split gold+wood
+  if (race === Race.Goblins) {
+    const base = Math.round(40 * Math.pow(1.5, level)); // half the normal 80 base
+    return { gold: base, wood: Math.round(base * 0.4), meat: 0 }; // gold + some wood
+  }
   const cost = Math.round(80 * Math.pow(1.5, level));
   const used = getRaceUsedResources(race);
   const half = Math.round(cost / 2); // non-gold races pay half raw (wood/meat worth 2× gold)

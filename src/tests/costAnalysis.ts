@@ -156,7 +156,7 @@ function computeUnitPower(race: Race, btype: BuildingType, upgradePath: string[]
   const shieldAbsorbBonus = special.shieldAbsorbBonus ?? 0;
   const healBonus = special.healBonus ?? 0;
   const chainHeal = special.chainHeal ?? 0;
-  const explodeOnDeath = special.explodeOnDeath ?? false;
+  const suicideAttack = special.suicideAttack ?? false;
   const explodeDamage = special.explodeDamage ?? 0;
   const explodeRadius = special.explodeRadius ?? 0;
   const auraDmg = special.auraDamageBonus ?? 0;
@@ -232,12 +232,12 @@ function computeUnitPower(race: Race, btype: BuildingType, upgradePath: string[]
   if (killScaling) { effDps *= 1.25; notes.push('killScale'); }
   if (soulHarvest) { effHp *= 1.3; effDps *= 1.3; notes.push('soulHarvest'); }
 
-  // --- Explode on death ---
+  // --- Suicide attack ---
   let explodePwr = 0;
-  if (explodeOnDeath && explodeDamage > 0) {
+  if (suicideAttack && explodeDamage > 0) {
     const estTgt = Math.min(1 + explodeRadius * 0.6, 4);
     explodePwr = explodeDamage * estTgt;
-    notes.push(`explode ${explodeDamage}×${estTgt.toFixed(1)}`);
+    notes.push(`suicide ${explodeDamage}×${estTgt.toFixed(1)}`);
   }
 
   // --- Siege ---

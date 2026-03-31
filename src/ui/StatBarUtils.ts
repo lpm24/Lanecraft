@@ -129,15 +129,18 @@ export function drawStatVisualIcon(
   ui: UIAssets,
   key: StatVisualKey,
   x: number, y: number, size: number,
+  noBg = false,
 ): boolean {
   const visual = getStatVisual(key);
-  // Draw a dark rounded background for contrast
-  ctx.fillStyle = 'rgba(0,0,0,0.55)';
-  ctx.beginPath();
-  ctx.roundRect(x, y, size, size, 3);
-  ctx.fill();
+  if (!noBg) {
+    // Draw a dark rounded background for contrast
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.beginPath();
+    ctx.roundRect(x, y, size, size, 3);
+    ctx.fill();
+  }
   // Draw the icon 5% smaller, centered within the background
-  const iconSize = size * 0.95;
+  const iconSize = noBg ? size : size * 0.95;
   const offset = (size - iconSize) / 2;
   const ix = x + offset;
   const iy = y + offset;
@@ -307,6 +310,7 @@ export function formatSpecialBonuses(special: UpgradeSpecial): StatTextLine[] {
   if (special.guaranteedHaste) lines.push({ key: 'haste', text: 'Haste on hit', isBuff: true });
   if (special.shieldTargetBonus) lines.push({ key: 'shield', text: `Shield +${special.shieldTargetBonus} targets`, isBuff: true });
   if (special.shieldAbsorbBonus) lines.push({ key: 'shield', text: `Shield +${special.shieldAbsorbBonus} absorb`, isBuff: true });
+  if (special.shieldSelf) lines.push({ key: 'shield', text: 'Shields self on attack', isBuff: true });
   if (special.crownMage) lines.push({ key: 'aoe', text: 'AoE damage mode', isBuff: true });
   if (special.aoeRadiusBonus) lines.push({ key: 'aoe', text: `+${special.aoeRadiusBonus} AoE radius`, isBuff: true });
   if (special.splashRadius) lines.push({ key: 'splash', text: `Splash ${special.splashRadius}t at ${Math.round((special.splashDamagePct ?? 0.5) * 100)}%`, isBuff: true });
@@ -317,7 +321,7 @@ export function formatSpecialBonuses(special: UpgradeSpecial): StatTextLine[] {
   if (special.reviveHpPct) lines.push({ key: 'revive', text: `Revive at ${Math.round(special.reviveHpPct * 100)}% HP`, isBuff: true });
   if (special.cleaveTargets) lines.push({ key: 'cleave', text: `Cleave ${special.cleaveTargets} targets`, isBuff: true });
   if (special.hopAttack) lines.push({ key: 'move-speed', text: 'Leap attack + AoE slow', isBuff: true });
-  if (special.explodeOnDeath) lines.push({ key: 'explode', text: `Explode on death (${special.explodeDamage ?? 0} dmg, ${special.explodeRadius ?? 0}t)`, isBuff: true });
+  if (special.suicideAttack) lines.push({ key: 'explode', text: `Suicide attack (${special.explodeDamage ?? 0} dmg, ${special.explodeRadius ?? 0}t AoE)`, isBuff: true });
   if (special.skeletonSummonChance) lines.push({ key: 'summon', text: `${Math.round(special.skeletonSummonChance * 100)}% summon chance`, isBuff: true });
   if (special.soulHarvest) lines.push({ key: 'summon', text: `Grows from nearby deaths (max ${special.soulMaxStacks ?? 20})`, isBuff: true });
   if (special.killScaling) lines.push({ key: 'kill-scale', text: `+${Math.round((special.killDmgPct ?? 0.05) * 100)}% dmg/kill (max ${special.killMaxStacks ?? 10})`, isBuff: true });

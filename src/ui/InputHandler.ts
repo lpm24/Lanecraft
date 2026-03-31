@@ -5,7 +5,7 @@ import {
   BuildingType, TILE_SIZE, Lane,
   HarvesterAssignment, Team, Race, UnitState, NUKE_RADIUS,
   AbilityTargetMode, HQ_WIDTH, HQ_HEIGHT, StatusEffect, StatusType,
-  ResearchUpgradeState,
+  ResearchUpgradeState, isAbilityBuilding,
 } from '../simulation/types';
 import { getBuildGridOrigin, getTeamAlleyOrigin, getHutGridOrigin, getHQPosition, getBaseGoldPosition } from '../simulation/GameState';
 import { RACE_BUILDING_COSTS, UNIT_STATS, TOWER_STATS, RACE_COLORS, RACE_ABILITY_INFO, RACE_ABILITY_DEFS, TOWER_COST_SCALE, getUpgradeNodeDef, ABILITY_COST_MODIFIERS } from '../simulation/data';
@@ -147,7 +147,7 @@ export class InputHandler {
   private seedPopup = new SeedPopup();
   private trayTick = 0;
   private trayBldgSpriteCache = new Map<string, HTMLImageElement | null>();
-  /** Last observed input type — updated on real mouse/touch events. */
+  /** Last observed input type — updated via pointerType on pointermove/pointerdown events. */
   private lastInputType: 'mouse' | 'touch' = ('ontouchstart' in window || navigator.maxTouchPoints > 0) ? 'touch' : 'mouse';
   /** Whether to use touch interaction mode (tap-to-confirm, no hover tooltips, hide key hints). */
   private get isTouchDevice(): boolean {
@@ -850,7 +850,6 @@ export class InputHandler {
   private setupMouse(): void {
     const sig = { signal: this.abortController.signal };
     this.canvas.addEventListener('mousemove', (e) => {
-      this.lastInputType = 'mouse';
       const rect = this.canvas.getBoundingClientRect();
       this.pointerX = e.clientX - rect.left;
       this.pointerY = e.clientY - rect.top;
@@ -912,6 +911,9 @@ export class InputHandler {
     }, sig);
 
     this.canvas.addEventListener('pointermove', (e) => {
+      // pointerType reliably distinguishes real mouse from touch-generated events
+      if (e.pointerType === 'mouse') this.lastInputType = 'mouse';
+      else if (e.pointerType === 'touch') this.lastInputType = 'touch';
       if (!this.settingsSliderDrag) return;
       const rect = this.canvas.getBoundingClientRect();
       const cx = e.clientX - rect.left;
@@ -2577,7 +2579,7 @@ export class InputHandler {
       // Escalating tower cost: each tower after the first costs TOWER_COST_SCALE more
       let cost = baseCost;
       if (item.type === BuildingType.Tower && !isFirstTowerFree) {
-        const myTowers = this.game.state.buildings.filter(b => b.playerId === this.pid && b.type === BuildingType.Tower && !b.isSeed).length;
+        const myTowers = this.game.state.buildings.filter(b => b.playerId === this.pid && b.type === BuildingType.Tower && !isAbilityBuilding(b)).length;
         const mult = Math.pow(TOWER_COST_SCALE, Math.max(0, myTowers - 1));
         cost = {
           gold: Math.floor(baseCost.gold * mult),

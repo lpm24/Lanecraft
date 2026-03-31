@@ -691,7 +691,7 @@ export class UnitGalleryScene implements Scene {
     const treeAreaW = contentW - (arrowBtnSize + 4) * 2;
 
     this.upgradeNodePositions = [];
-    const treeEndY = this.renderUpgradeTree(ctx, treeAreaX, headerY, treeAreaW, race, bt, tree);
+    const treeEndY = this.renderUpgradeTree(ctx, treeAreaX, headerY, treeAreaW, race, bt, tree, barX, contentW);
 
     // Left/right arrow buttons — vertically centered on the tree
     const treeMidY = (headerY + treeEndY) / 2;
@@ -747,110 +747,141 @@ export class UnitGalleryScene implements Scene {
       ctx.fill();
     };
 
-    // ========== SECTION 1: Name + Sprite + ELO ==========
-    const sec1Start = y;
-    y += secPad;
+    // ========== SECTION 1: Name + Sprite + Costs + ELO ==========
+    {
+      const spriteAreaH = 90;
+      const sec1H = secPad + 28 + spriteAreaH + 4 + 18 + secPad;
+      drawSectionBg(y, sec1H, 0.3);
+      y += secPad;
 
-    // Unit name (big)
-    const tierColors = ['#e0e0e0', '#4fc3f7', '#b388ff'];
-    ctx.fillStyle = tierColors[upgradeTier] ?? '#e0e0e0';
-    ctx.font = 'bold 22px monospace';
-    ctx.textAlign = 'center';
-    ctx.fillText(displayName, panelX + panelW / 2, y + 18);
-    y += 32;
-
-    // Upgrade description
-    if (nodeDef?.desc) {
-      ctx.fillStyle = '#8c8';
-      ctx.font = '13px monospace';
+      // Unit name (big)
+      const tierColors = ['#e0e0e0', '#4fc3f7', '#b388ff'];
+      ctx.fillStyle = tierColors[upgradeTier] ?? '#e0e0e0';
+      ctx.font = 'bold 22px monospace';
       ctx.textAlign = 'center';
-      ctx.fillText(nodeDef.desc, panelX + panelW / 2, y + 10);
-      y += 22;
-    }
+      ctx.fillText(displayName, panelX + panelW / 2, y + 18);
+      y += 28;
 
-    // Large Sprite
-    const spriteAreaH = 130;
-    const spriteCX = panelX + panelW / 2;
-    const spriteCY = y + spriteAreaH / 2;
-    y += spriteAreaH + 8;
+      // 3-column layout: building (left) | unit (center) | costs (right)
+      const colW = contentW / 3;
+      const bldgCX = panelX + innerPad + colW * 0.5;
+      const spriteCX = panelX + innerPad + colW * 1.5;
+      const spriteCY = y + spriteAreaH / 2;
+      const feetY = spriteCY + 15;
 
-    // ELO
-    const eloNode = nodeKey === 'A' ? undefined : nodeKey;
-    const elo = getElo(race, cat, eloNode);
-    const eloColor = elo > ELO_DEFAULT ? '#ffe082' : elo < ELO_DEFAULT ? '#ef9a9a' : '#888';
-    ctx.fillStyle = eloColor;
-    ctx.font = 'bold 13px monospace';
-    ctx.textAlign = 'center';
-    ctx.fillText(`ELO ${elo}`, panelX + panelW / 2, y + 10);
-    y += 20 + secPad;
-
-    y = sec1Start;
-    const sec1H = secPad + 32 + (nodeDef?.desc ? 22 : 0) + 130 + 8 + 20 + secPad;
-    drawSectionBg(y, sec1H, 0.3);
-    y += secPad;
-
-    // Re-draw name
-    ctx.fillStyle = tierColors[upgradeTier] ?? '#e0e0e0';
-    ctx.font = 'bold 22px monospace';
-    ctx.textAlign = 'center';
-    ctx.fillText(displayName, panelX + panelW / 2, y + 18);
-    y += 32;
-
-    if (nodeDef?.desc) {
-      ctx.fillStyle = '#8c8';
-      ctx.font = '13px monospace';
-      ctx.textAlign = 'center';
-      ctx.fillText(nodeDef.desc, panelX + panelW / 2, y + 10);
-      y += 22;
-    }
-
-    // Re-draw sprite
-    const spriteData = this.sprites.getUnitSprite(race, cat, 0, false, nodeKey !== 'A' ? nodeKey : undefined);
-    if (spriteData) {
-      const [img, def] = spriteData;
-      const spriteScale = def.scale ?? 1.0;
-      const baseH = T * 5.25 * spriteScale;
-      const tierScale = 1.0 + upgradeTier * 0.12;
-      const aspect = def.frameW / def.frameH;
-      const drawW = baseH * aspect * tierScale;
-      const drawH = baseH * (def.heightScale ?? 1.0) * tierScale;
-      const gY = def.groundY ?? 0.71;
-      const feetY = spriteCY + 30;
-      const drawX = spriteCX - drawW * (def.anchorX ?? 0.5);
-      const drawY = feetY - drawH * gY;
-      const frame = getSpriteFrame(tick, def);
-
-      ctx.fillStyle = 'rgba(0,0,0,0.3)';
-      ctx.beginPath();
-      ctx.ellipse(spriteCX, feetY + 3, drawW * 0.4, 6, 0, 0, Math.PI * 2);
-      ctx.fill();
-
-      if (def.flipX) {
-        ctx.save();
-        ctx.translate(spriteCX, 0);
-        ctx.scale(-1, 1);
-        ctx.translate(-spriteCX, 0);
-      }
-
-      if (upgradeTier >= 1) {
-        ctx.globalAlpha = 0.15 + upgradeTier * 0.08;
-        ctx.globalCompositeOperation = 'lighter';
-        drawSpriteFrame(ctx, img, def, frame, drawX, drawY, drawW, drawH);
-        ctx.globalCompositeOperation = 'source-over';
+      // Left column: building sprite
+      const bldgImg = this.sprites.getBuildingSprite(bt, 0, false, race, tab.path);
+      if (bldgImg) {
+        const bldgMaxH = spriteAreaH * 0.75;
+        const bAsp = bldgImg.width / bldgImg.height;
+        const bldgW = bldgMaxH * bAsp;
+        ctx.globalAlpha = 0.5;
+        ctx.drawImage(bldgImg, bldgCX - bldgW / 2, spriteCY - bldgMaxH * 0.35, bldgW, bldgMaxH);
         ctx.globalAlpha = 1;
       }
 
-      drawSpriteFrame(ctx, img, def, frame, drawX, drawY, drawW, drawH);
-      if (def.flipX) ctx.restore();
-    }
-    y += spriteAreaH + 8;
+      // Center column: unit sprite
+      const spriteData = this.sprites.getUnitSprite(race, cat, 0, false, nodeKey !== 'A' ? nodeKey : undefined);
+      if (spriteData) {
+        const [img, def] = spriteData;
+        const spriteScale = def.scale ?? 1.0;
+        const baseH = T * 4.5 * spriteScale;
+        const tierScale = 1.0 + upgradeTier * 0.12;
+        const aspect = def.frameW / def.frameH;
+        const drawW = baseH * aspect * tierScale;
+        const drawH = baseH * (def.heightScale ?? 1.0) * tierScale;
+        const gY = def.groundY ?? 0.71;
+        const drawX = spriteCX - drawW * (def.anchorX ?? 0.5);
+        const drawY = feetY - drawH * gY;
+        const frame = getSpriteFrame(tick, def);
 
-    // Re-draw ELO
-    ctx.fillStyle = eloColor;
-    ctx.font = 'bold 13px monospace';
-    ctx.textAlign = 'center';
-    ctx.fillText(`ELO ${elo}`, panelX + panelW / 2, y + 10);
-    y += 20 + secPad;
+        ctx.fillStyle = 'rgba(0,0,0,0.3)';
+        ctx.beginPath();
+        ctx.ellipse(spriteCX, feetY + 3, drawW * 0.4, 5, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        if (def.flipX) {
+          ctx.save();
+          ctx.translate(spriteCX, 0);
+          ctx.scale(-1, 1);
+          ctx.translate(-spriteCX, 0);
+        }
+
+        if (upgradeTier >= 1) {
+          ctx.globalAlpha = 0.15 + upgradeTier * 0.08;
+          ctx.globalCompositeOperation = 'lighter';
+          drawSpriteFrame(ctx, img, def, frame, drawX, drawY, drawW, drawH);
+          ctx.globalCompositeOperation = 'source-over';
+          ctx.globalAlpha = 1;
+        }
+
+        drawSpriteFrame(ctx, img, def, frame, drawX, drawY, drawW, drawH);
+        if (def.flipX) ctx.restore();
+      }
+
+      // Right column: cost breakdown
+      const costAreaX = panelX + innerPad + colW * 2 + 4;
+      let costY = y + 2;
+      const costSteps2: { label: string; cost: { gold: number; wood: number; meat: number; deathEssence?: number; souls?: number } }[] = [];
+      const buildCost = RACE_BUILDING_COSTS[race]?.[bt];
+      if (buildCost) costSteps2.push({ label: 'Building', cost: { gold: buildCost.gold, wood: buildCost.wood, meat: buildCost.meat } });
+      for (let i = 1; i < tab.path.length; i++) {
+        const nodeChoice = tab.path[i];
+        const cost = getNodeUpgradeCost(race, bt, i, nodeChoice);
+        const tLabel = i === 1 ? 'Tier 1' : 'Tier 2';
+        costSteps2.push({ label: `${tLabel} (${nodeChoice})`, cost });
+      }
+      if (costSteps2.length > 0) {
+        const hdrLabel = upgradeTier === 0 ? 'COST' : 'INVESTMENT';
+        ctx.fillStyle = '#aaa';
+        ctx.font = 'bold 11px monospace';
+        ctx.textAlign = 'left';
+        ctx.fillText(hdrLabel, costAreaX, costY + 10);
+        costY += 16;
+        const totals = { gold: 0, wood: 0, meat: 0, souls: 0, deathEssence: 0 };
+        for (const step of costSteps2) {
+          totals.gold += step.cost.gold;
+          totals.wood += step.cost.wood;
+          totals.meat += step.cost.meat;
+          totals.souls += (step.cost.souls ?? 0);
+          totals.deathEssence += (step.cost.deathEssence ?? 0);
+          ctx.fillStyle = '#888';
+          ctx.font = '10px monospace';
+          ctx.textAlign = 'left';
+          ctx.fillText(step.label, costAreaX, costY + 9);
+          costY += 13;
+          this.drawCostIcons(ctx, costAreaX + 4, costY, step.cost);
+          costY += 15;
+        }
+        if (costSteps2.length > 1) {
+          const costColW = colW - 4;
+          ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+          ctx.beginPath();
+          ctx.moveTo(costAreaX, costY);
+          ctx.lineTo(costAreaX + costColW - 8, costY);
+          ctx.stroke();
+          costY += 4;
+          ctx.fillStyle = '#ccc';
+          ctx.font = 'bold 10px monospace';
+          ctx.textAlign = 'left';
+          ctx.fillText('Total', costAreaX, costY + 9);
+          costY += 13;
+          this.drawCostIcons(ctx, costAreaX + 4, costY, totals);
+        }
+      }
+
+      y += spriteAreaH + 4;
+
+      // ELO
+      const eloNode = nodeKey === 'A' ? undefined : nodeKey;
+      const elo = getElo(race, cat, eloNode);
+      const eloColor = elo > ELO_DEFAULT ? '#ffe082' : elo < ELO_DEFAULT ? '#ef9a9a' : '#888';
+      ctx.fillStyle = eloColor;
+      ctx.font = 'bold 13px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(`ELO ${elo}`, panelX + panelW / 2, y + 10);
+      y += 18 + secPad;
+    }
     y += secGap;
 
     // ========== SECTION 2: Stats ==========
@@ -907,16 +938,7 @@ export class UnitGalleryScene implements Scene {
     y += secPad;
     y += secGap;
 
-    // ========== SECTION 3: Cost Breakdown ==========
-    const costStartY = y;
-    // Estimate cost section height
-    const costSteps = 1 + (tab.path.length - 1);
-    const costH = secPad + 18 + costSteps * 17 + (costSteps > 1 ? 26 : 5) + secPad;
-    drawSectionBg(y, costH, 0.3);
-    y += secPad;
-    y = this.renderCostBreakdown(ctx, barX, y, race, bt, tab.path, contentW);
-    y = costStartY + costH;
-    y += secGap;
+    // (Cost breakdown is now shown in Section 1, next to the sprite)
 
     // ========== SECTION 4: Innate Traits ==========
     const traits = RACE_INNATE_TRAITS[race]?.[cat] ?? [];
@@ -1036,25 +1058,20 @@ export class UnitGalleryScene implements Scene {
 
   private getDetailContentHeight(
     _contentW: number, race: Race, cat: string, _bt: BuildingType,
-    _baseStats: any, nodeDef: UpgradeNodeDef | undefined, upgrade: any
+    _baseStats: any, _nodeDef: UpgradeNodeDef | undefined, upgrade: any
   ): number {
     const secPad = 8;
     const secGap = 6;
     let h = 8; // top pad
 
-    // Section 1: Name + sprite + ELO
-    h += secPad + 32 + (nodeDef?.desc ? 22 : 0) + 130 + 8 + 20 + secPad + secGap;
+    // Section 1: Name + sprite + costs + ELO
+    h += secPad + 28 + 90 + 4 + 18 + secPad + secGap;
 
     // Section 2: Stats
     const statRows = 7
       + ((upgrade.special?.dodgeChance ?? 0) > 0 ? 1 : 0)
       + ((upgrade.special?.damageReductionPct ?? 0) > 0 ? 1 : 0);
     h += secPad + 26 * statRows + secPad + secGap;
-
-    // Section 3: Cost breakdown
-    const upgradeTier = TAB_PATHS[this.activeTab].path.length - 1;
-    const costSteps = 1 + upgradeTier;
-    h += secPad + 18 + costSteps * 17 + (costSteps > 1 ? 26 : 5) + secPad + secGap;
 
     // Section 4: Innate traits
     const traits = RACE_INNATE_TRAITS[race]?.[cat] ?? [];
@@ -1229,7 +1246,7 @@ export class UnitGalleryScene implements Scene {
     const treeAreaW = contentW - (arrowBtnSize + 4) * 2;
 
     this.upgradeNodePositions = [];
-    const treeEndY = this.renderUpgradeTree(ctx, treeAreaX, headerY, treeAreaW, race, bt, tree);
+    const treeEndY = this.renderUpgradeTree(ctx, treeAreaX, headerY, treeAreaW, race, bt, tree, barX, contentW);
 
     const treeMidY = (headerY + treeEndY) / 2;
     const arrowY = treeMidY - arrowBtnSize / 2;
@@ -1264,36 +1281,45 @@ export class UnitGalleryScene implements Scene {
     ctx.translate(0, -this.detailScrollY);
 
     let y = headerY + 8;
+    const secPad = 8;
+    const secGap = 6;
+    const secR = 6;
 
-    // Tower name
-    const tierColors = ['#e0e0e0', '#4fc3f7', '#b388ff'];
-    ctx.fillStyle = tierColors[upgradeTier] ?? '#e0e0e0';
-    ctx.font = 'bold 22px monospace';
-    ctx.textAlign = 'center';
-    ctx.fillText(displayName, panelX + panelW / 2, y + 18);
-    y += 32;
+    const drawTowerSectionBg = (sy: number, sh: number, shade: number) => {
+      ctx.fillStyle = `rgba(0,0,0,${shade})`;
+      roundRect(ctx, panelX + 6, sy, panelW - 12, sh, secR);
+      ctx.fill();
+    };
 
-    if (nodeDef?.desc) {
-      ctx.fillStyle = '#8c8';
-      ctx.font = '13px monospace';
+    // ========== SECTION 1: Name + Sprite ==========
+    {
+      const spriteAreaH = 90;
+      const sec1H = secPad + 28 + spriteAreaH + 4 + secPad;
+      drawTowerSectionBg(y, sec1H, 0.3);
+      y += secPad;
+
+      // Tower name
+      const tierColors = ['#e0e0e0', '#4fc3f7', '#b388ff'];
+      ctx.fillStyle = tierColors[upgradeTier] ?? '#e0e0e0';
+      ctx.font = 'bold 22px monospace';
       ctx.textAlign = 'center';
-      ctx.fillText(nodeDef.desc, panelX + panelW / 2, y + 10);
-      y += 22;
-    }
+      ctx.fillText(displayName, panelX + panelW / 2, y + 18);
+      y += 28;
 
-    // Building sprite (centered, no unit behind it)
-    const spriteAreaH = 130;
-    const spriteCX = panelX + panelW / 2;
-    const bldgImg = this.sprites.getBuildingSprite(bt, 0, false, race, tab.path);
-    if (bldgImg) {
-      const bH = spriteAreaH * 0.85;
-      const bAsp = bldgImg.width / bldgImg.height;
-      const bW = bH * bAsp;
-      ctx.drawImage(bldgImg, spriteCX - bW / 2, y + (spriteAreaH - bH) / 2, bW, bH);
+      // Building sprite (centered)
+      const spriteCX = panelX + panelW / 2;
+      const bldgImg = this.sprites.getBuildingSprite(bt, 0, false, race, tab.path);
+      if (bldgImg) {
+        const bH = spriteAreaH * 0.85;
+        const bAsp = bldgImg.width / bldgImg.height;
+        const bW = bH * bAsp;
+        ctx.drawImage(bldgImg, spriteCX - bW / 2, y + (spriteAreaH - bH) / 2, bW, bH);
+      }
+      y += spriteAreaH + 4 + secPad;
     }
-    y += spriteAreaH + 8;
+    y += secGap;
 
-    // Stats: HP, DAMAGE, DPS, ATK SPEED, RANGE
+    // ========== SECTION 2: Stats ==========
     const barW = contentW;
     const barH = 14;
     const barGap = 26;
@@ -1304,21 +1330,34 @@ export class UnitGalleryScene implements Scene {
       { key: 'attack-speed', label: 'ATK SPEED', value: 1 / atkSpd, max: MAX_STATS.atkRate, display: `${atkSpd.toFixed(2)}s`, color: STAT_COLORS.atkSpeed },
       { key: 'range', label: 'RANGE', value: range, max: MAX_STATS.range * 2, display: `${range}`, color: STAT_COLORS.range },
     ];
+    const statsH = barGap * stats.length;
+    drawTowerSectionBg(y, statsH + secPad * 2, 0.25);
+    y += secPad;
     for (const stat of stats) {
       drawStatBar(ctx, barX, y, barW, barH, stat.label, stat.value, stat.max, stat.display, stat.color, this.ui, stat.key);
       y += barGap;
     }
+    y += secPad;
+    y += secGap;
 
-    y += 8;
+    // ========== SECTION 3: Cost Breakdown ==========
+    {
+      const costSteps = 1 + (tab.path.length - 1);
+      const costH = secPad + 18 + costSteps * 17 + (costSteps > 1 ? 26 : 5) + secPad;
+      drawTowerSectionBg(y, costH, 0.3);
+      y += secPad;
+      y = this.renderCostBreakdown(ctx, barX, y, race, bt, tab.path, contentW);
+      y += secPad;
+    }
+    y += secGap;
 
-    // Cost breakdown
-    y = this.renderCostBreakdown(ctx, barX, y, race, bt, tab.path, contentW);
-    y += 8;
-
-    // Special traits from upgrade
+    // ========== SECTION 4: Upgrade Specials ==========
     if (nodeDef) {
       const specials = formatSpecialBonuses(nodeDef.special ?? {});
       if (specials.length > 0) {
+        const specialsH = secPad + 20 + specials.length * 17 + secPad;
+        drawTowerSectionBg(y, specialsH, 0.25);
+        y += secPad;
         ctx.fillStyle = '#aaa';
         ctx.font = 'bold 12px monospace';
         ctx.textAlign = 'left';
@@ -1326,11 +1365,13 @@ export class UnitGalleryScene implements Scene {
         y += 20;
         for (const s of specials) {
           drawStatVisualIcon(ctx, this.ui, s.key, barX + 4, y - 2, 14);
-          ctx.fillStyle = '#78c878';
+          ctx.fillStyle = '#e0c860';
           ctx.font = '11px monospace';
           ctx.fillText(s.text, barX + 22, y + 10);
           y += 17;
         }
+        y += secPad;
+        y += secGap;
       }
     }
 
@@ -1351,6 +1392,7 @@ export class UnitGalleryScene implements Scene {
     ctx: CanvasRenderingContext2D, x: number, startY: number, w: number,
     race: Race, bt: BuildingType,
     tree: Record<string, UpgradeNodeDef> | undefined,
+    fullX?: number, fullW?: number,
   ): number {
     const nodeW = Math.min(120, (w - 20) / 2);
     const nodeH = 36;
@@ -1396,13 +1438,15 @@ export class UnitGalleryScene implements Scene {
     }
     y += rowGap;
 
-    // Tier 2 nodes — use smaller width if space is tight
-    const t2nodeW = Math.min(nodeW, (w - 40) / 4);
-    const quarter = w / 4;
-    const dX = x + quarter * 0 + (quarter - t2nodeW) / 2;
-    const eX = x + quarter * 1 + (quarter - t2nodeW) / 2;
-    const fX = x + quarter * 2 + (quarter - t2nodeW) / 2;
-    const gX = x + quarter * 3 + (quarter - t2nodeW) / 2;
+    // Tier 2 nodes — use full panel width so names aren't truncated
+    const t2x = fullX ?? x;
+    const t2w = fullW ?? w;
+    const t2nodeW = Math.min(nodeW, (t2w - 24) / 4);
+    const quarter = t2w / 4;
+    const dX = t2x + quarter * 0 + (quarter - t2nodeW) / 2;
+    const eX = t2x + quarter * 1 + (quarter - t2nodeW) / 2;
+    const fX = t2x + quarter * 2 + (quarter - t2nodeW) / 2;
+    const gX = t2x + quarter * 3 + (quarter - t2nodeW) / 2;
 
     // Tier 2 connecting lines from B → D/E and C → F/G
     if (tree.B) {

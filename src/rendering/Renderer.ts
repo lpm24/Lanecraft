@@ -157,8 +157,12 @@ export class Renderer {
   private combatVfx = new CombatVFX();
   private lastConsumedTick = -1;
   private unitHpTracker = new Map<number, number>();
+  // Reusable unit-by-ID map — rebuilt once per render frame, avoids O(n) find() per projectile/unit draw
+  private _renderUnitById = new Map<number, UnitState>();
   private matchStartTime = Date.now();
   private lastFrameTime = Date.now();
+  // Cached Date.now() for current render frame — avoids ~14 syscalls per frame
+  private frameNow = Date.now();
   // Track known building IDs for construction anim detection
   private knownBuildingIds = new Set<number>();
   // Smooth HP bars: unitId -> displayed HP fraction
@@ -410,9 +414,14 @@ export class Renderer {
     this.weather.biome = state.mapDef.biome ?? 'temperate';
 
     const now = Date.now();
+    this.frameNow = now;
     const dt = Math.min((now - this.lastFrameTime) / 1000, 0.1);
     this.lastFrameTime = now;
     const elapsedSec = (now - this.matchStartTime) / 1000;
+
+    // Build unit-by-ID map once per frame (used by drawOneProjectile, drawOneUnit, drawTowerAttackLines)
+    this._renderUnitById.clear();
+    for (const u of state.units) this._renderUnitById.set(u.id, u);
 
     // Detect deaths: compare current IDs to last frame
     this.detectDeaths(state);
@@ -1542,7 +1551,7 @@ export class Renderer {
     const tree3Data = this.sprites.getResourceSprite('tree3');
     if (tree1Data && woodNode) {
       const { px: cx, py: cy } = this.tp(woodNode.x, woodNode.y);
-      const now = Date.now() / 1000;
+      const now = this.frameNow / 1000;
       const forestSeed = Math.floor(woodNode.x * 97 + woodNode.y * 131 + state.mapDef.width * 17);
       const rand = seededRand(forestSeed);
       const sprites = [tree1Data, tree2Data ?? tree1Data, tree3Data ?? tree1Data];
@@ -1643,7 +1652,7 @@ export class Renderer {
     if (sheepData && meatNode) {
       const { px: cx, py: cy } = this.tp(meatNode.x, meatNode.y);
       const drawSize = T * 1.8;
-      const tick = Math.floor(Date.now() / 200);
+      const tick = Math.floor(this.frameNow / 200);
       const [img, def] = sheepData;
       // Draw 4-5 sheep in a cluster, each with slightly offset animation
       const positions = [
@@ -1678,7 +1687,7 @@ export class Renderer {
       if (!potionData) continue;
       const [pImg, pDef] = potionData;
       const potionSz = T * 0.9;
-      const frame = Math.floor(Date.now() / 150 + potion.id) % pDef.cols;
+      const frame = Math.floor(this.frameNow / 150 + potion.id) % pDef.cols;
       const fsx = frame * pDef.frameW;
 
       if (potion.flightProgress < potion.flightTicks) {
@@ -1700,7 +1709,7 @@ export class Renderer {
       } else {
         // On ground — bob and fade
         const { px: ppx, py: ppy } = this.tp(potion.x, potion.y);
-        const bob = Math.sin(Date.now() / 400 + potion.id) * T * 0.06;
+        const bob = Math.sin(this.frameNow / 400 + potion.id) * T * 0.06;
         const fadeAlpha = potion.remainingTicks < 60 ? potion.remainingTicks / 60 : 1;
         ctx.globalAlpha = fadeAlpha;
         ctx.drawImage(pImg, fsx, 0, pDef.frameW, pDef.frameH,
@@ -2580,7 +2589,7 @@ export class Renderer {
         if (fireData) {
           const [fireImg, fireDef] = fireData;
           const fireSize = T * 1.2;
-          const fireTick = Math.floor(Date.now() / 80) + b.id;
+          const fireTick = Math.floor(this.frameNow / 80) + b.id;
           ctx.globalAlpha = bHpPct < 0.25 ? 0.9 : 0.5;
           drawGridFrame(ctx, fireImg, fireDef as GridSpriteDef, fireTick, px - fireSize / 2, py - half - fireSize * 0.6, fireSize, fireSize);
           ctx.globalAlpha = 1;
@@ -2612,7 +2621,7 @@ export class Renderer {
     // Calculate Y offset based on source unit's sprite to fire from visual center
     let pyOffset = T * 0.45; // default fallback
     if (race && p.sourceUnitId != null) {
-      const srcUnit = state.units.find(u => u.id === p.sourceUnitId);
+      const srcUnit = this._renderUnitById.get(p.sourceUnitId);
       const cat = srcUnit?.category;
       if (cat) {
         const sprData = this.sprites.getUnitSprite(race, cat, p.sourcePlayerId, false, srcUnit?.upgradeNode);
@@ -2643,7 +2652,7 @@ export class Renderer {
       const arrowData = this.sprites.getArrowSprite(teamIdx);
       if (arrowData) {
         const [img] = arrowData;
-        const target = state.units.find(u => u.id === p.targetId);
+        const target = p.targetId != null ? this._renderUnitById.get(p.targetId) : undefined;
         const angle = target
           ? this.projAngle(p.x, p.y, target.x, target.y)
           : isBottom ? -Math.PI / 2 : Math.PI / 2;
@@ -2660,7 +2669,7 @@ export class Renderer {
       const boneData = this.sprites.getBoneSprite();
       if (boneData) {
         const [img] = boneData;
-        const target = state.units.find(u => u.id === p.targetId);
+        const target = p.targetId != null ? this._renderUnitById.get(p.targetId) : undefined;
         const angle = target
           ? this.projAngle(p.x, p.y, target.x, target.y)
           : isBottom ? -Math.PI / 2 : Math.PI / 2;
@@ -2687,7 +2696,7 @@ export class Renderer {
         const cols = 10, rows = 6;
         const frameW = meteorImg.width / cols;
         const frameH = meteorImg.height / rows;
-        const target = state.units.find(u => u.id === p.targetId);
+        const target = p.targetId != null ? this._renderUnitById.get(p.targetId) : undefined;
         const angle = target
           ? this.projAngle(p.x, p.y, target.x, target.y)
           : p.team === Team.Bottom ? -Math.PI / 2 : Math.PI / 2;
@@ -2714,7 +2723,7 @@ export class Renderer {
     } else if (p.visual === 'cannonball') {
       // HQ cannonball or siege cannonball — large dark sphere with fiery trail
       const r = T * 0.5;
-      const cbTarget = state.units.find(u => u.id === p.targetId);
+      const cbTarget = p.targetId != null ? this._renderUnitById.get(p.targetId) : undefined;
       // Position-targeted siege cannonballs use targetX/targetY for angle
       const cbAngle = p.targetX !== undefined && p.targetY !== undefined
         ? this.projAngle(p.x, p.y, p.targetX, p.targetY)
@@ -2927,7 +2936,7 @@ export class Renderer {
         // Determine facing: track movement direction, override when attacking toward target
         let faceLeft = this.updateFacing(u.id, u.x, u.team === Team.Top);
         if (u.targetId !== null) {
-          const target = state.units.find(t => t.id === u.targetId);
+          const target = this._renderUnitById.get(u.targetId!);
           if (target) {
             const dx = target.x - u.x;
             if (Math.abs(dx) > 0.5) {
@@ -3012,7 +3021,7 @@ export class Renderer {
       const ux = px + T / 2, uy = py + T / 2;
 
       // Status effect visuals — sprite-based VFX overlays
-      const fxTick = Math.floor(Date.now() / 100);
+      const fxTick = Math.floor(this.frameNow / 100);
       const fxSize = r * 3.5;  // effect overlay size relative to unit
 
       for (const eff of u.statusEffects) {
@@ -3045,7 +3054,7 @@ export class Renderer {
         }
         if (eff.type === StatusType.Wound) {
           // Anti-heal indicator: small pulsing purple-green cross
-          ctx.globalAlpha = 0.5 + 0.2 * Math.sin(Date.now() / 200 + u.id);
+          ctx.globalAlpha = 0.5 + 0.2 * Math.sin(this.frameNow / 200 + u.id);
           const ws = r * 1.8;
           const wcx = ux, wcy = uy - r * 2;
           ctx.strokeStyle = '#9c27b0';
@@ -3609,7 +3618,7 @@ export class Renderer {
       const { px, py } = this.tp(d.x + 0.5, d.y + 0.5);
       const secs = Math.ceil(d.respawnTimer / 20);
       ctx.save();
-      ctx.globalAlpha = 0.4 + 0.2 * Math.sin(Date.now() / 500);
+      ctx.globalAlpha = 0.4 + 0.2 * Math.sin(this.frameNow / 500);
       ctx.beginPath();
       ctx.arc(px, py, 14, 0, Math.PI * 2);
       ctx.strokeStyle = '#00ffff';
@@ -3628,7 +3637,7 @@ export class Renderer {
 
     const { px, py } = this.tp(d.x + 0.5, d.y + 0.5);
     const size = 10;
-    const pulse = 0.7 + 0.3 * Math.sin(Date.now() / 300);
+    const pulse = 0.7 + 0.3 * Math.sin(this.frameNow / 300);
 
     if (d.state === 'hidden') {
       // Always show a center beacon while hidden so players learn
@@ -3701,7 +3710,7 @@ export class Renderer {
       if (p.visual !== 'bolt') continue;
       // Fog: skip if projectile is in unseen tile
       if (state.fogOfWar && !this.isTileVisible(state, p.x, p.y)) continue;
-      const target = state.units.find(u => u.id === p.targetId);
+      const target = p.targetId != null ? this._renderUnitById.get(p.targetId) : undefined;
       if (!target) continue;
       const race = state.players[p.sourcePlayerId]?.race;
       const color = race ? (RACE_COLORS[race]?.primary ?? '#fff') : '#fff';
@@ -3721,7 +3730,7 @@ export class Renderer {
     for (const tel of state.nukeTelegraphs) {
       const { px, py } = this.tp(tel.x, tel.y);
       const r = tel.radius * T;
-      const pulse = 0.5 + 0.5 * Math.sin(Date.now() / 100);
+      const pulse = 0.5 + 0.5 * Math.sin(this.frameNow / 100);
       const progress = 1 - tel.timer / Math.round(1.25 * 20); // 0 -> 1 as it nears detonation
 
       // Player-color tinted warning (each player's nuke is visually distinct)
@@ -4081,7 +4090,7 @@ export class Renderer {
   /** Draw a floating-text mini icon using the shared stat/effect icon language when possible. */
   private drawMiniIcon(ctx: CanvasRenderingContext2D, icon: string, x: number, y: number, sz: number, color: string): void {
     const mapped = FLOATING_TEXT_ICON_MAP[icon];
-    if (mapped && drawStatVisualIcon(ctx, this.ui, mapped, x, y, sz)) return;
+    if (mapped && drawStatVisualIcon(ctx, this.ui, mapped, x, y, sz, true)) return;
 
     const cx = x + sz / 2, cy = y + sz / 2;
     const r = sz * 0.4;
@@ -4231,7 +4240,7 @@ export class Renderer {
         const potionData = this.sprites.getPotionSprite(potionColor);
         if (potionData) {
           const [pImg, pDef] = potionData;
-          const frame = Math.floor(Date.now() / 120) % pDef.cols;
+          const frame = Math.floor(this.frameNow / 120) % pDef.cols;
           const fsx = frame * pDef.frameW;
           ctx.drawImage(pImg, fsx, 0, pDef.frameW, pDef.frameH, x, y, sz, sz);
         }
@@ -4679,8 +4688,10 @@ export class Renderer {
     const hqGap = compact ? 6 : 10;
 
     // Unit counts (centered between bars)
-    const myUnits = state.units.filter(u => u.team === player.team).length;
-    const enemyUnits = state.units.filter(u => u.team !== player.team).length;
+    let myUnits = 0, enemyUnits = 0;
+    for (let i = 0; i < state.units.length; i++) {
+      if (state.units[i].team === player.team) myUnits++; else enemyUnits++;
+    }
     const unitText = `${myUnits}v${enemyUnits}`;
     ctx.font = `bold ${smallFont}px monospace`;
     const unitTextW = ctx.measureText(unitText).width;
@@ -5009,7 +5020,7 @@ export class Renderer {
       }
       if (!added) combatClusters.push({ x: u.x, y: u.y, count: 1 });
     }
-    const pulse = 0.5 + 0.5 * Math.sin(Date.now() / 200);
+    const pulse = 0.5 + 0.5 * Math.sin(this.frameNow / 200);
     for (const c of combatClusters) {
       if (c.count < 2) continue;
       const intensity = Math.min(1, c.count / 8);

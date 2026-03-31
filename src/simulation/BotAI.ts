@@ -1227,6 +1227,27 @@ function scoreUpgradeNode(
   if (s.applyVulnerable) score += 8; // army-wide damage amplifier
   if (s.applyWound) score += 6; // anti-healing
 
+  // Kill-scaling: snowball damage in extended fights (Demon Bloodfire, Inferno Reaper, Soul Pyre)
+  if (s.killScaling) {
+    const maxDmgPct = (s.killDmgPct ?? 0.05) * (s.killMaxStacks ?? 10);
+    score += maxDmgPct * 15; // 50% max → +7.5
+    if (threats.wantDPS) score += 4;
+  }
+
+  // Suicide attack: AoE burst on first melee hit (Oozlings Boomlings)
+  if (s.suicideAttack) {
+    const eDmg = s.explodeDamage ?? 30;
+    score += eDmg * 0.1; // 35→+3.5, 70→+7
+    if (threats.wantAoE) score += 5;
+  }
+
+  // Soul harvest: scaling HP + damage from nearby deaths (Geists Soul Gorger)
+  if (s.soulHarvest) score += (s.soulMaxStacks ?? 20) * 0.4; // 20 stacks → +8
+
+  // Gold on kill/death: economic value (Crown economy path)
+  if (s.goldOnKill) score += s.goldOnKill * 1.5; // 3g→+4.5, 6g→+9
+  if (s.goldOnDeath) score += s.goldOnDeath * 0.5; // 5g→+2.5, 8g→+4
+
   // Siege units vs turtling/towers
   if (threats.wantSiege) {
     if (s.isSiegeUnit) score += 18;  // overcome negative hp/speed penalty, siege is exactly what we want
@@ -1536,6 +1557,12 @@ function detectPowerSpike(
   if (s.lifeDrainPct && s.lifeDrainPct >= 0.15) return 0.15;
   // Skeleton summon = free unit generation from nearby deaths
   if (s.skeletonSummonChance && s.skeletonSummonChance >= 0.15) return 0.15;
+  // Kill-scaling = snowball damage that compounds over fights
+  if (s.killScaling) return 0.20;
+  // High-damage suicide attack = massive AoE burst
+  if (s.suicideAttack && (s.explodeDamage ?? 30) >= 50) return 0.20;
+  // Soul harvest = multiplicative scaling on both damage and HP
+  if (s.soulHarvest) return 0.25;
   return 0;
 }
 
@@ -2873,7 +2900,7 @@ function botPlaceAlleyTower(state: GameState, playerId: number, emit: Emit): boo
   if (freeSlots.length === 0) return false;
   // Place near lane paths (center columns) for maximum coverage
   const centerX = Math.floor(state.mapDef.towerAlleyCols / 2);
-  freeSlots.sort((a, b) => Math.abs(a.gx - centerX) - Math.abs(b.gx - centerX) || a.gy - b.gy);
+  freeSlots.sort((a, b) => Math.abs(a.gx - centerX) - Math.abs(b.gx - centerX) || a.gy - b.gy || a.gx - b.gx);
   const idx = Math.min(Math.floor(state.rng() * 3), freeSlots.length - 1);
   const slot = freeSlots[idx];
   emit({ type: 'place_building', playerId, buildingType: BuildingType.Tower, gridX: slot.gx, gridY: slot.gy, gridType: 'alley' });

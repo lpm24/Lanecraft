@@ -346,6 +346,18 @@ const _alleyBuildingsTop: Array<{ x: number; y: number }> = [];
 // Diamond cell map — rebuilt once per tick in simulateTick, integer keys for hot-path collision lookups
 let _diamondCellMapInt = new Map<number, GoldCell>();
 
+/** In-place compact: remove elements where predicate returns false, preserving order. No allocation. */
+function compactInPlace<T>(arr: T[], keep: (item: T) => boolean): void {
+  let write = 0;
+  for (let read = 0; read < arr.length; read++) {
+    if (keep(arr[read])) {
+      if (write !== read) arr[write] = arr[read];
+      write++;
+    }
+  }
+  arr.length = write;
+}
+
 // === Visual effect helpers ===
 
 function addFloatingText(state: GameState, x: number, y: number, text: string, color: string, icon?: string, big?: boolean,
@@ -864,7 +876,7 @@ export function simulateTick(state: GameState, commands: GameCommand[]): void {
     if (state.warHeroes.length === 0) computeWarHeroes(state);
     // Clean up any units that died on the tick the match ended
     // (projectiles/burn DoT can kill after tickCombat's filter ran)
-    state.units = state.units.filter(u => u.hp > 0);
+    compactInPlace(state.units, u => u.hp > 0);
     tickEffects(state);
     state.tick++;
     return;
@@ -907,8 +919,10 @@ export function simulateTick(state: GameState, commands: GameCommand[]): void {
     }
   }
 
-  // Build spatial grid early — reused by tickAbilityEffects, tickUnitMovement, tickCombat, tickTowers, etc.
+  // Build spatial grid and unit-by-ID map early — reused by tickAbilityEffects, tickCombat, dealDamage, etc.
   _combatGrid.build(state.units);
+  _unitById.clear();
+  for (const u of state.units) _unitById.set(u.id, u);
 
   // Tick race ability cooldowns and active effects
   tickAbilityEffects(state);
@@ -954,7 +968,7 @@ export function simulateTick(state: GameState, commands: GameCommand[]): void {
   // Track diamond hold time
   if (state.diamond.state === 'carried' && state.diamond.carrierId !== null) {
     if (state.diamond.carrierType === 'unit') {
-      const u = state.units.find(u => u.id === state.diamond.carrierId);
+      const u = _unitById.get(state.diamond.carrierId);
       if (u && state.playerStats[u.playerId]) state.playerStats[u.playerId].diamondTimeHeld++;
     } else if (state.diamond.carrierType === 'harvester') {
       const h = state.harvesters.find(h => h.id === state.diamond.carrierId);
@@ -2194,8 +2208,8 @@ function tickAbilityEffects(state: GameState): void {
             u.statusEffects = u.statusEffects.filter(s =>
               s.type === StatusType.Haste || s.type === StatusType.Shield || s.type === StatusType.Frenzy);
             if (hadDebuff) {
-              addFloatingText(state, u.x, u.y - 0.3, 'CLEANSE', '#4fc3f7', undefined, undefined,
-                { ftType: 'status' });
+              addFloatingText(state, u.x, u.y - 0.3, '', '#4fc3f7', undefined, undefined,
+                { ftType: 'status', miniIcon: 'cleanse' });
               addDeathParticles(state, u.x, u.y, '#4fc3f7', 2);
             }
           }
@@ -2376,7 +2390,7 @@ function trackDeathResources(state: GameState, deadUnit: UnitState): void {
     addDeathParticles(state, gorger.x, gorger.y, '#ce93d8', 2);
   }
 
-  // Oozlings baneling: explode on death dealing AoE damage
+  // Legacy explode-on-death handler (unused — Boomlings now use suicideAttack in melee path)
   if (deadUnit.upgradeSpecial?.explodeOnDeath) {
     const dmg = deadUnit.upgradeSpecial.explodeDamage ?? 30;
     const radius = deadUnit.upgradeSpecial.explodeRadius ?? 3;
@@ -3037,15 +3051,22 @@ function tickPotionPickups(state: GameState): void {
     }
 
     // Check if any allied unit walks over this potion (spatial grid lookup)
+    // Sort candidates by distance+ID for deterministic pickup when multiple units overlap
     const pickupNearby = _combatGrid.getNearby(potion.x, potion.y, POTION_PICKUP_RADIUS);
+    let closestPickup: UnitState | null = null;
+    let closestPickupD2 = Infinity;
     for (const u of pickupNearby) {
       if (u.hp <= 0 || u.team !== potion.team) continue;
       const d2 = (u.x - potion.x) ** 2 + (u.y - potion.y) ** 2;
-      if (d2 <= POTION_PICKUP_RADIUS * POTION_PICKUP_RADIUS) {
-        applyPotionBuff(state, u, potion.type);
-        toRemove.add(i);
-        break;
+      if (d2 <= POTION_PICKUP_RADIUS * POTION_PICKUP_RADIUS &&
+          (d2 < closestPickupD2 || (d2 === closestPickupD2 && closestPickup && u.id < closestPickup.id))) {
+        closestPickup = u;
+        closestPickupD2 = d2;
       }
+    }
+    if (closestPickup) {
+      applyPotionBuff(state, closestPickup, potion.type);
+      toRemove.add(i);
     }
   }
 
@@ -3255,7 +3276,7 @@ function dealDamage(state: GameState, target: UnitState, amount: number, showFlo
     const tbu = targetPlayer.researchUpgrades;
     // Crown Defend Stance: melee units take -25% ranged dmg
     if (target.category === 'melee' && tbu.raceUpgrades['crown_melee_1'] && sourceUnitId !== undefined) {
-      const srcUnit = state.units.find(u => u.id === sourceUnitId);
+      const srcUnit = _unitById.get(sourceUnitId);
       if (srcUnit && srcUnit.category === 'ranged') amount = Math.max(1, Math.round(amount * 0.75));
     }
     // Deep Tidal Guard: +5% DR for melee (stacks with research def)
@@ -3280,7 +3301,7 @@ function dealDamage(state: GameState, target: UnitState, amount: number, showFlo
     }
     // Tenders Thorned Vines: reflect 3 dmg to melee attackers
     if (target.category === 'melee' && tbu.raceUpgrades['tenders_melee_2'] && sourceUnitId !== undefined) {
-      const srcUnit = state.units.find(u => u.id === sourceUnitId);
+      const srcUnit = _unitById.get(sourceUnitId);
       if (srcUnit && srcUnit.range <= 2 && srcUnit.hp > 0) {
         srcUnit.hp = Math.max(1, srcUnit.hp - 3);
       }
@@ -3306,7 +3327,7 @@ function dealDamage(state: GameState, target: UnitState, amount: number, showFlo
       if (isTowerShot) {
         miniIcon = 'arrow';
       } else if (sourceUnitId !== undefined) {
-        const src = state.units.find(u => u.id === sourceUnitId);
+        const src = _unitById.get(sourceUnitId);
         if (src && src.range > 2) miniIcon = 'arrow';
       }
       addFloatingText(state, target.x, target.y, `${amount}`, '#ffffff', undefined, undefined,
@@ -3317,7 +3338,7 @@ function dealDamage(state: GameState, target: UnitState, amount: number, showFlo
     const targetPs = state.playerStats[target.playerId];
     if (targetPs) targetPs.totalDamageTaken += amount;
     if (sourceUnitId !== undefined) {
-      const srcUnit = state.units.find(u => u.id === sourceUnitId);
+      const srcUnit = _unitById.get(sourceUnitId);
       if (srcUnit) srcUnit.damageDone += amount;
     }
     if (sourcePlayerId !== undefined && state.playerStats[sourcePlayerId]) {
@@ -3337,7 +3358,7 @@ function dealDamage(state: GameState, target: UnitState, amount: number, showFlo
     }
     // Track killer name and credit kill
     if (sourceUnitId !== undefined) {
-      const killer = state.units.find(u => u.id === sourceUnitId);
+      const killer = _unitById.get(sourceUnitId);
       if (killer) {
         const killerRace = state.players[killer.playerId]?.race;
         const killerBldg = `${killer.category}_spawner` as BuildingType;
@@ -3450,6 +3471,12 @@ function applyCasterSupport(state: GameState, caster: UnitState, race: Race, sp:
       allies.push(u);
     }
   }
+  // Sort allies by distance then ID for deterministic first-N selection
+  allies.sort((a, b) => {
+    const da = (a.x - caster.x) ** 2 + (a.y - caster.y) ** 2;
+    const db = (b.x - caster.x) ** 2 + (b.y - caster.y) ** 2;
+    return da - db || a.id - b.id;
+  });
   const healBonus = sp?.healBonus ?? 0;
 
   switch (race) {
@@ -3595,7 +3622,7 @@ function applyCasterSupport(state: GameState, caster: UnitState, race: Race, sp:
         }
       }
       if (cleansed > 0) {
-        addFloatingText(state, caster.x, caster.y - 0.5, 'CLEANSE', '#1565c0', undefined, true,
+        addFloatingText(state, caster.x, caster.y - 0.5, '', '#1565c0', undefined, true,
           { ftType: 'heal', miniIcon: 'cleanse' });
       }
       break;
@@ -3781,8 +3808,7 @@ function applyOnHitEffects(state: GameState, attacker: UnitState, target: UnitSt
     if (!isMelee && bu.raceUpgrades['deep_ranged_1']) applyStatus(target, StatusType.Slow, 1);
     // Wild Venomous Fangs: +1 Burn + Wound on ranged hit
     if (!isMelee && bu.raceUpgrades['wild_ranged_1']) { applyStatus(target, StatusType.Burn, 1); applyWound(target); }
-    // Tenders Root Snare: 20% chance +1 Slow on ranged hit
-    if (!isMelee && bu.raceUpgrades['tenders_ranged_2'] && state.rng() < 0.20) applyStatus(target, StatusType.Slow, 1);
+    // Tenders Root Snare: 20% chance +1 Slow on ranged hit (applied in tickProjectiles, not here)
     // Geists Death Grip: lifesteal 10->15% (melee)
     if (isMelee && bu.raceUpgrades['geists_melee_1']) {
       // Extra 5% lifesteal (10% base already applied above)
@@ -4254,9 +4280,15 @@ function tickUnitCollision(state: GameState): void {
     }
 
     // Unit-vs-resource blocking (unmined gold cells are obstacles).
-    for (const cell of state.diamondCells) {
-      if (cell.gold <= 0) continue;
-      pushOutFromPoint(unit, cell.tileX + 0.5, cell.tileY + 0.5, COLLISION_GOLD_CELL_RADIUS);
+    // Use _diamondCellMapInt neighborhood lookup instead of iterating all cells (O(9) vs O(300+))
+    const ux = Math.floor(unit.x), uy = Math.floor(unit.y);
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        const cell = _diamondCellMapInt.get((ux + dx) * 10000 + (uy + dy));
+        if (cell && cell.gold > 0) {
+          pushOutFromPoint(unit, cell.tileX + 0.5, cell.tileY + 0.5, COLLISION_GOLD_CELL_RADIUS);
+        }
+      }
     }
 
     clampToArenaBounds(unit, 0.35, state.mapDef);
@@ -4556,6 +4588,11 @@ function tickCombat(state: GameState): void {
               extraBurnStacks: sp?.extraBurnStacks,
             });
             addCombatEvent(state, { type: 'pulse', x: unit.x, y: unit.y, radius: aoeRadius, color: '#ffd700' });
+            // Battle Magus: shield self on attack
+            if (sp?.shieldSelf) {
+              applyStatus(unit, StatusType.Shield, 1, state);
+              unit.shieldHp = Math.max(unit.shieldHp, 12);
+            }
           } else if (race !== Race.Crown) {
           // Crown (shield caster) doesn't fire AoE projectile
             let aoeRadius = (race === Race.Deep || race === Race.Tenders ? 4 : 3) + (sp?.aoeRadiusBonus ?? 0);
@@ -4757,6 +4794,30 @@ function tickCombat(state: GameState): void {
         } else {
           // Melee: instant damage
           const sp = unit.upgradeSpecial;
+
+          // Suicide attack (Oozlings Boomling): explode on first melee hit, killing self
+          if (sp?.suicideAttack) {
+            const eDmg = sp.explodeDamage ?? 30;
+            const eRadius = sp.explodeRadius ?? 3;
+            const eBurn = sp.extraBurnStacks ?? 0;
+            const eR2 = eRadius * eRadius;
+            const blastNearby = _combatGrid.getNearby(unit.x, unit.y, eRadius);
+            for (const e of blastNearby) {
+              if (e.team === unit.team || e.hp <= 0) continue;
+              if ((e.x - unit.x) ** 2 + (e.y - unit.y) ** 2 > eR2) continue;
+              dealDamage(state, e, eDmg, true, unit.playerId, unit.id);
+              if (eBurn > 0) applyStatus(e, StatusType.Burn, eBurn);
+            }
+            addCombatEvent(state, { type: 'splash', x: unit.x, y: unit.y, radius: eRadius, color: '#7c4dff' });
+            addDeathParticles(state, unit.x, unit.y, '#7c4dff', 8);
+            addFloatingText(state, unit.x, unit.y, `${eDmg}`, '#7c4dff', undefined, undefined,
+              { ftType: 'damage', magnitude: eDmg, miniIcon: 'fire' });
+            addSound(state, 'nuke_detonated', unit.x, unit.y);
+            // Kill self
+            unit.hp = 0;
+            unit.attackTimer = Math.round(unit.attackSpeed * TICK_RATE);
+            continue;
+          }
 
           // Hop attack: leap to target with AoE slow on landing
           if (sp?.hopAttack) {
@@ -5028,7 +5089,7 @@ function tickCombat(state: GameState): void {
       });
     }
   }
-  state.units = state.units.filter(u => u.hp > 0);
+  compactInPlace(state.units, u => u.hp > 0);
 
   // Remove destroyed towers (killed by combat units)
   for (let i = state.buildings.length - 1; i >= 0; i--) {
@@ -5415,6 +5476,8 @@ function tickProjectiles(state: GameState): void {
             }
           }
         }
+        // Tenders Root Snare: 20% chance +1 Slow on ranged hit
+        if (pbu.raceUpgrades['tenders_ranged_2'] && state.rng() < 0.20) applyStatus(target, StatusType.Slow, 1);
         // Tenders Healing Sap: heal ally 15% of dmg done
         if (pbu.raceUpgrades['tenders_ranged_1']) {
           const healAmt = Math.round(p.damage * 0.15);
@@ -5513,7 +5576,7 @@ function tickProjectiles(state: GameState): void {
     }
   }
 
-  state.projectiles = state.projectiles.filter(p => !toRemove.has(p.id));
+  if (toRemove.size > 0) compactInPlace(state.projectiles, p => !toRemove.has(p.id));
 }
 
 // === Visual Effects ===
@@ -5521,7 +5584,7 @@ function tickProjectiles(state: GameState): void {
 function tickEffects(state: GameState): void {
   // Floating texts
   for (const ft of state.floatingTexts) ft.age++;
-  state.floatingTexts = state.floatingTexts.filter(ft => ft.age < ft.maxAge);
+  compactInPlace(state.floatingTexts, ft => ft.age < ft.maxAge);
 
   // Particles
   for (const p of state.particles) {
@@ -5530,19 +5593,19 @@ function tickEffects(state: GameState): void {
     p.vy += 0.1; // gravity
     p.age++;
   }
-  state.particles = state.particles.filter(p => p.age < p.maxAge);
+  compactInPlace(state.particles, p => p.age < p.maxAge);
 
   // Nuke effects
   for (const n of state.nukeEffects) n.age++;
-  state.nukeEffects = state.nukeEffects.filter(n => n.age < n.maxAge);
+  compactInPlace(state.nukeEffects, n => n.age < n.maxAge);
 
   // Pings
   for (const p of state.pings) p.age++;
-  state.pings = state.pings.filter(p => p.age < p.maxAge);
+  compactInPlace(state.pings, p => p.age < p.maxAge);
 
   // Quick chat callouts
   for (const c of state.quickChats) c.age++;
-  state.quickChats = state.quickChats.filter(c => c.age < c.maxAge);
+  compactInPlace(state.quickChats, c => c.age < c.maxAge);
 }
 
 // === Status Effects ===
@@ -5909,7 +5972,7 @@ function executeNukeDetonation(state: GameState, playerId: number, x: number, y:
 
   let nukeKills = 0;
   let nukeTotalHp = 0;
-  state.units = state.units.filter(u => {
+  compactInPlace(state.units, u => {
     if (u.team !== enemyTeam) return true;
     if (u.nukeImmune) return true; // Diamond champions survive nukes
     if ((u.x - x) ** 2 + (u.y - y) ** 2 <= radius * radius) {
@@ -6007,7 +6070,7 @@ function tickHarvesters(state: GameState): void {
   }
 
   // Remove orphaned harvesters whose huts were destroyed
-  state.harvesters = state.harvesters.filter(h => {
+  compactInPlace(state.harvesters, h => {
     const hutExists = state.buildings.some(b => b.id === h.hutId);
     if (!hutExists) {
       if (h.carryingDiamond) dropDiamond(state, h.x, h.y);
