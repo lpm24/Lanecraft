@@ -1,0 +1,722 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Lanecraft - Building Sprite Review</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #1a1a2e; color: #eee; font-family: 'Segoe UI', sans-serif; padding: 20px; }
+  h1 { text-align: center; margin-bottom: 10px; color: #e6c866; }
+  .subtitle { text-align: center; color: #888; margin-bottom: 30px; }
+
+  .race-section { margin-bottom: 40px; border: 1px solid #333; border-radius: 8px; padding: 20px; background: #16213e; }
+  .race-header { font-size: 22px; font-weight: bold; margin-bottom: 5px; }
+  .race-desc { color: #aaa; font-size: 13px; margin-bottom: 15px; }
+
+  .building-row { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
+  .building-label { width: 180px; flex-shrink: 0; display: flex; gap: 8px; align-items: flex-start; }
+  .unit-thumb { width: 60px; height: 60px; flex-shrink: 0; border: 1px solid #444; border-radius: 4px; background: #0d1117; object-fit: contain; image-rendering: pixelated; }
+  .unit-thumb:hover { transform: scale(2.5); position: relative; z-index: 10; border-color: #e6c866; }
+  .building-info { flex: 1; }
+  .building-label .type { font-weight: bold; font-size: 14px; }
+  .building-label .name { font-size: 11px; color: #aaa; }
+  .building-label .units { font-size: 10px; color: #6a9; margin-top: 2px; }
+
+  .node-slots { display: flex; gap: 6px; flex-wrap: wrap; }
+  .node-slot { text-align: center; width: 90px; }
+  .node-slot img { width: 80px; height: 100px; object-fit: contain; border: 2px solid #333; border-radius: 4px; background: #0d1117; cursor: pointer; }
+  .node-slot img:hover { border-color: #e6c866; transform: scale(2.5); position: relative; z-index: 10; }
+  .node-slot img.missing { border-color: #c44; opacity: 0.4; }
+  .node-slot img.inherited { border-color: #c80; }
+  .node-slot .node-label { font-size: 10px; color: #888; margin-top: 2px; }
+  .node-slot .node-name { font-size: 9px; color: #6a9; }
+  .node-slot .status { font-size: 9px; font-weight: bold; }
+  .node-slot .status.unique { color: #4c8; }
+  .node-slot .status.inherited { color: #c80; }
+  .node-slot .status.missing { color: #c44; }
+
+  .legend { display: flex; gap: 20px; justify-content: center; margin-bottom: 20px; font-size: 13px; }
+  .legend span { display: flex; align-items: center; gap: 5px; }
+  .legend .dot { width: 12px; height: 12px; border-radius: 2px; border: 2px solid; }
+  .dot.unique { border-color: #4c8; background: #1a3a2a; }
+  .dot.inherited { border-color: #c80; background: #3a2a1a; }
+  .dot.missing { border-color: #c44; background: #3a1a1a; }
+
+  .pack-ref { display: flex; gap: 10px; margin-bottom: 30px; padding: 15px; background: #0d1117; border-radius: 8px; flex-wrap: wrap; }
+  .pack-ref h3 { width: 100%; color: #e6c866; margin-bottom: 5px; }
+  .pack-thumb { text-align: center; }
+  .pack-thumb img { width: 60px; height: 75px; object-fit: contain; }
+  .pack-thumb .num { font-size: 9px; color: #888; }
+
+  .stats { text-align: center; margin-bottom: 20px; padding: 10px; background: #0d1117; border-radius: 8px; }
+  .stats span { margin: 0 15px; }
+  .stats .count { font-weight: bold; font-size: 18px; }
+</style>
+</head>
+<body>
+
+<h1>Lanecraft Building Sprite Review</h1>
+<p class="subtitle">All race building sprites — existing, inherited, and missing slots</p>
+
+<div class="legend">
+  <span><div class="dot unique"></div> Unique sprite</span>
+  <span><div class="dot inherited"></div> Inherited from parent node</span>
+  <span><div class="dot missing"></div> Needs generation</span>
+</div>
+
+<div class="stats" id="stats">Loading...</div>
+
+<div id="content">Loading sprites...</div>
+
+<script>
+// Asset pack base paths (relative to this HTML file's location)
+const PACKS = {
+  H: { name: 'Human', path: '../src/assets/images/Medieval Human Building Pack – 2D Fantasy RTS Town Assets for Strategy Games/Source/Human Building ({n}).png' },
+  O: { name: 'Orc', path: '../src/assets/images/Fantasy RTS Orc Building Icons for Base Building and Strategy Games/Source/Orc Building ({n}).png' },
+  E: { name: 'Elf', path: '../src/assets/images/Fantasy RTS Elven Building Icons for Base Building and City-Building Games/Source/Elf Building ({n}).png' },
+  N: { name: 'NightElf', path: '../src/assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building ({n}).png' },
+};
+
+function P(pack, num) { return PACKS[pack].path.replace('{n}', num); }
+
+// Tiny Swords fallback sprites (used for Crown A nodes)
+const TS_BASE = '../src/assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Buildings/Blue Buildings/';
+const TS = {
+  hut: TS_BASE + 'House1.png',
+  melee: TS_BASE + 'Barracks.png',
+  ranged: TS_BASE + 'Archery.png',
+  caster: TS_BASE + 'Monastery.png',
+  tower: TS_BASE + 'Tower.png',
+};
+
+// Unit sprite paths — first frame of the move spritesheet for each race+type
+const TS_UNITS = '../src/assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Units/Blue Units/';
+const TS_ENEMY = '../src/assets/images/Tiny Swords (Enemy Pack)/Tiny Swords (Enemy Pack)/Enemy Pack/';
+const CM = '../src/assets/images/CHARACTER MEGAPACK/CHARACTER MEGAPACK/';
+const SLIMES = '../src/assets/images/SLIMES BLOBS TENTACLES/[CHARACTER PACK] SLIMES, BLOBS & TENTACLES/01_GREEN/';
+
+const UNIT_SPRITES = {
+  crown:    { melee: TS_UNITS+'Warrior/Warrior_Run.png', ranged: TS_UNITS+'Archer/Archer_Run.png', caster: TS_UNITS+'Monk/Run.png' },
+  horde:    { melee: CM+'Orc_Barbare_01 (Green Skinned)/Orc_Barbare_01_Move_5x1.png', ranged: CM+'Orc_Archer_01 (Green Skinned)/Orc_Archer_01_Move_6x1.png', caster: CM+'Goblin_Barrel_01 (Green Skinned)/Goblin_Barrel_01_Move_10x1.png' },
+  goblins:  { melee: TS_ENEMY+'Lancer/Lancer_Run.png', ranged: TS_ENEMY+'Thief/Thief_Run.png', caster: TS_ENEMY+'Shaman/Shaman_Run.png' },
+  oozlings: { melee: SLIMES+'Slime_Lvl01_Move_5x1.png', ranged: SLIMES+'Slime_Lvl04_Move_6x1.png', caster: SLIMES+'Slime_Lvl06_Move_6x1.png' },
+  demon:    { melee: CM+'RhinoMonster_01_Regular/Move_8x1.png', ranged: CM+'Cyclop_Archer_01/Move_16x1.png', caster: CM+'GameMaster/Idle_48x1.png' },
+  deep:     { melee: TS_ENEMY+'Turtle/Turtle_Walk.png', ranged: TS_ENEMY+'Harpoon Fish/HarpoonFish_Run.png', caster: TS_ENEMY+'Paddle Fish/PaddleFish_Run.png' },
+  wild:     { melee: TS_ENEMY+'Spider/Spider_Run.png', ranged: TS_ENEMY+'Gnoll/Gnoll_Walk.png', caster: TS_ENEMY+'Lizard/Lizard_Run.png' },
+  geists:   { melee: TS_ENEMY+'Skull/Skull_Run.png', ranged: CM+'Vampire_Archer_01/Move_20x1.png', caster: CM+'Sorcerer_LVL1/Move_24x1.png' },
+  tenders:  { melee: CM+'Ent_LVL1/Idle_34x1.png', ranged: TS_ENEMY+'Gnome/Gnome_Run.png', caster: TS_ENEMY+'Panda/Panda_Run.png' },
+};
+
+// Full sprite mapping from SpriteLoader.ts RACE_BUILDING_SPRITES
+// Each entry: [pack, number] or null (missing/needs generation)
+// Status: 'unique' = explicit entry, 'inherited' = reuses parent art, 'missing' = needs new art
+const RACES = {
+  crown: {
+    name: 'Crown', colors: '#e6c866', pack: 'H',
+    desc: 'Gold+Wood — Balanced, shields + dmg reduction. Medieval human kingdom.',
+    buildings: {
+      melee: {
+        suffix: 'Barracks', units: 'Swordsman → Buccaneer(pirate)/Noble(royal) → Corsair/Pirate King/King/Champion',
+        nodes: {
+          A: { sprite: P('H',103), status: 'unique', name: 'Swordsman Barracks (AI LoRA)' },
+          B: { sprite: P('H',104), status: 'unique', name: 'Buccaneer Barracks (AI LoRA)' },
+          C: { sprite: P('H',105), status: 'unique', name: 'Noble Barracks (AI LoRA)' },
+          D: { sprite: P('H',106), status: 'unique', name: 'Corsair Captain (AI LoRA)' },
+          E: { sprite: P('H',107), status: 'unique', name: 'Pirate King (AI LoRA)' },
+          F: { sprite: P('H',108), status: 'unique', name: 'King Barracks (AI LoRA)' },
+          G: { sprite: P('H',109), status: 'unique', name: 'Champion (AI LoRA)' },
+        }
+      },
+      ranged: {
+        suffix: 'Range', units: 'Bowman → Heavy Bow/Dwarfette → Longbow/War Bow/Dwarfette Blitzer/Cannon',
+        nodes: {
+          A: { sprite: P('H',110), status: 'unique', name: 'Archery Range (AI LoRA)' },
+          B: { sprite: P('H',111), status: 'unique', name: 'Heavy Bow Range (AI LoRA)' },
+          C: { sprite: P('H',112), status: 'unique', name: 'Dwarfette Workshop (AI LoRA)' },
+          D: { sprite: P('H',113), status: 'unique', name: 'Longbow Range (AI LoRA)' },
+          E: { sprite: P('H',114), status: 'unique', name: 'War Bow Range (AI LoRA)' },
+          F: { sprite: P('H',115), status: 'unique', name: 'Dwarfette Blitzer (AI LoRA)' },
+          G: { sprite: P('H',116), status: 'unique', name: 'Cannon Foundry (AI LoRA)' },
+        }
+      },
+      caster: {
+        suffix: 'Chapel', units: 'Priest → High Priest(shields)/War Mage(AoE) → Bishop/Cleric/Magus/Archmage',
+        nodes: {
+          A: { sprite: P('H',95), status: 'unique', name: 'Chapel (AI LoRA)' },
+          B: { sprite: P('H',96), status: 'unique', name: 'High Priest Chapel (AI LoRA)' },
+          C: { sprite: P('H',97), status: 'unique', name: 'War Mage Tower (AI LoRA)' },
+          D: { sprite: P('H',98), status: 'unique', name: 'Arch Bishop (AI LoRA)' },
+          E: { sprite: P('H',99), status: 'unique', name: 'War Cleric (AI LoRA)' },
+          F: { sprite: P('H',100), status: 'unique', name: 'Battle Magus (AI LoRA)' },
+          G: { sprite: P('H',101), status: 'unique', name: 'Archmage (AI LoRA)' },
+        }
+      },
+      tower: {
+        suffix: 'Tower', units: 'Reinforced → Rapid → Fortress → War → Gatling → Siege',
+        nodes: {
+          A: { sprite: P('H',117), status: 'unique', name: 'Tower (AI LoRA)' },
+          B: { sprite: P('H',118), status: 'unique', name: 'Reinforced Tower (AI LoRA)' },
+          C: { sprite: P('H',119), status: 'unique', name: 'Rapid Tower (AI LoRA)' },
+          D: { sprite: P('H',120), status: 'unique', name: 'Fortress Tower (AI LoRA)' },
+          E: { sprite: P('H',121), status: 'unique', name: 'War Tower (AI LoRA)' },
+          F: { sprite: P('H',122), status: 'unique', name: 'Gatling Tower (AI LoRA)' },
+          G: { sprite: P('H',123), status: 'unique', name: 'Siege Tower (AI LoRA)' },
+        }
+      },
+      hut: {
+        suffix: 'Hut', units: 'Harvests Gold + Wood',
+        nodes: {
+          A: { sprite: TS.hut, status: 'unique', name: 'Harvester Hut (Tiny Swords)' },
+        }
+      },
+    }
+  },
+
+  horde: {
+    name: 'Horde', colors: '#c44', pack: 'O',
+    desc: 'Gold+Meat — Brute force, knockback. Tribal orc warriors, berserkers, war drums.',
+    buildings: {
+      melee: {
+        suffix: 'Camp', units: 'Brute(green) → Iron Brute(blue)/Raging(orange) → Warchief/Berserker/Bloodrager/Skull Crusher',
+        nodes: {
+          A: { sprite: P('O',67), status: 'unique', name: 'Brute Camp (AI LoRA)' },
+          B: { sprite: P('O',68), status: 'unique', name: 'Iron Brute (AI LoRA)' },
+          C: { sprite: P('O',69), status: 'unique', name: 'Raging Brute (AI LoRA)' },
+          D: { sprite: P('O',70), status: 'unique', name: 'Warchief Hall (AI LoRA)' },
+          E: { sprite: P('O',71), status: 'unique', name: 'Berserker Pit (AI LoRA)' },
+          F: { sprite: P('O',72), status: 'unique', name: 'Bloodrager Lodge (AI LoRA)' },
+          G: { sprite: P('O',73), status: 'unique', name: 'Skull Crusher (AI LoRA)' },
+        }
+      },
+      ranged: {
+        suffix: 'Post', units: 'Cleaver(green) → Heavy Cleaver(blue)/Catapult(orange) → War/Battle/Bombard/Doom',
+        nodes: {
+          A: { sprite: P('O',74), status: 'unique', name: 'Axe Post (AI LoRA)' },
+          B: { sprite: P('O',75), status: 'unique', name: 'Heavy Cleaver (AI LoRA)' },
+          C: { sprite: P('O',76), status: 'unique', name: 'Orc Catapult (AI LoRA)' },
+          D: { sprite: P('O',77), status: 'unique', name: 'War Thrower (AI LoRA)' },
+          E: { sprite: P('O',78), status: 'unique', name: 'Battle Cleaver (AI LoRA)' },
+          F: { sprite: P('O',79), status: 'unique', name: 'Horde Bombard (AI LoRA)' },
+          G: { sprite: P('O',80), status: 'unique', name: 'Doom Catapult (AI LoRA)' },
+        }
+      },
+      caster: {
+        suffix: 'Drum Pit', units: 'War Chanter(green) → Battle Chanter(blue)/War Drummer(orange) → chanters/shamans',
+        nodes: {
+          A: { sprite: P('O',59), status: 'unique', name: 'War Drum Pit (AI LoRA)' },
+          B: { sprite: P('O',60), status: 'unique', name: 'Battle Chanter (AI LoRA)' },
+          C: { sprite: P('O',61), status: 'unique', name: 'War Drummer (AI LoRA)' },
+          D: { sprite: P('O',62), status: 'unique', name: 'Blood Chanter (AI LoRA)' },
+          E: { sprite: P('O',63), status: 'unique', name: 'Rage Shaman (AI LoRA)' },
+          F: { sprite: P('O',64), status: 'unique', name: 'Swift Chanter (AI LoRA)' },
+          G: { sprite: P('O',65), status: 'unique', name: 'Doom Chanter (AI LoRA)' },
+        }
+      },
+      tower: {
+        suffix: 'Palisade', units: 'Orc Palisade → Spiked → War → Siege → Rapid → Doom',
+        nodes: {
+          A: { sprite: P('O',81), status: 'unique', name: 'Orc Palisade (AI LoRA)' },
+          B: { sprite: P('O',82), status: 'unique', name: 'Orc Palisade (AI LoRA)' },
+          C: { sprite: P('O',83), status: 'unique', name: 'Spiked Palisade (AI LoRA)' },
+          D: { sprite: P('O',84), status: 'unique', name: 'War Palisade (AI LoRA)' },
+          E: { sprite: P('O',85), status: 'unique', name: 'Siege Palisade (AI LoRA)' },
+          F: { sprite: P('O',86), status: 'unique', name: 'Rapid Palisade (AI LoRA)' },
+          G: { sprite: P('O',87), status: 'unique', name: 'Doom Palisade (AI LoRA)' },
+        }
+      },
+      hut: {
+        suffix: 'Hut', units: 'Harvests Gold + Meat',
+        nodes: {
+          A: { sprite: P('O',66), status: 'unique', name: 'Harvester Hut (AI LoRA)' },
+        }
+      },
+    }
+  },
+
+  goblins: {
+    name: 'Goblins', colors: '#6c4', pack: 'H',
+    desc: 'Gold+Wood — Fast + cheap, poison/burn. Sneaky goblins, traps, potions.',
+    buildings: {
+      melee: {
+        suffix: 'Hut', units: 'Stabber → Troll Brute/Quick Sticker → Smasher/Warlord/Shadow/Ace',
+        nodes: {
+          A: { sprite: P('H',80), status: 'unique', name: 'Stabber Hut (AI LoRA)' },
+          B: { sprite: P('H',81), status: 'unique', name: 'Troll Brute Hut (AI LoRA)' },
+          C: { sprite: P('H',82), status: 'unique', name: 'Quick Sticker Den (AI LoRA)' },
+          D: { sprite: P('H',83), status: 'unique', name: 'Troll Smasher Lodge (AI LoRA)' },
+          E: { sprite: P('H',84), status: 'unique', name: 'Troll Warlord Hall (AI LoRA)' },
+          F: { sprite: P('H',85), status: 'unique', name: 'Shadow Sticker (AI LoRA)' },
+          G: { sprite: P('H',86), status: 'unique', name: 'Goblin Ace Arena (AI LoRA)' },
+        }
+      },
+      ranged: {
+        suffix: 'Shack', units: 'Knifer → Venom Knifer/War Pig → Plague/Fan/King Pig/Mortar',
+        nodes: {
+          A: { sprite: P('H',88), status: 'unique', name: 'Knife Shack (AI LoRA)' },
+          B: { sprite: P('H',89), status: 'unique', name: 'Venom Knifer (AI LoRA)' },
+          C: { sprite: P('H',90), status: 'unique', name: 'War Pig Pen (AI LoRA)' },
+          D: { sprite: P('H',91), status: 'unique', name: 'Plague Knifer (AI LoRA)' },
+          E: { sprite: P('H',92), status: 'unique', name: 'Fan Knifer (AI LoRA)' },
+          F: { sprite: P('H',93), status: 'unique', name: 'King Pig Stables (AI LoRA)' },
+          G: { sprite: P('H',94), status: 'unique', name: 'Goblin Mortar (AI LoRA)' },
+        }
+      },
+      caster: {
+        suffix: 'Den', units: 'Hex Caster → Hex Master/Curse Weaver → Grand/Plague/Rapid/Doom Hexer',
+        nodes: {
+          A: { sprite: P('H',72), status: 'unique', name: 'Hex Den (AI LoRA)' },
+          B: { sprite: P('H',73), status: 'unique', name: 'Hex Master (AI LoRA)' },
+          C: { sprite: P('H',74), status: 'unique', name: 'Curse Weaver (AI LoRA)' },
+          D: { sprite: P('H',75), status: 'unique', name: 'Grand Hexer (AI LoRA)' },
+          E: { sprite: P('H',76), status: 'unique', name: 'Plague Hexer (AI LoRA)' },
+          F: { sprite: P('H',77), status: 'unique', name: 'Rapid Hexer (AI LoRA)' },
+          G: { sprite: P('H',78), status: 'unique', name: 'Doom Hexer (AI LoRA)' },
+        }
+      },
+      tower: {
+        suffix: 'Fort', units: 'Goblin Fort → Rapid → Poison → Venom → Blitz → Plague',
+        nodes: {
+          A: { sprite: P('H',65), status: 'unique', name: 'Fort (AI LoRA)' },
+          B: { sprite: P('H',66), status: 'unique', name: 'Goblin Fort (AI LoRA)' },
+          C: { sprite: P('H',67), status: 'unique', name: 'Rapid Fort (AI LoRA)' },
+          D: { sprite: P('H',68), status: 'unique', name: 'Poison Fort (AI LoRA)' },
+          E: { sprite: P('H',69), status: 'unique', name: 'Venom Fort (AI LoRA)' },
+          F: { sprite: P('H',70), status: 'unique', name: 'Blitz Fort (AI LoRA)' },
+          G: { sprite: P('H',71), status: 'unique', name: 'Plague Fort (AI LoRA)' },
+        }
+      },
+      hut: {
+        suffix: 'Hut', units: 'Harvests Gold + Wood',
+        nodes: {
+          A: { sprite: P('H',79), status: 'unique', name: 'Harvester Hut (AI LoRA)' },
+        }
+      },
+    }
+  },
+
+  demon: {
+    name: 'Demon', colors: '#f64', pack: 'O',
+    desc: 'Meat+Wood — Glass cannon, burn. No gold economy. Fire demons, hellfire, dark magic.',
+    buildings: {
+      melee: {
+        suffix: 'Pit', units: 'Smasher(purple) → Inferno(ice)/Blaze(red) → Doom(green)/Bloodfire(white)/Phoenix(black-gold)/Magma(turquoise)',
+        nodes: {
+          A: { sprite: P('O',96), status: 'unique', name: 'Demon Smasher Pit (AI LoRA)' },
+          B: { sprite: P('O',97), status: 'unique', name: 'Inferno Smasher (AI LoRA)' },
+          C: { sprite: P('O',98), status: 'unique', name: 'Blaze Smasher (AI LoRA)' },
+          D: { sprite: P('O',99), status: 'unique', name: 'Doom Smasher (AI LoRA)' },
+          E: { sprite: P('O',100), status: 'unique', name: 'Bloodfire Berserker (AI LoRA)' },
+          F: { sprite: P('O',101), status: 'unique', name: 'Phoenix Blade (AI LoRA)' },
+          G: { sprite: P('O',102), status: 'unique', name: 'Magma Smasher (AI LoRA)' },
+        }
+      },
+      ranged: {
+        suffix: 'Spire', units: 'Eye Sniper → Flame/Rapid → Meteor/Inferno Reaper/Blitz/Brimstone Cannon',
+        nodes: {
+          A: { sprite: P('O',103), status: 'unique', name: 'Demon Eye Spire (AI LoRA)' },
+          B: { sprite: P('O',104), status: 'unique', name: 'Flame Sniper (AI LoRA)' },
+          C: { sprite: P('O',105), status: 'unique', name: 'Rapid Eye (AI LoRA)' },
+          D: { sprite: P('O',106), status: 'unique', name: 'Meteor Eye (AI LoRA)' },
+          E: { sprite: P('O',107), status: 'unique', name: 'Inferno Reaper (AI LoRA)' },
+          F: { sprite: P('O',108), status: 'unique', name: 'Blitz Eye (AI LoRA)' },
+          G: { sprite: P('O',109), status: 'unique', name: 'Brimstone Cannon (AI LoRA)' },
+        }
+      },
+      caster: {
+        suffix: 'Shrine', units: 'Fire Lord → Hellfire/Pyro → Apocalypse/Eruption/Flame Conduit/Soul Pyre',
+        nodes: {
+          A: { sprite: P('O',88), status: 'unique', name: 'Demon Shrine (AI LoRA)' },
+          B: { sprite: P('O',89), status: 'unique', name: 'Hellfire Lord (AI LoRA)' },
+          C: { sprite: P('O',90), status: 'unique', name: 'Pyro Lord (AI LoRA)' },
+          D: { sprite: P('O',91), status: 'unique', name: 'Apocalypse Lord (AI LoRA)' },
+          E: { sprite: P('O',92), status: 'unique', name: 'Eruption Lord (AI LoRA)' },
+          F: { sprite: P('O',93), status: 'unique', name: 'Flame Conduit (AI LoRA)' },
+          G: { sprite: P('O',94), status: 'unique', name: 'Soul Pyre (AI LoRA)' },
+        }
+      },
+      tower: {
+        suffix: 'Turret', units: 'Demon Turret → Rapid → Inferno → Napalm → Gatling → Dragon',
+        nodes: {
+          A: { sprite: P('O',110), status: 'unique', name: 'Demon Turret (AI LoRA)' },
+          B: { sprite: P('O',111), status: 'unique', name: 'Demon Turret (AI LoRA)' },
+          C: { sprite: P('O',112), status: 'unique', name: 'Rapid Turret (AI LoRA)' },
+          D: { sprite: P('O',113), status: 'unique', name: 'Inferno Turret (AI LoRA)' },
+          E: { sprite: P('O',114), status: 'unique', name: 'Napalm Turret (AI LoRA)' },
+          F: { sprite: P('O',115), status: 'unique', name: 'Gatling Turret (AI LoRA)' },
+          G: { sprite: P('O',116), status: 'unique', name: 'Dragon Turret (AI LoRA)' },
+        }
+      },
+      hut: {
+        suffix: 'Hut', units: 'Harvests Meat + Wood',
+        nodes: {
+          A: { sprite: P('O',95), status: 'unique', name: 'Harvester Pit (AI LoRA)' },
+        }
+      },
+    }
+  },
+
+  tenders: {
+    name: 'Tenders', colors: '#8c6', pack: 'E',
+    desc: 'Wood+Gold — Regen + healing. Nature guardians, treants, dryads, floral magic.',
+    buildings: {
+      melee: {
+        suffix: 'Grove', units: 'Sapling → Young Ent/Wild Radish → Elder/Ancient/Radish Brute/Radish King',
+        nodes: {
+          A: { sprite: P('E',91), status: 'unique', name: 'Sapling Grove (AI LoRA)' },
+          B: { sprite: P('E',92), status: 'unique', name: 'Young Ent Grove (AI LoRA)' },
+          C: { sprite: P('E',93), status: 'unique', name: 'Radish Garden (AI LoRA)' },
+          D: { sprite: P('E',94), status: 'unique', name: 'Elder Ent Grove (AI LoRA)' },
+          E: { sprite: P('E',95), status: 'unique', name: 'Ancient Ent (AI LoRA)' },
+          F: { sprite: P('E',96), status: 'unique', name: 'Radish Brute (AI LoRA)' },
+          G: { sprite: P('E',97), status: 'unique', name: 'Radish King (AI LoRA)' },
+        }
+      },
+      ranged: {
+        suffix: 'Bower', units: 'Thorn Shooter → Heavy Tinker/Thorn Thrower → Blight/Grand/Toxic/Vine Siege',
+        nodes: {
+          A: { sprite: P('E',98), status: 'unique', name: 'Gnome Bower (AI LoRA)' },
+          B: { sprite: P('E',99), status: 'unique', name: 'Heavy Tinker (AI LoRA)' },
+          C: { sprite: P('E',100), status: 'unique', name: 'Thorn Thrower (AI LoRA)' },
+          D: { sprite: P('E',101), status: 'unique', name: 'Blight Tinker (AI LoRA)' },
+          E: { sprite: P('E',102), status: 'unique', name: 'Grand Tinker (AI LoRA)' },
+          F: { sprite: P('E',103), status: 'unique', name: 'Toxic Hurler (AI LoRA)' },
+          G: { sprite: P('E',104), status: 'unique', name: 'Vine Siege (AI LoRA)' },
+        }
+      },
+      caster: {
+        suffix: 'Garden', units: 'Bloom Mage → Deep Root(panda)/Spore Weaver(mushroom) → Fungal/Bloom/Mycelium/Fungal Lord',
+        nodes: {
+          A: { sprite: P('E',83), status: 'unique', name: 'Bloom Mage Garden (AI LoRA)' },
+          B: { sprite: P('E',84), status: 'unique', name: 'Deep Root Garden (AI LoRA)' },
+          C: { sprite: P('E',85), status: 'unique', name: 'Spore Weaver (AI LoRA)' },
+          D: { sprite: P('E',86), status: 'unique', name: 'Fungal Hulk (AI LoRA)' },
+          E: { sprite: P('E',87), status: 'unique', name: 'Bloom Shaper (AI LoRA)' },
+          F: { sprite: P('E',88), status: 'unique', name: 'Mycelium Sage (AI LoRA)' },
+          G: { sprite: P('E',89), status: 'unique', name: 'Fungal Lord (AI LoRA)' },
+        }
+      },
+      tower: {
+        suffix: 'Thorn Wall', units: 'Thorn Wall → Vine → Great Thorn → Poison → Entangle → Nature Spire',
+        nodes: {
+          A: { sprite: P('E',105), status: 'unique', name: 'Thorn Wall (AI LoRA)' },
+          B: { sprite: P('E',106), status: 'unique', name: 'Thorn Wall (AI LoRA)' },
+          C: { sprite: P('E',107), status: 'unique', name: 'Vine Tower (AI LoRA)' },
+          D: { sprite: P('E',108), status: 'unique', name: 'Great Thorn (AI LoRA)' },
+          E: { sprite: P('E',109), status: 'unique', name: 'Poison Thorn (AI LoRA)' },
+          F: { sprite: P('E',110), status: 'unique', name: 'Entangle Tower (AI LoRA)' },
+          G: { sprite: P('E',111), status: 'unique', name: 'Nature Spire (AI LoRA)' },
+        }
+      },
+      hut: {
+        suffix: 'Hut', units: 'Harvests Wood + Gold',
+        nodes: {
+          A: { sprite: P('E',90), status: 'unique', name: 'Harvester Hut (AI LoRA)' },
+        }
+      },
+    }
+  },
+
+  deep: {
+    name: 'Deep', colors: '#4a9', pack: 'N',
+    desc: 'Wood+Gold — Tank + control, slow effects. Aquatic creatures (whales, sharks, crabs, starfish).',
+    buildings: {
+      melee: {
+        suffix: 'Grotto', units: 'Shell Guard → Bull Whale → Armored Whale/Leviathan/Leapfrog/Frog Titan',
+        nodes: {
+          A: { sprite: P('N',130), status: 'unique', name: 'Shell Guard Grotto (AI LoRA)' },
+          B: { sprite: P('N',131), status: 'unique', name: 'Whale Grotto (AI LoRA)' },
+          C: { sprite: P('N',132), status: 'unique', name: 'Frog Grotto (AI LoRA)' },
+          D: { sprite: P('N',133), status: 'unique', name: 'Armored Whale (AI LoRA)' },
+          E: { sprite: P('N',134), status: 'unique', name: 'Leviathan (AI LoRA)' },
+          F: { sprite: P('N',135), status: 'unique', name: 'Leapfrog (AI LoRA)' },
+          G: { sprite: P('N',136), status: 'unique', name: 'Frog Titan (AI LoRA)' },
+        }
+      },
+      ranged: {
+        suffix: 'Reef', units: 'Harpooner → Reef Shark/Crab → Hammerhead/Great White/Depth Charge/King Crab',
+        nodes: {
+          A: { sprite: P('N',137), status: 'unique', name: 'Harpooner Reef (AI LoRA)' },
+          B: { sprite: P('N',138), status: 'unique', name: 'Shark Reef (AI LoRA)' },
+          C: { sprite: P('N',139), status: 'unique', name: 'Crab Reef (AI LoRA)' },
+          D: { sprite: P('N',140), status: 'unique', name: 'Hammerhead Reef (AI LoRA)' },
+          E: { sprite: P('N',141), status: 'unique', name: 'Great White Reef (AI LoRA)' },
+          F: { sprite: P('N',142), status: 'unique', name: 'Depth Charge (AI LoRA)' },
+          G: { sprite: P('N',143), status: 'unique', name: 'King Crab Reef (AI LoRA)' },
+        }
+      },
+      caster: {
+        suffix: 'Shrine', units: 'Tidecaller → Sea Star/Snap Clam → Crown Star/Star Lord/Giant Clam/Pearl Maw',
+        nodes: {
+          A: { sprite: P('N',122), status: 'unique', name: 'Tidecaller Shrine (AI LoRA)' },
+          B: { sprite: P('N',123), status: 'unique', name: 'Sea Star Shrine (AI LoRA)' },
+          C: { sprite: P('N',124), status: 'unique', name: 'Snap Clam Shrine (AI LoRA)' },
+          D: { sprite: P('N',125), status: 'unique', name: 'Crown Star Shrine (AI LoRA)' },
+          E: { sprite: P('N',126), status: 'unique', name: 'Star Lord Shrine (AI LoRA)' },
+          F: { sprite: P('N',127), status: 'unique', name: 'Giant Clam Shrine (AI LoRA)' },
+          G: { sprite: P('N',128), status: 'unique', name: 'Pearl Maw Shrine (AI LoRA)' },
+        }
+      },
+      tower: {
+        suffix: 'Tidal Pool', units: 'Slow-focused: Tidal Pool → Vortex → Abyssal → Tsunami → Frozen',
+        nodes: {
+          A: { sprite: P('N',56), status: 'unique', name: 'Tidal Pool (AI LoRA)' },
+          B: { sprite: P('N',57), status: 'unique', name: 'Tidal Pool Tower (AI LoRA)' },
+          C: { sprite: P('N',58), status: 'unique', name: 'Vortex Pool (AI LoRA)' },
+          D: { sprite: P('N',59), status: 'unique', name: 'Abyssal Pool (AI LoRA)' },
+          E: { sprite: P('N',60), status: 'unique', name: 'Crushing Tide (AI LoRA)' },
+          F: { sprite: P('N',61), status: 'unique', name: 'Tsunami Tower (AI LoRA)' },
+          G: { sprite: P('N',62), status: 'unique', name: 'Frozen Pool (AI LoRA)' },
+        }
+      },
+      hut: {
+        suffix: 'Hut', units: 'Harvests Wood + Gold',
+        nodes: {
+          A: { sprite: P('N',129), status: 'unique', name: 'Harvester Hut (AI LoRA)' },
+        }
+      },
+    }
+  },
+
+  geists: {
+    name: 'Geists', colors: '#a6a', pack: 'N',
+    desc: 'Meat+Gold — Undying, lifesteal. Skeletal warriors, wraiths, necromancers, spectral energy.',
+    buildings: {
+      melee: {
+        suffix: 'Crypt', units: 'Bone Knight → Iron Bones/Mimic → Death Knight/Soul Eater/Snapping Mimic/Soul Gorger',
+        nodes: {
+          A: { sprite: P('N',108), status: 'unique', name: 'Bone Knight Crypt (AI LoRA)' },
+          B: { sprite: P('N',109), status: 'unique', name: 'Iron Bones Crypt (AI LoRA)' },
+          C: { sprite: P('N',110), status: 'unique', name: 'Ambush Chest (AI LoRA)' },
+          D: { sprite: P('N',111), status: 'unique', name: 'Death Knight Crypt (AI LoRA)' },
+          E: { sprite: P('N',112), status: 'unique', name: 'Soul Eater Vault (AI LoRA)' },
+          F: { sprite: P('N',113), status: 'unique', name: 'Snapping Mimic (AI LoRA)' },
+          G: { sprite: P('N',114), status: 'unique', name: 'Soul Gorger (AI LoRA)' },
+        }
+      },
+      ranged: {
+        suffix: 'Tomb', units: 'Wraith Bow → Venom Wraith/Bone Skull → Plague Arrow/Hex Volley/Wailing Skull/Bone Ballista',
+        nodes: {
+          A: { sprite: P('N',115), status: 'unique', name: 'Wraith Bow Tomb (AI LoRA)' },
+          B: { sprite: P('N',116), status: 'unique', name: 'Venom Wraith Tomb (AI LoRA)' },
+          C: { sprite: P('N',117), status: 'unique', name: 'Bone Skull Tomb (AI LoRA)' },
+          D: { sprite: P('N',118), status: 'unique', name: 'Plague Arrow Tomb (AI LoRA)' },
+          E: { sprite: P('N',119), status: 'unique', name: 'Hex Volley Tomb (AI LoRA)' },
+          F: { sprite: P('N',120), status: 'unique', name: 'Wailing Skull Tomb (AI LoRA)' },
+          G: { sprite: P('N',121), status: 'unique', name: 'Bone Ballista Tomb (AI LoRA)' },
+        }
+      },
+      caster: {
+        suffix: 'Sanctum', units: 'Lich Priest → Plague Mage/Dark Sorcerer → Necromancer/Soul Harvester/Shadow Sorc/Arch Lich',
+        nodes: {
+          A: { sprite: P('N',100), status: 'unique', name: 'Lich Sanctum (AI LoRA)' },
+          B: { sprite: P('N',101), status: 'unique', name: 'Plague Mage (AI LoRA)' },
+          C: { sprite: P('N',102), status: 'unique', name: 'Dark Sorcerer (AI LoRA)' },
+          D: { sprite: P('N',103), status: 'unique', name: 'Necromancer (AI LoRA)' },
+          E: { sprite: P('N',104), status: 'unique', name: 'Soul Harvester (AI LoRA)' },
+          F: { sprite: P('N',105), status: 'unique', name: 'Shadow Sorcerer (AI LoRA)' },
+          G: { sprite: P('N',106), status: 'unique', name: 'Arch Lich (AI LoRA)' },
+        }
+      },
+      tower: {
+        suffix: 'Shadow Spire', units: 'Burn-focused: Shadow → Wither → Void → Blight → Nightmare → Death',
+        nodes: {
+          A: { sprite: P('N',93), status: 'unique', name: 'Shadow Spire (AI LoRA)' },
+          B: { sprite: P('N',94), status: 'unique', name: 'Shadow Spire (AI LoRA)' },
+          C: { sprite: P('N',98), status: 'unique', name: 'Wither Spire (AI LoRA)' },
+          D: { sprite: P('N',96), status: 'unique', name: 'Void Spire (AI LoRA)' },
+          E: { sprite: P('N',97), status: 'unique', name: 'Blight Spire (AI LoRA)' },
+          F: { sprite: P('N',95), status: 'unique', name: 'Nightmare Spire (AI LoRA)' },
+          G: { sprite: P('N',99), status: 'unique', name: 'Death Spire (AI LoRA)' },
+        }
+      },
+      hut: {
+        suffix: 'Hut', units: 'Harvests Meat + Gold',
+        nodes: {
+          A: { sprite: P('N',107), status: 'unique', name: 'Harvester Crypt (AI LoRA)' },
+        }
+      },
+    }
+  },
+
+  oozlings: {
+    name: 'Oozlings', colors: '#6cc', pack: 'N',
+    desc: 'Gold+Meat — Swarm (always spawn 2), haste. Slime blobs, acid, ooze, explosions.',
+    buildings: {
+      melee: {
+        suffix: 'Vat', units: 'Globule(2x) → Tough Glob → Baneling/Armored/Acid/Volatile/Detonator',
+        nodes: {
+          A: { sprite: P('N',78), status: 'unique', name: 'Globule Vat (AI LoRA)' },
+          B: { sprite: P('N',79), status: 'unique', name: 'Tough Vat (AI LoRA)' },
+          C: { sprite: P('N',80), status: 'unique', name: 'Baneling Vat (AI LoRA)' },
+          D: { sprite: P('N',81), status: 'unique', name: 'Armored Vat (AI LoRA)' },
+          E: { sprite: P('N',82), status: 'unique', name: 'Acid Vat (AI LoRA)' },
+          F: { sprite: P('N',83), status: 'unique', name: 'Volatile Vat (AI LoRA)' },
+          G: { sprite: P('N',84), status: 'unique', name: 'Detonator Vat (AI LoRA)' },
+        }
+      },
+      ranged: {
+        suffix: 'Vat', units: 'Spitter(2x) → Thick → Rapid/Acid/Burst/Hyper/Glob Siege',
+        nodes: {
+          A: { sprite: P('N',86), status: 'unique', name: 'Spitter Vat (AI LoRA)' },
+          B: { sprite: P('N',87), status: 'unique', name: 'Thick Vat (AI LoRA)' },
+          C: { sprite: P('N',88), status: 'unique', name: 'Rapid Vat (AI LoRA)' },
+          D: { sprite: P('N',89), status: 'unique', name: 'Acid Spitter Vat (AI LoRA)' },
+          E: { sprite: P('N',90), status: 'unique', name: 'Burst Vat (AI LoRA)' },
+          F: { sprite: P('N',91), status: 'unique', name: 'Hyper Vat (AI LoRA)' },
+          G: { sprite: P('N',92), status: 'unique', name: 'Glob Siege Vat (AI LoRA)' },
+        }
+      },
+      caster: {
+        suffix: 'Vat', units: 'Slimer(2x) → Big Bloater → Quick/Mega/Acid/Hyper/Ooze Lord',
+        nodes: {
+          A: { sprite: P('N',70), status: 'unique', name: 'Slimer Vat (AI LoRA)' },
+          B: { sprite: P('N',71), status: 'unique', name: 'Bloater Vat (AI LoRA)' },
+          C: { sprite: P('N',72), status: 'unique', name: 'Quick Vat (AI LoRA)' },
+          D: { sprite: P('N',73), status: 'unique', name: 'Mega Vat (AI LoRA)' },
+          E: { sprite: P('N',74), status: 'unique', name: 'Acid Bloater Vat (AI LoRA)' },
+          F: { sprite: P('N',75), status: 'unique', name: 'Hyper Vat (AI LoRA)' },
+          G: { sprite: P('N',76), status: 'unique', name: 'Ooze Lord Vat (AI LoRA)' },
+        }
+      },
+      tower: {
+        suffix: 'Slime Pillar', units: 'Chain attacks: Slime → Rapid → Grand → Acid → Storm → Ooze Beacon',
+        nodes: {
+          A: { sprite: P('N',63), status: 'unique', name: 'Slime Pillar (AI LoRA)' },
+          B: { sprite: P('N',64), status: 'unique', name: 'Slime Pillar (AI LoRA)' },
+          C: { sprite: P('N',65), status: 'unique', name: 'Rapid Pillar (AI LoRA)' },
+          D: { sprite: P('N',66), status: 'unique', name: 'Grand Pillar (AI LoRA)' },
+          E: { sprite: P('N',67), status: 'unique', name: 'Acid Pillar (AI LoRA)' },
+          F: { sprite: P('N',68), status: 'unique', name: 'Storm Pillar (AI LoRA)' },
+          G: { sprite: P('N',69), status: 'unique', name: 'Ooze Beacon (AI LoRA)' },
+        }
+      },
+      hut: {
+        suffix: 'Hut', units: 'Harvests Gold + Meat',
+        nodes: {
+          A: { sprite: P('N',77), status: 'unique', name: 'Harvester Hut (AI LoRA)' },
+        }
+      },
+    }
+  },
+
+  wild: {
+    name: 'Wild', colors: '#a6a',  pack: 'E',
+    desc: 'Wood+Meat — Aggro + poison. Beasts: bears, spiders, snakes, reptiles, nature magic.',
+    buildings: {
+      melee: {
+        suffix: 'Den', units: 'Lurker → Cave Bear → Spider Brood/Minotaur/Dire Bear/Viper Nest/Spider Swarm',
+        nodes: {
+          A: { sprite: P('E',62), status: 'unique', name: 'Lurker Burrow (AI LoRA)' },
+          B: { sprite: P('E',63), status: 'unique', name: 'Bear Cave (AI LoRA)' },
+          C: { sprite: P('E',64), status: 'unique', name: 'Spider Brood (AI LoRA)' },
+          D: { sprite: P('E',65), status: 'unique', name: 'Minotaur Labyrinth (AI LoRA)' },
+          E: { sprite: P('E',66), status: 'unique', name: 'Dire Bear Cave (AI LoRA)' },
+          F: { sprite: P('E',67), status: 'unique', name: 'Viper Pit (AI LoRA)' },
+          G: { sprite: P('E',68), status: 'unique', name: 'Spider Swarm (AI LoRA)' },
+        }
+      },
+      ranged: {
+        suffix: 'Nest', units: 'Bonechucker → Chameleon → Spitting Snake/Stalker/Catapult/Venom Serpent/Hydra',
+        nodes: {
+          A: { sprite: P('E',69), status: 'unique', name: 'Bonechucker Perch (AI LoRA)' },
+          B: { sprite: P('E',70), status: 'unique', name: 'Chameleon Overhang (AI LoRA)' },
+          C: { sprite: P('E',71), status: 'unique', name: 'Snake Coil (AI LoRA)' },
+          D: { sprite: P('E',72), status: 'unique', name: 'Stalker Overhang (AI LoRA)' },
+          E: { sprite: P('E',73), status: 'unique', name: 'Catapult Beast (AI LoRA)' },
+          F: { sprite: P('E',74), status: 'unique', name: 'Venom Serpent (AI LoRA)' },
+          G: { sprite: P('E',75), status: 'unique', name: 'Hydra Rock (AI LoRA)' },
+        }
+      },
+      caster: {
+        suffix: 'Hollow', units: 'Scaled Sage → Elder Sage → Swift/Primal/Storm/Feral/Alpha Sage',
+        nodes: {
+          A: { sprite: P('E',54), status: 'unique', name: 'Sage Hollow (AI LoRA)' },
+          B: { sprite: P('E',55), status: 'unique', name: 'Elder Hollow (AI LoRA)' },
+          C: { sprite: P('E',56), status: 'unique', name: 'Swift Hollow (AI LoRA)' },
+          D: { sprite: P('E',57), status: 'unique', name: 'Primal Hollow (AI LoRA)' },
+          E: { sprite: P('E',58), status: 'unique', name: 'Storm Hollow (AI LoRA)' },
+          F: { sprite: P('E',59), status: 'unique', name: 'Feral Hollow (AI LoRA)' },
+          G: { sprite: P('E',60), status: 'unique', name: 'Alpha Hollow (AI LoRA)' },
+        }
+      },
+      tower: {
+        suffix: 'Thorn Nest', units: 'Poison/burn: Thorn → Venom → Great → Poison → Web → Alpha Nest',
+        nodes: {
+          A: { sprite: P('E',76), status: 'unique', name: 'Thorn Thicket (AI LoRA)' },
+          B: { sprite: P('E',77), status: 'unique', name: 'Thorn Wall (AI LoRA)' },
+          C: { sprite: P('E',78), status: 'unique', name: 'Venom Thicket (AI LoRA)' },
+          D: { sprite: P('E',79), status: 'unique', name: 'Great Thorn (AI LoRA)' },
+          E: { sprite: P('E',80), status: 'unique', name: 'Poison Mound (AI LoRA)' },
+          F: { sprite: P('E',81), status: 'unique', name: 'Web Thicket (AI LoRA)' },
+          G: { sprite: P('E',82), status: 'unique', name: 'Alpha Mound (AI LoRA)' },
+        }
+      },
+      hut: {
+        suffix: 'Hut', units: 'Harvests Wood + Meat',
+        nodes: {
+          A: { sprite: P('E',61), status: 'unique', name: 'Foraging Burrow (AI LoRA)' },
+        }
+      },
+    }
+  },
+};
+
+// Count stats and render
+let totalUnique = 0, totalInherited = 0, totalMissing = 0;
+const container = document.getElementById('content');
+let html = '';
+
+for (const [raceId, race] of Object.entries(RACES)) {
+  html += `<div class="race-section">`;
+  html += `<div class="race-header" style="color:${race.colors}">${race.name}</div>`;
+  html += `<div class="race-desc">${race.desc} — Pack: ${PACKS[race.pack].name}</div>`;
+
+  for (const [bldgType, bldg] of Object.entries(race.buildings)) {
+    html += `<div class="building-row">`;
+    html += `<div class="building-label">`;
+    // Show unit sprite thumbnail for melee/ranged/caster (not tower/hut)
+    const unitSprite = UNIT_SPRITES[raceId]?.[bldgType];
+    if (unitSprite) {
+      html += `<img class="unit-thumb" src="${unitSprite}" title="${race.name} ${bldgType} unit" onerror="this.style.display='none'">`;
+    }
+    html += `<div class="building-info">`;
+    html += `<div class="type">${bldgType.toUpperCase()} (${bldg.suffix})</div>`;
+    html += `<div class="units">${bldg.units}</div>`;
+    html += `</div></div>`;
+    html += `<div class="node-slots">`;
+
+    for (const [node, info] of Object.entries(bldg.nodes)) {
+      const statusClass = info.status;
+      if (info.status === 'unique') totalUnique++;
+      else if (info.status === 'inherited') totalInherited++;
+      else totalMissing++;
+
+      const imgSrc = info.sprite || (info.inherits && bldg.nodes[info.inherits]?.sprite) || '';
+      const imgClass = info.status === 'missing' ? 'missing' : info.status === 'inherited' ? 'inherited' : '';
+
+      html += `<div class="node-slot">`;
+      if (imgSrc) {
+        html += `<img src="${imgSrc}" class="${imgClass}" title="${info.name}" onerror="this.style.display='none'">`;
+      } else {
+        html += `<div style="width:80px;height:100px;border:2px dashed #c44;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:10px;color:#c44;">NEED</div>`;
+      }
+      html += `<div class="node-label">Node ${node}</div>`;
+      html += `<div class="node-name">${info.name}</div>`;
+      html += `<div class="status ${statusClass}">${info.status.toUpperCase()}${info.inherits ? ' ←' + info.inherits : ''}</div>`;
+      html += `</div>`;
+    }
+
+    html += `</div></div>`;
+  }
+
+  html += `</div>`;
+}
+
+container.innerHTML = html;
+document.getElementById('stats').innerHTML =
+  `<span class="count" style="color:#4c8">${totalUnique}</span> unique · ` +
+  `<span class="count" style="color:#c80">${totalInherited}</span> inherited · ` +
+  `<span class="count" style="color:#c44">${totalMissing}</span> need generation`;
+</script>
+</body>
+</html>

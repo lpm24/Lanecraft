@@ -920,11 +920,11 @@ export interface ResearchUpgradeDef {
 // 6 universal upgrades: melee/ranged/caster x atk/def
 export const RESEARCH_UPGRADES: ResearchUpgradeDef[] = [
   { id: 'melee_atk', category: 'melee', type: 'attack', name: 'Melee Attack', desc: '{damage} +25% melee damage per level', oneShot: false },
-  { id: 'melee_def', category: 'melee', type: 'defense', name: 'Melee Defense', desc: '{damage-reduction} Melee damage reduction (diminishing)', oneShot: false },
+  { id: 'melee_def', category: 'melee', type: 'defense', name: 'Melee Defense', desc: '{damage-reduction} +6% melee DR per level (diminishing)', oneShot: false },
   { id: 'ranged_atk', category: 'ranged', type: 'attack', name: 'Ranged Attack', desc: '{damage} +25% ranged damage per level', oneShot: false },
-  { id: 'ranged_def', category: 'ranged', type: 'defense', name: 'Ranged Defense', desc: '{damage-reduction} Ranged damage reduction (diminishing)', oneShot: false },
+  { id: 'ranged_def', category: 'ranged', type: 'defense', name: 'Ranged Defense', desc: '{damage-reduction} +6% ranged DR per level (diminishing)', oneShot: false },
   { id: 'caster_atk', category: 'caster', type: 'attack', name: 'Caster Attack', desc: '{damage} +25% caster damage per level', oneShot: false },
-  { id: 'caster_def', category: 'caster', type: 'defense', name: 'Caster Defense', desc: '{damage-reduction} Caster damage reduction (diminishing)', oneShot: false },
+  { id: 'caster_def', category: 'caster', type: 'defense', name: 'Caster Defense', desc: '{damage-reduction} +6% caster DR per level (diminishing)', oneShot: false },
 ];
 
 // Per-race one-shot upgrades (2 per category = 6 per race)
@@ -932,13 +932,13 @@ export const RACE_RESEARCH_UPGRADES: Record<Race, ResearchUpgradeDef[]> = {
   [Race.Crown]: [
     { id: 'crown_melee_1', category: 'melee', type: 'race_special', name: 'Defend Stance', desc: '{damage-reduction} -25% ranged dmg taken', oneShot: true },
     { id: 'crown_melee_2', category: 'melee', type: 'race_special', name: 'Royal Guard', desc: '{health} +15% HP, {gold} +2g on kill', oneShot: true },
-    { id: 'crown_ranged_1', category: 'ranged', type: 'race_special', name: 'Piercing Arrows', desc: '{damage} Ignore 20% def, +4% max HP dmg', oneShot: true },
+    { id: 'crown_ranged_1', category: 'ranged', type: 'race_special', name: 'Piercing Arrows', desc: '{damage} +20% ranged damage', oneShot: true },
     { id: 'crown_ranged_2', category: 'ranged', type: 'race_special', name: 'Crown Volley', desc: '{additional-projectile} +1 proj at 40% dmg', oneShot: true },
-    { id: 'crown_caster_1', category: 'caster', type: 'race_special', name: 'Fortified Shields', desc: '{shield} +8 shield absorb', oneShot: true },
-    { id: 'crown_caster_2', category: 'caster', type: 'race_special', name: 'Healing Aura', desc: '{healing} 1 HP/s to 2 allies', oneShot: true },
+    { id: 'crown_caster_1', category: 'caster', type: 'race_special', name: 'Fortified Shields', desc: '{shield} +8 shield absorb per cast', oneShot: true },
+    { id: 'crown_caster_2', category: 'caster', type: 'race_special', name: 'Healing Aura', desc: '{healing} Heal 2 nearest allies 1 HP/s within 6t', oneShot: true },
   ],
   [Race.Horde]: [
-    { id: 'horde_melee_1', category: 'melee', type: 'race_special', name: 'Blood Rage', desc: '{damage} Up to +40% dmg based on missing HP', oneShot: true },
+    { id: 'horde_melee_1', category: 'melee', type: 'race_special', name: 'Blood Rage', desc: '{damage} Up to +80% dmg based on missing HP', oneShot: true },
     { id: 'horde_melee_2', category: 'melee', type: 'race_special', name: 'Thick Skin', desc: '{health} +25% HP', oneShot: true },
     { id: 'horde_ranged_1', category: 'ranged', type: 'race_special', name: 'Heavy Bolts', desc: '{wound} Wound on hit: -50% healing, 6s', oneShot: true },
     { id: 'horde_ranged_2', category: 'ranged', type: 'race_special', name: 'Bombardier', desc: '{splash} Splash 2.5t at 30%', oneShot: true },
@@ -949,53 +949,53 @@ export const RACE_RESEARCH_UPGRADES: Record<Race, ResearchUpgradeDef[]> = {
     { id: 'goblins_melee_1', category: 'melee', type: 'race_special', name: 'Coated Blades', desc: '{burn} +1 Burn on melee', oneShot: true },
     { id: 'goblins_melee_2', category: 'melee', type: 'race_special', name: 'Scurry', desc: '{move-speed} +35% move speed', oneShot: true },
     { id: 'goblins_ranged_1', category: 'ranged', type: 'race_special', name: 'Incendiary Tips', desc: '{burn} +1 Burn on ranged', oneShot: true },
-    { id: 'goblins_ranged_2', category: 'ranged', type: 'race_special', name: 'Acid Bolts', desc: '{damage} +4% target max HP dmg', oneShot: true },
+    { id: 'goblins_ranged_2', category: 'ranged', type: 'race_special', name: 'Acid Bolts', desc: '{additional-projectile} 15% chance to fire extra projectile', oneShot: true },
     { id: 'goblins_caster_1', category: 'caster', type: 'race_special', name: 'Potent Hex', desc: '{burn} +1 Burn on caster AoE', oneShot: true },
     { id: 'goblins_caster_2', category: 'caster', type: 'race_special', name: 'Jinx Cloud', desc: '{slow} Slowed targets get {wound} Wound: -50% healing', oneShot: true },
   ],
   [Race.Oozlings]: [
-    { id: 'oozlings_melee_1', category: 'melee', type: 'race_special', name: 'Volatile Membrane', desc: '{explode} Explode on death', oneShot: true },
-    { id: 'oozlings_melee_2', category: 'melee', type: 'race_special', name: 'Mitosis', desc: '{spawn-rate} 10% spawn copy on death', oneShot: true },
+    { id: 'oozlings_melee_1', category: 'melee', type: 'race_special', name: 'Volatile Membrane', desc: '{explode} Explode on death: 15 dmg in {aoe} 2t radius', oneShot: true },
+    { id: 'oozlings_melee_2', category: 'melee', type: 'race_special', name: 'Mitosis', desc: '{spawn-rate} 10% chance to spawn copy on death at half stats', oneShot: true },
     { id: 'oozlings_ranged_1', category: 'ranged', type: 'race_special', name: 'Corrosive Spit', desc: '{vulnerable} Vulnerable on hit: +20% dmg taken, 3s', oneShot: true },
-    { id: 'oozlings_ranged_2', category: 'ranged', type: 'race_special', name: 'Acid Pool', desc: '{burn} Kill leaves dmg pool', oneShot: true },
-    { id: 'oozlings_caster_1', category: 'caster', type: 'race_special', name: 'Symbiotic Link', desc: '{healing} Heal during {haste} haste', oneShot: true },
-    { id: 'oozlings_caster_2', category: 'caster', type: 'race_special', name: 'Mass Division', desc: '{wound} Caster AoE applies Wound: -50% healing, 6s', oneShot: true },
+    { id: 'oozlings_ranged_2', category: 'ranged', type: 'race_special', name: 'Acid Pool', desc: '{burn} On death: 5 dmg to enemies in {aoe} 1.5t radius', oneShot: true },
+    { id: 'oozlings_caster_1', category: 'caster', type: 'race_special', name: 'Symbiotic Link', desc: '{healing} Heal 1 HP/s while {haste} hasted', oneShot: true },
+    { id: 'oozlings_caster_2', category: 'caster', type: 'race_special', name: 'Mass Division', desc: '{wound} Spawn 3 per cycle. AoE applies {wound} Wound: -50% heal', oneShot: true },
   ],
   [Race.Demon]: [
     { id: 'demon_melee_1', category: 'melee', type: 'race_special', name: 'Infernal Rage', desc: '{damage} +25% vs {burn} burning', oneShot: true },
     { id: 'demon_melee_2', category: 'melee', type: 'race_special', name: 'Soul Siphon', desc: '{gold} +2 mana on kill', oneShot: true },
     { id: 'demon_ranged_1', category: 'ranged', type: 'race_special', name: 'Hellfire Arrows', desc: '{burn} +1 Burn, {damage} +10% dmg', oneShot: true },
-    { id: 'demon_ranged_2', category: 'ranged', type: 'race_special', name: 'Eye of Destruction', desc: '{splash} +1.5 splash radius', oneShot: true },
+    { id: 'demon_ranged_2', category: 'ranged', type: 'race_special', name: 'Eye of Destruction', desc: '{splash} Caster {aoe} AoE gains +1.5t radius', oneShot: true },
     { id: 'demon_caster_1', category: 'caster', type: 'race_special', name: 'Flame Conduit', desc: '{burn} +1 AoE burn', oneShot: true },
-    { id: 'demon_caster_2', category: 'caster', type: 'race_special', name: 'Immolation', desc: '{burn} 2t burn aura', oneShot: true },
+    { id: 'demon_caster_2', category: 'caster', type: 'race_special', name: 'Immolation', desc: '{burn} Burn aura: 1 {burn} Burn/s to enemies within 2t', oneShot: true },
   ],
   [Race.Deep]: [
     { id: 'deep_melee_1', category: 'melee', type: 'race_special', name: 'Tidal Guard', desc: '{health} +15% HP, {damage-reduction} +5% DR', oneShot: true },
     { id: 'deep_melee_2', category: 'melee', type: 'race_special', name: 'Crushing Depths', desc: '{damage} +50% vs {slow} slowed', oneShot: true },
-    { id: 'deep_ranged_1', category: 'ranged', type: 'race_special', name: 'Frozen Harpoons', desc: '{slow} +1 Slow', oneShot: true },
+    { id: 'deep_ranged_1', category: 'ranged', type: 'race_special', name: 'Frozen Harpoons', desc: '{slow} +1 Slow on ranged hit', oneShot: true },
     { id: 'deep_ranged_2', category: 'ranged', type: 'race_special', name: 'Anchor Shot', desc: '{siege} +100% siege dmg', oneShot: true },
     { id: 'deep_caster_1', category: 'caster', type: 'race_special', name: 'Purifying Tide', desc: '{cleanse} Cleanse 1 burn ally, {haste} haste 5 allies', oneShot: true },
-    { id: 'deep_caster_2', category: 'caster', type: 'race_special', name: 'Abyssal Ward', desc: '{shield} 3 shield/5s allies', oneShot: true },
+    { id: 'deep_caster_2', category: 'caster', type: 'race_special', name: 'Abyssal Ward', desc: '{shield} Shield 3 nearest allies, 3 HP absorb per cast', oneShot: true },
   ],
   [Race.Wild]: [
-    { id: 'wild_melee_1', category: 'melee', type: 'race_special', name: 'Savage Frenzy', desc: '{frenzy} Frenzy +2s, {damage} +10% dmg', oneShot: true },
-    { id: 'wild_melee_2', category: 'melee', type: 'race_special', name: 'Pack Hunter', desc: '{damage} +5%/ally max +40% dmg', oneShot: true },
+    { id: 'wild_melee_1', category: 'melee', type: 'race_special', name: 'Savage Frenzy', desc: '{frenzy} +10% dmg while Frenzied', oneShot: true },
+    { id: 'wild_melee_2', category: 'melee', type: 'race_special', name: 'Pack Hunter', desc: '{damage} +5% dmg per ally within 4t, max +40%', oneShot: true },
     { id: 'wild_ranged_1', category: 'ranged', type: 'race_special', name: 'Venomous Fangs', desc: '{burn} +1 Burn + {wound} Wound on hit', oneShot: true },
-    { id: 'wild_ranged_2', category: 'ranged', type: 'race_special', name: "Predator's Mark", desc: '{vulnerable} Marked +15% dmg taken', oneShot: true },
+    { id: 'wild_ranged_2', category: 'ranged', type: 'race_special', name: "Predator's Mark", desc: '{slow} +1 {slow} Slow on ranged hit', oneShot: true },
     { id: 'wild_caster_1', category: 'caster', type: 'race_special', name: "Nature's Wrath", desc: '{aoe} +1 AoE radius', oneShot: true },
-    { id: 'wild_caster_2', category: 'caster', type: 'race_special', name: 'Alpha Howl', desc: '{frenzy} Casters grant Frenzy', oneShot: true },
+    { id: 'wild_caster_2', category: 'caster', type: 'race_special', name: 'Alpha Howl', desc: '{frenzy} Casters grant Frenzy to 2 allies per cast', oneShot: true },
   ],
   [Race.Geists]: [
-    { id: 'geists_melee_1', category: 'melee', type: 'race_special', name: 'Death Grip', desc: '{lifesteal} Lifesteal 15->25%', oneShot: true },
+    { id: 'geists_melee_1', category: 'melee', type: 'race_special', name: 'Death Grip', desc: '{lifesteal} +5% melee lifesteal (10→15%)', oneShot: true },
     { id: 'geists_melee_2', category: 'melee', type: 'race_special', name: 'Spectral Armor', desc: '{damage-reduction} +5% DR per 25% missing HP', oneShot: true },
-    { id: 'geists_ranged_1', category: 'ranged', type: 'race_special', name: 'Soul Arrows', desc: '{lifesteal} +10% lifesteal', oneShot: true },
+    { id: 'geists_ranged_1', category: 'ranged', type: 'race_special', name: 'Soul Arrows', desc: '{lifesteal} +5% ranged lifesteal (10→15%)', oneShot: true },
     { id: 'geists_ranged_2', category: 'ranged', type: 'race_special', name: 'Phantom Volley', desc: '{additional-projectile} 15% chance to hit a 2nd target', oneShot: true },
-    { id: 'geists_caster_1', category: 'caster', type: 'race_special', name: 'Necrotic Burst', desc: '{healing} Heal 3 lowest allies for 2 HP/tick', oneShot: true },
+    { id: 'geists_caster_1', category: 'caster', type: 'race_special', name: 'Necrotic Burst', desc: '{healing} Heal 3 lowest HP allies 2 HP per cast', oneShot: true },
     { id: 'geists_caster_2', category: 'caster', type: 'race_special', name: 'Undying Will', desc: '{summon} +15% skeleton summon chance', oneShot: true },
   ],
   [Race.Tenders]: [
     { id: 'tenders_melee_1', category: 'melee', type: 'race_special', name: 'Bark Skin', desc: '{regen} Regen 1->2 HP/s', oneShot: true },
-    { id: 'tenders_melee_2', category: 'melee', type: 'race_special', name: 'Thorned Vines', desc: '{damage} Reflect 3 dmg', oneShot: true },
+    { id: 'tenders_melee_2', category: 'melee', type: 'race_special', name: 'Thorned Vines', desc: '{damage} Reflect 3 dmg to melee attackers', oneShot: true },
     { id: 'tenders_ranged_1', category: 'ranged', type: 'race_special', name: 'Healing Sap', desc: '{healing} Heal ally 15% of dmg', oneShot: true },
     { id: 'tenders_ranged_2', category: 'ranged', type: 'race_special', name: 'Root Snare', desc: '{slow} 20% chance +1 Slow', oneShot: true },
     { id: 'tenders_caster_1', category: 'caster', type: 'race_special', name: 'Bloom Burst', desc: '{healing} +2 heal amount', oneShot: true },
@@ -1018,9 +1018,9 @@ export const RACE_ABILITY_UPGRADES: Record<Race, ResearchUpgradeDef[]> = {
     { id: 'crown_ability_4', category: 'ability', type: 'race_ability', name: 'Timber Surplus', desc: '+40% wood returned by workers', oneShot: true },
   ],
   [Race.Horde]: [
-    { id: 'horde_ability_1', category: 'ability', type: 'race_ability', name: 'Trample', desc: '{aoe} War Troll deals AoE trample damage', oneShot: true },
+    { id: 'horde_ability_1', category: 'ability', type: 'race_ability', name: 'Trample', desc: '{aoe} War Troll deals 40% dmg in 2.5t AoE on hit', oneShot: true },
     { id: 'horde_ability_2', category: 'ability', type: 'race_ability', name: 'Troll Discount', desc: 'War Troll costs 30% less', oneShot: true },
-    { id: 'horde_ability_3', category: 'ability', type: 'race_ability', name: 'Wide Aura', desc: '{aura} Caster aura range doubled', oneShot: true },
+    { id: 'horde_ability_3', category: 'ability', type: 'race_ability', name: 'Wide Aura', desc: '{aura} Caster aura range doubled (5→10t)', oneShot: true },
     { id: 'horde_ability_4', category: 'ability', type: 'race_ability', name: 'Trophy Hunter', desc: '{kill-scale} War Troll +2% HP/dmg per kill. Carries over.', oneShot: true },
   ],
   [Race.Goblins]: [
@@ -1037,9 +1037,9 @@ export const RACE_ABILITY_UPGRADES: Record<Race, ResearchUpgradeDef[]> = {
   ],
   [Race.Demon]: [
     { id: 'demon_ability_1', category: 'ability', type: 'race_ability', name: 'Rapid Fire', desc: '{attack-speed} Fireball cooldown reduced by 25%', oneShot: true },
-    { id: 'demon_ability_2', category: 'ability', type: 'race_ability', name: 'Scorched Earth', desc: '{burn} Fireball leaves burn ground for 6s', oneShot: true },
+    { id: 'demon_ability_2', category: 'ability', type: 'race_ability', name: 'Scorched Earth', desc: '{burn} Fireball leaves burn ground 6s, deals dmg + {burn} burn/s', oneShot: true },
     { id: 'demon_ability_3', category: 'ability', type: 'race_ability', name: 'Siege Fire', desc: '{siege} Fireball deals +50% dmg to buildings', oneShot: true },
-    { id: 'demon_ability_4', category: 'ability', type: 'race_ability', name: 'Mana Siphon', desc: '+50% mana from channeling workers', oneShot: true },
+    { id: 'demon_ability_4', category: 'ability', type: 'race_ability', name: 'Mana Siphon', desc: '{gold} +50% mana from workers (3 per tick)', oneShot: true },
   ],
   [Race.Deep]: [
     { id: 'deep_ability_1', category: 'ability', type: 'race_ability', name: 'Crushing Rain', desc: '{damage} Deluge deals 3 dmg/sec to enemies', oneShot: true },
@@ -1049,7 +1049,7 @@ export const RACE_ABILITY_UPGRADES: Record<Race, ResearchUpgradeDef[]> = {
   ],
   [Race.Wild]: [
     { id: 'wild_ability_1', category: 'ability', type: 'race_ability', name: 'Meat Harvest', desc: '30% chance to gain +3 meat on kill', oneShot: true },
-    { id: 'wild_ability_2', category: 'ability', type: 'race_ability', name: 'Blood Frenzy', desc: '{frenzy} Kill frenzy radius doubled', oneShot: true },
+    { id: 'wild_ability_2', category: 'ability', type: 'race_ability', name: 'Blood Frenzy', desc: '{frenzy} Kill frenzy radius doubled (6→12t)', oneShot: true },
     { id: 'wild_ability_3', category: 'ability', type: 'race_ability', name: 'Pack Speed', desc: '{move-speed} +10% global move speed', oneShot: true },
     { id: 'wild_ability_4', category: 'ability', type: 'race_ability', name: 'Savage Instinct', desc: '{frenzy} Frenzied units gain {lifesteal} 15% lifesteal', oneShot: true },
   ],
@@ -1057,7 +1057,7 @@ export const RACE_ABILITY_UPGRADES: Record<Race, ResearchUpgradeDef[]> = {
     { id: 'geists_ability_1', category: 'ability', type: 'race_ability', name: 'Bone Archers', desc: '{summon} Summon also spawns 3 skeleton archers', oneShot: true },
     { id: 'geists_ability_2', category: 'ability', type: 'race_ability', name: 'Empowered Minions', desc: '{damage} +5 dmg, {move-speed} +25% speed for skeletons', oneShot: true },
     { id: 'geists_ability_3', category: 'ability', type: 'race_ability', name: 'Death Defiance', desc: '{dodge} 5% chance to avoid death for all units', oneShot: true },
-    { id: 'geists_ability_4', category: 'ability', type: 'race_ability', name: 'Hungering Dark', desc: '{lifesteal} Lifesteal also increases {damage} damage', oneShot: true },
+    { id: 'geists_ability_4', category: 'ability', type: 'race_ability', name: 'Hungering Dark', desc: '{lifesteal} Lifesteal % adds {damage} bonus dmg (10-15%)', oneShot: true },
   ],
   [Race.Tenders]: [
     { id: 'tenders_ability_1', category: 'ability', type: 'race_ability', name: 'Fast Growth', desc: '{spawn-rate} Seeds grow 40% faster', oneShot: true },
@@ -1120,10 +1120,10 @@ export function getResearchUpgradeCost(id: string, level: number, race: Race): {
         crown_ability_4: { gold: 360, wood: 0, meat: 0 },   // Timber Surplus: +40% wood income — 180 eff, huge economy
 
         // Horde (gold + meat + wood) — Trophy Hunter snowballs, Wide Aura is strong, rest are niche
-        horde_ability_1: { gold: 200, wood: 0, meat: 30 },  // Trample: AoE on War Troll — 130 eff
-        horde_ability_2: { gold: 80,  wood: 0, meat: 20 },  // Troll Discount: 30% cheaper — 60 eff, narrow
-        horde_ability_3: { gold: 200, wood: 0, meat: 40 },  // Wide Aura: doubled range — 140 eff, force multiplier
-        horde_ability_4: { gold: 400, wood: 0, meat: 50 },  // Trophy Hunter: +2%/kill snowball — 250 eff, infinite scaling
+        horde_ability_1: { gold: 60, wood: 15, meat: 15 },  // Trample: AoE on War Troll — 75 eff
+        horde_ability_2: { gold: 30, wood: 10, meat: 10 },  // Troll Discount: 30% cheaper — 35 eff, narrow
+        horde_ability_3: { gold: 60, wood: 20, meat: 20 },  // Wide Aura: doubled range — 90 eff, force multiplier
+        horde_ability_4: { gold: 100, wood: 30, meat: 30 }, // Trophy Hunter: +2%/kill snowball — 140 eff, infinite scaling
 
         // Goblins (gold+wood) — everything cheap, mixed resources. Elixir Mastery still premium
         goblins_ability_1: { gold: 60,  wood: 50,  meat: 0 }, // Quick Brew: 33% faster potions — 80 eff
@@ -1171,6 +1171,8 @@ export function getResearchUpgradeCost(id: string, level: number, race: Race): {
     }
     // One-shot: flat cost scaled to race economy
     // Non-gold races pay half raw amounts since wood/meat are worth 2× gold
+    // Horde: tri-resource split at ~50% effective cost (75 eff vs 75 eff default)
+    if (race === Race.Horde) return { gold: 50, wood: 15, meat: 15 };
     const used = getRaceUsedResources(race);
     if (!used.gold && used.meat && used.wood) return { gold: 0, wood: 40, meat: 35 };
     if (!used.gold && used.meat) return { gold: 0, wood: 0, meat: 75 };
@@ -1184,6 +1186,11 @@ export function getResearchUpgradeCost(id: string, level: number, race: Race): {
   if (race === Race.Goblins) {
     const base = Math.round(40 * Math.pow(1.5, level)); // half the normal 80 base
     return { gold: base, wood: Math.round(base * 0.4), meat: 0 }; // gold + some wood
+  }
+  // Horde: tri-resource split at ~50% effective cost
+  if (race === Race.Horde) {
+    const base = Math.round(40 * Math.pow(1.5, level)); // half the normal 80 base
+    return { gold: base, wood: Math.round(base * 0.25), meat: Math.round(base * 0.25) };
   }
   const cost = Math.round(80 * Math.pow(1.5, level));
   const used = getRaceUsedResources(race);

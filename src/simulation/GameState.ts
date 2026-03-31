@@ -339,6 +339,7 @@ const _combatOrder: UnitState[] = [];
 const _spawnOrder: GameState['buildings'] = [];
 const _moveOrder: UnitState[] = [];
 const _projectileRemoveSet = new Set<number>();
+const _buildingIdSet = new Set<number>();
 // Cached alley buildings per team — rebuilt once per tick for unit movement stop check
 const _alleyBuildingsBottom: Array<{ x: number; y: number }> = [];
 const _alleyBuildingsTop: Array<{ x: number; y: number }> = [];
@@ -950,9 +951,11 @@ export function simulateTick(state: GameState, commands: GameCommand[]): void {
   debugCheckUnitPositions(state, 'tickUnitCollision');
   tickCombat(state);
   debugCheckUnitPositions(state, 'tickCombat');
-  // Rebuild spatial grid after tickCombat's dead-unit filter so tickTowers/tickHQDefense/tickProjectiles
-  // don't find stale dead-unit references in the spatial grid
+  // Rebuild spatial grid and unit map after tickCombat's dead-unit filter so tickTowers/tickHQDefense/tickProjectiles
+  // don't find stale dead-unit references
   _combatGrid.build(state.units);
+  _unitById.clear();
+  for (const u of state.units) _unitById.set(u.id, u);
   tickTowers(state);
   tickHQDefense(state);
   tickProjectiles(state);
@@ -3237,6 +3240,11 @@ function healUnit(unit: UnitState, amount: number): number {
 function dealDamage(state: GameState, target: UnitState, amount: number, showFloat: boolean, sourcePlayerId?: number, sourceUnitId?: number, isTowerShot?: boolean): void {
   // Dodge check (including Horde aura dodge bonus)
   let dodge = (target.upgradeSpecial?.dodgeChance ?? 0) + (target.upgradeSpecial?._auraDodge ?? 0);
+  // Goblins innate: melee units have 15% dodge
+  if (target.category === 'melee') {
+    const tgtP = state.players[target.playerId];
+    if (tgtP?.race === Race.Goblins) dodge = Math.min(1, dodge + 0.15);
+  }
   // Goblins Cower Reflexes: +25% dodge when below 50% HP
   if (target.hp < target.maxHp * 0.5) {
     const tgtPlayer = state.players[target.playerId];
@@ -3565,10 +3573,14 @@ function applyCasterSupport(state: GameState, caster: UnitState, race: Race, sp:
     }
     case Race.Goblins: {
       // Hex debuff: slow enemies near the caster instead of buffing allies
-      const enemies = state.units.filter(u =>
-        u.team !== caster.team &&
-        Math.sqrt((u.x - caster.x) ** 2 + (u.y - caster.y) ** 2) <= supportRange
-      );
+      // Use spatial grid instead of full array scan
+      const nearbyGob = _combatGrid.getNearby(caster.x, caster.y, supportRange);
+      const enemies: UnitState[] = [];
+      for (const u of nearbyGob) {
+        if (u.team === caster.team || u.hp <= 0) continue;
+        const gdx = u.x - caster.x, gdy = u.y - caster.y;
+        if (gdx * gdx + gdy * gdy <= supportRange * supportRange) enemies.push(u);
+      }
       const gobP = state.players[caster.playerId];
       for (const e of enemies) {
         applyStatus(e, StatusType.Slow, 1 + (sp?.extraSlowStacks ?? 0), state);
@@ -4296,11 +4308,8 @@ function tickUnitCollision(state: GameState): void {
 }
 
 function tickCombat(state: GameState): void {
-  // Reuse module-level structures to avoid per-tick allocations
-  _unitById.clear();
-  for (const u of state.units) _unitById.set(u.id, u);
+  // _unitById and _combatGrid already built at top of simulateTick() — reuse them
   const unitById = _unitById;
-  _combatGrid.build(state.units);
   const AGGRO_BONUS = 2.5;
   const AGGRO_LEASH = 3.5;
   let meleeHitSounds = 0; // simulation-side throttle (SoundManager has its own per-category cooldown too)
@@ -4815,7 +4824,6 @@ function tickCombat(state: GameState): void {
             addSound(state, 'nuke_detonated', unit.x, unit.y);
             // Kill self
             unit.hp = 0;
-            unit.attackTimer = Math.round(unit.attackSpeed * TICK_RATE);
             continue;
           }
 
@@ -4949,7 +4957,7 @@ function tickCombat(state: GameState): void {
     }
 
     // Attack enemy HQ when in range (instead of auto-damaging at path end).
-    if (unit.targetId === null && unit.attackTimer <= 0) {
+    if (unit.hp > 0 && unit.targetId === null && unit.attackTimer <= 0) {
       const enemyTeam = unit.team === Team.Bottom ? Team.Top : Team.Bottom;
       const hq = getHQPosition(enemyTeam, state.mapDef);
       const hqCx = hq.x + HQ_WIDTH / 2;
@@ -4957,6 +4965,32 @@ function tickCombat(state: GameState): void {
       const hqRadius = Math.max(HQ_WIDTH, HQ_HEIGHT) * 0.5;
       const distToHq = Math.sqrt((unit.x - hqCx) ** 2 + (unit.y - hqCy) ** 2);
       if (distToHq <= unit.range + hqRadius) {
+        // Suicide attack on HQ: explode for AoE + HQ damage, then die
+        const hqSp = unit.upgradeSpecial;
+        if (hqSp?.suicideAttack) {
+          const eDmg = hqSp.explodeDamage ?? 30;
+          const eRadius = hqSp.explodeRadius ?? 3;
+          const eBurn = hqSp.extraBurnStacks ?? 0;
+          const eR2 = eRadius * eRadius;
+          // Damage HQ
+          state.hqHp[enemyTeam] -= eDmg;
+          if (state.playerStats[unit.playerId]) state.playerStats[unit.playerId].totalDamageDealt += eDmg;
+          // AoE damage to nearby enemy units
+          const blastNearby = _combatGrid.getNearby(unit.x, unit.y, eRadius);
+          for (const e of blastNearby) {
+            if (e.team === unit.team || e.hp <= 0) continue;
+            if ((e.x - unit.x) ** 2 + (e.y - unit.y) ** 2 > eR2) continue;
+            dealDamage(state, e, eDmg, true, unit.playerId, unit.id);
+            if (eBurn > 0) applyStatus(e, StatusType.Burn, eBurn);
+          }
+          addCombatEvent(state, { type: 'splash', x: unit.x, y: unit.y, radius: eRadius, color: '#7c4dff' });
+          addDeathParticles(state, unit.x, unit.y, '#7c4dff', 8);
+          addFloatingText(state, hqCx, hqCy, `${eDmg}`, '#7c4dff', undefined, undefined,
+            { ftType: 'damage', magnitude: eDmg, miniIcon: 'fire' });
+          addSound(state, 'nuke_detonated', unit.x, unit.y);
+          unit.hp = 0;
+          continue;
+        }
         const hDmg = getEffectiveDamage(unit, state);
         state.hqHp[enemyTeam] -= hDmg;
         if (state.playerStats[unit.playerId]) state.playerStats[unit.playerId].totalDamageDealt += hDmg;
@@ -5306,9 +5340,7 @@ function tickTowers(state: GameState): void {
 function tickProjectiles(state: GameState): void {
   _projectileRemoveSet.clear();
   const toRemove = _projectileRemoveSet;
-  // Reuse module-level map to avoid per-tick allocation
-  _unitById.clear();
-  for (const u of state.units) _unitById.set(u.id, u);
+  // _unitById already rebuilt after tickCombat's dead-unit filter (line 955) — reuse it
   const unitById = _unitById;
   let rangedHitSounds = 0;
 
@@ -6070,9 +6102,11 @@ function tickHarvesters(state: GameState): void {
   }
 
   // Remove orphaned harvesters whose huts were destroyed
+  // Build a Set of building IDs once — O(buildings + harvesters) instead of O(buildings * harvesters)
+  _buildingIdSet.clear();
+  for (const b of state.buildings) _buildingIdSet.add(b.id);
   compactInPlace(state.harvesters, h => {
-    const hutExists = state.buildings.some(b => b.id === h.hutId);
-    if (!hutExists) {
+    if (!_buildingIdSet.has(h.hutId)) {
       if (h.carryingDiamond) dropDiamond(state, h.x, h.y);
       spillCarriedWood(state, h);
       return false;
@@ -6661,6 +6695,27 @@ function checkWinConditions(state: GameState): void {
 export function computeStateHash(state: GameState): number {
   let h = 0x811c9dc5; // FNV offset basis
   const mix = (v: number) => { h ^= v; h = Math.imul(h, 0x01000193); };
+  const mixBool = (v: boolean | undefined) => mix(v ? 1 : 0);
+  const mixStatusType = (type: StatusType) => {
+    switch (type) {
+      case StatusType.Slow: mix(1); break;
+      case StatusType.Burn: mix(2); break;
+      case StatusType.Haste: mix(3); break;
+      case StatusType.Shield: mix(4); break;
+      case StatusType.Frenzy: mix(5); break;
+      case StatusType.Wound: mix(6); break;
+      case StatusType.Vulnerable: mix(7); break;
+      default: mix(0); break;
+    }
+  };
+  const mixResourceType = (type: ResourceType | null) => {
+    switch (type) {
+      case ResourceType.Gold: mix(1); break;
+      case ResourceType.Wood: mix(2); break;
+      case ResourceType.Meat: mix(3); break;
+      default: mix(0); break;
+    }
+  };
 
   mix(state.tick);
   for (const hp of state.hqHp) mix(hp * 1000 | 0);
@@ -6683,6 +6738,17 @@ export function computeStateHash(state: GameState): number {
     mix(u.hp * 100 | 0);
     mix(u.x * 100 | 0);
     mix(u.y * 100 | 0);
+    mix(u.damage);
+    mix(u.lane === Lane.Left ? 0 : 1);
+    mix(u.statusEffects.length);
+    mix(u.targetId ?? -1);
+    mixBool(u.carryingDiamond);
+    for (let j = 0; j < u.statusEffects.length; j++) {
+      const eff = u.statusEffects[j];
+      mixStatusType(eff.type);
+      mix(eff.stacks);
+      mix(eff.duration);
+    }
   }
 
   // Hash building state
@@ -6691,6 +6757,33 @@ export function computeStateHash(state: GameState): number {
     mix(b.id);
     mix(b.hp * 100 | 0);
     mix(b.upgradePath.length);
+  }
+
+  // Hash projectiles — detect divergence in ranged combat
+  for (let i = 0; i < state.projectiles.length; i++) {
+    const p = state.projectiles[i];
+    mix(p.id);
+    mix(p.x * 100 | 0);
+    mix(p.y * 100 | 0);
+    mix(p.targetId);
+    mix(p.damage);
+    mix(p.aoeRadius * 100 | 0);
+    mix(p.sourcePlayerId);
+    mix(p.sourceUnitId ?? -1);
+    mix((p.targetX ?? -1) * 100 | 0);
+    mix((p.targetY ?? -1) * 100 | 0);
+  }
+
+  // Hash harvester positions
+  for (let i = 0; i < state.harvesters.length; i++) {
+    const hv = state.harvesters[i];
+    mix(hv.id);
+    mix(hv.x * 100 | 0);
+    mix(hv.y * 100 | 0);
+    mixBool(hv.carryingDiamond);
+    mixResourceType(hv.carryingResource);
+    mix(hv.carryAmount);
+    mix(hv.targetCellIdx);
   }
 
   return h >>> 0; // unsigned 32-bit

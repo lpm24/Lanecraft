@@ -495,7 +495,8 @@ export class BuildingPopup {
     let barCount = 4;
     if (!isTower) barCount += 3; // DPS, SPEED, SPAWN RATE
     // Conditional bars
-    if (upgrade.special.dodgeChance) barCount++;
+    const hasInnateDodge = race === Race.Goblins && building.type === BuildingType.MeleeSpawner;
+    if (upgrade.special.dodgeChance || hasInnateDodge) barCount++;
     if (upgrade.special.damageReductionPct) barCount++;
     // If hovering could add dodge/DR, we need stable height — use max possible for this building
     // Check if any upgrade option could add dodge/DR
@@ -506,7 +507,7 @@ export class BuildingPopup {
       let addedDodge = false, addedDr = false;
       for (const node of checkNodes) {
         const def = tree[node as keyof typeof tree] as UpgradeNodeDef | undefined;
-        if (!addedDodge && def?.special?.dodgeChance && !upgrade.special.dodgeChance) { barCount++; addedDodge = true; }
+        if (!addedDodge && def?.special?.dodgeChance && !upgrade.special.dodgeChance && !hasInnateDodge) { barCount++; addedDodge = true; }
         if (!addedDr && def?.special?.damageReductionPct && !upgrade.special.damageReductionPct) { barCount++; addedDr = true; }
       }
     }
@@ -782,8 +783,10 @@ export class BuildingPopup {
     }
 
     // Conditional bars: only shown when current OR projected value > 0
-    const dodge = upgrade.special.dodgeChance ?? 0;
-    const pDodge = projected ? (projected.special.dodgeChance ?? 0) : dodge;
+    // Goblins melee have innate 15% dodge
+    const innateDodge = (race === Race.Goblins && building.type === BuildingType.MeleeSpawner) ? 0.15 : 0;
+    const dodge = (upgrade.special.dodgeChance ?? 0) + innateDodge;
+    const pDodge = projected ? (projected.special.dodgeChance ?? 0) + innateDodge : dodge;
     if (dodge > 0 || pDodge > 0) {
       all.push({ key: 'dodge', label: 'DODGE', val: dodge, projVal: pDodge, max: 1, disp: `${Math.round(dodge * 100)}%`, projDisp: `${Math.round(pDodge * 100)}%`, color: '#80cbc4' });
     }

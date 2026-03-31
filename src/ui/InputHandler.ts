@@ -3288,9 +3288,17 @@ export class InputHandler {
       const sprData = this.sprites.getUnitSprite(unitShape.race, unitShape.category, unitShape.playerId, false, unitShape.upgradeNode);
       if (sprData) {
         const [img, def] = sprData;
-        const drawH = textH - 6;
+        const maxH = textH - 6;
+        const maxW = maxH;  // square bounding box
         const aspect = def.frameW / def.frameH;
-        const drawW = drawH * aspect;
+        let drawW: number, drawH: number;
+        if (aspect > 1) {
+          drawW = maxW;
+          drawH = maxW / aspect;
+        } else {
+          drawH = maxH;
+          drawW = maxH * aspect;
+        }
         const drawX = boxX + 20 - drawW / 2;
         const drawY = boxY + (textH - drawH) / 2;
         if (def.flipX) {

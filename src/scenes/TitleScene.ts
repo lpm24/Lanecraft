@@ -124,6 +124,9 @@ export class TitleScene implements Scene {
   private matchmakingDots = 0;
   private matchmakingTimeout: ReturnType<typeof setTimeout> | null = null;
   private connecting = false; // true while Firebase is initializing (custom game / find game)
+  private openLobbyCount: number | null = null;
+  private lobbyCountPollInterval: ReturnType<typeof setInterval> | null = null;
+  private lobbyCountRefreshToken = 0;
   private joinCodeInput: string = '';
   private joinInputActive = false;
   private joinHiddenInput: HTMLInputElement | null = null;
@@ -203,6 +206,8 @@ export class TitleScene implements Scene {
     this.partyError = '';
     this.partyStartFired = false;
     this.matchmaking = false;
+    this.openLobbyCount = null;
+    this.startLobbyCountPolling();
 
     // Reload profile and name (picks up changes from ProfileScene)
     this.profile = loadProfile();
@@ -491,6 +496,7 @@ export class TitleScene implements Scene {
   }
 
   exit(): void {
+    this.stopLobbyCountPolling();
     if (this.clickHandler) this.canvas.removeEventListener('click', this.clickHandler);
     if (this.contextMenuHandler) this.canvas.removeEventListener('contextmenu', this.contextMenuHandler);
     if (this.touchHandler) this.canvas.removeEventListener('touchstart', this.touchHandler);
@@ -607,9 +613,9 @@ export class TitleScene implements Scene {
     const mapDef = getMapById(this.partyState?.mapId ?? 'duel');
     const ppt = mapDef.playersPerTeam;
     const panelW = Math.min(w * 0.98, 720);
-    const panelH = Math.min(h * 0.68, 500);
+    const panelH = Math.min(h * 0.64, 470);
     const px = (w - panelW) / 2;
-    const py = h * 0.26;
+    const py = h * 0.09;
 
     // Mode toggle + fog toggle side by side
     const totalTogW = panelW * 0.72;
@@ -617,13 +623,13 @@ export class TitleScene implements Scene {
     const toggleW = totalTogW * 0.6;
     const fogW = totalTogW - toggleW - toggleGap;
     const toggleH = 24;
-    const mapTogY = py + panelH * 0.17;
+    const mapTogY = py + panelH * 0.13;
     const modeTogX = px + (panelW - totalTogW) / 2;
 
     // Two team columns with slots as rows
     const teamGap = 10;
     const teamW = (panelW - teamGap) / 2;
-    const slotAreaTop = py + panelH * 0.26;
+    const slotAreaTop = py + panelH * 0.22;
     const slotAreaBot = py + panelH * 0.73;
     const slotAreaH = slotAreaBot - slotAreaTop;
     const teamLabelH = 18;
@@ -662,7 +668,7 @@ export class TitleScene implements Scene {
       cellBot: slotAreaBot,
       leave: { x: px + panelW * 0.15, y: py + panelH - 56, w: panelW * 0.28, h: 44 },
       start: { x: px + panelW * 0.46, y: py + panelH - 56, w: panelW * 0.42, h: 44 },
-      code: { x: px + panelW * 0.125, y: py + 2, w: panelW * 0.75, h: 52 },
+      code: { x: px + panelW * 0.08, y: py - 28, w: panelW * 0.84, h: 82 },
       modeToggle: { x: modeTogX, y: mapTogY, w: toggleW, h: toggleH },
       fogToggle: { x: modeTogX + toggleW + toggleGap, y: mapTogY, w: fogW, h: toggleH },
       diffBtns,
@@ -688,7 +694,7 @@ export class TitleScene implements Scene {
     const panelW = Math.min(w * 0.98, 616);
     const panelH = Math.min(h * 0.58, 420);
     const px = (w - panelW) / 2;
-    const py = h * 0.26;
+    const py = h * 0.09;
 
     // Mode toggle + fog toggle side by side
     const totalTogW = panelW * 0.72;
@@ -1141,10 +1147,10 @@ export class TitleScene implements Scene {
 
   private firebaseInitPromise: Promise<void> | null = null;
 
-  private ensureFirebase(): Promise<void> {
+  private ensureFirebase(silent = false): Promise<void> {
     if (this.firebaseReady) return Promise.resolve();
     if (!isFirebaseConfigured()) {
-      this.showPartyError('Firebase not configured');
+      if (!silent) this.showPartyError('Firebase not configured');
       return Promise.reject(new Error('Firebase not configured'));
     }
     // Deduplicate concurrent calls
@@ -1157,12 +1163,50 @@ export class TitleScene implements Scene {
     }).catch((err) => {
       this.firebaseInitPromise = null;
       console.error('[Firebase] Init failed:', err.code || '', err.message || err);
-      this.showPartyError(err.code === 'auth/admin-restricted-operation'
-        ? 'Enable Anonymous Auth in Firebase Console'
-        : (err.message || 'Firebase error'));
+      if (!silent) {
+        this.showPartyError(err.code === 'auth/admin-restricted-operation'
+          ? 'Enable Anonymous Auth in Firebase Console'
+          : (err.message || 'Firebase error'));
+      }
       throw err;
     });
     return this.firebaseInitPromise;
+  }
+
+  private shouldPollLobbyCount(): boolean {
+    return !this.localSetup && !this.partyState && !this.joinInputActive && !this.matchmaking;
+  }
+
+  private startLobbyCountPolling(): void {
+    this.stopLobbyCountPolling();
+    if (!isFirebaseConfigured()) return;
+    this.refreshLobbyCount();
+    this.lobbyCountPollInterval = setInterval(() => {
+      if (!this.shouldPollLobbyCount()) return;
+      this.refreshLobbyCount();
+    }, 10_000);
+  }
+
+  private stopLobbyCountPolling(): void {
+    if (this.lobbyCountPollInterval) {
+      clearInterval(this.lobbyCountPollInterval);
+      this.lobbyCountPollInterval = null;
+    }
+    this.lobbyCountRefreshToken++;
+  }
+
+  private async refreshLobbyCount(): Promise<void> {
+    if (!this.shouldPollLobbyCount()) return;
+    const token = ++this.lobbyCountRefreshToken;
+    try {
+      await this.ensureFirebase(true);
+      const count = await this.party!.getOpenGameCount();
+      if (token === this.lobbyCountRefreshToken && this.shouldPollLobbyCount()) {
+        this.openLobbyCount = count;
+      }
+    } catch {
+      if (token === this.lobbyCountRefreshToken) this.openLobbyCount = null;
+    }
   }
 
   private async doFindGame(): Promise<void> {
@@ -2029,6 +2073,9 @@ export class TitleScene implements Scene {
       ctx.fillText(this.subtitle, w / 2, subCenterY);
     }
 
+    // Player name + portrait (rendered before panels so panels cover it)
+    this.renderNameTag(ctx, w, h);
+
     // === Buttons or Party Panel ===
     if (this.localSetup) {
       this.renderLocalSetupPanel(ctx, w, h);
@@ -2060,9 +2107,6 @@ export class TitleScene implements Scene {
       ctx.fillText(this.partyError, w / 2, errY + errH * 0.5);
       ctx.globalAlpha = 1;
     }
-
-    // Player name + dice button
-    this.renderNameTag(ctx, w, h);
 
     // === "Now Playing" track name (bottom-left) ===
     if (this.nowPlayingName) {
@@ -2122,6 +2166,7 @@ export class TitleScene implements Scene {
     } else {
       const ox1 = this.ui.drawSword(ctx, btns.findGame.x, btns.findGame.y, btns.findGame.w, btns.findGame.h, 1, r1);
       if (r1 > 0) this.drawSwordLabel(ctx, btns.findGame, 'FIND GAME', r1, ox1);
+      this.drawOpenLobbyCount(ctx, btns.findGame, r1);
     }
 
     // CUSTOM GAME — yellow sword (show connecting feedback)
@@ -2168,6 +2213,28 @@ export class TitleScene implements Scene {
     ctx.fillStyle = '#fff';
     ctx.fillText(text, tx, ty);
     ctx.globalAlpha = 1;
+  }
+
+  private drawOpenLobbyCount(
+    ctx: CanvasRenderingContext2D,
+    rect: { x: number; y: number; w: number; h: number },
+    alpha: number,
+  ): void {
+    if (this.openLobbyCount == null) return;
+    const label = this.openLobbyCount === 1 ? '1 lobby' : `${this.openLobbyCount} lobbies`;
+    const fontSize = Math.max(9, Math.min(rect.h * 0.23, 13));
+    const tx = rect.x + rect.w * 0.84;
+    const ty = rect.y + rect.h * 0.5;
+    ctx.save();
+    ctx.font = `bold ${fontSize}px monospace`;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.globalAlpha = Math.min(1, alpha * 0.9);
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.fillText(label, tx + 1, ty + 1);
+    ctx.fillStyle = this.openLobbyCount > 0 ? '#ffe082' : 'rgba(255,255,255,0.7)';
+    ctx.fillText(label, tx, ty);
+    ctx.restore();
   }
 
   // ─── Menu tutorial overlay ───
@@ -2462,8 +2529,6 @@ export class TitleScene implements Scene {
     ctx.globalAlpha = 1;
   }
 
-  // ─── Render: Party panel ───
-
   // ─── Render: Local setup panel (no Firebase) ───
 
   private renderLocalSetupPanel(ctx: CanvasRenderingContext2D, w: number, _h: number): void {
@@ -2742,23 +2807,23 @@ export class TitleScene implements Scene {
     const isHost = this.party?.isHost;
 
     // Big ribbon header with party code front-and-center
-    const codeRibW = pl.panel.w * 0.75;
-    const codeRibH = 62;
+    const codeRibW = pl.panel.w * 0.84;
+    const codeRibH = 82;
     const codeRibX = pl.panel.x + (pl.panel.w - codeRibW) / 2;
-    const codeRibY = pl.panel.y + 2;
+    const codeRibY = pl.panel.y - 28;
     this.ui.drawBigRibbon(ctx, codeRibX, codeRibY, codeRibW, codeRibH, 2); // yellow
 
     // "PARTY CODE" small label at top of ribbon
-    const labelSize = Math.max(11, codeRibH * 0.2);
+    const labelSize = Math.max(12, codeRibH * 0.22);
     ctx.font = `bold ${labelSize}px monospace`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillStyle = 'rgba(0,0,0,0.4)';
-    ctx.fillText('PARTY CODE', w / 2, codeRibY + codeRibH * 0.25);
+    ctx.fillStyle = 'rgba(0,0,0,0.75)';
+    ctx.fillText('PARTY CODE', w / 2, codeRibY + codeRibH * 0.20 + 6);
 
-    // Large code text — letter-spaced, bright white on the ribbon
+    // Large code text — letter-spaced, white on yellow ribbon
     // Scale font to fit within ribbon width on small screens
-    let codeFontSize = Math.max(18, Math.min(pl.panel.w / 8, 44));
+    let codeFontSize = Math.max(12, Math.min(pl.panel.w / 14, 24));
     let codeStr = ps.code.split('').join('   ');
     ctx.font = `bold ${codeFontSize}px monospace`;
     const maxCodeW = codeRibW * 0.88;
@@ -2775,22 +2840,23 @@ export class TitleScene implements Scene {
         }
       }
     }
-    const codeTxtY = codeRibY + codeRibH * 0.6;
+    const codeTxtY = codeRibY + codeRibH * 0.50;
     ctx.fillStyle = 'rgba(0,0,0,0.5)';
     ctx.fillText(codeStr, w / 2 + 1, codeTxtY + 1);
     ctx.fillStyle = '#fff';
     ctx.fillText(codeStr, w / 2, codeTxtY);
 
-    // Tap to copy hint / copied feedback
-    ctx.font = `${Math.max(11, fontSize * 0.7)}px monospace`;
+    // Tap to copy hint / copied feedback — inside ribbon bottom area
+    ctx.font = `bold ${Math.max(10, fontSize * 0.6)}px monospace`;
+    const copyHintY = codeRibY + codeRibH * 0.75;
     if (this.copyFeedbackTimer > 0) {
       const fadeIn = Math.min(1, (120 - this.copyFeedbackTimer) / 10);
-      const floatY = (1 - this.copyFeedbackTimer / 120) * -6;
-      ctx.fillStyle = `rgba(100,255,100,${fadeIn * 0.9})`;
-      ctx.fillText('copied to clipboard!', w / 2, codeRibY + codeRibH + 8 + floatY);
+      const floatY = (1 - this.copyFeedbackTimer / 120) * -4;
+      ctx.fillStyle = `rgba(40,120,40,${fadeIn * 0.9})`;
+      ctx.fillText('copied to clipboard!', w / 2, copyHintY + floatY);
     } else {
-      ctx.fillStyle = 'rgba(255,255,255,0.45)';
-      ctx.fillText('tap code to copy', w / 2, codeRibY + codeRibH + 8);
+      ctx.fillStyle = 'rgba(0,0,0,0.6)';
+      ctx.fillText('tap code to copy', w / 2, copyHintY);
     }
 
     // Mode toggle (1v1 / 2v2 / 3v3 — host only)

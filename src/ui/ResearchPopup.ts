@@ -423,7 +423,7 @@ export class ResearchPopup {
           ctx.font = `${smallFont}px monospace`;
           ctx.textAlign = 'right';
           if (def.type === 'attack') {
-            ctx.fillText(`\u2192 ${Math.round(Math.pow(1.12, level + 1) * 100)}%`, bx + bw - 4, costY);
+            ctx.fillText(`\u2192 ${Math.round(Math.pow(1.25, level + 1) * 100)}%`, bx + bw - 4, costY);
           } else if (def.type === 'defense') {
             const dr = 1 - 1 / (1 + 0.06 * (level + 1));
             ctx.fillText(`\u2192 ${Math.round(dr * 100)}%`, bx + bw - 4, costY);

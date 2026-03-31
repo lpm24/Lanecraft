@@ -455,14 +455,35 @@ export class PartyManager {
   async findAndJoinGame(race: Race): Promise<boolean> {
     await this.leaveParty();
 
+    const candidates = await this.getJoinablePartyCodes();
+
+    // Try each candidate — may fail if someone else joined first
+    for (const code of candidates) {
+      try {
+        await this.joinParty(code, race);
+        return true;
+      } catch {
+        // Race condition — someone else grabbed it, try next
+      }
+    }
+
+    return false;
+  }
+
+  /** Count currently joinable public parties for home-screen UI. */
+  async getOpenGameCount(): Promise<number> {
+    const candidates = await this.getJoinablePartyCodes();
+    return candidates.length;
+  }
+
+  private async getJoinablePartyCodes(): Promise<string[]> {
     const db = getDb();
     const uid = getUserId();
     const q = query(ref(db, 'parties'), orderByChild('status'), equalTo('waiting'));
     const snap = await get(q);
 
-    if (!snap.exists()) return false;
+    if (!snap.exists()) return [];
 
-    // Collect all candidate parties (has empty slots, not ours, host alive)
     const now = Date.now();
     const HEARTBEAT_STALE_MS = 30 * 1000; // 30 seconds — host must have pinged within this window
     const candidates: string[] = [];
@@ -478,18 +499,7 @@ export class PartyManager {
         candidates.push(child.key);
       }
     });
-
-    // Try each candidate — may fail if someone else joined first
-    for (const code of candidates) {
-      try {
-        await this.joinParty(code, race);
-        return true;
-      } catch {
-        // Race condition — someone else grabbed it, try next
-      }
-    }
-
-    return false;
+    return candidates;
   }
 
   private subscribeToParty(code: string): void {

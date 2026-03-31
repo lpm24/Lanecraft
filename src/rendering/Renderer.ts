@@ -140,6 +140,10 @@ export class Renderer {
   private lastUnitRenders = new Map<number, UnitRenderSnapshot>();
   private lastBuildingIds = new Set<number>();
   private lastBuildingPositions = new Map<number, { x: number; y: number; hpPct: number }>();
+  // Cached per-team enemy alley buildings for unit facing (rebuilt once per frame in drawYSorted)
+  private _enemyAlleyBuildings: { team: Team; x: number; y: number }[] = [];
+  // Cached frightened state per harvester (recomputed every 10 game ticks)
+  private _harvesterFrightened = new Map<number, boolean>();
   // Pooled sets to avoid per-frame allocations
   private _pooledUnitIds = new Set<number>();
   private _pooledBuildingIds = new Set<number>();
@@ -173,6 +177,11 @@ export class Renderer {
   private lastHqHp: number[] = [-1, -1];
   // Smooth deluge vignette alpha (0 = hidden, 1 = fully visible)
   private delugeVignetteAlpha = 0;
+  // Minimap offscreen cache — entity content redrawn only on tick change
+  private minimapCache: HTMLCanvasElement | null = null;
+  private minimapCacheTick = -1;
+  private minimapCacheW = 0;
+  private minimapCacheH = 0;
   // Map dimensions & definition — set from state.mapDef on first render, used throughout rendering
   private mapW = MAP_WIDTH;
   private mapH = MAP_HEIGHT;
@@ -1590,17 +1599,6 @@ export class Renderer {
         ctx.restore();
       };
 
-      // Ground shadow ellipses
-      ctx.fillStyle = 'rgba(42, 88, 48, 0.18)';
-      ctx.beginPath();
-      ctx.ellipse(cx, cy + T * 0.5, T * 6.8, T * 2.9, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = 'rgba(81, 122, 63, 0.2)';
-      ctx.beginPath();
-      ctx.ellipse(cx - T * 1.1, cy + T * 0.2, T * 5.3, T * 2.1, 0.08, 0, Math.PI * 2);
-      ctx.ellipse(cx + T * 1.6, cy + T * 0.45, T * 4.7, T * 1.9, -0.1, 0, Math.PI * 2);
-      ctx.fill();
-
       // Per-tree shadows
       for (const anchor of anchors) {
         ctx.fillStyle = 'rgba(0,0,0,0.13)';
@@ -1981,6 +1979,15 @@ export class Renderer {
   private sortBuf: { y: number; kind: number; idx: number; px: number; py: number }[] = [];
 
   private drawYSorted(ctx: CanvasRenderingContext2D, state: GameState): void {
+    // Cache alive enemy alley buildings once per frame (used by drawOneUnit for siege facing)
+    const eab = this._enemyAlleyBuildings;
+    eab.length = 0;
+    for (const b of state.buildings) {
+      if (b.buildGrid !== 'alley' || b.hp <= 0) continue;
+      const bp = state.players[b.playerId];
+      if (!bp) continue;
+      eab.push({ team: bp.team, x: b.worldX + 0.5, y: b.worldY + 0.5 });
+    }
     // Viewport culling bounds (world pixels, with sprite margin)
     const margin = T * 3;
     const vpX0 = this.camera.x - margin;
@@ -2897,7 +2904,7 @@ export class Renderer {
       const attackCooldownTicks = Math.round(u.attackSpeed * TICK_RATE);
       const justFired = u.attackTimer > attackCooldownTicks * 0.5;
       const isSiege = !!u.upgradeSpecial?.isSiegeUnit;
-      // Siege units fire at buildings without setting targetId — detect attack from attackTimer alone
+      // Siege units attack buildings without setting targetId — detect those from attackTimer alone
       const isAttacking = justFired && (u.targetId !== null || isSiege);
       // Ranged/caster on cooldown but past attack anim window — idle, don't walk
       const isRangedOnCooldown = u.attackTimer > 0 && !justFired
@@ -2947,13 +2954,12 @@ export class Renderer {
             this.facing.set(u.id, faceLeft);
           }
         } else if (isSiege) {
-          // Siege units target buildings, not units — face toward nearest enemy building
+          // Siege units target buildings, not units — face toward nearest enemy building/HQ
+          // Uses pre-cached enemy alley buildings (built once per frame in drawYSorted)
           let bestDx = 0, bestDist = Infinity;
-          for (const b of state.buildings) {
-            if (b.buildGrid !== 'alley' || b.hp <= 0) continue;
-            const bp = state.players[b.playerId];
-            if (!bp || bp.team === u.team) continue;
-            const bx = b.worldX + 0.5 - u.x, by = b.worldY + 0.5 - u.y;
+          for (const eb of this._enemyAlleyBuildings) {
+            if (eb.team === u.team) continue;
+            const bx = eb.x - u.x, by = eb.y - u.y;
             const bd = bx * bx + by * by;
             if (bd < bestDist) { bestDist = bd; bestDx = bx; }
           }
@@ -3567,11 +3573,16 @@ export class Renderer {
       }
 
       // Frightened indicator: slow VFX when enemies nearby
-      let frightened = false;
-      for (const u of state.units) {
-        if (u.team === h.team || u.hp <= 0) continue;
-        const edx = u.x - h.x, edy = u.y - h.y;
-        if (edx * edx + edy * edy <= 25) { frightened = true; break; }
+      // Only recompute every 10 game ticks (0.5s) — purely visual, no need for per-frame accuracy
+      let frightened = this._harvesterFrightened.get(h.id) ?? false;
+      if (state.tick % 10 === 0 || !this._harvesterFrightened.has(h.id)) {
+        frightened = false;
+        for (const u of state.units) {
+          if (u.team === h.team || u.hp <= 0) continue;
+          const edx = u.x - h.x, edy = u.y - h.y;
+          if (edx * edx + edy * edy <= 25) { frightened = true; break; }
+        }
+        this._harvesterFrightened.set(h.id, frightened);
       }
       if (frightened) {
         const fxData = this.sprites.getFxSprite('slow');
@@ -4908,17 +4919,20 @@ export class Renderer {
     const _mm = { mx: 0, my: 0 };
     let tileToMM: (tx: number, ty: number) => { mx: number; my: number };
 
+    // Isometric bounds (needed for viewport box and tileToMM)
+    let isoBounds: { minX: number; minY: number; maxX: number; maxY: number } | null = null;
+
     if (this.isometric) {
-      const bounds = isoWorldBounds(mW, mH);
-      const isoW = bounds.maxX - bounds.minX;
-      const isoH = bounds.maxY - bounds.minY;
+      isoBounds = isoWorldBounds(mW, mH);
+      const isoW = isoBounds.maxX - isoBounds.minX;
+      const isoH = isoBounds.maxY - isoBounds.minY;
       const isoAspect = isoW / isoH;
       if (isoAspect >= 1) { mmW = compact ? 120 : 180; mmH = Math.round(mmW / isoAspect); }
       else { mmH = compact ? 120 : 180; mmW = Math.round(mmH * isoAspect); }
       mx = this.canvas.clientWidth - mmW - 10;
       my = (compact ? 46 : 60) + getSafeTop();
       const sX = mmW / isoW, sY = mmH / isoH;
-      const bMinX = bounds.minX, bMinY = bounds.minY;
+      const bMinX = isoBounds.minX, bMinY = isoBounds.minY;
       tileToMM = (tx: number, ty: number) => {
         const { px: wpx, py: wpy } = this.tp(tx, ty);
         _mm.mx = mx + (wpx - bMinX) * sX; _mm.my = my + (wpy - bMinY) * sY;
@@ -4934,217 +4948,241 @@ export class Renderer {
       tileToMM = (tx: number, ty: number) => { _mm.mx = mx + tx * scaleX; _mm.my = my + ty * scaleY; return _mm; };
     }
 
-    // Background — water color
-    ctx.fillStyle = 'rgba(60, 110, 100, 0.9)';
-    ctx.fillRect(mx - 2, my - 2, mmW + 4, mmH + 4);
+    // Only rebuild minimap content when game tick changes (20fps instead of 60fps)
+    const needsRedraw = state.tick !== this.minimapCacheTick
+      || !this.minimapCache
+      || this.minimapCacheW !== mmW + 4
+      || this.minimapCacheH !== mmH + 4;
 
-    // Map shape — grass fill (trace the map outline)
-    ctx.strokeStyle = '#2a5a2a';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    if (state.mapDef.shapeAxis === 'y') {
-      for (let y = 0; y <= mH; y += 4) {
-        const range = state.mapDef.getPlayableRange(y);
-        const p = tileToMM(range.min, y);
-        if (y === 0) ctx.moveTo(p.mx, p.my);
-        else ctx.lineTo(p.mx, p.my);
-      }
-      for (let y = mH; y >= 0; y -= 4) {
-        const range = state.mapDef.getPlayableRange(y);
-        const p = tileToMM(range.max, y);
-        ctx.lineTo(p.mx, p.my);
-      }
-    } else {
-      for (let x = 0; x <= mW; x += 4) {
-        const range = state.mapDef.getPlayableRange(x);
-        const p = tileToMM(x, range.min);
-        if (x === 0) ctx.moveTo(p.mx, p.my);
-        else ctx.lineTo(p.mx, p.my);
-      }
-      for (let x = mW; x >= 0; x -= 4) {
-        const range = state.mapDef.getPlayableRange(x);
-        const p = tileToMM(x, range.max);
-        ctx.lineTo(p.mx, p.my);
-      }
-    }
-    ctx.closePath();
-    ctx.fillStyle = '#3a6b3a';
-    ctx.fill();
-    ctx.stroke();
+    if (needsRedraw) {
+      this.minimapCacheTick = state.tick;
+      this.minimapCacheW = mmW + 4;
+      this.minimapCacheH = mmH + 4;
+      if (!this.minimapCache) this.minimapCache = document.createElement('canvas');
+      this.minimapCache.width = mmW + 4;
+      this.minimapCache.height = mmH + 4;
+      const mc = this.minimapCache.getContext('2d')!;
+      // Offset: the cache draws at (0,0) but tileToMM returns screen coords starting at (mx,my).
+      // We shift all drawing by (-mx+2, -my+2) so the content starts at cache pixel (2,2).
+      const offX = -mx + 2, offY = -my + 2;
+      mc.translate(offX, offY);
 
-    // Diamond cells (gold blob)
-    const dc = state.mapDef.diamondCenter;
-    const goldRemaining = state.diamondCells.some(c => c.gold > 0);
-    if (goldRemaining) {
-      ctx.fillStyle = 'rgba(200, 170, 20, 0.6)';
-      const dHW = state.mapDef.diamondHalfW;
-      const dHH = state.mapDef.diamondHalfH;
-      let p = tileToMM(dc.x, dc.y - dHH);
-      const dcTx = p.mx, dcTy = p.my;
-      p = tileToMM(dc.x + dHW, dc.y);
-      const dcRx = p.mx, dcRy = p.my;
-      p = tileToMM(dc.x, dc.y + dHH);
-      const dcBx = p.mx, dcBy = p.my;
-      p = tileToMM(dc.x - dHW, dc.y);
-      const dcLx = p.mx, dcLy = p.my;
-      ctx.beginPath();
-      ctx.moveTo(dcTx, dcTy);
-      ctx.lineTo(dcRx, dcRy);
-      ctx.lineTo(dcBx, dcBy);
-      ctx.lineTo(dcLx, dcLy);
-      ctx.closePath();
-      ctx.fill();
-      ctx.strokeStyle = 'rgba(255, 220, 120, 0.85)';
-      ctx.lineWidth = 1;
-      ctx.stroke();
-    }
+      // Background — water color
+      mc.fillStyle = 'rgba(60, 110, 100, 0.9)';
+      mc.fillRect(mx - 2, my - 2, mmW + 4, mmH + 4);
 
-    // Fog of war state for minimap filtering
-    const fog = state.fogOfWar;
-    const localTeam = state.players[this.localPlayerId]?.team ?? Team.Bottom;
-
-    // Combat glow zones on minimap — pulse where fighting is happening (fog-filtered)
-    const combatClusters: { x: number; y: number; count: number }[] = [];
-    for (const u of state.units) {
-      if (u.targetId === null) continue;
-      if (fog && u.team !== localTeam && !this.isTileVisible(state, u.x, u.y)) continue;
-      let added = false;
-      for (const c of combatClusters) {
-        if (Math.abs(c.x - u.x) < 8 && Math.abs(c.y - u.y) < 8) {
-          c.x = (c.x * c.count + u.x) / (c.count + 1);
-          c.y = (c.y * c.count + u.y) / (c.count + 1);
-          c.count++;
-          added = true;
-          break;
+      // Map shape — grass fill (trace the map outline)
+      mc.strokeStyle = '#2a5a2a';
+      mc.lineWidth = 1;
+      mc.beginPath();
+      if (state.mapDef.shapeAxis === 'y') {
+        for (let y = 0; y <= mH; y += 4) {
+          const range = state.mapDef.getPlayableRange(y);
+          const p = tileToMM(range.min, y);
+          if (y === 0) mc.moveTo(p.mx, p.my);
+          else mc.lineTo(p.mx, p.my);
+        }
+        for (let y = mH; y >= 0; y -= 4) {
+          const range = state.mapDef.getPlayableRange(y);
+          const p = tileToMM(range.max, y);
+          mc.lineTo(p.mx, p.my);
+        }
+      } else {
+        for (let x = 0; x <= mW; x += 4) {
+          const range = state.mapDef.getPlayableRange(x);
+          const p = tileToMM(x, range.min);
+          if (x === 0) mc.moveTo(p.mx, p.my);
+          else mc.lineTo(p.mx, p.my);
+        }
+        for (let x = mW; x >= 0; x -= 4) {
+          const range = state.mapDef.getPlayableRange(x);
+          const p = tileToMM(x, range.max);
+          mc.lineTo(p.mx, p.my);
         }
       }
-      if (!added) combatClusters.push({ x: u.x, y: u.y, count: 1 });
-    }
-    const pulse = 0.5 + 0.5 * Math.sin(this.frameNow / 200);
-    for (const c of combatClusters) {
-      if (c.count < 2) continue;
-      const intensity = Math.min(1, c.count / 8);
-      const r = 3 + intensity * 4;
-      const cp = tileToMM(c.x, c.y);
-      ctx.beginPath();
-      ctx.arc(cp.mx, cp.my, r * (0.8 + pulse * 0.4), 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(255, 100, 50, ${intensity * 0.3 * (0.6 + pulse * 0.4)})`;
-      ctx.fill();
-    }
+      mc.closePath();
+      mc.fillStyle = '#3a6b3a';
+      mc.fill();
+      mc.stroke();
 
-    // Fog of war: draw fog overlay on minimap
-    if (fog) {
-      const vis = state.visibility[localTeam];
-      if (vis) {
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
-        const step = 4;
-        for (let ty = 0; ty < mH; ty += step) {
-          for (let tx = 0; tx < mW; tx += step) {
-            if (!vis[ty * mW + tx]) {
-              const fp = tileToMM(tx, ty);
-              const fmx = fp.mx, fmy = fp.my;
-              const fp2 = tileToMM(tx + step, ty + step);
-              ctx.fillRect(fmx, fmy, fp2.mx - fmx + 1, fp2.my - fmy + 1);
+      // Diamond cells (gold blob)
+      const dc = state.mapDef.diamondCenter;
+      const goldRemaining = state.diamondCells.some(c => c.gold > 0);
+      if (goldRemaining) {
+        mc.fillStyle = 'rgba(200, 170, 20, 0.6)';
+        const dHW = state.mapDef.diamondHalfW;
+        const dHH = state.mapDef.diamondHalfH;
+        let p = tileToMM(dc.x, dc.y - dHH);
+        const dcTx = p.mx, dcTy = p.my;
+        p = tileToMM(dc.x + dHW, dc.y);
+        const dcRx = p.mx, dcRy = p.my;
+        p = tileToMM(dc.x, dc.y + dHH);
+        const dcBx = p.mx, dcBy = p.my;
+        p = tileToMM(dc.x - dHW, dc.y);
+        const dcLx = p.mx, dcLy = p.my;
+        mc.beginPath();
+        mc.moveTo(dcTx, dcTy);
+        mc.lineTo(dcRx, dcRy);
+        mc.lineTo(dcBx, dcBy);
+        mc.lineTo(dcLx, dcLy);
+        mc.closePath();
+        mc.fill();
+        mc.strokeStyle = 'rgba(255, 220, 120, 0.85)';
+        mc.lineWidth = 1;
+        mc.stroke();
+      }
+
+      // Fog of war state for minimap filtering
+      const fog = state.fogOfWar;
+      const localTeam = state.players[this.localPlayerId]?.team ?? Team.Bottom;
+
+      // Combat glow zones on minimap — pulse where fighting is happening (fog-filtered)
+      const combatClusters: { x: number; y: number; count: number }[] = [];
+      for (const u of state.units) {
+        if (u.targetId === null) continue;
+        if (fog && u.team !== localTeam && !this.isTileVisible(state, u.x, u.y)) continue;
+        let added = false;
+        for (const c of combatClusters) {
+          if (Math.abs(c.x - u.x) < 8 && Math.abs(c.y - u.y) < 8) {
+            c.x = (c.x * c.count + u.x) / (c.count + 1);
+            c.y = (c.y * c.count + u.y) / (c.count + 1);
+            c.count++;
+            added = true;
+            break;
+          }
+        }
+        if (!added) combatClusters.push({ x: u.x, y: u.y, count: 1 });
+      }
+      const pulse = 0.5 + 0.5 * Math.sin(this.frameNow / 200);
+      for (const c of combatClusters) {
+        if (c.count < 2) continue;
+        const intensity = Math.min(1, c.count / 8);
+        const r = 3 + intensity * 4;
+        const cp = tileToMM(c.x, c.y);
+        mc.beginPath();
+        mc.arc(cp.mx, cp.my, r * (0.8 + pulse * 0.4), 0, Math.PI * 2);
+        mc.fillStyle = `rgba(255, 100, 50, ${intensity * 0.3 * (0.6 + pulse * 0.4)})`;
+        mc.fill();
+      }
+
+      // Fog of war: draw fog overlay on minimap
+      if (fog) {
+        const vis = state.visibility[localTeam];
+        if (vis) {
+          mc.fillStyle = 'rgba(0, 0, 0, 0.55)';
+          const step = 4;
+          for (let ty = 0; ty < mH; ty += step) {
+            for (let tx = 0; tx < mW; tx += step) {
+              if (!vis[ty * mW + tx]) {
+                const fp = tileToMM(tx, ty);
+                const fmx = fp.mx, fmy = fp.my;
+                const fp2 = tileToMM(tx + step, ty + step);
+                mc.fillRect(fmx, fmy, fp2.mx - fmx + 1, fp2.my - fmy + 1);
+              }
             }
           }
         }
       }
+
+      // Units as dots (player colored) — fog-filtered
+      for (const u of state.units) {
+        if (fog && u.team !== localTeam && !this.isTileVisible(state, u.x, u.y)) continue;
+        mc.fillStyle = PLAYER_COLORS[u.playerId % PLAYER_COLORS.length];
+        const up = tileToMM(u.x, u.y);
+        mc.fillRect(up.mx - 1, up.my - 1, 2, 2);
+      }
+
+      // Team-visible ping markers — large and prominent
+      for (const p of state.pings) {
+        if (p.team !== localTeam) continue;
+        const pp = p.age / p.maxAge;
+        const alpha = Math.max(0.2, 1 - pp);
+        const pingP = tileToMM(p.x, p.y);
+
+        // Pulsing outer ring
+        const pulsePhase = (p.age % 10) / 10;
+        const outerR = 6 + 6 * pulsePhase;
+        mc.beginPath();
+        mc.arc(pingP.mx, pingP.my, outerR, 0, Math.PI * 2);
+        mc.strokeStyle = `rgba(255,235,59,${0.6 * alpha * (1 - pulsePhase)})`;
+        mc.lineWidth = 2;
+        mc.stroke();
+
+        // Solid inner ring
+        mc.beginPath();
+        mc.arc(pingP.mx, pingP.my, 4, 0, Math.PI * 2);
+        mc.strokeStyle = `rgba(255,235,59,${0.9 * alpha})`;
+        mc.lineWidth = 2;
+        mc.stroke();
+
+        // Filled center dot
+        mc.beginPath();
+        mc.arc(pingP.mx, pingP.my, 2, 0, Math.PI * 2);
+        mc.fillStyle = `rgba(255,235,59,${alpha})`;
+        mc.fill();
+      }
+
+      // Harvesters as smaller dots — fog-filtered
+      for (const h of state.harvesters) {
+        if (h.state === 'dead') continue;
+        if (fog && state.players[h.playerId]?.team !== localTeam && !this.isTileVisible(state, h.x, h.y)) continue;
+        mc.fillStyle = PLAYER_COLORS[h.playerId % PLAYER_COLORS.length];
+        mc.globalAlpha = 0.7;
+        const hp = tileToMM(h.x, h.y);
+        mc.fillRect(hp.mx, hp.my, 1, 1);
+        mc.globalAlpha = 1;
+      }
+
+      // Buildings as slightly larger dots — fog-filtered
+      for (const b of state.buildings) {
+        if (fog && state.players[b.playerId]?.team !== localTeam && !this.isTileVisible(state, b.worldX, b.worldY)) continue;
+        mc.fillStyle = PLAYER_COLORS[b.playerId % PLAYER_COLORS.length];
+        const bp = tileToMM(b.worldX, b.worldY);
+        mc.fillRect(bp.mx - 1, bp.my - 1, 3, 2);
+      }
+
+      // HQs
+      for (const team of [Team.Bottom, Team.Top]) {
+        const hq = getHQPosition(team, state.mapDef);
+        mc.fillStyle = team === Team.Bottom ? '#2979ff' : '#ff1744';
+        const hqp1 = tileToMM(hq.x, hq.y);
+        const h1mx = hqp1.mx, h1my = hqp1.my;
+        const hqp2 = tileToMM(hq.x + HQ_WIDTH, hq.y + HQ_HEIGHT);
+        mc.fillRect(h1mx, h1my, hqp2.mx - h1mx, hqp2.my - h1my);
+      }
+
+      // Recent quick-chat badges near team HQ
+      for (const c of state.quickChats) {
+        if (c.team !== localTeam || c.age >= 20) continue;
+        const hq = getHQPosition(c.team, state.mapDef);
+        const chatOffset = (c.playerId % 3 - 1) * 4;
+        const cp = tileToMM(hq.x + HQ_WIDTH / 2 + chatOffset, hq.y + HQ_HEIGHT / 2);
+        const style = quickChatStyle(c.message);
+        mc.fillStyle = style.color;
+        mc.beginPath();
+        mc.arc(cp.mx, cp.my, 3.2, 0, Math.PI * 2);
+        mc.fill();
+      }
     }
 
-    // Units as dots (player colored) — fog-filtered
-    for (const u of state.units) {
-      if (fog && u.team !== localTeam && !this.isTileVisible(state, u.x, u.y)) continue;
-      ctx.fillStyle = PLAYER_COLORS[u.playerId % PLAYER_COLORS.length];
-      const up = tileToMM(u.x, u.y);
-      ctx.fillRect(up.mx - 1, up.my - 1, 2, 2);
+    // Blit cached minimap content
+    if (this.minimapCache) {
+      ctx.drawImage(this.minimapCache, mx - 2, my - 2);
     }
 
-    // Team-visible ping markers — large and prominent
-    for (const p of state.pings) {
-      if (p.team !== localTeam) continue;
-      const pp = p.age / p.maxAge;
-      const alpha = Math.max(0.2, 1 - pp);
-      const pingP = tileToMM(p.x, p.y);
-
-      // Pulsing outer ring
-      const pulsePhase = (p.age % 10) / 10;
-      const outerR = 6 + 6 * pulsePhase;
-      ctx.beginPath();
-      ctx.arc(pingP.mx, pingP.my, outerR, 0, Math.PI * 2);
-      ctx.strokeStyle = `rgba(255,235,59,${0.6 * alpha * (1 - pulsePhase)})`;
-      ctx.lineWidth = 2;
-      ctx.stroke();
-
-      // Solid inner ring
-      ctx.beginPath();
-      ctx.arc(pingP.mx, pingP.my, 4, 0, Math.PI * 2);
-      ctx.strokeStyle = `rgba(255,235,59,${0.9 * alpha})`;
-      ctx.lineWidth = 2;
-      ctx.stroke();
-
-      // Filled center dot
-      ctx.beginPath();
-      ctx.arc(pingP.mx, pingP.my, 2, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(255,235,59,${alpha})`;
-      ctx.fill();
-    }
-
-    // Harvesters as smaller dots — fog-filtered
-    for (const h of state.harvesters) {
-      if (h.state === 'dead') continue;
-      if (fog && state.players[h.playerId]?.team !== localTeam && !this.isTileVisible(state, h.x, h.y)) continue;
-      ctx.fillStyle = PLAYER_COLORS[h.playerId % PLAYER_COLORS.length];
-      ctx.globalAlpha = 0.7;
-      const hp = tileToMM(h.x, h.y);
-      ctx.fillRect(hp.mx, hp.my, 1, 1);
-      ctx.globalAlpha = 1;
-    }
-
-    // Buildings as slightly larger dots — fog-filtered
-    for (const b of state.buildings) {
-      if (fog && state.players[b.playerId]?.team !== localTeam && !this.isTileVisible(state, b.worldX, b.worldY)) continue;
-      ctx.fillStyle = PLAYER_COLORS[b.playerId % PLAYER_COLORS.length];
-      const bp = tileToMM(b.worldX, b.worldY);
-      ctx.fillRect(bp.mx - 1, bp.my - 1, 3, 2);
-    }
-
-    // HQs
-    for (const team of [Team.Bottom, Team.Top]) {
-      const hq = getHQPosition(team, state.mapDef);
-      ctx.fillStyle = team === Team.Bottom ? '#2979ff' : '#ff1744';
-      const hqp1 = tileToMM(hq.x, hq.y);
-      const h1mx = hqp1.mx, h1my = hqp1.my;
-      const hqp2 = tileToMM(hq.x + HQ_WIDTH, hq.y + HQ_HEIGHT);
-      ctx.fillRect(h1mx, h1my, hqp2.mx - h1mx, hqp2.my - h1my);
-    }
-
-    // Recent quick-chat badges near team HQ
-    const recentChats = state.quickChats.filter(c => c.team === localTeam && c.age < 20);
-    for (const c of recentChats) {
-      const hq = getHQPosition(c.team, state.mapDef);
-      const chatOffset = (c.playerId % 3 - 1) * 4;
-      const cp = tileToMM(hq.x + HQ_WIDTH / 2 + chatOffset, hq.y + HQ_HEIGHT / 2);
-      const style = quickChatStyle(c.message);
-      ctx.fillStyle = style.color;
-      ctx.beginPath();
-      ctx.arc(cp.mx, cp.my, 3.2, 0, Math.PI * 2);
-      ctx.fill();
-    }
-
-    // Camera viewport box
+    // Camera viewport box (drawn every frame for smooth updates)
     const vx = this.camera.x, vy = this.camera.y;
     const vw = this.canvas.clientWidth / this.camera.zoom;
     const vh = this.canvas.clientHeight / this.camera.zoom;
-    if (this.isometric) {
-      const bounds = isoWorldBounds(mW, mH);
-      const isoW = bounds.maxX - bounds.minX;
-      const isoH = bounds.maxY - bounds.minY;
+    if (this.isometric && isoBounds) {
+      const isoW = isoBounds.maxX - isoBounds.minX;
+      const isoH = isoBounds.maxY - isoBounds.minY;
       const sX = mmW / isoW, sY = mmH / isoH;
       ctx.strokeStyle = '#fff';
       ctx.lineWidth = 1;
       ctx.strokeRect(
-        mx + (vx - bounds.minX) * sX,
-        my + (vy - bounds.minY) * sY,
+        mx + (vx - isoBounds.minX) * sX,
+        my + (vy - isoBounds.minY) * sY,
         vw * sX,
         vh * sY
       );
