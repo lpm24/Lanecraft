@@ -14,9 +14,7 @@ function gitInfo() {
 export default defineConfig(({ command }) => {
   const git = gitInfo();
   return {
-    base: process.env.CAP_BUILD
-      ? '/'
-      : (command === 'serve' ? '/' : '/Lanecraft/'),
+    base: '/',
     define: {
       __BUILD_HASH__: JSON.stringify(git.hash),
       __BUILD_NUMBER__: JSON.stringify(git.count),
