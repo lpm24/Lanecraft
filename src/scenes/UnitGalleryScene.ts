@@ -832,12 +832,6 @@ export class UnitGalleryScene implements Scene {
         costSteps2.push({ label: `${tLabel} (${nodeChoice})`, cost });
       }
       if (costSteps2.length > 0) {
-        const hdrLabel = upgradeTier === 0 ? 'COST' : 'INVESTMENT';
-        ctx.fillStyle = '#aaa';
-        ctx.font = 'bold 11px monospace';
-        ctx.textAlign = 'left';
-        ctx.fillText(hdrLabel, costAreaX, costY + 10);
-        costY += 16;
         const totals = { gold: 0, wood: 0, meat: 0, souls: 0, deathEssence: 0 };
         for (const step of costSteps2) {
           totals.gold += step.cost.gold;
@@ -861,11 +855,6 @@ export class UnitGalleryScene implements Scene {
           ctx.lineTo(costAreaX + costColW - 8, costY);
           ctx.stroke();
           costY += 4;
-          ctx.fillStyle = '#ccc';
-          ctx.font = 'bold 10px monospace';
-          ctx.textAlign = 'left';
-          ctx.fillText('Total', costAreaX, costY + 9);
-          costY += 13;
           this.drawCostIcons(ctx, costAreaX + 4, costY, totals);
         }
       }
