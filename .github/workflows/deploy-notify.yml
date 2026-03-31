@@ -2,7 +2,7 @@ name: Deploy notification
 
 on:
   push:
-    branches: [main, master]
+    branches: [master]
 
 jobs:
   notify:
