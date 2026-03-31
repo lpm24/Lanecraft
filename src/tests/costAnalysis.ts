@@ -103,9 +103,10 @@ interface UnitPower {
   hp: number;
   dps: number;
   spawnCount: number;
-  power: number;         // HP * DPS * spawnCount
+  power: number;         // HP * DPS * spawnCount (with special adjustments)
   spawnInterval: number; // seconds
   powerRate: number;     // power / spawnInterval
+  specialNotes: string[]; // what specials contributed
 }
 
 function getUpgradeNode(race: Race, btype: BuildingType, node: string) {
@@ -116,29 +117,154 @@ function getUpgradeNode(race: Race, btype: BuildingType, node: string) {
 
 function computeUnitPower(race: Race, btype: BuildingType, upgradePath: string[]): UnitPower {
   const stats = UNIT_STATS[race]?.[btype];
-  if (!stats) return { hp: 0, dps: 0, spawnCount: 1, power: 0, spawnInterval: 999, powerRate: 0 };
+  if (!stats) return { hp: 0, dps: 0, spawnCount: 1, power: 0, spawnInterval: 999, powerRate: 0, specialNotes: [] };
 
   let hpMult = 1, dmgMult = 1, atkSpdMult = 1, spawnSpdMult = 1;
   let spawnCount = stats.spawnCount ?? 1;
 
+  // Merge specials using Object.assign semantics (later nodes override, matching GameState)
+  const special: Record<string, any> = {};
+
   for (const node of upgradePath) {
     if (node === 'A') continue;
     const def = getUpgradeNode(race, btype, node);
-    if (def) {
-      if (def.hpMult) hpMult *= def.hpMult;
-      if (def.damageMult) dmgMult *= def.damageMult;
-      if (def.attackSpeedMult) atkSpdMult *= def.attackSpeedMult;
-      if (def.spawnSpeedMult) spawnSpdMult *= def.spawnSpeedMult;
-      if (def.special?.spawnCount) spawnCount = def.special.spawnCount;
+    if (!def) continue;
+    if (def.hpMult) hpMult *= def.hpMult;
+    if (def.damageMult) dmgMult *= def.damageMult;
+    if (def.attackSpeedMult) atkSpdMult *= def.attackSpeedMult;
+    if (def.spawnSpeedMult) spawnSpdMult *= def.spawnSpeedMult;
+    if (def.special) Object.assign(special, def.special);
+  }
+
+  // Read merged specials (matches getUnitUpgradeMultipliers behavior)
+  if (special.spawnCount) spawnCount = special.spawnCount;
+  const dodgeChance = Math.min(special.dodgeChance ?? 0, 0.75);
+  const damageReductionPct = Math.min(special.damageReductionPct ?? 0, 0.75);
+  const regenPerSec = special.regenPerSec ?? 0;
+  const reviveHpPct = special.reviveHpPct ?? 0;
+  const multishotCount = special.multishotCount ?? 0;
+  const multishotDamagePct = special.multishotDamagePct ?? 0.7;
+  const splashRadius = special.splashRadius ?? 0;
+  const splashDamagePct = special.splashDamagePct ?? 0.5;
+  const cleaveTargets = special.cleaveTargets ?? 0;
+  const extraBurnStacks = special.extraBurnStacks ?? 0;
+  const extraSlowStacks = special.extraSlowStacks ?? 0;
+  const extraChainTargets = special.extraChainTargets ?? 0;
+  const chainDamagePct = special.chainDamagePct ?? 0.5;
+  const aoeRadiusBonus = special.aoeRadiusBonus ?? 0;
+  const shieldTargetBonus = special.shieldTargetBonus ?? 0;
+  const shieldAbsorbBonus = special.shieldAbsorbBonus ?? 0;
+  const healBonus = special.healBonus ?? 0;
+  const chainHeal = special.chainHeal ?? 0;
+  const suicideAttack = special.suicideAttack ?? false;
+  const explodeDamage = special.explodeDamage ?? 0;
+  const explodeRadius = special.explodeRadius ?? 0;
+  const auraDmg = special.auraDamageBonus ?? 0;
+  const auraSpd = special.auraSpeedBonus ?? 0;
+  const auraArmor = special.auraArmorBonus ?? 0;
+  const auraAtkSpd = special.auraAttackSpeedBonus ?? 0;
+  const auraHeal = special.auraHealPerSec ?? 0;
+  const auraDodge = special.auraDodgeBonus ?? 0;
+  const goldOnKill = special.goldOnKill ?? 0;
+  const goldOnDeath = special.goldOnDeath ?? 0;
+  const isSiegeUnit = special.isSiegeUnit ?? false;
+  const buildingDamageMult = special.buildingDamageMult ?? 1;
+  const hopAttack = special.hopAttack ?? false;
+  const guaranteedHaste = special.guaranteedHaste ?? false;
+  const killScaling = special.killScaling ?? false;
+  const soulHarvest = special.soulHarvest ?? false;
+  const crownMage = special.crownMage ?? false;
+  const skeletonSummonChance = special.skeletonSummonChance ?? 0;
+
+  const hp = stats.hp * hpMult;
+  const baseDps = (stats.damage * dmgMult) / (stats.attackSpeed * atkSpdMult);
+  const spawnInterval = (SPAWN_INTERVAL_TICKS / TICK_RATE) * spawnSpdMult;
+  const notes: string[] = [];
+
+  // --- Effective HP ---
+  let effHp = hp;
+  if (dodgeChance > 0) { effHp /= (1 - dodgeChance); notes.push(`dodge ${(dodgeChance * 100).toFixed(0)}%`); }
+  if (damageReductionPct > 0) { effHp /= (1 - damageReductionPct); notes.push(`DR ${(damageReductionPct * 100).toFixed(0)}%`); }
+  if (regenPerSec > 0) { effHp += regenPerSec * 8; notes.push(`regen ${regenPerSec}/s`); }
+  if (reviveHpPct > 0) { effHp *= (1 + reviveHpPct); notes.push(`revive ${(reviveHpPct * 100).toFixed(0)}%`); }
+
+  // --- Effective DPS ---
+  let effDps = baseDps;
+  if (multishotCount > 0) {
+    effDps *= (1 + multishotCount * multishotDamagePct);
+    notes.push(`multi ×${1 + multishotCount}@${(multishotDamagePct * 100).toFixed(0)}%`);
+  }
+  if (splashRadius > 0 && !isSiegeUnit) {
+    effDps *= (1 + Math.min(splashRadius, 3) * 0.8 * splashDamagePct);
+    notes.push(`splash r${splashRadius}`);
+  }
+  if (cleaveTargets > 0) { effDps *= (1 + cleaveTargets * 0.6); notes.push(`cleave +${cleaveTargets}`); }
+  if (extraBurnStacks > 0) {
+    // +2 dmg/s per stack, 3s duration. SEARED combo: +50% burn if target also slowed.
+    const burnPerStack = extraSlowStacks > 0 ? 3 : 2; // 2 base, 3 with SEARED
+    effDps += (extraBurnStacks * burnPerStack * 3) / (stats.attackSpeed * atkSpdMult);
+    notes.push(`burn +${extraBurnStacks}${extraSlowStacks > 0 ? ' SEARED' : ''}`);
+  }
+  if (extraSlowStacks > 0) { effDps *= (1 + extraSlowStacks * 0.08); notes.push(`slow +${extraSlowStacks}`); }
+  if (extraChainTargets > 0) { effDps *= (1 + extraChainTargets * chainDamagePct); notes.push(`chain +${extraChainTargets}`); }
+  if (aoeRadiusBonus > 0) { effDps *= (1 + aoeRadiusBonus * 0.3); notes.push(`aoe +${aoeRadiusBonus}`); }
+  if (hopAttack) { effDps *= 1.15; notes.push('hop'); }
+  if (guaranteedHaste) { effDps *= 1.15; notes.push('haste'); }
+  if (crownMage) { effDps *= 1.5; notes.push('mage'); }
+
+  // --- Team/support bonus (flat power addition) ---
+  let teamBonus = 0;
+  const AURA_ALLIES = 4;
+  if (shieldTargetBonus > 0 || shieldAbsorbBonus > 0) {
+    teamBonus += (shieldTargetBonus * 12 + shieldAbsorbBonus * 2) * 0.5;
+    notes.push(`shield +${shieldTargetBonus}t/+${shieldAbsorbBonus}a`);
+  }
+  if (healBonus > 0) { teamBonus += healBonus * 0.8; notes.push(`heal +${healBonus}`); }
+  if (chainHeal > 0) { teamBonus += chainHeal * 3; notes.push(`chainHeal ×${chainHeal}`); }
+  if (auraDmg > 0) { teamBonus += auraDmg * AURA_ALLIES * 2; notes.push(`auraDmg +${auraDmg}`); }
+  if (auraSpd > 0) { teamBonus += auraSpd * AURA_ALLIES * 50; notes.push(`auraSpd +${(auraSpd * 100).toFixed(0)}%`); }
+  if (auraArmor > 0) { teamBonus += auraArmor * AURA_ALLIES * 80; notes.push(`auraArmor +${(auraArmor * 100).toFixed(0)}%`); }
+  if (auraAtkSpd > 0) { teamBonus += auraAtkSpd * AURA_ALLIES * 60; notes.push(`auraAtkSpd +${(auraAtkSpd * 100).toFixed(0)}%`); }
+  if (auraHeal > 0) { teamBonus += auraHeal * AURA_ALLIES * 6; notes.push(`auraHeal ${auraHeal}/s`); }
+  if (auraDodge > 0) { teamBonus += auraDodge * AURA_ALLIES * 60; notes.push(`auraDodge +${(auraDodge * 100).toFixed(0)}%`); }
+
+  // --- Snowball mechanics ---
+  if (killScaling) { effDps *= 1.25; notes.push('killScale'); }
+  if (soulHarvest) { effHp *= 1.3; effDps *= 1.3; notes.push('soulHarvest'); }
+
+  // --- Suicide attack ---
+  let explodePwr = 0;
+  if (suicideAttack && explodeDamage > 0) {
+    const estTgt = Math.min(1 + explodeRadius * 0.6, 4);
+    explodePwr = explodeDamage * estTgt;
+    notes.push(`suicide ${explodeDamage}×${estTgt.toFixed(1)}`);
+  }
+
+  // --- Siege ---
+  if (isSiegeUnit) {
+    notes.push(`siege ×${buildingDamageMult}vsBldg`);
+    if (splashRadius > 0) {
+      effDps *= (1 + splashRadius * 0.3 * (splashDamagePct || 0.5));
+      notes.push(`siegeSplash r${splashRadius}`);
     }
   }
 
-  const hp = stats.hp * hpMult;
-  const dps = (stats.damage * dmgMult) / (stats.attackSpeed * atkSpdMult);
-  const spawnInterval = (SPAWN_INTERVAL_TICKS / TICK_RATE) * spawnSpdMult;
-  const power = hp * dps * spawnCount;
+  // --- Skeleton summon (Geists casters) ---
+  // 15 HP, 8 dmg, 1.0 atkSpd, 10s lifetime. Power = HP * DPS * chance * kills_in_range_per_sec
+  if (skeletonSummonChance > 0) {
+    const skelPower = 15 * 8; // HP * DPS of mini skeleton
+    const deathsPerSec = 0.3; // conservative estimate of nearby deaths
+    teamBonus += skelPower * skeletonSummonChance * deathsPerSec * 10; // × lifetime
+    notes.push(`skelSummon ${(skeletonSummonChance * 100).toFixed(0)}%`);
+  }
 
-  return { hp, dps, spawnCount, power, spawnInterval, powerRate: power / spawnInterval };
+  // --- Economic ---
+  // goldOnKill: ~1 kill per 8s for a melee unit, gold/2 for eff conversion
+  if (goldOnKill > 0) { teamBonus += (goldOnKill / 2) * 0.125 * 50; notes.push(`gold/kill ${goldOnKill}`); }
+  if (goldOnDeath > 0) { teamBonus += (goldOnDeath / 2) * 10; notes.push(`gold/death ${goldOnDeath}`); }
+
+  const power = effHp * effDps * spawnCount + explodePwr * spawnCount + teamBonus;
+  return { hp, dps: baseDps, spawnCount, power, spawnInterval, powerRate: power / spawnInterval, specialNotes: notes };
 }
 
 // ==================== UPGRADE COSTS ====================
@@ -233,49 +359,67 @@ function runAnalysis() {
     }),
   );
 
-  // ---- 3. Unit Power at T0/T1/T2 ----
+  // ---- 3. Unit Power — all upgrade paths ----
+  // Tree: A → B(T1) → D,E(T2)  |  A → C(T1) → F,G(T2)
+  const ALL_PATHS: { path: string[]; label: string }[] = [
+    { path: ['A'],            label: 'T0 (base)' },
+    { path: ['A', 'B'],      label: 'B' },
+    { path: ['A', 'C'],      label: 'C' },
+    { path: ['A', 'B', 'D'], label: 'B→D' },
+    { path: ['A', 'B', 'E'], label: 'B→E' },
+    { path: ['A', 'C', 'F'], label: 'C→F' },
+    { path: ['A', 'C', 'G'], label: 'C→G' },
+  ];
+
+  function getNodeName(race: Race, btype: BuildingType, node: string): string {
+    const def = getUpgradeNode(race, btype, node);
+    return def?.name ?? node;
+  }
+
   for (const btype of COMBAT_BUILDINGS) {
     const catName = CATEGORY_NAMES[btype];
-    console.log(`\n## ${catName.toUpperCase()} UNIT POWER & EFFICIENCY (B→D path)\n`);
+    console.log(`\n## ${catName.toUpperCase()} UNIT POWER — ALL UPGRADE PATHS\n`);
 
-    const rows: string[][] = [];
     for (const race of ALL_RACES) {
       const stats = UNIT_STATS[race]?.[btype];
       if (!stats) continue;
 
-      const t0 = computeUnitPower(race, btype, ['A']);
-      const t1 = computeUnitPower(race, btype, ['A', 'B']);
-      const t2 = computeUnitPower(race, btype, ['A', 'B', 'D']);
-
       const bldgCost = effCost(RACE_BUILDING_COSTS[race][btype]);
-      const t1UpgCost = getUpgradeCumCost(race, btype, ['A', 'B']);
-      const t2UpgCost = getUpgradeCumCost(race, btype, ['A', 'B', 'D']);
+      const unitLabel = `${stats.name}${(stats.spawnCount ?? 1) > 1 ? ` ×${stats.spawnCount}` : ''}`;
+      console.log(`  ${RACE_NAMES[race]} — ${unitLabel} (building: ${fmt(bldgCost)} eff)`);
 
-      const t0Total = bldgCost;
-      const t1Total = bldgCost + t1UpgCost;
-      const t2Total = bldgCost + t2UpgCost;
+      const rows: string[][] = [];
+      for (const { path, label } of ALL_PATHS) {
+        // Check if this path's terminal node exists in the tree
+        const terminalNode = path[path.length - 1];
+        if (terminalNode !== 'A' && !getUpgradeNode(race, btype, terminalNode)) continue;
 
-      const t0Eff = t0.powerRate / t0Total;
-      const t1Eff = t1.powerRate / t1Total;
-      const t2Eff = t2.powerRate / t2Total;
+        const up = computeUnitPower(race, btype, path);
+        const upgCost = getUpgradeCumCost(race, btype, path);
+        const totalCost = bldgCost + upgCost;
+        const efficiency = up.powerRate / totalCost;
+        const specials = up.specialNotes.length > 0 ? up.specialNotes.join(', ') : '-';
 
-      rows.push([
-        RACE_NAMES[race],
-        `${stats.name}${(stats.spawnCount ?? 1) > 1 ? ` ×${stats.spawnCount}` : ''}`,
-        fmt(t0.power, 0), fmt(t1.power, 0), fmt(t2.power, 0),
-        fmt(t0Total), fmt(t1Total), fmt(t2Total),
-        fmt(t0Eff, 2), fmt(t1Eff, 2), fmt(t2Eff, 2),
-        fmt(t0.spawnInterval, 1), fmt(t2.spawnInterval, 1),
-      ]);
+        // Get the node name for the terminal node
+        const nodeName = terminalNode === 'A' ? stats.name : getNodeName(race, btype, terminalNode);
+
+        rows.push([
+          label,
+          nodeName,
+          fmt(up.power, 0),
+          fmt(totalCost),
+          fmt(efficiency, 2),
+          fmt(up.spawnInterval, 1),
+          specials,
+        ]);
+      }
+
+      printTable(
+        ['Path', 'Name', 'Power', 'Total $', 'Eff', 'Interval', 'Specials'],
+        rows,
+      );
+      console.log('');
     }
-
-    // Sort by T2 efficiency descending
-    rows.sort((a, b) => parseFloat(b[10]) - parseFloat(a[10]));
-
-    printTable(
-      ['Race', 'Unit', 'T0 Pwr', 'T1 Pwr', 'T2 Pwr', 'T0 $', 'T1 $', 'T2 $', 'T0 Eff', 'T1 Eff', 'T2 Eff', 'T0 Int', 'T2 Int'],
-      rows,
-    );
   }
 
   // ---- 4. Research Cost Comparison ----
@@ -292,26 +436,45 @@ function runAnalysis() {
     ]),
   );
 
-  // ---- 5. Research-Adjusted Late-Game Power ----
-  console.log('\n## LATE-GAME POWER (T2 units + 3atk/2def research)\n');
+  // ---- 5. Research-Adjusted Late-Game Power (best T2 path per race) ----
+  console.log('\n## LATE-GAME POWER (best T2 path + 3atk/2def research)\n');
   const lateMult = researchPowerMult(3, 2);
+  const T2_PATHS = [['A','B','D'], ['A','B','E'], ['A','C','F'], ['A','C','G']];
+
+  function bestT2(race: Race, btype: BuildingType) {
+    let best = { path: T2_PATHS[0], eff: -1, up: computeUnitPower(race, btype, T2_PATHS[0]) };
+    for (const path of T2_PATHS) {
+      const termNode = path[path.length - 1];
+      if (!getUpgradeNode(race, btype, termNode)) continue;
+      const up = computeUnitPower(race, btype, path);
+      const bldgCost = effCost(RACE_BUILDING_COSTS[race][btype]);
+      const upgCost = getUpgradeCumCost(race, btype, path);
+      const resCost = researchCumCost(race, 3, 2);
+      const totalInvest = bldgCost + upgCost + resCost;
+      const lateEff = (up.powerRate * lateMult) / totalInvest;
+      if (lateEff > best.eff) best = { path, eff: lateEff, up };
+    }
+    return best;
+  }
 
   for (const btype of COMBAT_BUILDINGS) {
     const catName = CATEGORY_NAMES[btype];
     const rows: string[][] = [];
 
     for (const race of ALL_RACES) {
-      const t2 = computeUnitPower(race, btype, ['A', 'B', 'D']);
+      const { path, up } = bestT2(race, btype);
       const bldgCost = effCost(RACE_BUILDING_COSTS[race][btype]);
-      const upgCost = getUpgradeCumCost(race, btype, ['A', 'B', 'D']);
+      const upgCost = getUpgradeCumCost(race, btype, path);
       const resCost = researchCumCost(race, 3, 2);
       const totalInvest = bldgCost + upgCost + resCost;
-      const latePower = t2.power * lateMult;
-      const lateRate = t2.powerRate * lateMult;
+      const latePower = up.power * lateMult;
+      const lateRate = up.powerRate * lateMult;
       const lateEff = lateRate / totalInvest;
+      const pathLabel = path.slice(1).join('→');
 
       rows.push([
         RACE_NAMES[race],
+        pathLabel,
         fmt(latePower, 0),
         fmt(lateRate, 1),
         fmt(resCost),
@@ -320,10 +483,10 @@ function runAnalysis() {
       ]);
     }
 
-    rows.sort((a, b) => parseFloat(b[5]) - parseFloat(a[5]));
+    rows.sort((a, b) => parseFloat(b[6]) - parseFloat(a[6]));
     console.log(`  ${catName}:`);
     printTable(
-      ['Race', 'Late Pwr', 'Late Rate', 'Res $', 'Total $', 'Late Eff'],
+      ['Race', 'Path', 'Late Pwr', 'Late Rate', 'Res $', 'Total $', 'Late Eff'],
       rows,
     );
     console.log('');
@@ -401,14 +564,13 @@ function runAnalysis() {
 
   type RaceScore = { race: Race; score: number };
 
-  // Melee T2 efficiency
+  // Melee best T2 efficiency
   const meleeEff: RaceScore[] = ALL_RACES.map(r => {
-    const t2 = computeUnitPower(r, BuildingType.MeleeSpawner, ['A', 'B', 'D']);
-    const cost = effCost(RACE_BUILDING_COSTS[r][BuildingType.MeleeSpawner]) + getUpgradeCumCost(r, BuildingType.MeleeSpawner, ['A', 'B', 'D']);
-    return { race: r, score: t2.powerRate / cost };
+    const { eff } = bestT2(r, BuildingType.MeleeSpawner);
+    return { race: r, score: eff };
   }).sort((a, b) => b.score - a.score);
 
-  console.log('  Melee T2 Efficiency:');
+  console.log('  Melee Best T2 Efficiency:');
   meleeEff.forEach((e, i) => console.log(`    ${i + 1}. ${RACE_NAMES[e.race].padEnd(10)} ${fmt(e.score, 3)}`));
 
   // Best T0 rush value (melee)

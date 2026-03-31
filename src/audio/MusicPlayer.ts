@@ -56,7 +56,7 @@ type MusicCategory = 'menu' | 'raceSelect' | 'combat';
 export class MusicPlayer {
   private category: MusicCategory | null = null;
   private combatRace: Race | null = null;
-  private volume = 0.45;
+  private volume = 0.3;
   private fadeTarget = 1;
   private fadeTimer: ReturnType<typeof setInterval> | null = null;
   private settingsUnsub: (() => void);
@@ -195,6 +195,8 @@ export class MusicPlayer {
       this.playNextInCategory();
     };
 
+    // Ensure gain is 0 before starting so there's no audible pop/thud
+    if (this.gainNode) this.gainNode.gain.value = 0;
     source.start();
     this.sourceNode = source;
     this.playing = true;

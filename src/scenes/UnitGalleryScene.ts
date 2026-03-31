@@ -4,13 +4,15 @@ import { UIAssets, IconName } from '../rendering/UIAssets';
 import { Race, BuildingType, TILE_SIZE } from '../simulation/types';
 import { loadProfile, checkNonMatchAchievement, ACHIEVEMENTS } from '../profile/ProfileData';
 import {
-  UNIT_STATS, RACE_COLORS, RACE_LABELS, UPGRADE_TREES, UpgradeNodeDef, UpgradeSpecial,
+  UNIT_STATS, RACE_COLORS, RACE_LABELS, UPGRADE_TREES, UpgradeNodeDef,
   RACE_BUILDING_COSTS, RACE_RESEARCH_UPGRADES, SPAWN_INTERVAL_TICKS,
   getNodeUpgradeCost, TOWER_STATS,
 } from '../simulation/data';
 import { getUnitUpgradeMultipliers } from '../simulation/GameState';
 import { getElo, ELO_DEFAULT } from './TitleElo';
 import { getSafeTop } from '../ui/SafeArea';
+import { MAX_STATS, STAT_COLORS, drawStatBar, drawStatVisualIcon, formatSpecialBonuses, type StatVisualKey } from '../ui/StatBarUtils';
+import { SoundManager } from '../audio/SoundManager';
 
 const T = TILE_SIZE;
 
@@ -44,47 +46,18 @@ const TAB_PATHS: { label: string; path: string[]; desc: string }[] = [
 const DISPLAY_SCALE = 1.8;
 
 // Race innate traits for melee/ranged/caster (verified against GameState.ts combat logic)
-const RACE_INNATE_TRAITS: Record<Race, Record<string, string[]>> = {
-  [Race.Crown]:    { melee: ['10% damage reduction'], ranged: [], caster: ['Shields nearby allies'] },
-  [Race.Horde]:    { melee: ['Knockback every 3rd hit', '10% lifesteal'], ranged: ['Wound on hit'], caster: ['Grants Haste to allies', 'AoE damage'] },
-  [Race.Goblins]:  { melee: ['15% dodge', 'Wound on hit'], ranged: ['Burn on hit', 'Wound on hit'], caster: ['Slows enemies', 'AoE damage', 'Wound on hit'] },
-  [Race.Oozlings]: { melee: ['Spawns x2', '15% chance Haste on hit'], ranged: ['Spawns x2'], caster: ['Spawns x2', 'Haste allies', 'AoE damage'] },
-  [Race.Demon]:    { melee: ['Burn on hit', 'Wound on hit'], ranged: ['Burn on hit', 'Wound on hit'], caster: ['AoE burn (pure damage, no support)'] },
-  [Race.Deep]:     { melee: ['Slow on hit'], ranged: ['2 Slow on hit'], caster: ['Cleanses burn from allies', 'AoE damage'] },
-  [Race.Wild]:     { melee: ['Burn (poison) on hit'], ranged: ['Burn on hit', 'Wound on hit'], caster: ['Haste allies', 'AoE damage'] },
-  [Race.Geists]:   { melee: ['Burn on hit', '20% lifesteal', 'Wound on hit'], ranged: ['Burn on hit', '20% lifesteal', 'Wound on hit'], caster: ['Single-target attacker', '20% lifesteal', 'Skeleton summon on nearby death'] },
-  [Race.Tenders]:  { melee: ['1 HP/s regen'], ranged: ['Slow on hit'], caster: ['Heals most injured ally', 'AoE damage'] },
+interface InnateTrait { text: string; icon: StatVisualKey; }
+const RACE_INNATE_TRAITS: Record<Race, Record<string, InnateTrait[]>> = {
+  [Race.Crown]:    { melee: [{ text: '10% damage reduction', icon: 'damage-reduction' }], ranged: [], caster: [{ text: 'Shields nearby allies', icon: 'shield' }] },
+  [Race.Horde]:    { melee: [{ text: 'Knockback every 3rd hit', icon: 'knockback' }, { text: '10% lifesteal', icon: 'lifesteal' }], ranged: [{ text: 'Wound on hit', icon: 'wound' }], caster: [{ text: 'Grants Haste to allies', icon: 'haste' }, { text: 'AoE damage', icon: 'aoe' }] },
+  [Race.Goblins]:  { melee: [{ text: '15% dodge', icon: 'dodge' }, { text: 'Wound on hit', icon: 'wound' }], ranged: [{ text: 'Burn on hit', icon: 'burn' }, { text: 'Wound on hit', icon: 'wound' }], caster: [{ text: 'Slows enemies', icon: 'slow' }, { text: 'AoE damage', icon: 'aoe' }, { text: 'Wound on hit', icon: 'wound' }] },
+  [Race.Oozlings]: { melee: [{ text: 'Spawns x2', icon: 'spawn-rate' }, { text: '15% chance Haste on hit', icon: 'haste' }], ranged: [{ text: 'Spawns x2', icon: 'spawn-rate' }], caster: [{ text: 'Spawns x2', icon: 'spawn-rate' }, { text: 'Haste allies', icon: 'haste' }, { text: 'AoE damage', icon: 'aoe' }] },
+  [Race.Demon]:    { melee: [{ text: 'Burn on hit', icon: 'burn' }, { text: 'Wound on hit', icon: 'wound' }], ranged: [{ text: 'Burn on hit', icon: 'burn' }, { text: 'Wound on hit', icon: 'wound' }], caster: [{ text: 'AoE burn (pure damage)', icon: 'burn' }] },
+  [Race.Deep]:     { melee: [{ text: 'Slow on hit', icon: 'slow' }], ranged: [{ text: '2 Slow on hit', icon: 'slow' }], caster: [{ text: 'Cleanses burn from allies', icon: 'cleanse' }, { text: 'AoE damage', icon: 'aoe' }] },
+  [Race.Wild]:     { melee: [{ text: 'Burn (poison) on hit', icon: 'burn' }], ranged: [{ text: 'Burn on hit', icon: 'burn' }, { text: 'Wound on hit', icon: 'wound' }], caster: [{ text: 'Haste allies', icon: 'haste' }, { text: 'AoE damage', icon: 'aoe' }] },
+  [Race.Geists]:   { melee: [{ text: 'Burn on hit', icon: 'burn' }, { text: '20% lifesteal', icon: 'lifesteal' }, { text: 'Wound on hit', icon: 'wound' }], ranged: [{ text: 'Burn on hit', icon: 'burn' }, { text: '20% lifesteal', icon: 'lifesteal' }, { text: 'Wound on hit', icon: 'wound' }], caster: [{ text: 'Single-target attacker', icon: 'damage' }, { text: '20% lifesteal', icon: 'lifesteal' }, { text: 'Skeleton summon on nearby death', icon: 'summon' }] },
+  [Race.Tenders]:  { melee: [{ text: '1 HP/s regen', icon: 'regen' }], ranged: [{ text: 'Slow on hit', icon: 'slow' }], caster: [{ text: 'Heals most injured ally', icon: 'healing' }, { text: 'AoE damage', icon: 'aoe' }] },
 };
-
-// Compute max stats across all units at all upgrade tiers for stat bar normalization
-function computeMaxStats(): { hp: number; damage: number; dps: number; moveSpeed: number; atkRate: number; range: number } {
-  let maxHp = 0, maxDmg = 0, maxDps = 0, maxSpd = 0, maxAtkRate = 0, maxRange = 0;
-  for (const race of ALL_RACES) {
-    for (const { bt } of CATEGORIES) {
-      const base = UNIT_STATS[race]?.[bt];
-      if (!base) continue;
-      for (const tab of TAB_PATHS) {
-        const upgrade = getUnitUpgradeMultipliers(tab.path, race, bt);
-        const hp = Math.round(base.hp * upgrade.hp);
-        const dmg = Math.round(base.damage * upgrade.damage);
-        const atkSpd = base.attackSpeed * upgrade.attackSpeed;
-        const dps = dmg / atkSpd;
-        const atkRate = 1 / atkSpd;
-        const spd = base.moveSpeed * upgrade.moveSpeed;
-        const range = Math.round(base.range * upgrade.range);
-        if (hp > maxHp) maxHp = hp;
-        if (dmg > maxDmg) maxDmg = dmg;
-        if (dps > maxDps) maxDps = dps;
-        if (atkRate > maxAtkRate) maxAtkRate = atkRate;
-        if (spd > maxSpd) maxSpd = spd;
-        if (range > maxRange) maxRange = range;
-      }
-    }
-  }
-  return { hp: maxHp, damage: maxDmg, dps: maxDps, moveSpeed: maxSpd, atkRate: maxAtkRate, range: maxRange };
-}
-
-const MAX_STATS = computeMaxStats();
 
 interface DetailSelection {
   race: Race;
@@ -112,6 +85,7 @@ export class UnitGalleryScene implements Scene {
   /** Per-sprite fade-in alpha (0→1), keyed by "race:cat:node" */
   private spriteAlpha: Map<string, number> = new Map();
   private lastDt = 16;
+  private sfx = new SoundManager();
 
   constructor(manager: SceneManager, canvas: HTMLCanvasElement, sprites: SpriteLoader, ui: UIAssets) {
     this.manager = manager;
@@ -186,7 +160,8 @@ export class UnitGalleryScene implements Scene {
 
     this.keyHandler = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        if (this.detail) { this.detail = null; return; }
+        if (this.detail) { this.detail = null; this.sfx.playUIClose(); return; }
+        this.sfx.playUIBack();
         this.manager.switchTo('title');
       }
       if (this.detail) {
@@ -195,7 +170,13 @@ export class UnitGalleryScene implements Scene {
         return;
       }
       const num = parseInt(e.key);
-      if (num >= 1 && num <= 7) { this.activeTab = num - 1; this.scrollY = 0; this.spriteAlpha.clear(); }
+      if (num >= 1 && num <= 7) {
+        const nextTab = num - 1;
+        if (nextTab !== this.activeTab) this.sfx.playUITab();
+        this.activeTab = nextTab;
+        this.scrollY = 0;
+        this.spriteAlpha.clear();
+      }
     };
 
     this.canvas.addEventListener('click', this.clickHandler);
@@ -204,6 +185,7 @@ export class UnitGalleryScene implements Scene {
     this.canvas.addEventListener('touchend', this.touchEndHandler, { passive: false });
     this.canvas.addEventListener('wheel', this.wheelHandler, { passive: true });
     window.addEventListener('keydown', this.keyHandler);
+    this.sfx.enableTabSuspend();
   }
 
   exit(): void {
@@ -215,6 +197,7 @@ export class UnitGalleryScene implements Scene {
     if (this.touchEndHandler) this.canvas.removeEventListener('touchend', this.touchEndHandler);
     if (this.wheelHandler) this.canvas.removeEventListener('wheel', this.wheelHandler);
     if (this.keyHandler) window.removeEventListener('keydown', this.keyHandler);
+    this.sfx.disableTabSuspend();
     this.clickHandler = null;
     this.touchHandler = null;
     this.touchEndHandler = null;
@@ -230,6 +213,7 @@ export class UnitGalleryScene implements Scene {
     const next = (curIdx + dir + ALL_RACES.length) % ALL_RACES.length;
     this.detail = { race: ALL_RACES[next], catIndex: this.detail.catIndex };
     this.detailScrollY = 0;
+    this.sfx.playUIClick();
   }
 
   // Store arrow button positions for click detection
@@ -251,6 +235,7 @@ export class UnitGalleryScene implements Scene {
       const closeY = panelY + 4;
       if (cx >= closeX && cx <= closeX + closeBtnSize && cy >= closeY && cy <= closeY + closeBtnSize) {
         this.detail = null;
+        this.sfx.playUIClose();
         return;
       }
       // Left/right arrow buttons (in fixed header, not scrolled)
@@ -267,6 +252,7 @@ export class UnitGalleryScene implements Scene {
       // Click outside panel closes it
       if (cx < panelX || cx > panelX + panelW || cy < panelY || cy > panelY + panelH) {
         this.detail = null;
+        this.sfx.playUIClose();
         return;
       }
       // Check upgrade path node clicks (in fixed header area, not scrolled)
@@ -276,6 +262,7 @@ export class UnitGalleryScene implements Scene {
 
     // Back button
     if (cy < 36 + getSafeTop() && cy > getSafeTop() && cx < 100) {
+      this.sfx.playUIBack();
       this.manager.switchTo('title');
       return;
     }
@@ -287,6 +274,7 @@ export class UnitGalleryScene implements Scene {
       for (let i = 0; i < tabLayout.length; i++) {
         const t = tabLayout[i];
         if (cx >= t.x && cx <= t.x + t.w) {
+          if (this.activeTab !== i) this.sfx.playUITab();
           this.activeTab = i;
           this.scrollY = 0;
           this.spriteAlpha.clear();
@@ -320,6 +308,7 @@ export class UnitGalleryScene implements Scene {
         }
         this.detail = { race, catIndex: c };
         this.detailScrollY = 0;
+        this.sfx.playUIOpen();
         return;
       }
     }
@@ -332,6 +321,7 @@ export class UnitGalleryScene implements Scene {
     // Node positions are in screen-space (fixed header, not scrolled)
     for (const node of this.upgradeNodePositions) {
       if (cx >= node.x && cx <= node.x + node.w && cy >= node.y && cy <= node.y + node.h) {
+        if (this.activeTab !== node.tabIndex) this.sfx.playUITab();
         this.activeTab = node.tabIndex;
         this.detailScrollY = 0;
         this.spriteAlpha.clear();
@@ -701,7 +691,7 @@ export class UnitGalleryScene implements Scene {
     const treeAreaW = contentW - (arrowBtnSize + 4) * 2;
 
     this.upgradeNodePositions = [];
-    const treeEndY = this.renderUpgradeTree(ctx, treeAreaX, headerY, treeAreaW, race, bt, tree);
+    const treeEndY = this.renderUpgradeTree(ctx, treeAreaX, headerY, treeAreaW, race, bt, tree, barX, contentW);
 
     // Left/right arrow buttons — vertically centered on the tree
     const treeMidY = (headerY + treeEndY) / 2;
@@ -757,185 +747,187 @@ export class UnitGalleryScene implements Scene {
       ctx.fill();
     };
 
-    // ========== SECTION 1: Name + Sprite + ELO ==========
-    const sec1Start = y;
-    y += secPad;
+    // ========== SECTION 1: Name + Sprite + Costs + ELO ==========
+    {
+      const spriteAreaH = 90;
+      const sec1H = secPad + 28 + spriteAreaH + 4 + 18 + secPad;
+      drawSectionBg(y, sec1H, 0.3);
+      y += secPad;
 
-    // Unit name (big)
-    const tierColors = ['#e0e0e0', '#4fc3f7', '#b388ff'];
-    ctx.fillStyle = tierColors[upgradeTier] ?? '#e0e0e0';
-    ctx.font = 'bold 22px monospace';
-    ctx.textAlign = 'center';
-    ctx.fillText(displayName, panelX + panelW / 2, y + 18);
-    y += 32;
-
-    // Upgrade description
-    if (nodeDef?.desc) {
-      ctx.fillStyle = '#8c8';
-      ctx.font = '13px monospace';
+      // Unit name (big)
+      const tierColors = ['#e0e0e0', '#4fc3f7', '#b388ff'];
+      ctx.fillStyle = tierColors[upgradeTier] ?? '#e0e0e0';
+      ctx.font = 'bold 22px monospace';
       ctx.textAlign = 'center';
-      ctx.fillText(nodeDef.desc, panelX + panelW / 2, y + 10);
-      y += 22;
-    }
+      ctx.fillText(displayName, panelX + panelW / 2, y + 18);
+      y += 28;
 
-    // Large Sprite
-    const spriteAreaH = 130;
-    const spriteCX = panelX + panelW / 2;
-    const spriteCY = y + spriteAreaH / 2;
-    y += spriteAreaH + 8;
+      // 3-column layout: building (left) | unit (center) | costs (right)
+      const colW = contentW / 3;
+      const bldgCX = panelX + innerPad + colW * 0.5;
+      const spriteCX = panelX + innerPad + colW * 1.5;
+      const spriteCY = y + spriteAreaH / 2;
+      const feetY = spriteCY + 15;
 
-    // ELO
-    const eloNode = nodeKey === 'A' ? undefined : nodeKey;
-    const elo = getElo(race, cat, eloNode);
-    const eloColor = elo > ELO_DEFAULT ? '#ffe082' : elo < ELO_DEFAULT ? '#ef9a9a' : '#888';
-    ctx.fillStyle = eloColor;
-    ctx.font = 'bold 13px monospace';
-    ctx.textAlign = 'center';
-    ctx.fillText(`ELO ${elo}`, panelX + panelW / 2, y + 10);
-    y += 20 + secPad;
-
-    y = sec1Start;
-    const sec1H = secPad + 32 + (nodeDef?.desc ? 22 : 0) + 130 + 8 + 20 + secPad;
-    drawSectionBg(y, sec1H, 0.3);
-    y += secPad;
-
-    // Re-draw name
-    ctx.fillStyle = tierColors[upgradeTier] ?? '#e0e0e0';
-    ctx.font = 'bold 22px monospace';
-    ctx.textAlign = 'center';
-    ctx.fillText(displayName, panelX + panelW / 2, y + 18);
-    y += 32;
-
-    if (nodeDef?.desc) {
-      ctx.fillStyle = '#8c8';
-      ctx.font = '13px monospace';
-      ctx.textAlign = 'center';
-      ctx.fillText(nodeDef.desc, panelX + panelW / 2, y + 10);
-      y += 22;
-    }
-
-    // Re-draw sprite
-    const spriteData = this.sprites.getUnitSprite(race, cat, 0, false, nodeKey !== 'A' ? nodeKey : undefined);
-    if (spriteData) {
-      const [img, def] = spriteData;
-      const spriteScale = def.scale ?? 1.0;
-      const baseH = T * 5.25 * spriteScale;
-      const tierScale = 1.0 + upgradeTier * 0.12;
-      const aspect = def.frameW / def.frameH;
-      const drawW = baseH * aspect * tierScale;
-      const drawH = baseH * (def.heightScale ?? 1.0) * tierScale;
-      const gY = def.groundY ?? 0.71;
-      const feetY = spriteCY + 30;
-      const drawX = spriteCX - drawW * (def.anchorX ?? 0.5);
-      const drawY = feetY - drawH * gY;
-      const frame = getSpriteFrame(tick, def);
-
-      ctx.fillStyle = 'rgba(0,0,0,0.3)';
-      ctx.beginPath();
-      ctx.ellipse(spriteCX, feetY + 3, drawW * 0.4, 6, 0, 0, Math.PI * 2);
-      ctx.fill();
-
-      if (def.flipX) {
-        ctx.save();
-        ctx.translate(spriteCX, 0);
-        ctx.scale(-1, 1);
-        ctx.translate(-spriteCX, 0);
-      }
-
-      if (upgradeTier >= 1) {
-        ctx.globalAlpha = 0.15 + upgradeTier * 0.08;
-        ctx.globalCompositeOperation = 'lighter';
-        drawSpriteFrame(ctx, img, def, frame, drawX, drawY, drawW, drawH);
-        ctx.globalCompositeOperation = 'source-over';
+      // Left column: building sprite
+      const bldgImg = this.sprites.getBuildingSprite(bt, 0, false, race, tab.path);
+      if (bldgImg) {
+        const bldgMaxH = spriteAreaH * 0.75;
+        const bAsp = bldgImg.width / bldgImg.height;
+        const bldgW = bldgMaxH * bAsp;
+        ctx.globalAlpha = 0.5;
+        ctx.drawImage(bldgImg, bldgCX - bldgW / 2, spriteCY - bldgMaxH * 0.35, bldgW, bldgMaxH);
         ctx.globalAlpha = 1;
       }
 
-      drawSpriteFrame(ctx, img, def, frame, drawX, drawY, drawW, drawH);
-      if (def.flipX) ctx.restore();
-    }
-    y += spriteAreaH + 8;
+      // Center column: unit sprite
+      const spriteData = this.sprites.getUnitSprite(race, cat, 0, false, nodeKey !== 'A' ? nodeKey : undefined);
+      if (spriteData) {
+        const [img, def] = spriteData;
+        const spriteScale = def.scale ?? 1.0;
+        const baseH = T * 4.5 * spriteScale;
+        const tierScale = 1.0 + upgradeTier * 0.12;
+        const aspect = def.frameW / def.frameH;
+        const drawW = baseH * aspect * tierScale;
+        const drawH = baseH * (def.heightScale ?? 1.0) * tierScale;
+        const gY = def.groundY ?? 0.71;
+        const drawX = spriteCX - drawW * (def.anchorX ?? 0.5);
+        const drawY = feetY - drawH * gY;
+        const frame = getSpriteFrame(tick, def);
 
-    // Re-draw ELO
-    ctx.fillStyle = eloColor;
-    ctx.font = 'bold 13px monospace';
-    ctx.textAlign = 'center';
-    ctx.fillText(`ELO ${elo}`, panelX + panelW / 2, y + 10);
-    y += 20 + secPad;
+        ctx.fillStyle = 'rgba(0,0,0,0.3)';
+        ctx.beginPath();
+        ctx.ellipse(spriteCX, feetY + 3, drawW * 0.4, 5, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        if (def.flipX) {
+          ctx.save();
+          ctx.translate(spriteCX, 0);
+          ctx.scale(-1, 1);
+          ctx.translate(-spriteCX, 0);
+        }
+
+        if (upgradeTier >= 1) {
+          ctx.globalAlpha = 0.15 + upgradeTier * 0.08;
+          ctx.globalCompositeOperation = 'lighter';
+          drawSpriteFrame(ctx, img, def, frame, drawX, drawY, drawW, drawH);
+          ctx.globalCompositeOperation = 'source-over';
+          ctx.globalAlpha = 1;
+        }
+
+        drawSpriteFrame(ctx, img, def, frame, drawX, drawY, drawW, drawH);
+        if (def.flipX) ctx.restore();
+      }
+
+      // Right column: cost breakdown
+      const costAreaX = panelX + innerPad + colW * 2 + 4;
+      let costY = y + 2;
+      const costSteps2: { label: string; cost: { gold: number; wood: number; meat: number; deathEssence?: number; souls?: number } }[] = [];
+      const buildCost = RACE_BUILDING_COSTS[race]?.[bt];
+      if (buildCost) costSteps2.push({ label: 'Building', cost: { gold: buildCost.gold, wood: buildCost.wood, meat: buildCost.meat } });
+      for (let i = 1; i < tab.path.length; i++) {
+        const nodeChoice = tab.path[i];
+        const cost = getNodeUpgradeCost(race, bt, i, nodeChoice);
+        const tLabel = i === 1 ? 'Tier 1' : 'Tier 2';
+        costSteps2.push({ label: `${tLabel} (${nodeChoice})`, cost });
+      }
+      if (costSteps2.length > 0) {
+        const totals = { gold: 0, wood: 0, meat: 0, souls: 0, deathEssence: 0 };
+        for (const step of costSteps2) {
+          totals.gold += step.cost.gold;
+          totals.wood += step.cost.wood;
+          totals.meat += step.cost.meat;
+          totals.souls += (step.cost.souls ?? 0);
+          totals.deathEssence += (step.cost.deathEssence ?? 0);
+          ctx.fillStyle = '#888';
+          ctx.font = '10px monospace';
+          ctx.textAlign = 'left';
+          ctx.fillText(step.label, costAreaX, costY + 9);
+          costY += 13;
+          this.drawCostIcons(ctx, costAreaX + 4, costY, step.cost);
+          costY += 15;
+        }
+        if (costSteps2.length > 1) {
+          const costColW = colW - 4;
+          ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+          ctx.beginPath();
+          ctx.moveTo(costAreaX, costY);
+          ctx.lineTo(costAreaX + costColW - 8, costY);
+          ctx.stroke();
+          costY += 4;
+          this.drawCostIcons(ctx, costAreaX + 4, costY, totals);
+        }
+      }
+
+      y += spriteAreaH + 4;
+
+      // ELO
+      const eloNode = nodeKey === 'A' ? undefined : nodeKey;
+      const elo = getElo(race, cat, eloNode);
+      const eloColor = elo > ELO_DEFAULT ? '#ffe082' : elo < ELO_DEFAULT ? '#ef9a9a' : '#888';
+      ctx.fillStyle = eloColor;
+      ctx.font = 'bold 13px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(`ELO ${elo}`, panelX + panelW / 2, y + 10);
+      y += 18 + secPad;
+    }
     y += secGap;
 
-    // ========== SECTION 2: Stats + Spawn ==========
-    const statsH = 26 * 6 + 4 + 18; // stat bars + spawn info
+    // ========== SECTION 2: Stats ==========
+    const stats: { key: StatVisualKey; label: string; value: number; max: number; display: string; color: string }[] = [
+      { key: 'health', label: 'HEALTH', value: hp, max: MAX_STATS.hp, display: `${hp}`, color: STAT_COLORS.hp },
+      { key: 'damage', label: 'DAMAGE', value: dmg, max: MAX_STATS.damage, display: `${dmg}`, color: STAT_COLORS.damage },
+      { key: 'dps', label: 'DPS', value: dps, max: MAX_STATS.dps, display: `${dps.toFixed(1)}`, color: STAT_COLORS.dps },
+      { key: 'attack-speed', label: 'ATK SPEED', value: 1 / atkSpd, max: MAX_STATS.atkRate, display: `${atkSpd.toFixed(2)}s`, color: STAT_COLORS.atkSpeed },
+      { key: 'move-speed', label: 'MOVE SPEED', value: spd, max: MAX_STATS.moveSpeed, display: `${spd.toFixed(1)}`, color: STAT_COLORS.moveSpeed },
+      { key: 'range', label: 'RANGE', value: range, max: MAX_STATS.range, display: `${range}`, color: STAT_COLORS.range },
+    ];
+    const spawnSec = (SPAWN_INTERVAL_TICKS / 20) * (upgrade.spawnSpeed);
+    stats.push({
+      key: 'spawn-rate',
+      label: 'SPAWN',
+      value: 1 / spawnSec,
+      max: MAX_STATS.spawnRate,
+      display: spawnCount > 1 ? `${spawnCount}x / ${spawnSec.toFixed(1)}s` : `${spawnSec.toFixed(1)}s`,
+      color: STAT_COLORS.spawnSpeed,
+    });
+    if ((upgrade.special?.dodgeChance ?? 0) > 0) {
+      stats.push({
+        key: 'dodge',
+        label: 'DODGE',
+        value: upgrade.special.dodgeChance ?? 0,
+        max: 1,
+        display: `${Math.round((upgrade.special.dodgeChance ?? 0) * 100)}%`,
+        color: '#80cbc4',
+      });
+    }
+    if ((upgrade.special?.damageReductionPct ?? 0) > 0) {
+      stats.push({
+        key: 'damage-reduction',
+        label: 'DMG REDUC',
+        value: upgrade.special.damageReductionPct ?? 0,
+        max: 1,
+        display: `${Math.round((upgrade.special.damageReductionPct ?? 0) * 100)}%`,
+        color: '#90a4ae',
+      });
+    }
+
+    const statsH = 26 * stats.length;
     drawSectionBg(y, statsH + secPad * 2, 0.25);
     y += secPad;
 
     const barW = contentW;
     const barH = 14;
     const barGap = 26;
-    const labelW = 90;
-
-    const stats: { label: string; value: number; max: number; display: string; color: string }[] = [
-      { label: 'HEALTH', value: hp, max: MAX_STATS.hp, display: `${hp}`, color: '#4caf50' },
-      { label: 'DAMAGE', value: dmg, max: MAX_STATS.damage, display: `${dmg}`, color: '#f44336' },
-      { label: 'DPS', value: dps, max: MAX_STATS.dps, display: `${dps.toFixed(1)}`, color: '#ff9800' },
-      { label: 'ATK SPEED', value: 1 / atkSpd, max: MAX_STATS.atkRate, display: `${atkSpd.toFixed(2)}s`, color: '#e91e63' },
-      { label: 'MOVE SPEED', value: spd, max: MAX_STATS.moveSpeed, display: `${spd.toFixed(1)}`, color: '#2196f3' },
-      { label: 'RANGE', value: range, max: MAX_STATS.range, display: `${range}`, color: '#9c27b0' },
-    ];
 
     for (const stat of stats) {
-      ctx.fillStyle = '#aaa';
-      ctx.font = '11px monospace';
-      ctx.textAlign = 'left';
-      ctx.fillText(stat.label, barX, y + 10);
-
-      ctx.fillStyle = '#e0e0e0';
-      ctx.font = 'bold 11px monospace';
-      ctx.textAlign = 'right';
-      ctx.fillText(stat.display, barX + barW, y + 10);
-
-      const bx = barX + labelW;
-      const bw = barW - labelW - 50;
-      const by = y + 2;
-      ctx.fillStyle = 'rgba(255,255,255,0.08)';
-      roundRect(ctx, bx, by, bw, barH, 3);
-      ctx.fill();
-
-      const pct = Math.min(1, Math.max(0, stat.value / stat.max));
-      if (pct > 0) {
-        ctx.fillStyle = stat.color;
-        ctx.globalAlpha = 0.8;
-        roundRect(ctx, bx, by, bw * pct, barH, 3);
-        ctx.fill();
-        ctx.globalAlpha = 1;
-      }
-
+      drawStatBar(ctx, barX, y, barW, barH, stat.label, stat.value, stat.max, stat.display, stat.color, this.ui, stat.key);
       y += barGap;
     }
-
-    y += 4;
-
-    // Spawn Info
-    ctx.fillStyle = '#999';
-    ctx.font = '11px monospace';
-    ctx.textAlign = 'left';
-    const spawnSec = (SPAWN_INTERVAL_TICKS / 20) * (upgrade.spawnSpeed);
-    const spawnInfo = spawnCount > 1
-      ? `Spawns ${spawnCount} units every ${spawnSec.toFixed(1)}s`
-      : `Spawns every ${spawnSec.toFixed(1)}s`;
-    ctx.fillText(spawnInfo, barX, y + 10);
-    y += 18 + secPad;
-    y += secGap;
-
-    // ========== SECTION 3: Cost Breakdown ==========
-    const costStartY = y;
-    // Estimate cost section height
-    const costSteps = 1 + (tab.path.length - 1);
-    const costH = secPad + 18 + costSteps * 17 + (costSteps > 1 ? 26 : 5) + secPad;
-    drawSectionBg(y, costH, 0.3);
     y += secPad;
-    y = this.renderCostBreakdown(ctx, barX, y, race, bt, tab.path, contentW);
-    y = costStartY + costH;
     y += secGap;
+
+    // (Cost breakdown is now shown in Section 1, next to the sprite)
 
     // ========== SECTION 4: Innate Traits ==========
     const traits = RACE_INNATE_TRAITS[race]?.[cat] ?? [];
@@ -949,9 +941,10 @@ export class UnitGalleryScene implements Scene {
       ctx.fillText('INNATE TRAITS', barX, y + 10);
       y += 20;
       for (const trait of traits) {
+        drawStatVisualIcon(ctx, this.ui, trait.icon, barX + 4, y - 2, 14);
         ctx.fillStyle = '#78c878';
         ctx.font = '12px monospace';
-        ctx.fillText(`  ${trait}`, barX, y + 10);
+        ctx.fillText(trait.text, barX + 22, y + 10);
         y += 17;
       }
       y += secPad;
@@ -960,7 +953,7 @@ export class UnitGalleryScene implements Scene {
 
     // ========== SECTION 5: Upgrade Specials ==========
     if (upgrade.special && Object.keys(upgrade.special).length > 0) {
-      const specials = describeSpecials(upgrade.special);
+      const specials = formatSpecialBonuses(upgrade.special);
       const specialsH = secPad + 20 + specials.length * 17 + secPad;
       drawSectionBg(y, specialsH, 0.3);
       y += secPad;
@@ -970,9 +963,10 @@ export class UnitGalleryScene implements Scene {
       ctx.fillText('UPGRADE SPECIALS', barX, y + 10);
       y += 20;
       for (const s of specials) {
+        drawStatVisualIcon(ctx, this.ui, s.key, barX + 4, y - 2, 14);
         ctx.fillStyle = '#e0c860';
         ctx.font = '12px monospace';
-        ctx.fillText(`  ${s}`, barX, y + 10);
+        ctx.fillText(s.text, barX + 22, y + 10);
         y += 17;
       }
       y += secPad;
@@ -996,9 +990,8 @@ export class UnitGalleryScene implements Scene {
         ctx.textAlign = 'left';
         ctx.fillText(res.name, barX + 4, y + 10);
         y += 16;
-        ctx.fillStyle = '#888';
         ctx.font = '11px monospace';
-        ctx.fillText(res.desc, barX + 12, y + 10);
+        this.drawRichLine(ctx, this.ui, res.desc, barX + 12, y + 10, 11, '#888');
         y += 16;
       }
       y += secPad;
@@ -1033,24 +1026,41 @@ export class UnitGalleryScene implements Scene {
     ctx.textAlign = 'start';
   }
 
+  /** Draw a line of text that may contain {icon} markers inline. */
+  private drawRichLine(ctx: CanvasRenderingContext2D, ui: UIAssets, line: string, x: number, y: number, fontSize: number, textColor: string): void {
+    const iconSize = fontSize;
+    const parts = line.split(/(\{[a-z-]+\})/);
+    let cx = x;
+    for (const part of parts) {
+      const iconMatch = part.match(/^\{([a-z-]+)\}$/);
+      if (iconMatch) {
+        const key = iconMatch[1] as StatVisualKey;
+        drawStatVisualIcon(ctx, ui, key, cx, y - fontSize + 2, iconSize);
+        cx += iconSize + 2;
+      } else if (part) {
+        ctx.fillStyle = textColor;
+        ctx.fillText(part, cx, y);
+        cx += ctx.measureText(part).width;
+      }
+    }
+  }
+
   private getDetailContentHeight(
     _contentW: number, race: Race, cat: string, _bt: BuildingType,
-    _baseStats: any, nodeDef: UpgradeNodeDef | undefined, upgrade: any
+    _baseStats: any, _nodeDef: UpgradeNodeDef | undefined, upgrade: any
   ): number {
     const secPad = 8;
     const secGap = 6;
     let h = 8; // top pad
 
-    // Section 1: Name + sprite + ELO
-    h += secPad + 32 + (nodeDef?.desc ? 22 : 0) + 130 + 8 + 20 + secPad + secGap;
+    // Section 1: Name + sprite + costs + ELO
+    h += secPad + 28 + 90 + 4 + 18 + secPad + secGap;
 
-    // Section 2: Stats + spawn
-    h += secPad + 26 * 6 + 4 + 18 + secPad + secGap;
-
-    // Section 3: Cost breakdown
-    const upgradeTier = TAB_PATHS[this.activeTab].path.length - 1;
-    const costSteps = 1 + upgradeTier;
-    h += secPad + 18 + costSteps * 17 + (costSteps > 1 ? 26 : 5) + secPad + secGap;
+    // Section 2: Stats
+    const statRows = 7
+      + ((upgrade.special?.dodgeChance ?? 0) > 0 ? 1 : 0)
+      + ((upgrade.special?.damageReductionPct ?? 0) > 0 ? 1 : 0);
+    h += secPad + 26 * statRows + secPad + secGap;
 
     // Section 4: Innate traits
     const traits = RACE_INNATE_TRAITS[race]?.[cat] ?? [];
@@ -1058,7 +1068,7 @@ export class UnitGalleryScene implements Scene {
 
     // Section 5: Upgrade specials
     if (upgrade.special && Object.keys(upgrade.special).length > 0) {
-      const specials = describeSpecials(upgrade.special);
+      const specials = formatSpecialBonuses(upgrade.special);
       h += secPad + 20 + specials.length * 17 + secPad + secGap;
     }
 
@@ -1225,7 +1235,7 @@ export class UnitGalleryScene implements Scene {
     const treeAreaW = contentW - (arrowBtnSize + 4) * 2;
 
     this.upgradeNodePositions = [];
-    const treeEndY = this.renderUpgradeTree(ctx, treeAreaX, headerY, treeAreaW, race, bt, tree);
+    const treeEndY = this.renderUpgradeTree(ctx, treeAreaX, headerY, treeAreaW, race, bt, tree, barX, contentW);
 
     const treeMidY = (headerY + treeEndY) / 2;
     const arrowY = treeMidY - arrowBtnSize / 2;
@@ -1260,99 +1270,97 @@ export class UnitGalleryScene implements Scene {
     ctx.translate(0, -this.detailScrollY);
 
     let y = headerY + 8;
+    const secPad = 8;
+    const secGap = 6;
+    const secR = 6;
 
-    // Tower name
-    const tierColors = ['#e0e0e0', '#4fc3f7', '#b388ff'];
-    ctx.fillStyle = tierColors[upgradeTier] ?? '#e0e0e0';
-    ctx.font = 'bold 22px monospace';
-    ctx.textAlign = 'center';
-    ctx.fillText(displayName, panelX + panelW / 2, y + 18);
-    y += 32;
+    const drawTowerSectionBg = (sy: number, sh: number, shade: number) => {
+      ctx.fillStyle = `rgba(0,0,0,${shade})`;
+      roundRect(ctx, panelX + 6, sy, panelW - 12, sh, secR);
+      ctx.fill();
+    };
 
-    if (nodeDef?.desc) {
-      ctx.fillStyle = '#8c8';
-      ctx.font = '13px monospace';
+    // ========== SECTION 1: Name + Sprite ==========
+    {
+      const spriteAreaH = 90;
+      const sec1H = secPad + 28 + spriteAreaH + 4 + secPad;
+      drawTowerSectionBg(y, sec1H, 0.3);
+      y += secPad;
+
+      // Tower name
+      const tierColors = ['#e0e0e0', '#4fc3f7', '#b388ff'];
+      ctx.fillStyle = tierColors[upgradeTier] ?? '#e0e0e0';
+      ctx.font = 'bold 22px monospace';
       ctx.textAlign = 'center';
-      ctx.fillText(nodeDef.desc, panelX + panelW / 2, y + 10);
-      y += 22;
-    }
+      ctx.fillText(displayName, panelX + panelW / 2, y + 18);
+      y += 28;
 
-    // Building sprite (centered, no unit behind it)
-    const spriteAreaH = 130;
-    const spriteCX = panelX + panelW / 2;
-    const bldgImg = this.sprites.getBuildingSprite(bt, 0, false, race, tab.path);
-    if (bldgImg) {
-      const bH = spriteAreaH * 0.85;
-      const bAsp = bldgImg.width / bldgImg.height;
-      const bW = bH * bAsp;
-      ctx.drawImage(bldgImg, spriteCX - bW / 2, y + (spriteAreaH - bH) / 2, bW, bH);
+      // Building sprite (centered)
+      const spriteCX = panelX + panelW / 2;
+      const bldgImg = this.sprites.getBuildingSprite(bt, 0, false, race, tab.path);
+      if (bldgImg) {
+        const bH = spriteAreaH * 0.85;
+        const bAsp = bldgImg.width / bldgImg.height;
+        const bW = bH * bAsp;
+        ctx.drawImage(bldgImg, spriteCX - bW / 2, y + (spriteAreaH - bH) / 2, bW, bH);
+      }
+      y += spriteAreaH + 4 + secPad;
     }
-    y += spriteAreaH + 8;
+    y += secGap;
 
-    // Stats: HP, DAMAGE, DPS, ATK SPEED, RANGE (no MOVE SPEED)
+    // ========== SECTION 2: Stats ==========
     const barW = contentW;
     const barH = 14;
     const barGap = 26;
-    const labelW = 90;
-
-    const roundRect = (cx: CanvasRenderingContext2D, rx: number, ry: number, rw: number, rh: number, r: number) => {
-      cx.beginPath(); cx.roundRect(rx, ry, rw, rh, r);
-    };
-
-    const stats = [
-      { label: 'HEALTH', value: hp, max: MAX_STATS.hp * 4, display: `${hp}`, color: '#4caf50' },
-      { label: 'DAMAGE', value: dmg, max: MAX_STATS.damage, display: `${dmg}`, color: '#f44336' },
-      { label: 'DPS', value: dps, max: MAX_STATS.dps, display: `${dps.toFixed(1)}`, color: '#ff9800' },
-      { label: 'ATK SPEED', value: 1 / atkSpd, max: MAX_STATS.atkRate, display: `${atkSpd.toFixed(2)}s`, color: '#e91e63' },
-      { label: 'RANGE', value: range, max: MAX_STATS.range * 2, display: `${range}`, color: '#9c27b0' },
+    const stats: { key: StatVisualKey; label: string; value: number; max: number; display: string; color: string }[] = [
+      { key: 'health', label: 'HEALTH', value: hp, max: MAX_STATS.hp * 4, display: `${hp}`, color: STAT_COLORS.hp },
+      { key: 'damage', label: 'DAMAGE', value: dmg, max: MAX_STATS.damage, display: `${dmg}`, color: STAT_COLORS.damage },
+      { key: 'dps', label: 'DPS', value: dps, max: MAX_STATS.dps, display: `${dps.toFixed(1)}`, color: STAT_COLORS.dps },
+      { key: 'attack-speed', label: 'ATK SPEED', value: 1 / atkSpd, max: MAX_STATS.atkRate, display: `${atkSpd.toFixed(2)}s`, color: STAT_COLORS.atkSpeed },
+      { key: 'range', label: 'RANGE', value: range, max: MAX_STATS.range * 2, display: `${range}`, color: STAT_COLORS.range },
     ];
-
+    const statsH = barGap * stats.length;
+    drawTowerSectionBg(y, statsH + secPad * 2, 0.25);
+    y += secPad;
     for (const stat of stats) {
-      ctx.fillStyle = '#aaa';
-      ctx.font = '11px monospace';
-      ctx.textAlign = 'left';
-      ctx.fillText(stat.label, barX, y + 10);
-      ctx.fillStyle = '#e0e0e0';
-      ctx.font = 'bold 11px monospace';
-      ctx.textAlign = 'right';
-      ctx.fillText(stat.display, barX + barW, y + 10);
-
-      const bx = barX + labelW;
-      const bw = barW - labelW - 50;
-      const by = y + 2;
-      ctx.fillStyle = 'rgba(255,255,255,0.08)';
-      roundRect(ctx, bx, by, bw, barH, 3); ctx.fill();
-      const pct = Math.min(1, Math.max(0, stat.value / stat.max));
-      if (pct > 0) {
-        ctx.fillStyle = stat.color;
-        ctx.globalAlpha = 0.8;
-        roundRect(ctx, bx, by, bw * pct, barH, 3); ctx.fill();
-        ctx.globalAlpha = 1;
-      }
+      drawStatBar(ctx, barX, y, barW, barH, stat.label, stat.value, stat.max, stat.display, stat.color, this.ui, stat.key);
       y += barGap;
     }
+    y += secPad;
+    y += secGap;
 
-    y += 8;
+    // ========== SECTION 3: Cost Breakdown ==========
+    {
+      const costSteps = 1 + (tab.path.length - 1);
+      const costH = secPad + 18 + costSteps * 17 + (costSteps > 1 ? 26 : 5) + secPad;
+      drawTowerSectionBg(y, costH, 0.3);
+      y += secPad;
+      y = this.renderCostBreakdown(ctx, barX, y, race, bt, tab.path, contentW);
+      y += secPad;
+    }
+    y += secGap;
 
-    // Cost breakdown
-    y = this.renderCostBreakdown(ctx, barX, y, race, bt, tab.path, contentW);
-    y += 8;
-
-    // Special traits from upgrade
+    // ========== SECTION 4: Upgrade Specials ==========
     if (nodeDef) {
-      const specials = describeSpecials(nodeDef.special ?? {});
+      const specials = formatSpecialBonuses(nodeDef.special ?? {});
       if (specials.length > 0) {
+        const specialsH = secPad + 20 + specials.length * 17 + secPad;
+        drawTowerSectionBg(y, specialsH, 0.25);
+        y += secPad;
         ctx.fillStyle = '#aaa';
         ctx.font = 'bold 12px monospace';
         ctx.textAlign = 'left';
         ctx.fillText('UPGRADE BONUSES', barX, y + 10);
         y += 20;
         for (const s of specials) {
-          ctx.fillStyle = '#78c878';
+          drawStatVisualIcon(ctx, this.ui, s.key, barX + 4, y - 2, 14);
+          ctx.fillStyle = '#e0c860';
           ctx.font = '11px monospace';
-          ctx.fillText(`• ${s}`, barX + 8, y + 10);
+          ctx.fillText(s.text, barX + 22, y + 10);
           y += 17;
         }
+        y += secPad;
+        y += secGap;
       }
     }
 
@@ -1373,6 +1381,7 @@ export class UnitGalleryScene implements Scene {
     ctx: CanvasRenderingContext2D, x: number, startY: number, w: number,
     race: Race, bt: BuildingType,
     tree: Record<string, UpgradeNodeDef> | undefined,
+    fullX?: number, fullW?: number,
   ): number {
     const nodeW = Math.min(120, (w - 20) / 2);
     const nodeH = 36;
@@ -1418,13 +1427,15 @@ export class UnitGalleryScene implements Scene {
     }
     y += rowGap;
 
-    // Tier 2 nodes — use smaller width if space is tight
-    const t2nodeW = Math.min(nodeW, (w - 40) / 4);
-    const quarter = w / 4;
-    const dX = x + quarter * 0 + (quarter - t2nodeW) / 2;
-    const eX = x + quarter * 1 + (quarter - t2nodeW) / 2;
-    const fX = x + quarter * 2 + (quarter - t2nodeW) / 2;
-    const gX = x + quarter * 3 + (quarter - t2nodeW) / 2;
+    // Tier 2 nodes — use full panel width so names aren't truncated
+    const t2x = fullX ?? x;
+    const t2w = fullW ?? w;
+    const t2nodeW = Math.min(nodeW, (t2w - 24) / 4);
+    const quarter = t2w / 4;
+    const dX = t2x + quarter * 0 + (quarter - t2nodeW) / 2;
+    const eX = t2x + quarter * 1 + (quarter - t2nodeW) / 2;
+    const fX = t2x + quarter * 2 + (quarter - t2nodeW) / 2;
+    const gX = t2x + quarter * 3 + (quarter - t2nodeW) / 2;
 
     // Tier 2 connecting lines from B → D/E and C → F/G
     if (tree.B) {
@@ -1508,36 +1519,3 @@ function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: numbe
   ctx.closePath();
 }
 
-function describeSpecials(sp: UpgradeSpecial): string[] {
-  const lines: string[] = [];
-  if (sp.dodgeChance) lines.push(`${(sp.dodgeChance * 100).toFixed(0)}% dodge chance`);
-  if (sp.knockbackEveryN) lines.push(`Knockback every ${sp.knockbackEveryN} hits`);
-  if (sp.goldOnKill) lines.push(`+${sp.goldOnKill} gold on kill`);
-  if (sp.goldOnDeath) lines.push(`+${sp.goldOnDeath} gold on death`);
-  if (sp.splashRadius) lines.push(`Splash ${sp.splashRadius}t at ${((sp.splashDamagePct ?? 0.5) * 100).toFixed(0)}%`);
-  if (sp.extraChainTargets) lines.push(`Chain to ${sp.extraChainTargets} extra targets`);
-  if (sp.extraBurnStacks) lines.push(`+${sp.extraBurnStacks} burn stacks on hit`);
-  if (sp.extraSlowStacks) lines.push(`+${sp.extraSlowStacks} slow stacks on hit`);
-  if (sp.shieldTargetBonus) lines.push(`Shield +${sp.shieldTargetBonus} extra targets`);
-  if (sp.shieldAbsorbBonus) lines.push(`+${sp.shieldAbsorbBonus} shield absorb`);
-  if (sp.regenPerSec) lines.push(`Regen ${sp.regenPerSec} HP/s`);
-  if (sp.damageReductionPct) lines.push(`${sp.damageReductionPct}% damage reduction`);
-  if (sp.reviveHpPct) lines.push(`Revive at ${(sp.reviveHpPct * 100).toFixed(0)}% HP`);
-  if (sp.multishotCount) lines.push(`+${sp.multishotCount} projectiles at ${((sp.multishotDamagePct ?? 0.5) * 100).toFixed(0)}%`);
-  if (sp.healBonus) lines.push(`+${sp.healBonus} heal amount`);
-  if (sp.cleaveTargets) lines.push(`Cleave ${sp.cleaveTargets} adjacent enemies`);
-  if (sp.hopAttack) lines.push('Leap attack with AoE slow');
-  if (sp.explodeOnDeath) lines.push(`Explode on death: ${sp.explodeDamage ?? 0} dmg in ${sp.explodeRadius ?? 0}t`);
-  if (sp.skeletonSummonChance) lines.push(`${(sp.skeletonSummonChance * 100).toFixed(0)}% skeleton summon on death`);
-  if (sp.crownMage) lines.push('Fire AoE damage (mage mode)');
-  if (sp.isSiegeUnit) lines.push(`Siege: ${sp.buildingDamageMult ?? 1}x building dmg`);
-  if (sp.auraDamageBonus) lines.push(`Aura: +${sp.auraDamageBonus} dmg to allies`);
-  if (sp.auraSpeedBonus) lines.push(`Aura: +${((sp.auraSpeedBonus ?? 0) * 100).toFixed(0)}% speed to allies`);
-  if (sp.auraArmorBonus) lines.push(`Aura: ${((sp.auraArmorBonus ?? 0) * 100).toFixed(0)}% DR to allies`);
-  if (sp.guaranteedHaste) lines.push('Guaranteed haste on hit');
-  if (sp.towerRangeBonus) lines.push(`+${sp.towerRangeBonus} tower range`);
-  if (sp.soulHarvest) lines.push(`Soul harvest: grows from nearby deaths`);
-  if (sp.killScaling) lines.push(`Kill scaling: +${((sp.killDmgPct ?? 0.05) * 100).toFixed(0)}% dmg/kill`);
-  if (sp.spawnCount) lines.push(`Spawns ${sp.spawnCount} units`);
-  return lines;
-}

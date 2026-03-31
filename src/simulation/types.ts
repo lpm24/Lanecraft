@@ -265,7 +265,7 @@ export enum StatusType {
   Burn = 'burn',       // 2 dmg/sec per stack for 3s, max 5
   Haste = 'haste',     // 1.3x speed, 3s, no stack, refreshes
   Shield = 'shield',   // absorbs 12 damage, 4s, 1 instance
-  Frenzy = 'frenzy',       // Wild kill bonus: +30% damage, 3s, refreshes on kills
+  Frenzy = 'frenzy',       // Wild kill bonus: +50% damage, 3s, refreshes on kills
   Wound = 'wound',         // -50% healing received, 6s, max 1 stack, refreshes
   Vulnerable = 'vulnerable', // +20% damage taken, 3s, max 1 stack, refreshes
 }
@@ -379,13 +379,20 @@ export interface BuildingState {
   actionTimer: number;
   placedTick: number;
   upgradePath: string[];
-  // Race ability building markers
+  // Race ability building markers — when adding a new one, also add it to isAbilityBuilding() below
   isFoundry?: boolean;     // Crown: gold yield building
   isPotionShop?: boolean;  // Goblins: potion shop
   isGlobule?: boolean;     // Oozlings: globule building
   isSeed?: boolean;        // Tenders: seed pod
   seedTimer?: number;      // Tenders: ticks until seed pops
   seedTier?: number;       // Tenders: 0=T1, 1=T2, 2=T3
+}
+
+/** Race ability buildings stored as BuildingType.Tower but aren't real towers.
+ *  Use this to exclude them from tower cost escalation, tower targeting, tower counting, etc.
+ *  UPDATE THIS when adding a new race ability building that uses BuildingType.Tower. */
+export function isAbilityBuilding(b: BuildingState): boolean {
+  return !!(b.isFoundry || b.isPotionShop || b.isGlobule || b.isSeed);
 }
 
 export interface UnitState {
@@ -407,7 +414,7 @@ export interface UnitState {
   pathProgress: number;
   carryingDiamond: boolean;
   statusEffects: StatusEffect[];
-  hitCount: number;       // for Bastion knockback (every 3rd hit)
+  hitCount: number;       // for Horde Brute knockback (every 3rd hit)
   shieldHp: number;       // absorb pool from Shield status
   category: 'melee' | 'ranged' | 'caster';
   upgradeTier: number;                 // 0=base, 1=tier1, 2=tier2
@@ -415,6 +422,7 @@ export interface UnitState {
   upgradeSpecial: Record<string, any>; // upgrade-granted special effects
   kills: number;          // individual kill count for war hero tracking
   damageDone: number;     // total damage dealt (for war hero display)
+  damageTaken: number;    // total damage received (for tank hero)
   healingDone: number;    // total HP healed to allies (for support hero)
   buffsApplied: number;   // ally buff instances applied (Haste/Frenzy/Shield, for support hero)
   lastDamagedByName: string; // name of last unit/source that dealt damage
@@ -438,6 +446,7 @@ export interface WarHero {
   upgradeNode: string;  // terminal upgrade node key ('A','B',...)
   kills: number;
   damageDone: number;
+  damageTaken: number;
   healingDone: number;
   buffsApplied: number;
   survived: boolean;
@@ -554,6 +563,8 @@ export interface ProjectileState {
   buildingDamageMult?: number;  // on impact, deal damage * mult to buildings in aoeRadius
   critChance?: number;          // chance (0-1) to deal critical hit (rolled on impact)
   critMult?: number;            // critical hit damage multiplier
+  applyVulnerable?: boolean;    // apply Vulnerable status on hit (upgrade special)
+  applyWound?: boolean;         // apply Wound status on hit (upgrade special)
 }
 
 export interface FloatingText {
@@ -570,7 +581,7 @@ export interface FloatingText {
   vy?: number;     // initial vertical velocity for arc/gravity
   ftType?: 'damage' | 'heal' | 'resource' | 'status' | 'ability'; // animation variant
   magnitude?: number; // for scaling text size (e.g. damage amount)
-  miniIcon?: string;  // canvas-drawn mini icon: 'sword', 'arrow', 'fire', 'skull', 'shield_icon', 'lightning', 'poison', 'heart'
+  miniIcon?: string;  // shared gameplay icon key or legacy alias used by floating combat text
   ownerOnly?: number; // if set, only render for this player index (e.g. mana/souls/ooze)
 }
 
@@ -647,12 +658,18 @@ export type SoundEventType =
   | 'ability_summon' | 'ability_troll' | 'ability_potion'
   | 'nuke_incoming' | 'nuke_detonated'
   | 'diamond_exposed' | 'diamond_carried' | 'hq_damaged'
-  | 'match_start' | 'match_end_win' | 'match_end_lose';
+  | 'match_start' | 'match_end_win' | 'match_end_lose'
+  | 'status_burn' | 'status_shield' | 'status_haste' | 'status_slow' | 'status_frenzy'
+  | 'status_wound' | 'status_vulnerable'
+  | 'combat_knockback' | 'combat_lifesteal'
+  | 'resource_delivered';
 
 export interface SoundEvent {
   type: SoundEventType;
   x?: number; // world tile coords
   y?: number;
+  race?: Race;
+  buildingType?: BuildingType;
 }
 
 export interface PlayerStats {
@@ -667,6 +684,7 @@ export interface PlayerStats {
   abilityDamageDealt: number; // damage from race abilities (fireball, deluge, etc.)
   nukeDamageDealt: number;   // damage from nuke detonations
   totalHealing: number;
+  totalBuffsApplied: number;
   unitsSpawned: number;
   unitsLost: number;
   enemyUnitsKilled: number;
@@ -682,6 +700,7 @@ export function createPlayerStats(): PlayerStats {
     totalDamageTaken: 0, towerDamageDealt: 0,
     burnDamageDealt: 0, abilityDamageDealt: 0, nukeDamageDealt: 0,
     totalHealing: 0,
+    totalBuffsApplied: 0,
     unitsSpawned: 0, unitsLost: 0, enemyUnitsKilled: 0, nukeKills: 0,
     diamondPickups: 0, diamondTimeHeld: 0,
   };
@@ -731,7 +750,9 @@ export interface GameState {
   nextEntityId: number;
   playerStats: PlayerStats[];
   warHeroes: WarHero[];          // populated at match end — top killer per player
-  supportHeroes: WarHero[];      // populated at match end — top support unit per player
+  supportHeroes: WarHero[];      // populated at match end — top support (buffs/debuffs) per player
+  tankHeroes: WarHero[];         // populated at match end — most damage taken per player
+  healerHeroes: WarHero[];       // populated at match end — most healing done per player
   fallenHeroes: WarHero[];       // notable units that died during the match
   fogOfWar: boolean;             // whether fog of war is enabled
   /** Per-team tile visibility: teamIndex → flat boolean array [y * mapWidth + x] */

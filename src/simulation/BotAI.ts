@@ -1,7 +1,7 @@
 import {
   GameState, GameCommand, Race, BuildingType, Lane, Team, HQ_WIDTH, HQ_HEIGHT,
   HarvesterAssignment, HQ_HP, MapDef, TICK_RATE, NUKE_RADIUS,
-  AbilityTargetMode, ResearchUpgradeState,
+  AbilityTargetMode, ResearchUpgradeState, isAbilityBuilding,
 } from './types';
 import { RACE_BUILDING_COSTS, UPGRADE_TREES, UpgradeNodeDef, UNIT_STATS, SPAWN_INTERVAL_TICKS, TOWER_STATS, getNodeUpgradeCost, HUT_COST_SCALE, TOWER_COST_SCALE, GOLD_YIELD_PER_TRIP, WOOD_YIELD_PER_TRIP, MEAT_YIELD_PER_TRIP, RACE_ABILITY_DEFS, getAllResearchUpgrades, getResearchUpgradeCost } from './data';
 import { getHQPosition, getUnitUpgradeMultipliers, PASSIVE_INCOME, getTeamAlleyOrigin, getBaseGoldPosition } from './GameState';
@@ -152,7 +152,7 @@ interface RaceProfile {
 //   Don't rush — units too expensive. Invest in upgrades mid-game.
 //   Diamond: YES (gold harvesters can pivot to center easily)
 //
-// HORDE (Gold+Meat, 200g/25s start, 20g/2s passive)
+// HORDE (Gold+Meat+Wood, 100g/50w/50m start, all 3 passive)
 //   Best DPS/cost in game (Brute 12dps @ 60 total cost = 0.20 dps/$).
 //   Strategy: Rush 2 melee immediately (20g+40s each), overwhelm early.
 //   Minimal econ — just 1 hut, spend everything on melee pressure.
@@ -194,7 +194,7 @@ interface RaceProfile {
 //   2 melee early, 1 hut, ranged mid. Grind enemies down.
 //   Diamond: SKIP until late (meat economy, center gives gold)
 //
-// TENDERS (Wood+Gold, 50g/150w start, 2g/20w passive)
+// TENDERS (Wood+Gold+Meat, 50g/150w start, 2g/20w passive, huts generate all 3)
 //   Tanky healers (120hp melee + regen). Expensive (75 total melee).
 //   Strategy: Econ-first — 2 huts then melee. Sustain = win long fights.
 //   Push aggressively once army built. Regen means attrition favors you.
@@ -225,25 +225,25 @@ const RACE_PROFILES: Record<Race, RaceProfile> = {
     vsSwarmExtraCasters: 1, vsTankExtraRanged: 1, vsGlassCannonExtraMelee: 1,
     maxHuts: 5, pushThreshold: 1.2,
   },
-  // HORDE (Gold+Meat): Brute is best DPS/cost (40m). 3-resource economy needs huts.
-  // Go taller than other races — diversify auras. War Chanter (caster) supports.
+  // HORDE (Gold+Meat+Wood): Brute is best DPS/cost. 3-resource economy needs huts.
+  // Diversify early for aura collection — melee wall + ranged + caster support.
   [Race.Horde]: {
-    earlyMelee: 2, earlyRanged: 0, earlyHuts: 2, earlyTowers: 0,
-    midMelee: 3, midRanged: 2, midCasters: 1, midTowers: 0, midHuts: 4,
+    earlyMelee: 2, earlyRanged: 1, earlyHuts: 2, earlyTowers: 0,
+    midMelee: 3, midRanged: 2, midCasters: 2, midTowers: 0, midHuts: 4,
     lateTowers: 1, alleyTowers: 2,
-    meleeUpgradeBias: 'B', rangedUpgradeBias: 'C', casterUpgradeBias: 'C', towerUpgradeBias: 'B',
+    meleeUpgradeBias: 'B', rangedUpgradeBias: 'B', casterUpgradeBias: 'B', towerUpgradeBias: 'B',
     vsSwarmExtraCasters: 1, vsTankExtraRanged: 1, vsGlassCannonExtraMelee: 0,
     maxHuts: 5, pushThreshold: 1.0,
   },
-  // GOBLINS (Gold+Wood): Everything is cheap. Swarm first, delay casters (Hexers).
-  // Go super wide with melee+ranged, poison stacks from volume.
+  // GOBLINS (Gold+Wood): Everything is cheap. Swarm melee+ranged, mix in Hexer casters for burn/slow.
+  // Cheap huts — invest in economy early. Hexers now have burn (C-path) and slow (B-path) forks.
   [Race.Goblins]: {
-    earlyMelee: 2, earlyRanged: 2, earlyHuts: 1, earlyTowers: 0,
-    midMelee: 4, midRanged: 4, midCasters: 0, midTowers: 0, midHuts: 3,
+    earlyMelee: 2, earlyRanged: 2, earlyHuts: 2, earlyTowers: 0,
+    midMelee: 4, midRanged: 4, midCasters: 1, midTowers: 0, midHuts: 4,
     lateTowers: 1, alleyTowers: 1,
     meleeUpgradeBias: 'C', rangedUpgradeBias: 'C', casterUpgradeBias: 'C', towerUpgradeBias: 'C',
-    vsSwarmExtraCasters: 0, vsTankExtraRanged: 1, vsGlassCannonExtraMelee: 1,
-    maxHuts: 4, pushThreshold: 0.9,
+    vsSwarmExtraCasters: 1, vsTankExtraRanged: 1, vsGlassCannonExtraMelee: 1,
+    maxHuts: 5, pushThreshold: 0.9,
   },
   // OOZLINGS (Gold+Meat): x2 swarm on everything. Go super wide, deaths fuel ooze economy.
   // Lots of melee, some ranged/caster. Split ooze between upgrades and more spawners.
@@ -296,7 +296,7 @@ const RACE_PROFILES: Record<Race, RaceProfile> = {
     vsSwarmExtraCasters: 1, vsTankExtraRanged: 1, vsGlassCannonExtraMelee: 0,
     maxHuts: 5, pushThreshold: 1.0,
   },
-  // TENDERS (Wood+Gold): Spread of units. Treant melee wall + Tinker ranged + Grove Keeper healer.
+  // TENDERS (Wood+Gold+Meat): Spread of units. Treant melee wall + Tinker ranged + Grove Keeper healer.
   // Econ-heavy to sustain expensive units. Spawn seeds, time them to pop together.
   [Race.Tenders]: {
     earlyMelee: 1, earlyRanged: 1, earlyHuts: 2, earlyTowers: 0,
@@ -982,7 +982,7 @@ function botPlanResources(
     else if (b.type === BuildingType.RangedSpawner) rangedCount++;
     else if (b.type === BuildingType.CasterSpawner) casterCount++;
     else if (b.type === BuildingType.HarvesterHut) hutCount++;
-    else if (b.type === BuildingType.Tower) towerCount++;
+    else if (b.type === BuildingType.Tower && !isAbilityBuilding(b)) towerCount++;
   }
 
   // --- Build shopping list: next 3-4 purchases ---
@@ -1098,9 +1098,10 @@ function botPlanResources(
     idealWood = Math.max(woodNeeded > 10 ? 1 : 0, Math.round(woodPct * totalHarvesters));
     idealMeat = Math.max(meatNeeded > 10 ? 1 : 0, Math.round(meatPct * totalHarvesters));
 
-    // If race likes diamond and game is late enough, dedicate 1 to center
-    if (RACE_LIKES_DIAMOND[race] && gameMinutes > 3 && totalHarvesters >= 3) {
-      idealCenter = 1;
+    // If race likes diamond and game is late enough, dedicate 2 to center (or none)
+    // Sending 1 worker alone to diamond is wasteful — they need to contest it
+    if (RACE_LIKES_DIAMOND[race] && gameMinutes > 3 && totalHarvesters >= 5) {
+      idealCenter = 2;
     }
 
     // Normalize to total harvesters
@@ -1219,6 +1220,33 @@ function scoreUpgradeNode(
 
   // Lifesteal / heal is always decent
   if (s.healBonus) score += 2;
+  if (s.lifeDrainPct) score += s.lifeDrainPct * 20; // sustain via damage
+  if (s.skeletonSummonChance) score += s.skeletonSummonChance * 30; // free units from deaths
+
+  // Debuff application specials — always valuable
+  if (s.applyVulnerable) score += 8; // army-wide damage amplifier
+  if (s.applyWound) score += 6; // anti-healing
+
+  // Kill-scaling: snowball damage in extended fights (Demon Bloodfire, Inferno Reaper, Soul Pyre)
+  if (s.killScaling) {
+    const maxDmgPct = (s.killDmgPct ?? 0.05) * (s.killMaxStacks ?? 10);
+    score += maxDmgPct * 15; // 50% max → +7.5
+    if (threats.wantDPS) score += 4;
+  }
+
+  // Suicide attack: AoE burst on first melee hit (Oozlings Boomlings)
+  if (s.suicideAttack) {
+    const eDmg = s.explodeDamage ?? 30;
+    score += eDmg * 0.1; // 35→+3.5, 70→+7
+    if (threats.wantAoE) score += 5;
+  }
+
+  // Soul harvest: scaling HP + damage from nearby deaths (Geists Soul Gorger)
+  if (s.soulHarvest) score += (s.soulMaxStacks ?? 20) * 0.4; // 20 stacks → +8
+
+  // Gold on kill/death: economic value (Crown economy path)
+  if (s.goldOnKill) score += s.goldOnKill * 1.5; // 3g→+4.5, 6g→+9
+  if (s.goldOnDeath) score += s.goldOnDeath * 0.5; // 5g→+2.5, 8g→+4
 
   // Siege units vs turtling/towers
   if (threats.wantSiege) {
@@ -1368,10 +1396,10 @@ const UNIT_ABILITY_VALUE: Record<Race, Record<string, { survMult: number; dmgMul
     caster: { survMult: 1.10, dmgMult: 2.0 },
   },
   [Race.Horde]: {
-    // Brute: knockback every 3rd hit + 10% melee lifesteal. High base stats.
+    // Brute: knockback every 3rd hit + 10% melee lifesteal. 130 HP tank.
     melee:  { survMult: 1.20, dmgMult: 1.05 },
-    // Bowcleaver: best ranged DPS in game (13.8 base with 18 dmg).
-    ranged: { survMult: 1.00, dmgMult: 1.05 },
+    // Bowcleaver: 18 dmg, split shot path (2→3 projectiles). High volume damage.
+    ranged: { survMult: 1.00, dmgMult: 1.15 },
     // War Chanter: haste pulse + chain heal (B-path). +25% dmg with Berserker Howl.
     // Chain heal gives Horde sustain they desperately need.
     caster: { survMult: 1.00, dmgMult: 2.2 },
@@ -1392,19 +1420,20 @@ const UNIT_ABILITY_VALUE: Record<Race, Record<string, { survMult: number; dmgMul
     melee:  { survMult: 1.15, dmgMult: 1.10 },
     // Spitter x2: ranged bodies. With Corrosive Spit: vulnerable (+20% dmg taken).
     ranged: { survMult: 1.00, dmgMult: 1.15 },
-    // Bloater x2: haste pulse to 3 allies. With Symbiotic Link: heal during haste.
-    caster: { survMult: 1.00, dmgMult: 1.8 },
+    // Bloater x2: haste pulse to 3 allies. C-path = chain lightning (2-3 bounces).
+    // With Symbiotic Link: heal during haste. Chain lightning adds real DPS.
+    caster: { survMult: 1.00, dmgMult: 2.0 },
   },
   [Race.Demon]: {
-    // Smasher: burn on every melee hit + Wound. Glass cannon (85 HP, 12 dmg).
+    // Smasher: burn on every melee hit + Wound. Glass cannon (90 HP, 12 dmg, 4.62 speed).
     // With Infernal Rage: +25% vs burning. Core burn synergy.
-    melee:  { survMult: 0.90, dmgMult: 1.45 },
+    melee:  { survMult: 0.92, dmgMult: 1.45 },
     // Eye Sniper: burn on ranged hit, long range (8), 20% crit at 1.75x.
     // With Hellfire Arrows: +1 burn +10% dmg. Crit identity = burst damage.
     ranged: { survMult: 0.85, dmgMult: 1.50 },
-    // Overlord: strongest base caster (52 HP, 19 dmg). AoE attacks.
+    // Overlord: tankiest caster (65 HP, 20 dmg). AoE attacks.
     // With Flame Conduit: +1 burn on AoE. With Immolation: 2-tile burn aura.
-    caster: { survMult: 0.85, dmgMult: 1.7 },
+    caster: { survMult: 0.95, dmgMult: 1.7 },
   },
   [Race.Deep]: {
     // Shell Guard: slow on melee hit. 190 HP tank wall.
@@ -1430,9 +1459,9 @@ const UNIT_ABILITY_VALUE: Record<Race, Record<string, { survMult: number; dmgMul
     // Bone Knight: 10% melee lifesteal + burn + wound on hit. With Death Grip: 15% lifesteal.
     // Lifesteal sustain on 88 HP body — still effective but squishier now.
     melee:  { survMult: 1.25, dmgMult: 1.20 },
-    // Wraith Bow: 20% ranged lifesteal + burn on hit (via projectile).
-    // Lifesteal sustain keeps ranged alive in extended fights.
-    ranged: { survMult: 1.15, dmgMult: 1.20 },
+    // Wraith Bow: 10% ranged lifesteal + burn on hit (via projectile). 25 HP, fragile.
+    // Lifesteal helps but low HP means they die fast to AoE.
+    ranged: { survMult: 1.10, dmgMult: 1.20 },
     // Necromancer: with Necrotic Burst research: heals 2 HP to 3 allies.
     // With Undying Will: skeleton summon chance. Decent support.
     caster: { survMult: 1.10, dmgMult: 1.8 },
@@ -1522,6 +1551,18 @@ function detectPowerSpike(
   if (s.dodgeChance && s.dodgeChance >= 0.25) return 0.20;
   // Heavy slow stacking = force multiplier (enemies can't close or retreat)
   if (s.extraSlowStacks && s.extraSlowStacks >= 2) return 0.15;
+  // Vulnerable = 20% army-wide damage amplifier
+  if (s.applyVulnerable) return 0.20;
+  // Lifedrain = significant sustain spike on fast attackers
+  if (s.lifeDrainPct && s.lifeDrainPct >= 0.15) return 0.15;
+  // Skeleton summon = free unit generation from nearby deaths
+  if (s.skeletonSummonChance && s.skeletonSummonChance >= 0.15) return 0.15;
+  // Kill-scaling = snowball damage that compounds over fights
+  if (s.killScaling) return 0.20;
+  // High-damage suicide attack = massive AoE burst
+  if (s.suicideAttack && (s.explodeDamage ?? 30) >= 50) return 0.20;
+  // Soul harvest = multiplicative scaling on both damage and HP
+  if (s.soulHarvest) return 0.25;
   return 0;
 }
 
@@ -1635,6 +1676,14 @@ function estimateUpgradeValue(
     const volumeBonus = Math.max(0.5, sameTypeCount * 0.7);
 
     value = (throughputDelta * (1 + spikeBonus + matchupBonus) * volumeBonus) / totalCost;
+
+    // Siege penalty: siege units are bad vs units, only useful when pushing buildings.
+    // Heavily penalize siege upgrades unless game is late (8+ min) and we're ahead or even.
+    if (nodeDef.special?.isSiegeUnit) {
+      const gameMin = state.tick / TICK_RATE / 60;
+      if (gameMin < 8) value *= 0.1;  // almost never pick siege early
+      else value *= 0.4;               // still deprioritize late
+    }
   } else {
     // Stat-based (non-nightmare or towers)
     const hpGain = (nodeDef.hpMult ?? 1) - 1;
@@ -2148,6 +2197,7 @@ function runSingleBotAI(state: GameState, ctx: BotContext, playerId: number, emi
       case BuildingType.RangedSpawner: rangedCount++; break;
       case BuildingType.CasterSpawner: casterCount++; break;
       case BuildingType.Tower:
+        if (isAbilityBuilding(b)) break;
         if (b.buildGrid === 'military') towerCount++;
         else if (b.buildGrid === 'alley' && !b.isSeed) alleyTowerCount++;
         break;
@@ -2438,6 +2488,14 @@ function botValueBasedBuild(
         const volumeBonus = Math.max(1, sameTypeCount * 0.6);
 
         uv = (throughputDelta * (1 + spikeBonus + matchupBonus) * volumeBonus) / totalCost;
+
+        // Siege penalty: avoid siege upgrades until late game
+        const nodeDef2 = UPGRADE_TREES[race]?.[b.type]?.[choice as 'B'|'C'|'D'|'E'|'F'|'G'];
+        if (nodeDef2?.special?.isSiegeUnit) {
+          const gameMin2 = state.tick / TICK_RATE / 60;
+          if (gameMin2 < 8) uv *= 0.1;
+          else uv *= 0.4;
+        }
 
         // Boost for effective category
         const cat = buildingCategory(b.type);
@@ -2842,7 +2900,7 @@ function botPlaceAlleyTower(state: GameState, playerId: number, emit: Emit): boo
   if (freeSlots.length === 0) return false;
   // Place near lane paths (center columns) for maximum coverage
   const centerX = Math.floor(state.mapDef.towerAlleyCols / 2);
-  freeSlots.sort((a, b) => Math.abs(a.gx - centerX) - Math.abs(b.gx - centerX) || a.gy - b.gy);
+  freeSlots.sort((a, b) => Math.abs(a.gx - centerX) - Math.abs(b.gx - centerX) || a.gy - b.gy || a.gx - b.gx);
   const idx = Math.min(Math.floor(state.rng() * 3), freeSlots.length - 1);
   const slot = freeSlots[idx];
   emit({ type: 'place_building', playerId, buildingType: BuildingType.Tower, gridX: slot.gx, gridY: slot.gy, gridType: 'alley' });
@@ -3281,7 +3339,7 @@ function botManageHarvesters(
     }
   }
 
-  // --- Demon: assign at least one harvester to Mana if we have 2+ harvesters ---
+  // --- Demon: assign exactly 1 harvester to Mana (never more) if we have 2+ harvesters ---
   if (player.race === Race.Demon && myHarvesters.length >= 2) {
     const manaCount = assignments.filter(a => a === HarvesterAssignment.Mana).length;
     if (manaCount === 0) {
@@ -3290,6 +3348,15 @@ function botManageHarvesters(
         if (assignments[i] !== HarvesterAssignment.Center) {
           assignments[i] = HarvesterAssignment.Mana;
           break;
+        }
+      }
+    } else if (manaCount > 1) {
+      // Cap at 1 mana worker — convert extras back to bottleneck resource
+      let found = 0;
+      for (let i = 0; i < assignments.length; i++) {
+        if (assignments[i] === HarvesterAssignment.Mana) {
+          found++;
+          if (found > 1) assignments[i] = plan?.bottleneck ?? HarvesterAssignment.Wood;
         }
       }
     }
@@ -3303,6 +3370,13 @@ function botManageHarvesters(
     if (h.state === 'mining' || h.state === 'walking_home') continue;
 
     const desired = assignments[i];
+
+    // Hysteresis: don't reassign if harvester was recently assigned (prevent toggling)
+    if (h.assignment === desired) continue;
+    const lastAssignTick = (ctx as any)._harvAssignTick?.[h.id] ?? 0;
+    if (state.tick - lastAssignTick < 10 * TICK_RATE) continue;  // 10s cooldown between reassignments
+    if (!(ctx as any)._harvAssignTick) (ctx as any)._harvAssignTick = {};
+    (ctx as any)._harvAssignTick[h.id] = state.tick;
     if (desired !== undefined && h.assignment !== desired) {
       const hut = state.buildings.find(b => b.id === h.hutId);
       if (hut) {
@@ -3437,7 +3511,7 @@ function botUseAbility(state: GameState, playerId: number, emit: Emit): void {
     const meatCost = Math.floor((def.baseCost.meat ?? 0) * growthMult);
     const manaCost = Math.floor((def.baseCost.mana ?? 0) * growthMult);
     const soulsCost = player.race === Race.Geists
-      ? (def.baseCost.souls ?? 0) + 5 * player.abilityUseCount
+      ? (def.baseCost.souls ?? 0) + 10 * player.abilityUseCount
       : Math.floor((def.baseCost.souls ?? 0) * growthMult);
     const essenceCost = Math.floor((def.baseCost.deathEssence ?? 0) * growthMult);
 
@@ -3459,9 +3533,18 @@ function botUseAbility(state: GameState, playerId: number, emit: Emit): void {
 
     // Wild targets allies (buff), others target enemies (damage/summon)
     const isAllyTarget = player.race === Race.Wild;
-    const targets = isAllyTarget
-      ? state.units.filter(u => u.team === player.team && u.hp > 0)
-      : state.units.filter(u => u.team === enemyTeam && u.hp > 0);
+    const enemies = state.units.filter(u => u.team === enemyTeam && u.hp > 0);
+    let targets: GameState['units'];
+
+    if (isAllyTarget) {
+      // Wild frenzy: only consider allies that are near enemy units (in combat)
+      const combatRange = 12 * 12; // 12 tiles — units actively fighting or about to fight
+      const alliesInCombat = state.units.filter(u => u.team === player.team && u.hp > 0 &&
+        enemies.some(e => (e.x - u.x) ** 2 + (e.y - u.y) ** 2 <= combatRange));
+      targets = alliesInCombat.length >= 2 ? alliesInCombat : state.units.filter(u => u.team === player.team && u.hp > 0);
+    } else {
+      targets = enemies;
+    }
     if (targets.length < 2) return;
 
     // Find densest cluster center
@@ -3474,13 +3557,25 @@ function botUseAbility(state: GameState, playerId: number, emit: Emit): void {
       if (score > bestScore) { bestScore = score; bestX = t.x; bestY = t.y; }
     }
 
-    if (bestScore >= 2) {
+    // Wild frenzy needs a real cluster (3+) to be worth the meat cost; others just need 2
+    const minCluster = isAllyTarget ? 3 : 2;
+    if (bestScore >= minCluster) {
       emit({ type: 'use_ability', playerId, x: bestX, y: bestY });
     }
   } else if (def.targetMode === AbilityTargetMode.BuildSlot) {
-    // BuildSlot abilities (Oozlings Ooze Mound): use when affordable, but consider
-    // whether research would be better value once we have enough racial buildings.
+    // BuildSlot abilities: race-specific timing
     const racialCount = state.buildings.filter(b => b.playerId === playerId && b.isGlobule).length;
+    const gameMin = state.tick / TICK_RATE / 60;
+
+    // Goblins: potion shops are mid-game buildings — need army first, potions scale with research
+    // Don't build any before 3 min, max 1 before 5 min, max 2 before 7 min
+    if (player.race === Race.Goblins) {
+      if (gameMin < 3) return;
+      const potionShopCount = state.buildings.filter(b => b.playerId === playerId && b.isPotionShop).length;
+      if (gameMin < 5 && potionShopCount >= 1) return;
+      if (gameMin < 7 && potionShopCount >= 2) return;
+    }
+
     // After 6+ Ooze Mounds, alternate: save some deathEssence for research upgrades
     if (racialCount >= 6 && player.race === Race.Oozlings) {
       // Only build if we have enough deathEssence to cover both the mound AND a research

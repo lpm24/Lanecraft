@@ -1,8 +1,11 @@
+export type TouchControlsMode = 'auto' | 'on' | 'off';
+
 export interface VisualSettings {
   screenShake: boolean;
   weather: boolean;
   dayNight: boolean;
   damageNumbers: boolean;
+  touchControls: TouchControlsMode;
 }
 
 const STORAGE_KEY = 'lanecraft.visualSettings';
@@ -11,9 +14,15 @@ const DEFAULT_SETTINGS: VisualSettings = {
   weather: true,
   dayNight: true,
   damageNumbers: false,
+  touchControls: 'auto',
 };
 
 type VisualSettingsListener = (settings: VisualSettings) => void;
+
+function sanitizeTouchControls(v: unknown): TouchControlsMode {
+  if (v === 'on' || v === 'off' || v === 'auto') return v;
+  return DEFAULT_SETTINGS.touchControls;
+}
 
 function sanitize(value: Partial<VisualSettings> | null | undefined): VisualSettings {
   return {
@@ -21,6 +30,7 @@ function sanitize(value: Partial<VisualSettings> | null | undefined): VisualSett
     weather: value?.weather ?? DEFAULT_SETTINGS.weather,
     dayNight: value?.dayNight ?? DEFAULT_SETTINGS.dayNight,
     damageNumbers: value?.damageNumbers ?? DEFAULT_SETTINGS.damageNumbers,
+    touchControls: sanitizeTouchControls(value?.touchControls),
   };
 }
 

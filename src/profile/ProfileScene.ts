@@ -10,6 +10,7 @@ import {
 } from './ProfileData';
 import { getSafeTop } from '../ui/SafeArea';
 import { randomName, loadPlayerName, savePlayerName } from '../scenes/TitlePlayerName';
+import { SoundManager } from '../audio/SoundManager';
 
 const ALL_RACES: Race[] = [
   Race.Crown, Race.Horde, Race.Goblins, Race.Oozlings, Race.Demon,
@@ -61,6 +62,7 @@ export class ProfileScene implements Scene {
   private enterTime = 0;
   private scrollVelocity = 0;
   private overscroll = 0; // positive = past bottom, negative = past top
+  private sfx = new SoundManager();
 
   constructor(manager: SceneManager, canvas: HTMLCanvasElement, ui: UIAssets, sprites: SpriteLoader) {
     this.manager = manager;
@@ -143,7 +145,10 @@ export class ProfileScene implements Scene {
       this.scrollY = Math.max(0, Math.min(this.maxScrollY, this.scrollY + e.deltaY * 0.5));
     };
     this.keyHandler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') this.manager.switchTo('title');
+      if (e.key === 'Escape') {
+        this.sfx.playUIBack();
+        this.manager.switchTo('title');
+      }
     };
 
     this.canvas.addEventListener('click', this.clickHandler);
@@ -152,6 +157,7 @@ export class ProfileScene implements Scene {
     this.canvas.addEventListener('touchend', this.touchEndHandler, { passive: false });
     this.canvas.addEventListener('wheel', this.wheelHandler, { passive: true });
     window.addEventListener('keydown', this.keyHandler);
+    this.sfx.enableTabSuspend();
   }
 
   exit(): void {
@@ -163,6 +169,7 @@ export class ProfileScene implements Scene {
     if (this.touchEndHandler) this.canvas.removeEventListener('touchend', this.touchEndHandler);
     if (this.wheelHandler) this.canvas.removeEventListener('wheel', this.wheelHandler);
     if (this.keyHandler) window.removeEventListener('keydown', this.keyHandler);
+    this.sfx.disableTabSuspend();
     this.clickHandler = null; this.touchHandler = null; this.touchEndHandler = null;
     this.wheelHandler = null; this.keyHandler = null;
   }
@@ -229,6 +236,7 @@ export class ProfileScene implements Scene {
     const backSize = compact ? 36 : 64;
     const st = getSafeTop();
     if (cy < backSize + 10 + st && cy > st && cx < backSize + 12) {
+      this.sfx.playUIBack();
       this.manager.switchTo('title');
       return;
     }
@@ -239,6 +247,7 @@ export class ProfileScene implements Scene {
         cx >= d.x && cx <= d.x + d.w && cy >= d.y && cy <= d.y + d.h) {
       this.playerName = randomName();
       savePlayerName(this.playerName);
+      this.sfx.playUIClick();
       return;
     }
 
@@ -252,6 +261,7 @@ export class ProfileScene implements Scene {
       for (let i = 0; i < tabs.length; i++) {
         const tx = startX + i * (tabW + gap);
         if (cx >= tx && cx <= tx + tabW) {
+          if (this.tab !== tabs[i]) this.sfx.playUITab();
           this.tab = tabs[i];
           this.scrollY = 0;
           this.scrollVelocity = 0;
@@ -286,6 +296,7 @@ export class ProfileScene implements Scene {
       if (cx >= ax && cx < ax + cellSize && cy >= ay && cy < ay + cellSize) {
         const avatar = ALL_AVATARS[i];
         if (isAvatarUnlocked(this.profile, avatar)) {
+          if (this.profile.avatarId !== avatar.id) this.sfx.playUIConfirm();
           this.profile.avatarId = avatar.id;
           saveProfile(this.profile);
         }

@@ -66,6 +66,18 @@ for (const [path, url] of Object.entries(skillIconGlob)) {
   SKILL_ICON_URLS[key] = url;
 }
 
+const statIconGlob = import.meta.glob(
+  '../assets/images/stat-icons/*.svg',
+  { eager: true, query: '?url', import: 'default' }
+) as Record<string, string>;
+
+const STAT_ICON_URLS: Record<string, string> = {};
+for (const [path, url] of Object.entries(statIconGlob)) {
+  const filename = path.split('/').pop()!;
+  const key = filename.replace(/\.svg$/i, '');
+  STAT_ICON_URLS[key] = url;
+}
+
 export type IconName = 'gold' | 'wood' | 'meat' | 'sword' | 'shield' | 'play' | 'close' | 'settings' | 'info' | 'music' | 'diamond' | 'mana' | 'souls' | 'ooze' | 'star' | 'research' | 'nuke' | 'dice' | 'leftArrow' | 'rightArrow';
 export type RibbonColor = 0 | 1 | 2 | 3 | 4; // blue, red, yellow, purple, dark
 export type SwordColor = 0 | 1 | 2 | 3 | 4;
@@ -105,6 +117,7 @@ const STRIP_320: TileStrip = [0, 64, 128, 64, 256, 64];
 export class UIAssets {
   private cache = new Map<string, HTMLImageElement>();
   private loading = new Set<string>();
+  private tintCanvas: HTMLCanvasElement | null = null;
 
   private loadImage(url: string): HTMLImageElement | null {
     if (this.cache.has(url)) return this.cache.get(url)!;
@@ -321,6 +334,54 @@ export class UIAssets {
     const img = this.loadImage(url);
     if (!img) return false;
     ctx.drawImage(img, x, y, size, size);
+    return true;
+  }
+
+  private drawTintedImage(
+    ctx: CanvasRenderingContext2D,
+    img: HTMLImageElement,
+    x: number, y: number, size: number,
+    color: string,
+  ): void {
+    const dpr = window.devicePixelRatio || 1;
+    const hiRes = Math.ceil(size * dpr);
+    const canvas = this.tintCanvas ?? document.createElement('canvas');
+    this.tintCanvas = canvas;
+    if (canvas.width !== hiRes || canvas.height !== hiRes) {
+      canvas.width = hiRes;
+      canvas.height = hiRes;
+    }
+    const tctx = canvas.getContext('2d');
+    if (!tctx) {
+      ctx.drawImage(img, x, y, size, size);
+      return;
+    }
+
+    tctx.clearRect(0, 0, hiRes, hiRes);
+    tctx.drawImage(img, 0, 0, hiRes, hiRes);
+    tctx.globalCompositeOperation = 'source-atop';
+    tctx.fillStyle = color;
+    tctx.fillRect(0, 0, hiRes, hiRes);
+    tctx.globalCompositeOperation = 'source-over';
+
+    ctx.drawImage(canvas, 0, 0, hiRes, hiRes, x, y, size, size);
+  }
+
+  drawTintedIcon(ctx: CanvasRenderingContext2D, name: IconName, x: number, y: number, size: number, color: string): boolean {
+    const url = ICON_URLS[name];
+    if (!url) return false;
+    const img = this.loadImage(url);
+    if (!img) return false;
+    this.drawTintedImage(ctx, img, x, y, size, color);
+    return true;
+  }
+
+  drawStatIcon(ctx: CanvasRenderingContext2D, name: string, x: number, y: number, size: number, color: string): boolean {
+    const url = STAT_ICON_URLS[name];
+    if (!url) return false;
+    const img = this.loadImage(url);
+    if (!img) return false;
+    this.drawTintedImage(ctx, img, x, y, size, color);
     return true;
   }
 

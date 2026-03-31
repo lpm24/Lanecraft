@@ -28,14 +28,14 @@ npm run balance -- --quick  # mirror-team round robin only
 | Race | Resources | Identity |
 |------|-----------|----------|
 | Crown | Gold + Wood | Balanced, shield + dmg reduction |
-| Horde | Gold + Meat | Brute force, knockback |
+| Horde | Gold + Meat + Wood | Brute force, knockback |
 | Goblins | Gold + Wood | Fast + cheap, poison |
 | Oozlings | Gold + Meat | Swarm (2x units), haste |
 | Demon | Meat + Wood | Glass cannon, burn |
 | Deep | Wood + Gold | Tank + control, slow |
 | Wild | Wood + Meat | Aggro + poison |
 | Geists | Meat + Gold | Undying, lifesteal |
-| Tenders | Wood + Gold | Regen + healing |
+| Tenders | Wood + Gold + Meat | Regen + healing |
 
 ## Controls
 

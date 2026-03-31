@@ -5,7 +5,7 @@ import {
   BuildingType, TILE_SIZE, Lane,
   HarvesterAssignment, Team, Race, UnitState, NUKE_RADIUS,
   AbilityTargetMode, HQ_WIDTH, HQ_HEIGHT, StatusEffect, StatusType,
-  ResearchUpgradeState,
+  ResearchUpgradeState, isAbilityBuilding,
 } from '../simulation/types';
 import { getBuildGridOrigin, getTeamAlleyOrigin, getHutGridOrigin, getHQPosition, getBaseGoldPosition } from '../simulation/GameState';
 import { RACE_BUILDING_COSTS, UNIT_STATS, TOWER_STATS, RACE_COLORS, RACE_ABILITY_INFO, RACE_ABILITY_DEFS, TOWER_COST_SCALE, getUpgradeNodeDef, ABILITY_COST_MODIFIERS } from '../simulation/data';
@@ -18,8 +18,9 @@ import { ResearchPopup } from './ResearchPopup';
 import { SeedPopup } from './SeedPopup';
 import { getSafeBottom, getSafeTop, getPopupSafeY } from './SafeArea';
 import { getAudioSettings, updateAudioSettings } from '../audio/AudioSettings';
-import { getVisualSettings, updateVisualSettings } from '../rendering/VisualSettings';
+import { getVisualSettings, updateVisualSettings, type TouchControlsMode } from '../rendering/VisualSettings';
 import { tileToPixel, pixelToTile } from '../rendering/Projection';
+import { drawStatVisualIcon, type StatVisualKey } from './StatBarUtils';
 import {
   getTutorialStep, advanceTutorial, skipTutorial,
   isMatchTutorial, getMatchPopupInfo, TUTORIAL_TIMEOUT_MS,
@@ -48,15 +49,28 @@ const ASSIGNMENT_LABELS: Record<HarvesterAssignment, string> = {
 };
 
 // Buff/debuff icon metadata for the WoW-style status bar
-const BUFF_ICON_META: Record<StatusType, { icon: string; color: string; isDebuff: boolean; maxDur: number }> = {
-  [StatusType.Burn]:       { icon: '\u{1F525}', color: '#ff6622', isDebuff: true,  maxDur: 3 },
-  [StatusType.Slow]:       { icon: '\u2744',    color: '#66ccff', isDebuff: true,  maxDur: 3 },
-  [StatusType.Wound]:      { icon: '\u2620',    color: '#cc44ff', isDebuff: true,  maxDur: 6 },
-  [StatusType.Vulnerable]: { icon: '\u{1F534}', color: '#ff4466', isDebuff: true,  maxDur: 3 },
-  [StatusType.Haste]:      { icon: '\u26A1',    color: '#ffdd44', isDebuff: false, maxDur: 3 },
-  [StatusType.Shield]:     { icon: '\u{1F6E1}', color: '#44ddff', isDebuff: false, maxDur: 4 },
-  [StatusType.Frenzy]:     { icon: '\u2694',    color: '#ff8844', isDebuff: false, maxDur: 4 },
+const BUFF_ICON_META: Record<StatusType, { key: StatVisualKey; isDebuff: boolean; maxDur: number }> = {
+  [StatusType.Burn]:       { key: 'burn', isDebuff: true,  maxDur: 3 },
+  [StatusType.Slow]:       { key: 'slow', isDebuff: true,  maxDur: 3 },
+  [StatusType.Wound]:      { key: 'wound', isDebuff: true,  maxDur: 6 },
+  [StatusType.Vulnerable]: { key: 'vulnerable', isDebuff: true,  maxDur: 3 },
+  [StatusType.Haste]:      { key: 'haste', isDebuff: false, maxDur: 3 },
+  [StatusType.Shield]:     { key: 'shield', isDebuff: false, maxDur: 4 },
+  [StatusType.Frenzy]:     { key: 'frenzy', isDebuff: false, maxDur: 4 },
 };
+
+function statLineToken(key: StatVisualKey, text: string): string {
+  return `__stat__:${key}:${text}`;
+}
+
+function displayLineText(line: string): string {
+  if (line.startsWith('__stat__:')) {
+    const parts = line.split(':');
+    return parts.slice(2).join(':');
+  }
+  if (line.startsWith('__research__:')) return 'Research';
+  return line;
+}
 
 const LANE_MODE_STORAGE_KEY = 'lanecraft.laneToggleMode';
 const UI_FEEDBACK_STORAGE_KEY = 'lanecraft.uiFeedbackEnabled';
@@ -92,6 +106,8 @@ export class InputHandler {
   private settingsOpen = false;
   private settingsSliderDrag: 'music' | 'sfx' | null = null;
   private activeTouchPointers = new Set<number>();
+  private touchHoldTimer: ReturnType<typeof setTimeout> | null = null;
+  private touchHoldStart: { x: number; y: number; id: number } | null = null;
   private laneToggleMode: 'double' | 'single' = 'double';
   private radialArmMs = 320;
   private radialSize = 74;
@@ -110,7 +126,7 @@ export class InputHandler {
   private cameraFollowing = false;
   private followBtnRect: { x: number; y: number; w: number; h: number } | null = null;
   private hoveredUnitId: number | null = null;
-  private showTutorial = localStorage.getItem('lanecraft.hideTutorial') !== 'true' && !isMatchTutorial();
+  private showTutorial = false;
   private hideTutorialOnStart = localStorage.getItem('lanecraft.hideTutorial') === 'true';
   // Guided tutorial state — re-derived from TutorialManager each frame
   private matchTutorialActive = false;
@@ -131,7 +147,15 @@ export class InputHandler {
   private seedPopup = new SeedPopup();
   private trayTick = 0;
   private trayBldgSpriteCache = new Map<string, HTMLImageElement | null>();
-  private get isTouchDevice(): boolean { return 'ontouchstart' in window || navigator.maxTouchPoints > 0; }
+  /** Last observed input type — updated via pointerType on pointermove/pointerdown events. */
+  private lastInputType: 'mouse' | 'touch' = ('ontouchstart' in window || navigator.maxTouchPoints > 0) ? 'touch' : 'mouse';
+  /** Whether to use touch interaction mode (tap-to-confirm, no hover tooltips, hide key hints). */
+  private get isTouchDevice(): boolean {
+    const mode: TouchControlsMode = getVisualSettings().touchControls;
+    if (mode === 'on') return true;
+    if (mode === 'off') return false;
+    return this.lastInputType === 'touch';
+  }
   /** Active rally override — all spawners send to this lane while set. 'random' = each spawner gets a random lane. */
   private rallyOverride: Lane | 'random' | null = null;
   /** Saved per-building lane assignments before rally override was activated. */
@@ -204,6 +228,7 @@ export class InputHandler {
   }
 
   destroy(): void {
+    this.cancelTouchHold();
     this.abortController.abort();
   }
 
@@ -265,7 +290,7 @@ export class InputHandler {
     this.saveUiFeedbackEnabled();
     this.saveRadialSettings();
     this.saveGameplaySettings();
-    updateVisualSettings({ screenShake: true, weather: true, dayNight: true });
+    updateVisualSettings({ screenShake: true, weather: true, dayNight: true, touchControls: 'auto' });
   }
 
   private initMobileHint(): void {
@@ -313,6 +338,7 @@ export class InputHandler {
 
     // Controls section
     const controlsHeaderY = y; y += 14;
+    const touchControlsRowY = y; y += rowH + gap;
     const laneRowY = y; y += rowH + gap;
     const feedbackRowY = y; y += rowH + gap;
     const cameraSnapRowY = y; y += rowH + gap;
@@ -323,7 +349,7 @@ export class InputHandler {
     const radialA11yRowY = y; y += rowH + gap + 4;
 
     // Actions
-    const helpRowY = y; y += rowH + gap + 4;
+    const helpRowY = -1;
     const resetRowY = y; y += rowH + gap + 8;
     let concedeRowY = -1;
     if (this.onConcede) { concedeRowY = y; y += rowH + gap + 8; }
@@ -335,7 +361,7 @@ export class InputHandler {
       sx, sy, pw, panelH, pad, rowH,
       audioHeaderY, musicRowY, sfxRowY,
       visualHeaderY, shakeRowY, weatherRowY, dayNightRowY,
-      controlsHeaderY, laneRowY, feedbackRowY, cameraSnapRowY, minimapRowY,
+      controlsHeaderY, touchControlsRowY, laneRowY, feedbackRowY, cameraSnapRowY, minimapRowY,
       stickyRowY, holdDelayRowY, radialSizeRowY, radialA11yRowY,
       helpRowY, resetRowY, concedeRowY, quitRowY,
     };
@@ -443,6 +469,35 @@ export class InputHandler {
 
     // ── CONTROLS ──
     drawHeader(L.controlsHeaderY, 'CONTROLS');
+    // Touch controls: 3-state cycle (auto / on / off)
+    {
+      const tc = vis.touchControls;
+      ctx.fillStyle = 'rgba(20,20,20,0.9)';
+      ctx.fillRect(rx, sy + L.touchControlsRowY, rw, rowH);
+      ctx.strokeStyle = '#b39ddb';
+      ctx.strokeRect(rx, sy + L.touchControlsRowY, rw, rowH);
+      ctx.fillStyle = '#b39ddb';
+      ctx.font = 'bold 11px monospace';
+      ctx.fillText(`Touch: ${tc}`, rx + 8, sy + L.touchControlsRowY + 15);
+      const states: Array<'auto' | 'on' | 'off'> = ['auto', 'on', 'off'];
+      const btnW = 22; const bGap = 2;
+      const totalW = btnW * 3 + bGap * 2;
+      const bx = rx + rw - totalW - 4;
+      const by = sy + L.touchControlsRowY + 4;
+      const bh = 14;
+      for (let i = 0; i < states.length; i++) {
+        const bsx = bx + i * (btnW + bGap);
+        const active = tc === states[i];
+        ctx.fillStyle = active ? '#b39ddb' : '#333';
+        ctx.fillRect(bsx, by, btnW, bh);
+        ctx.fillStyle = active ? '#000' : '#888';
+        ctx.font = 'bold 8px monospace';
+        ctx.textAlign = 'center';
+        const lbl = states[i] === 'auto' ? 'A' : states[i] === 'on' ? '1' : '0';
+        ctx.fillText(lbl, bsx + btnW / 2, by + 10);
+        ctx.textAlign = 'start';
+      }
+    }
     // Lane tap: special value-cycle row (not a simple on/off toggle)
     ctx.fillStyle = 'rgba(20,20,20,0.9)';
     ctx.fillRect(rx, sy + L.laneRowY, rw, rowH);
@@ -476,7 +531,6 @@ export class InputHandler {
     drawToggle(L.radialA11yRowY, 'Radial A11y', this.radialAccessibility, '#90caf9');
 
     // ── ACTIONS ──
-    drawAction(L.helpRowY, 'Help / Controls', '#90caf9', 'rgba(20,20,40,0.9)');
     drawAction(L.resetRowY, 'Reset Defaults', '#ffcc80', 'rgba(20,20,20,0.9)');
     if (this.onConcede && L.concedeRowY >= 0) {
       drawAction(L.concedeRowY, 'Concede Match', '#ffa726', 'rgba(80,60,10,0.9)');
@@ -494,11 +548,13 @@ export class InputHandler {
     if (cx < sx || cx >= sx + pw || cy < sy || cy >= sy + panelH) {
       this.settingsOpen = false;
       this.settingsSliderDrag = null;
+      this.game.sfx.playUIClose();
       return true;
     }
     // Close button
     if (cx >= sx + pw - 22 && cx < sx + pw - 6 && cy >= sy + 4 && cy < sy + 20) {
       this.settingsOpen = false;
+      this.game.sfx.playUIClose();
       return true;
     }
 
@@ -510,6 +566,7 @@ export class InputHandler {
       const trackW = rw - 100;
       const v = Math.max(0, Math.min(1, (cx - trackX) / trackW));
       updateAudioSettings({ musicVolume: v });
+      this.game.sfx.playUISlider();
       return true;
     }
     if (inRow(L.sfxRowY)) {
@@ -517,6 +574,7 @@ export class InputHandler {
       const trackW = rw - 100;
       const v = Math.max(0, Math.min(1, (cx - trackX) / trackW));
       updateAudioSettings({ sfxVolume: v });
+      this.game.sfx.playUISlider();
       return true;
     }
 
@@ -524,67 +582,80 @@ export class InputHandler {
     if (inRow(L.shakeRowY)) {
       const vis = getVisualSettings();
       updateVisualSettings({ screenShake: !vis.screenShake });
+      this.game.sfx.playUIToggle();
       return true;
     }
     if (inRow(L.weatherRowY)) {
       const vis = getVisualSettings();
       updateVisualSettings({ weather: !vis.weather });
+      this.game.sfx.playUIToggle();
       return true;
     }
     if (inRow(L.dayNightRowY)) {
       const vis = getVisualSettings();
       updateVisualSettings({ dayNight: !vis.dayNight });
+      this.game.sfx.playUIToggle();
       return true;
     }
 
     // Controls toggles
+    if (inRow(L.touchControlsRowY)) {
+      const vis = getVisualSettings();
+      const cycle: Record<string, 'auto' | 'on' | 'off'> = { auto: 'on', on: 'off', off: 'auto' };
+      updateVisualSettings({ touchControls: cycle[vis.touchControls] });
+      this.game.sfx.playUIToggle();
+      return true;
+    }
     if (inRow(L.laneRowY)) {
       this.laneToggleMode = this.laneToggleMode === 'double' ? 'single' : 'double';
       this.saveLaneMode();
+      this.game.sfx.playUIToggle();
       return true;
     }
     if (inRow(L.feedbackRowY)) {
       this.uiFeedbackEnabled = !this.uiFeedbackEnabled;
       this.saveUiFeedbackEnabled();
+      this.game.sfx.playUIToggle();
       return true;
     }
     if (inRow(L.cameraSnapRowY)) {
       this.cameraSnapOnSelect = !this.cameraSnapOnSelect;
       this.saveGameplaySettings();
+      this.game.sfx.playUIToggle();
       return true;
     }
     if (inRow(L.minimapRowY)) {
       this.minimapPanEnabled = !this.minimapPanEnabled;
       this.saveGameplaySettings();
+      this.game.sfx.playUIToggle();
       return true;
     }
     if (inRow(L.stickyRowY)) {
       this.stickyBuildMode = !this.stickyBuildMode;
       this.saveGameplaySettings();
+      this.game.sfx.playUIToggle();
       return true;
     }
     if (inRow(L.holdDelayRowY)) {
       this.radialArmMs = this.radialArmMs >= 500 ? 240 : this.radialArmMs + 40;
       this.saveRadialSettings();
+      this.game.sfx.playUIToggle();
       return true;
     }
     if (inRow(L.radialSizeRowY)) {
       this.radialSize = this.radialSize >= 110 ? 60 : this.radialSize + 8;
       this.saveRadialSettings();
+      this.game.sfx.playUIToggle();
       return true;
     }
     if (inRow(L.radialA11yRowY)) {
       this.radialAccessibility = !this.radialAccessibility;
       this.saveRadialSettings();
+      this.game.sfx.playUIToggle();
       return true;
     }
 
     // Actions
-    if (inRow(L.helpRowY)) {
-      this.settingsOpen = false;
-      this.showTutorial = true;
-      return true;
-    }
     if (inRow(L.resetRowY)) {
       this.resetUiDefaults();
       return true;
@@ -611,8 +682,10 @@ export class InputHandler {
     const v = Math.max(0, Math.min(1, (cx - trackX) / trackW));
     if (this.settingsSliderDrag === 'music') {
       updateAudioSettings({ musicVolume: v });
+      this.game.sfx.playUISlider();
     } else if (this.settingsSliderDrag === 'sfx') {
       updateAudioSettings({ sfxVolume: v });
+      this.game.sfx.playUISlider();
     }
   }
 
@@ -732,6 +805,7 @@ export class InputHandler {
         if (this.showTutorial) { this.showTutorial = false; return; }
         this.quickChatRadialActive = false;
         this.quickChatRadialCenter = null;
+        this.camera.dragDisabled = false;
         this.settingsOpen = false;
         this.settingsSliderDrag = null;
         this.selectedBuilding = null;
@@ -753,9 +827,23 @@ export class InputHandler {
       if (e.key !== 'q' && e.key !== 'Q') return;
       if (!this.quickChatRadialActive) return;
       const msg = this.getQuickChatChoiceFromPointer();
+      const radialCenter = this.quickChatRadialCenter;
       this.quickChatRadialActive = false;
       this.quickChatRadialCenter = null;
-      if (msg) this.sendQuickChat(msg);
+      this.camera.dragDisabled = false;
+      if (msg) {
+        if (msg === 'Ping') {
+          const wp = radialCenter
+            ? this.camera.screenToWorld(radialCenter.x, radialCenter.y)
+            : { x: this.camera.x + this.canvas.clientWidth / (2 * this.camera.zoom),
+                y: this.camera.y + this.canvas.clientHeight / (2 * this.camera.zoom) };
+          const pingTile = this.worldToTile(wp.x, wp.y);
+          this.game.sendCommand({ type: 'ping', playerId: this.pid, x: pingTile.tileX, y: pingTile.tileY });
+          this.quickChatToast = { text: 'Sent: Ping', until: Date.now() + 700 };
+        } else {
+          this.sendQuickChat(msg);
+        }
+      }
     }, sig);
   }
 
@@ -780,7 +868,10 @@ export class InputHandler {
         const unit = this.findUnitNear(wx, wy, 1.2);
         if (unit) {
           this.hoveredUnitId = unit.id;
-          this.tooltip = { text: this.getUnitTooltip(unit), x: e.clientX, y: e.clientY - 20 };
+          // Skip tooltips on touch — synthetic mousemove before tap causes 1-frame flash
+          if (!this.isTouchDevice) {
+            this.tooltip = { text: this.getUnitTooltip(unit), x: e.clientX, y: e.clientY - 20 };
+          }
         } else {
           // Check for building hover
           const tileX = Math.floor(wx);
@@ -790,7 +881,9 @@ export class InputHandler {
           );
           if (building) {
             this.hoveredBuildingId = building.id;
-            this.tooltip = { text: this.getBuildingTooltip(building), x: e.clientX, y: e.clientY - 20 };
+            if (!this.isTouchDevice) {
+              this.tooltip = { text: this.getBuildingTooltip(building), x: e.clientX, y: e.clientY - 20 };
+            }
           }
         }
       }
@@ -818,6 +911,9 @@ export class InputHandler {
     }, sig);
 
     this.canvas.addEventListener('pointermove', (e) => {
+      // pointerType reliably distinguishes real mouse from touch-generated events
+      if (e.pointerType === 'mouse') this.lastInputType = 'mouse';
+      else if (e.pointerType === 'touch') this.lastInputType = 'touch';
       if (!this.settingsSliderDrag) return;
       const rect = this.canvas.getBoundingClientRect();
       const cx = e.clientX - rect.left;
@@ -877,7 +973,18 @@ export class InputHandler {
         const msg = this.getQuickChatChoiceFromPointer();
         this.quickChatRadialActive = false;
         this.quickChatRadialCenter = null;
-        if (msg) this.sendQuickChat(msg);
+        this.camera.dragDisabled = false;
+        if (msg) {
+          if (msg === 'Ping') {
+            const wx = this.camera.x + this.canvas.clientWidth / (2 * this.camera.zoom);
+            const wy = this.camera.y + this.canvas.clientHeight / (2 * this.camera.zoom);
+            const pingTile = this.worldToTile(wx, wy);
+            this.game.sendCommand({ type: 'ping', playerId: this.pid, x: pingTile.tileX, y: pingTile.tileY });
+            this.quickChatToast = { text: 'Sent: Ping', until: Date.now() + 700 };
+          } else {
+            this.sendQuickChat(msg);
+          }
+        }
         return;
       }
 
@@ -957,6 +1064,7 @@ export class InputHandler {
       if (this.quickChatRadialActive) {
         this.quickChatRadialActive = false;
         this.quickChatRadialCenter = null;
+        this.camera.dragDisabled = false;
         return;
       }
 
@@ -981,20 +1089,115 @@ export class InputHandler {
       });
     }, sig);
 
-    // Touch radial (emote wheel) disabled on mobile — was conflicting with map drag.
-    // Quick chat still accessible via Q key on desktop.
+    // Touch long-press opens quick-chat radial on mobile.
+    // Cancelled if finger moves (drag) or second finger arrives (pinch).
+    const TOUCH_HOLD_MS = 400;
+    const TOUCH_MOVE_THRESHOLD = 12; // px — cancel if finger drifts further
+
     this.canvas.addEventListener('pointerdown', (e) => {
       if (e.pointerType !== 'touch') return;
+      this.lastInputType = 'touch';
       this.activeTouchPointers.add(e.pointerId);
+
+      // Only start hold timer for single-finger touch, and not during UI interactions
+      // Skip if touch is in the bottom tray area (build buttons, nuke, research, rally)
+      const rect = this.canvas.getBoundingClientRect();
+      const touchY = e.clientY - rect.top;
+      const { milY: trayTop, nukeRect: nr } = this.getTrayLayout();
+      const uiTop = Math.min(trayTop, nr.y); // top of nuke/research buttons
+      const touchInUI = touchY >= uiTop;
+      if (this.activeTouchPointers.size === 1 && !this.quickChatRadialActive
+        && !touchInUI
+        && !this.nukeTargeting && !this.abilityTargeting && !this.abilityPlacing
+        && !this.settingsOpen && !this.showTutorial && !this.matchTutorialActive
+        && !this.buildingPopup.isOpen() && !this.hutPopup.isOpen()
+        && !this.researchPopup.isOpen() && !this.seedPopup.isOpen()) {
+        this.touchHoldStart = { x: e.clientX, y: e.clientY, id: e.pointerId };
+        this.touchHoldTimer = setTimeout(() => {
+          if (this.touchHoldStart && this.activeTouchPointers.size === 1) {
+            this.quickChatRadialActive = true;
+            // Clamp radial center so all 8 labels stay on screen
+            const margin = this.radialSize + (this.radialAccessibility ? 50 : 66);
+            const cw = this.canvas.clientWidth;
+            const ch = this.canvas.clientHeight;
+            const clampedX = Math.max(margin, Math.min(cw - margin, this.touchHoldStart.x));
+            const clampedY = Math.max(margin, Math.min(ch - margin, this.touchHoldStart.y));
+            this.quickChatRadialCenter = { x: clampedX, y: clampedY };
+            this.pointerX = clampedX;
+            this.pointerY = clampedY;
+            this.camera.dragDisabled = true;
+            // Suppress the click that would fire on release
+            this.suppressClicksUntil = Date.now() + 300;
+            this.quickChatFeedback(true);
+          }
+          this.touchHoldTimer = null;
+        }, TOUCH_HOLD_MS);
+      } else {
+        // Second finger = pinch, cancel hold and dismiss radial if open
+        this.cancelTouchHold();
+        if (this.quickChatRadialActive) {
+          this.quickChatRadialActive = false;
+          this.quickChatRadialCenter = null;
+          this.camera.dragDisabled = false;
+        }
+      }
+    }, sig);
+
+    this.canvas.addEventListener('pointermove', (e) => {
+      if (e.pointerType !== 'touch') return;
+      // If radial is open, update pointer for selection tracking
+      if (this.quickChatRadialActive && this.quickChatRadialCenter) {
+        this.pointerX = e.clientX;
+        this.pointerY = e.clientY;
+        return;
+      }
+      // Cancel hold timer if finger drifts
+      if (this.touchHoldStart && e.pointerId === this.touchHoldStart.id) {
+        const dx = e.clientX - this.touchHoldStart.x;
+        const dy = e.clientY - this.touchHoldStart.y;
+        if (Math.abs(dx) > TOUCH_MOVE_THRESHOLD || Math.abs(dy) > TOUCH_MOVE_THRESHOLD) {
+          this.cancelTouchHold();
+        }
+      }
     }, sig);
 
     this.canvas.addEventListener('pointerup', (e) => {
       if (e.pointerType !== 'touch') return;
       this.activeTouchPointers.delete(e.pointerId);
+      this.cancelTouchHold();
+      // If radial is open, send the selected message on release
+      if (this.quickChatRadialActive) {
+        const msg = this.getQuickChatChoiceFromPointer();
+        const radialCenter = this.quickChatRadialCenter;
+        this.quickChatRadialActive = false;
+        this.quickChatRadialCenter = null;
+        this.camera.dragDisabled = false;
+        // Suppress the synthetic click that mobile browsers fire after touchend
+        this.suppressClicksUntil = Date.now() + 400;
+        if (msg) {
+          if (msg === 'Ping') {
+            const wp = radialCenter
+              ? this.camera.screenToWorld(radialCenter.x, radialCenter.y)
+              : { x: this.camera.x + this.canvas.clientWidth / (2 * this.camera.zoom),
+                  y: this.camera.y + this.canvas.clientHeight / (2 * this.camera.zoom) };
+            const pingTile = this.worldToTile(wp.x, wp.y);
+            this.game.sendCommand({ type: 'ping', playerId: this.pid, x: pingTile.tileX, y: pingTile.tileY });
+            this.quickChatToast = { text: 'Sent: Ping', until: Date.now() + 700 };
+          } else {
+            this.sendQuickChat(msg);
+          }
+        }
+      }
     }, sig);
 
     this.canvas.addEventListener('pointercancel', () => {
       this.activeTouchPointers.clear();
+      this.cancelTouchHold();
+      if (this.quickChatRadialActive) {
+        this.quickChatRadialActive = false;
+        this.quickChatRadialCenter = null;
+        this.camera.dragDisabled = false;
+      }
     }, sig);
   }
 
@@ -1107,6 +1310,7 @@ export class InputHandler {
     if (building.type === BuildingType.Research) {
       this.buildingPopup.close();
       this.researchPopup.open(building.id);
+      this.game.sfx.playUIOpen();
       return;
     }
 
@@ -1115,6 +1319,7 @@ export class InputHandler {
       this.buildingPopup.close();
       this.researchPopup.close();
       this.hutPopup.open(building.id);
+      this.game.sfx.playUIOpen();
       return;
     }
 
@@ -1124,6 +1329,7 @@ export class InputHandler {
       this.researchPopup.close();
       this.hutPopup.close();
       this.seedPopup.open(building.id);
+      this.game.sfx.playUIOpen();
       return;
     }
 
@@ -1133,8 +1339,8 @@ export class InputHandler {
     // Open building popup for spawners and towers
     this.hutPopup.close();
     this.seedPopup.close();
-    const isMobile = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
-    this.buildingPopup.open(building.id, isMobile);
+    this.buildingPopup.open(building.id, this.isTouchDevice);
+    this.game.sfx.playUIOpen();
   }
 
   private getUpgradeChoice(building: { type: BuildingType; upgradePath: string[] }, alternate: boolean): string | null {
@@ -1167,8 +1373,24 @@ export class InputHandler {
     const dy = this.pointerY - this.quickChatRadialCenter.y;
     const dist = Math.sqrt(dx * dx + dy * dy);
     if (dist < 18) return 'Defend';
-    if (Math.abs(dx) > Math.abs(dy)) return dx < 0 ? 'Attack Left' : 'Attack Right';
-    return dy < 0 ? 'Get Diamond' : 'Defend';
+    // 8-sector radial: use angle to determine sector
+    const angle = Math.atan2(dy, dx); // -PI to PI
+    // Sectors: right=0, down-right=PI/4, down=PI/2, etc.
+    // Normalize to 0..2PI
+    const a = angle < 0 ? angle + Math.PI * 2 : angle;
+    const sector = Math.round(a / (Math.PI / 4)) % 8;
+    // 0=right, 1=down-right, 2=down, 3=down-left, 4=left, 5=up-left, 6=up, 7=up-right
+    switch (sector) {
+      case 0: return 'Attack Right';
+      case 1: return 'Sending Now';
+      case 2: return 'Defend';
+      case 3: return 'Save Us';
+      case 4: return 'Attack Left';
+      case 5: return 'Random';
+      case 6: return 'Get Diamond';
+      case 7: return 'Ping';
+      default: return 'Defend';
+    }
   }
 
   private sendQuickChat(message: string): boolean {
@@ -1312,7 +1534,7 @@ export class InputHandler {
       line('[WASD/drag] pan  [Scroll] zoom  [Esc] cancel');
       line('[L] flip all lanes  [N] arm nuke  [5] race ability');
     }
-    line('Reopen via Settings > Help / Controls.', '#9bb7ff');
+    line('Press [H] to toggle controls overlay.', '#9bb7ff');
 
     // "Don't show on game start" checkbox
     y += compact ? 4 : 8;
@@ -1631,16 +1853,10 @@ export class InputHandler {
     return { x: this.canvas.clientWidth - size - 10, y: 10 + getSafeTop(), w: size, h: size };
   }
 
-  private getInfoButtonRect(): { x: number; y: number; w: number; h: number } {
+  private getMvpButtonRect(): { x: number; y: number; w: number; h: number } {
     const size = 30;
     const sr = this.getSettingsButtonRect();
     return { x: sr.x - size - 12, y: sr.y, w: size, h: size };
-  }
-
-  private getMvpButtonRect(): { x: number; y: number; w: number; h: number } {
-    const size = 30;
-    const ir = this.getInfoButtonRect();
-    return { x: ir.x - size - 8, y: ir.y, w: size, h: size };
   }
 
   private handleFollowBtnClick(e: MouseEvent): boolean {
@@ -1686,18 +1902,12 @@ export class InputHandler {
     if (cx >= sr.x && cx <= sr.x + sr.w && cy >= sr.y && cy <= sr.y + sr.h) {
       this.settingsOpen = !this.settingsOpen;
       this.showTutorial = false;
+      if (this.settingsOpen) this.game.sfx.playUIOpen();
+      else this.game.sfx.playUIClose();
       return true;
     }
 
-    // Info button (to the left of settings)
-    const ir = this.getInfoButtonRect();
-    if (cx >= ir.x && cx <= ir.x + ir.w && cy >= ir.y && cy <= ir.y + ir.h) {
-      this.showTutorial = !this.showTutorial;
-      this.settingsOpen = false;
-      return true;
-    }
-
-    // MVP button (to the left of info) — select unit with most kills
+    // MVP button (to the left of settings) — select unit with most kills
     const mr = this.getMvpButtonRect();
     if (cx >= mr.x && cx <= mr.x + mr.w && cy >= mr.y && cy <= mr.y + mr.h) {
       this.selectMvpUnit();
@@ -1727,26 +1937,7 @@ export class InputHandler {
       ctx.textAlign = 'start';
     }
 
-    // Info button (to the left of settings)
-    const ir = this.getInfoButtonRect();
-    if (this.showTutorial) {
-      ctx.fillStyle = 'rgba(41,121,255,0.35)';
-      ctx.fillRect(ir.x, ir.y, ir.w, ir.h);
-    }
-    if (!this.ui.drawIcon(ctx, 'info', ir.x, ir.y, ir.w)) {
-      ctx.fillStyle = 'rgba(18,18,18,0.92)';
-      ctx.fillRect(ir.x, ir.y, ir.w, ir.h);
-      ctx.strokeStyle = '#9bb7ff';
-      ctx.lineWidth = 1.5;
-      ctx.strokeRect(ir.x, ir.y, ir.w, ir.h);
-      ctx.fillStyle = '#e3f2fd';
-      ctx.font = 'bold 16px monospace';
-      ctx.textAlign = 'center';
-      ctx.fillText('ℹ', ir.x + ir.w / 2, ir.y + 21);
-      ctx.textAlign = 'start';
-    }
-
-    // MVP button (to the left of info) — select top killer
+    // MVP button (to the left of settings) — select top killer
     const mr = this.getMvpButtonRect();
     const hasKiller = this.game.state.units.some(u => u.team === this.myTeam && u.kills > 0);
     if (!hasKiller) {
@@ -1810,6 +2001,14 @@ export class InputHandler {
     return { W, H, milH, milY, milW, safeBottom, nukeRect, researchRect, rallyLeftRect, rallyRandomRect, rallyRightRect };
   }
 
+  private cancelTouchHold(): void {
+    if (this.touchHoldTimer !== null) {
+      clearTimeout(this.touchHoldTimer);
+      this.touchHoldTimer = null;
+    }
+    this.touchHoldStart = null;
+  }
+
   private processQueuedQuickChat(): void {
     if (!this.queuedQuickChat) return;
     const now = Date.now();
@@ -1855,26 +2054,34 @@ export class InputHandler {
       if (result) {
         if (result.action === 'upgrade') {
           this.game.sendCommand({ type: 'research_upgrade', playerId: this.pid, upgradeId: result.upgradeId });
+          this.game.sfx.playUIConfirm();
         } else if (result.action === 'close') {
           this.researchPopup.close();
+          this.game.sfx.playUIClose();
         }
         return true;
       }
-      if (this.researchPopup.containsPoint(popupCx, popupCy)) return true;
+      if (this.researchPopup.containsPoint(popupCx, popupCy)) {
+        this.game.sfx.playUITab(); // tab switch or consumed click inside popup
+        return true;
+      }
       this.researchPopup.close();
+      this.game.sfx.playUIClose();
     }
 
     // Building popup takes priority
     if (this.buildingPopup.isOpen()) {
-      const result = this.buildingPopup.handleClick(popupCx, popupCy);
+      const result = this.buildingPopup.handleClick(popupCx, popupCy, this.isTouchDevice);
       if (result) {
         const bId = this.buildingPopup.getBuildingId();
         if (bId !== null) {
           if (result.action === 'upgrade') {
             this.game.sendCommand({ type: 'purchase_upgrade', playerId: this.pid, buildingId: bId, choice: result.choice });
+            this.game.sfx.playUIConfirm();
           } else if (result.action === 'sell') {
             this.game.sendCommand({ type: 'sell_building', playerId: this.pid, buildingId: bId });
             this.buildingPopup.close();
+            this.game.sfx.playUIClick();
           } else if (result.action === 'toggle_lane') {
             const b = this.game.state.buildings.find(b => b.id === bId);
             if (b) {
@@ -1886,10 +2093,12 @@ export class InputHandler {
                 this.rallyPrevLanes.clear();
                 const nextLane = b.lane === Lane.Left ? Lane.Right : Lane.Left;
                 this.game.sendCommand({ type: 'toggle_lane', playerId: this.pid, buildingId: bId, lane: nextLane });
+                this.game.sfx.playUIToggle();
               }
             }
           } else if (result.action === 'close') {
             this.buildingPopup.close();
+            this.game.sfx.playUIClose();
           }
         }
         return true;
@@ -1898,6 +2107,7 @@ export class InputHandler {
       if (this.buildingPopup.containsPoint(popupCx, popupCy)) return true;
       // Click outside popup — close it
       this.buildingPopup.close();
+      this.game.sfx.playUIClose();
     }
 
     // Hut popup takes priority
@@ -1911,6 +2121,7 @@ export class InputHandler {
               type: 'set_hut_assignment', playerId: this.pid,
               hutId: bId, assignment: result.assignment,
             });
+            this.game.sfx.playUIClick();
           } else if (result.action === 'center_builder') {
             const h = this.game.state.harvesters.find(h => h.hutId === bId);
             if (h) {
@@ -1923,8 +2134,10 @@ export class InputHandler {
               this.camera.followTargetY = hpy;
             }
             this.hutPopup.close();
+            this.game.sfx.playUIClick();
           } else if (result.action === 'close') {
             this.hutPopup.close();
+            this.game.sfx.playUIClose();
           }
         }
         return true;
@@ -1933,6 +2146,7 @@ export class InputHandler {
       if (this.hutPopup.containsPoint(popupCx, popupCy)) return true;
       // Click outside popup — close it
       this.hutPopup.close();
+      this.game.sfx.playUIClose();
     }
 
     // Seed popup
@@ -1944,13 +2158,16 @@ export class InputHandler {
             type: 'use_ability', playerId: this.pid,
             gridX: result.gridX, gridY: result.gridY,
           });
+          this.game.sfx.playUIConfirm();
         } else if (result.action === 'close') {
           this.seedPopup.close();
+          this.game.sfx.playUIClose();
         }
         return true;
       }
       if (this.seedPopup.containsPoint(popupCx, popupCy)) return true;
       this.seedPopup.close();
+      this.game.sfx.playUIClose();
     }
     const cx = e.clientX - rect.left;
     const cy = e.clientY - rect.top;
@@ -1983,6 +2200,7 @@ export class InputHandler {
       if (player.nukeAvailable && !this.isNukeLocked()) {
         this.selectedBuilding = null;
         this.nukeTargeting = !this.nukeTargeting;
+        this.game.sfx.playUIClick();
       }
       return true;
     }
@@ -1994,11 +2212,16 @@ export class InputHandler {
         b => b.playerId === this.pid && b.type === BuildingType.Research
       );
       if (resBuilding) {
-        this.buildingPopup.close();
-        this.hutPopup.close();
-        this.seedPopup.close();
-        this.researchPopup.open(resBuilding.id);
-        this.selectedBuildingId = resBuilding.id;
+        if (this.researchPopup.isOpen()) {
+          this.researchPopup.close();
+        } else {
+          this.buildingPopup.close();
+          this.hutPopup.close();
+          this.seedPopup.close();
+          this.researchPopup.open(resBuilding.id);
+          this.selectedBuildingId = resBuilding.id;
+          this.game.sfx.playUIOpen();
+        }
       }
       return true;
     }
@@ -2011,6 +2234,7 @@ export class InputHandler {
       const hitRandom = hitRect(rallyRandomRect);
       const hitRight = hitRect(rallyRightRect);
       if (hitLeft || hitRight || hitRandom) {
+        this.game.sfx.playUIClick();
         const target: Lane | 'random' = hitLeft ? Lane.Left : hitRight ? Lane.Right : 'random';
         if (this.rallyOverride === target) {
           // Cancel — restore previous lanes
@@ -2082,6 +2306,7 @@ export class InputHandler {
         this.clearSelection();
         this.activateAbility(player);
       }
+      this.game.sfx.playUIClick();
       this.checkTutorialTrayAdvance();
       return true;
     }
@@ -2163,14 +2388,19 @@ export class InputHandler {
     }
 
     if (this.tooltip) {
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.88)';
-      ctx.font = '14px monospace';
-      const w = ctx.measureText(this.tooltip.text).width + 16;
-      ctx.fillRect(this.tooltip.x - w / 2, this.tooltip.y - 18, w, 24);
-      ctx.fillStyle = '#ddd';
-      ctx.textAlign = 'center';
-      ctx.fillText(this.tooltip.text, this.tooltip.x, this.tooltip.y);
-      ctx.textAlign = 'start';
+      // Hide tooltip when any popup is open — it overlaps menus
+      const anyPopupOpen = this.buildingPopup.isOpen() || this.hutPopup.isOpen()
+        || this.seedPopup.isOpen() || this.researchPopup.isOpen();
+      if (!anyPopupOpen) {
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.88)';
+        ctx.font = '14px monospace';
+        const w = ctx.measureText(this.tooltip.text).width + 16;
+        ctx.fillRect(this.tooltip.x - w / 2, this.tooltip.y - 18, w, 24);
+        ctx.fillStyle = '#ddd';
+        ctx.textAlign = 'center';
+        ctx.fillText(this.tooltip.text, this.tooltip.x, this.tooltip.y);
+        ctx.textAlign = 'start';
+      }
     }
 
     if (this.devOverlayOpen) {
@@ -2269,7 +2499,7 @@ export class InputHandler {
         // Use race-specific building sprite for harvester hut (cached)
         const cacheKey = `hut:${race}`;
         let hutImg = this.trayBldgSpriteCache.get(cacheKey);
-        if (hutImg === undefined) { hutImg = this.sprites?.getBuildingSprite(BuildingType.HarvesterHut, 0, false, race) ?? null; if (hutImg) this.trayBldgSpriteCache.set(cacheKey, hutImg); }
+        if (hutImg === undefined) { hutImg = this.sprites?.getBuildingSprite(BuildingType.HarvesterHut, 0, true, race) ?? null; if (hutImg) this.trayBldgSpriteCache.set(cacheKey, hutImg); }
         if (hutImg) {
           const aspect = hutImg.width / hutImg.height;
           const dh = spriteSize;
@@ -2349,7 +2579,7 @@ export class InputHandler {
       // Escalating tower cost: each tower after the first costs TOWER_COST_SCALE more
       let cost = baseCost;
       if (item.type === BuildingType.Tower && !isFirstTowerFree) {
-        const myTowers = this.game.state.buildings.filter(b => b.playerId === this.pid && b.type === BuildingType.Tower && !b.isSeed).length;
+        const myTowers = this.game.state.buildings.filter(b => b.playerId === this.pid && b.type === BuildingType.Tower && !isAbilityBuilding(b)).length;
         const mult = Math.pow(TOWER_COST_SCALE, Math.max(0, myTowers - 1));
         cost = {
           gold: Math.floor(baseCost.gold * mult),
@@ -2835,7 +3065,8 @@ export class InputHandler {
     // Building popup (in-world)
     if (this.buildingPopup.isOpen()) {
       this.buildingPopup.draw(ctx, this.camera, this.game.state, this.ui,
-        W, this.canvas.clientHeight, player.gold, player.wood, player.meat, this.sprites);
+        W, this.canvas.clientHeight, player.gold, player.wood, player.meat, this.sprites,
+        this.pointerX, this.pointerY, this.isTouchDevice);
     }
 
     // Hut popup (in-world)
@@ -2952,8 +3183,9 @@ export class InputHandler {
       const bldType = `${u.category}_spawner` as BuildingType;
       const upgradeName = race ? getUpgradeNodeDef(race, bldType, u.upgradeNode)?.name : undefined;
       lines.push(upgradeName ?? u.type);
-      lines.push(`${teamLabel} ${u.category}  HP: ${u.hp}/${u.maxHp}${u.shieldHp > 0 ? ` +${u.shieldHp} shield` : ''}`);
-      lines.push(`DMG: ${u.damage}  SPD: ${u.attackSpeed.toFixed(1)}s  RNG: ${u.range}  Move: ${u.moveSpeed.toFixed(1)}`);
+      lines.push(`${teamLabel} ${u.category}`);
+      lines.push(statLineToken('health', `HP ${u.hp}/${u.maxHp}${u.shieldHp > 0 ? `  +${u.shieldHp} shield` : ''}`));
+      lines.push(statLineToken('damage', `DMG ${u.damage}  SPD ${u.attackSpeed.toFixed(1)}s  RNG ${u.range}  Move ${u.moveSpeed.toFixed(1)}`));
       // Research upgrade levels for this unit's category
       const research = player?.researchUpgrades;
       if (research) {
@@ -2980,7 +3212,7 @@ export class InputHandler {
       raceColor = race ? (RACE_COLORS[race]?.primary ?? '#fff') : '#fff';
       const assignLabel = ASSIGNMENT_LABELS[h.assignment] ?? h.assignment;
       lines.push('Miner');
-      lines.push(`HP: ${h.hp}/${h.maxHp}  Task: ${assignLabel}`);
+      lines.push(statLineToken('health', `HP ${h.hp}/${h.maxHp}  Task ${assignLabel}`));
       lines.push(`State: ${h.state}${h.carryingDiamond ? '  Carrying diamond' : ''}${h.carryingResource ? `  Carrying ${h.carryingResource}` : ''}`);
     }
 
@@ -3026,7 +3258,9 @@ export class InputHandler {
     ctx.font = '12px monospace';
     let maxW = 0;
     for (const line of lines) {
-      const m = ctx.measureText(line).width;
+      const lineText = displayLineText(line);
+      const iconPad = line.startsWith('__stat__:') || line.startsWith('__research__:') ? 18 : 0;
+      const m = ctx.measureText(lineText).width + iconPad;
       if (m > maxW) maxW = m;
     }
     const boxW = Math.max(maxW + padX * 2, followW + padX * 2 + 38);
@@ -3076,6 +3310,16 @@ export class InputHandler {
     const textStartX = boxX + 38;
     for (let i = 0; i < lines.length; i++) {
       const lineY = boxY + padY + (i + 1) * lineH - 3;
+      if (lines[i].startsWith('__stat__:')) {
+        const parts = lines[i].split(':');
+        const key = parts[1] as StatVisualKey;
+        const text = parts.slice(2).join(':');
+        drawStatVisualIcon(ctx, this.ui, key, textStartX, lineY - 10, 14);
+        ctx.fillStyle = '#ccc';
+        ctx.font = '12px monospace';
+        ctx.fillText(text, textStartX + 18, lineY);
+        continue;
+      }
       // Special research upgrade line: draw sword/shield icons with levels
       if (lines[i].startsWith('__research__:')) {
         const parts = lines[i].split(':');
@@ -3133,10 +3377,7 @@ export class InputHandler {
 
         // Icon symbol
         ctx.globalAlpha = 1;
-        ctx.fillStyle = meta.color;
-        ctx.font = 'bold 13px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.fillText(meta.icon, ix + buffIconSize / 2, iy + 14);
+        drawStatVisualIcon(ctx, this.ui, meta.key, ix + 2, iy + 2, buffIconSize - 4);
 
         // Duration sweep: dark overlay that winds clockwise like a cooldown clock
         // Covers the portion of time that has elapsed, clipped to icon bounds
@@ -4163,7 +4404,7 @@ export class InputHandler {
     const cy = this.quickChatRadialCenter.y;
     const selected = this.getQuickChatChoiceFromPointer();
 
-    ctx.fillStyle = 'rgba(0,0,0,0.2)';
+    ctx.fillStyle = 'rgba(0,0,0,0.35)';
     ctx.fillRect(0, 0, this.canvas.clientWidth, this.canvas.clientHeight);
     ctx.fillStyle = this.radialAccessibility ? 'rgba(0,0,0,0.95)' : 'rgba(10,10,10,0.9)';
     const radius = this.radialSize + (this.radialAccessibility ? 16 : 0);
@@ -4190,20 +4431,31 @@ export class InputHandler {
       ctx.fillText(label, x, y + (this.radialAccessibility ? 5 : 4));
     };
 
-    drawOption(cx - optionOffset, cy, 'Left', selected === 'Attack Left');
-    drawOption(cx + optionOffset, cy, 'Right', selected === 'Attack Right');
-    drawOption(cx, cy - optionOffset, 'Diamond', selected === 'Get Diamond');
-    drawOption(cx, cy + optionOffset, 'Defend', selected === 'Defend');
+    // 8 directions: cardinal + diagonal
+    const diag = optionOffset * 0.707; // cos(45°)
+    drawOption(cx - optionOffset, cy, 'Atk Left', selected === 'Attack Left');        // left
+    drawOption(cx + optionOffset, cy, 'Atk Right', selected === 'Attack Right');       // right
+    drawOption(cx, cy - optionOffset, 'Diamond', selected === 'Get Diamond');           // up
+    drawOption(cx, cy + optionOffset, 'Defend', selected === 'Defend');                 // down
+    drawOption(cx + diag, cy + diag, 'Sending', selected === 'Sending Now');            // down-right
+    drawOption(cx - diag, cy + diag, 'Save Us', selected === 'Save Us');                // down-left
+    drawOption(cx - diag, cy - diag, 'Random', selected === 'Random');                  // up-left
+    drawOption(cx + diag, cy - diag, 'Ping', selected === 'Ping');                      // up-right
 
+    // Pointer indicator
     ctx.beginPath();
     ctx.arc(this.pointerX, this.pointerY, 4, 0, Math.PI * 2);
     ctx.fillStyle = '#fff';
     ctx.fill();
 
-    ctx.fillStyle = this.radialAccessibility ? '#ffffff' : '#ccc';
-    ctx.font = this.radialAccessibility ? 'bold 12px monospace' : '11px monospace';
-    if (!this.isTouchDevice) {
-      ctx.fillText('Hold Q, aim, release (tap Q = Defend)', cx, cy + 4);
+    // Center label
+    ctx.fillStyle = this.radialAccessibility ? '#ffffff' : '#aaa';
+    ctx.font = this.radialAccessibility ? 'bold 12px monospace' : '10px monospace';
+    ctx.textAlign = 'center';
+    if (this.isTouchDevice) {
+      ctx.fillText('Drag & release', cx, cy + 4);
+    } else {
+      ctx.fillText('Hold Q, aim, release', cx, cy + 4);
     }
     ctx.textAlign = 'start';
   }

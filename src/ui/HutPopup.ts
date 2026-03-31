@@ -1,6 +1,6 @@
 import { Camera } from '../rendering/Camera';
 import { UIAssets, IconName } from '../rendering/UIAssets';
-import { GameState, HarvesterAssignment, Race } from '../simulation/types';
+import { GameState, HarvesterAssignment, Race, TICK_RATE } from '../simulation/types';
 import { tileToPixel } from '../rendering/Projection';
 import { getRaceUsedResources } from '../simulation/data';
 import { getPopupSafeY } from './SafeArea';
@@ -153,7 +153,8 @@ export class HutPopup {
     if (!player) return;
     const race = player.race;
 
-    const harvester = state.harvesters.find(h => h.hutId === building.id);
+    const isTenders = race === Race.Tenders;
+    const harvester = isTenders ? null : state.harvesters.find(h => h.hutId === building.id);
     const currentAssignment = harvester?.assignment ?? HarvesterAssignment.BaseGold;
 
     // Which resources this race uses
@@ -182,7 +183,13 @@ export class HutPopup {
     let assignAreaH: number;
     let popupW: number;
 
-    if (this.showInfo) {
+    if (isTenders) {
+      // Tenders: simplified popup with cycle progress bar
+      popupW = isMobile ? Math.min(canvasW - 8, 300) : 300;
+      const BAR_H = isMobile ? 36 : 42;
+      const LABEL_H = isMobile ? 16 : 20;
+      assignAreaH = LABEL_H + GAP + BAR_H;
+    } else if (this.showInfo) {
       // Full info mode — wider popup so buttons fill more space
       popupW = isMobile ? Math.min(canvasW - 8, 450) : 450;
       assignAreaH = availableAssignments.length * (ASSIGN_BTN_H + GAP) - GAP;
@@ -194,7 +201,9 @@ export class HutPopup {
       assignAreaH = COMPACT_BTN_SIZE;
     }
 
-    const popupH = HEADER_H + PAD + assignAreaH + PAD + FOOTER_BTN_H + PAD * 2;
+    const popupH = isTenders
+      ? HEADER_H + PAD + assignAreaH + PAD * 2
+      : HEADER_H + PAD + assignAreaH + PAD + FOOTER_BTN_H + PAD * 2;
 
     // Position in screen space, anchored above building
     const { px: worldPx, py: worldPy } = tileToPixel(building.worldX + 0.5, building.worldY, camera.isometric);
@@ -238,7 +247,7 @@ export class HutPopup {
     ctx.textAlign = 'center';
     ctx.font = 'bold 13px monospace';
     ctx.fillStyle = '#fff';
-    ctx.fillText('Miner Hut', px + popupW / 2, curY + ribbonH / 2 + 4);
+    ctx.fillText(isTenders ? 'Growth Pod' : 'Miner Hut', px + popupW / 2, curY + ribbonH / 2 + 4);
 
     // Close button (top right)
     const closeSize = Math.max(MIN_TAP, 32);
@@ -251,7 +260,113 @@ export class HutPopup {
     curY += HEADER_H;
 
     // === Assignment area ===
-    if (this.showInfo) {
+    if (isTenders) {
+      // Tenders: show cycle progress bar instead of assignment buttons
+      const deliveryInterval = 3 * TICK_RATE;
+      const elapsed = state.tick - building.placedTick;
+      const fullCycle = deliveryInterval * 3; // gold → wood → meat
+      const cyclePos = elapsed % fullCycle;
+      const segmentLen = deliveryInterval;
+
+      const CYCLE_DEFS: { label: string; icon: IconName; color: string; fill: string }[] = [
+        { label: 'Gold', icon: 'gold', color: '#ffd740', fill: '#ffd740' },
+        { label: 'Wood', icon: 'wood', color: '#81c784', fill: '#81c784' },
+        { label: 'Meat', icon: 'meat', color: '#e57373', fill: '#e57373' },
+      ];
+
+      // Current segment index and progress within it
+      const segIdx = Math.floor(cyclePos / segmentLen);
+      const segProgress = (cyclePos % segmentLen) / segmentLen;
+      const currentDef = CYCLE_DEFS[segIdx];
+
+      // Label: "Generating: Gold +3"
+      ctx.textAlign = 'center';
+      ctx.font = `${isMobile ? 10 : 11}px monospace`;
+      ctx.fillStyle = '#bbb';
+      ctx.fillText('Generating resources...', px + popupW / 2, curY + (isMobile ? 12 : 16));
+      curY += (isMobile ? 16 : 20) + GAP;
+
+      // Draw 3-segment progress bar
+      const barX = px + PAD;
+      const barW = popupW - PAD * 2;
+      const barH = isMobile ? 36 : 42;
+      const segW = barW / 3;
+
+      // Bar background
+      ctx.fillStyle = 'rgba(0,0,0,0.4)';
+      ctx.beginPath();
+      ctx.roundRect(barX, curY, barW, barH, 6);
+      ctx.fill();
+
+      // Draw each segment
+      for (let i = 0; i < 3; i++) {
+        const sx = barX + i * segW;
+        const def = CYCLE_DEFS[i];
+        const isPast = i < segIdx;
+        const isCurrent = i === segIdx;
+
+        ctx.save();
+        // Clip to segment bounds with rounded ends
+        ctx.beginPath();
+        if (i === 0) {
+          ctx.roundRect(sx, curY, segW, barH, [6, 0, 0, 6]);
+        } else if (i === 2) {
+          ctx.roundRect(sx, curY, segW, barH, [0, 6, 6, 0]);
+        } else {
+          ctx.rect(sx, curY, segW, barH);
+        }
+        ctx.clip();
+
+        // Fill: past segments full, current segment partial, future empty
+        if (isPast || isCurrent) {
+          const fillW = isPast ? segW : segW * segProgress;
+          ctx.fillStyle = def.fill;
+          ctx.globalAlpha = isPast ? 0.25 : 0.5;
+          ctx.fillRect(sx, curY, fillW, barH);
+          ctx.globalAlpha = 1;
+        }
+
+        // Segment divider
+        if (i > 0) {
+          ctx.fillStyle = 'rgba(0,0,0,0.3)';
+          ctx.fillRect(sx, curY, 1, barH);
+        }
+
+        // Icon + label centered in segment
+        const iconSz = isMobile ? 14 : 18;
+        const centerX = sx + segW / 2;
+        const centerY = curY + barH / 2;
+
+        if (def.icon) {
+          ui.drawIcon(ctx, def.icon, centerX - iconSz / 2 - (isMobile ? 12 : 16), centerY - iconSz / 2, iconSz);
+        }
+
+        ctx.textAlign = 'left';
+        ctx.font = `bold ${isMobile ? 10 : 12}px monospace`;
+        ctx.fillStyle = isCurrent ? def.color : (isPast ? '#aaa' : '#777');
+        ctx.fillText('+3', centerX - (isMobile ? 2 : 4), centerY + (isMobile ? 4 : 5));
+
+        ctx.restore();
+      }
+
+      // Active segment indicator — bright border on current
+      const activeX = barX + segIdx * segW;
+      ctx.strokeStyle = currentDef.color;
+      ctx.lineWidth = 2;
+      ctx.globalAlpha = 0.8;
+      ctx.beginPath();
+      if (segIdx === 0) {
+        ctx.roundRect(activeX, curY, segW, barH, [6, 0, 0, 6]);
+      } else if (segIdx === 2) {
+        ctx.roundRect(activeX, curY, segW, barH, [0, 6, 6, 0]);
+      } else {
+        ctx.rect(activeX, curY, segW, barH);
+      }
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+
+      curY += barH;
+    } else if (this.showInfo) {
       // Full info mode — detailed buttons with labels and descriptions
       const btnW = popupW - PAD * 2;
       for (const def of availableAssignments) {
@@ -350,7 +465,10 @@ export class HutPopup {
       curY += COMPACT_BTN_SIZE;
     }
 
-    // === Footer: [Info] [Find Builder] ===
+    // === Footer: [Info] [Find Builder] (not shown for Tenders) ===
+    if (isTenders) {
+      // Skip footer — no harvester to find, no assignment info to toggle
+    } else {
     const footerY = curY + PAD;
     const footerBtnCount = 2;
     const footerBtnW = Math.floor((popupW - PAD * 2 - GAP * (footerBtnCount - 1)) / footerBtnCount);
@@ -368,6 +486,7 @@ export class HutPopup {
     this.centerBtnRect = { x: footerX, y: footerY, w: footerBtnW, h: FOOTER_BTN_H };
     ui.drawBigBlueButton(ctx, footerX, footerY, footerBtnW, FOOTER_BTN_H);
     drawMagnifyingGlass(ctx, footerX + footerBtnW / 2, footerY + FOOTER_BTN_H / 2, FOOTER_BTN_H * 0.5);
+    }
 
     // === Pointer triangle from popup to building ===
     if (screen.y > py + popupH - 4) {

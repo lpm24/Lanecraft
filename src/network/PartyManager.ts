@@ -188,6 +188,7 @@ export class PartyManager {
     this._isHost = true;
     this._localSlot = 0;
     this.partyCode = code;
+    this._state = party; // Set immediately so callers don't race the onValue callback
     this.startHeartbeat();
     this.subscribeToParty(code);
     return code;
@@ -437,6 +438,15 @@ export class PartyManager {
     if (this.heartbeatInterval) {
       clearInterval(this.heartbeatInterval);
       this.heartbeatInterval = null;
+    }
+  }
+
+  /** Clean up all resources. Safe to call even if leaveParty() wasn't called. */
+  destroy(): void {
+    this.stopHeartbeat();
+    if (this.unsubscribe) {
+      this.unsubscribe();
+      this.unsubscribe = null;
     }
   }
 

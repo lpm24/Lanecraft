@@ -4,6 +4,7 @@ import { GameState } from '../simulation/types';
 import { tileToPixel } from '../rendering/Projection';
 import { getAllResearchUpgrades, getResearchUpgradeCost } from '../simulation/data';
 import { getPopupSafeY } from './SafeArea';
+import { drawStatVisualIcon, type StatVisualKey } from './StatBarUtils';
 
 export type ResearchPopupAction =
   | { action: 'upgrade'; upgradeId: string }
@@ -345,11 +346,12 @@ export class ResearchPopup {
       ctx.font = `${smallFont}px monospace`;
       ctx.textAlign = 'left';
       const descCharW = smallFont * 0.6;
-      const descMaxChars = Math.floor((bw - (textX - bx) - 4) / descCharW);
+      const descMaxW = bw - (textX - bx) - 4;
+      const descMaxChars = Math.floor(descMaxW / descCharW);
       const desc = def.desc;
       const descLines = this.wrapText(desc, descMaxChars, 3);
       for (let li = 0; li < descLines.length; li++) {
-        ctx.fillText(descLines[li], textX, by + 30 + li * (smallFont + 2));
+        this.drawRichLine(ctx, ui, descLines[li], textX, by + 30 + li * (smallFont + 2), smallFont);
       }
 
       // Bottom row: Cost with icons
@@ -436,6 +438,25 @@ export class ResearchPopup {
     }
 
     ctx.restore();
+  }
+
+  /** Draw a line of text that may contain {icon} markers inline. */
+  private drawRichLine(ctx: CanvasRenderingContext2D, ui: UIAssets, line: string, x: number, y: number, fontSize: number): void {
+    const iconSize = fontSize;
+    const parts = line.split(/(\{[a-z-]+\})/);
+    let cx = x;
+    for (const part of parts) {
+      const iconMatch = part.match(/^\{([a-z-]+)\}$/);
+      if (iconMatch) {
+        const key = iconMatch[1] as StatVisualKey;
+        drawStatVisualIcon(ctx, ui, key, cx, y - fontSize + 2, iconSize);
+        cx += iconSize + 2;
+      } else if (part) {
+        ctx.fillStyle = '#c8b898';
+        ctx.fillText(part, cx, y);
+        cx += ctx.measureText(part).width;
+      }
+    }
   }
 
   private wrapText(text: string, maxChars: number, maxLines: number): string[] {
