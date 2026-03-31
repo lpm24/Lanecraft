@@ -435,6 +435,7 @@ export interface UnitState {
   stuckTicks?: number;     // consecutive ticks without moving — triggers path-snap escape
   soulStacks?: number;     // Geist Soul Gorger: stacks gained from nearby deaths (max 20)
   visualScale?: number;    // extra render scale multiplier (e.g. 2.0 for War Troll)
+  _attackBuildingIdx?: number; // transient: index into state.buildings when attacking a building/HQ (-1 = HQ, undefined = not attacking building)
 }
 
 // Snapshot of a notable unit for post-match display
@@ -536,7 +537,7 @@ export interface DiamondState {
   deliveries: number;   // how many times diamond has been delivered (champion gets stronger)
 }
 
-export type ProjectileVisual = 'arrow' | 'orb' | 'circle' | 'bolt' | 'bone' | 'cannonball';
+export type ProjectileVisual = 'arrow' | 'orb' | 'circle' | 'bolt' | 'bone' | 'cannonball' | 'sprite';
 
 export interface ProjectileState {
   id: number;
@@ -563,6 +564,7 @@ export interface ProjectileState {
   critMult?: number;            // critical hit damage multiplier
   applyVulnerable?: boolean;    // apply Vulnerable status on hit (upgrade special)
   applyWound?: boolean;         // apply Wound status on hit (upgrade special)
+  spriteKey?: string;           // when visual === 'sprite', names the projectile PNG asset
 }
 
 export interface FloatingText {

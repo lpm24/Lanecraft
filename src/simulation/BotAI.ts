@@ -235,15 +235,16 @@ const RACE_PROFILES: Record<Race, RaceProfile> = {
     vsSwarmExtraCasters: 1, vsTankExtraRanged: 1, vsGlassCannonExtraMelee: 0,
     maxHuts: 5, pushThreshold: 1.0,
   },
-  // GOBLINS (Gold+Wood): Everything is cheap. Swarm melee+ranged, mix in Hexer casters for burn/slow.
-  // Cheap huts — invest in economy early. Hexers now have burn (C-path) and slow (B-path) forks.
+  // GOBLINS (Gold+Wood): Everything is cheap. Huts are 17.5 eff — go wide on economy first.
+  // Cheap T0 units (Sticker 15 eff, Knifer 27.5 eff) mean early spawners pay off fast.
+  // Flood with miners, then swarm melee+ranged, mix in Hexer casters for burn/slow.
   [Race.Goblins]: {
-    earlyMelee: 2, earlyRanged: 2, earlyHuts: 2, earlyTowers: 0,
-    midMelee: 4, midRanged: 4, midCasters: 1, midTowers: 0, midHuts: 4,
+    earlyMelee: 2, earlyRanged: 2, earlyHuts: 3, earlyTowers: 0,
+    midMelee: 5, midRanged: 4, midCasters: 1, midTowers: 0, midHuts: 5,
     lateTowers: 1, alleyTowers: 1,
     meleeUpgradeBias: 'C', rangedUpgradeBias: 'C', casterUpgradeBias: 'C', towerUpgradeBias: 'C',
     vsSwarmExtraCasters: 1, vsTankExtraRanged: 1, vsGlassCannonExtraMelee: 1,
-    maxHuts: 5, pushThreshold: 0.9,
+    maxHuts: 6, pushThreshold: 0.9,
   },
   // OOZLINGS (Gold+Meat): x2 swarm on everything. Go super wide, deaths fuel ooze economy.
   // Lots of melee, some ranged/caster. Split ooze between upgrades and more spawners.
@@ -1077,8 +1078,10 @@ function botPlanResources(
   const meatSecs = meatIncome > 0.01 ? meatNeeded / meatIncome : (meatNeeded > 0 ? 999 : 0);
 
   // Bottleneck = resource with longest time-to-afford
-  let bottleneck = HarvesterAssignment.BaseGold;
-  let maxTime = goldSecs;
+  // No-gold races default to wood instead of gold
+  const noGold = race === Race.Demon || race === Race.Wild;
+  let bottleneck = noGold ? HarvesterAssignment.Wood : HarvesterAssignment.BaseGold;
+  let maxTime = noGold ? woodSecs : goldSecs;
   if (woodSecs > maxTime) { bottleneck = HarvesterAssignment.Wood; maxTime = woodSecs; }
   if (meatSecs > maxTime) { bottleneck = HarvesterAssignment.Meat; maxTime = meatSecs; }
 
@@ -1094,7 +1097,9 @@ function botPlanResources(
     const meatPct = meatNeeded / totalDeficit;
 
     // Assign harvesters proportionally, minimum 1 per needed resource
-    idealGold = Math.max(goldNeeded > 10 ? 1 : 0, Math.round(goldPct * totalHarvesters));
+    // No-gold races (Demon, Wild) never assign gold workers — they can't harvest gold
+    const noGoldRace = race === Race.Demon || race === Race.Wild;
+    idealGold = noGoldRace ? 0 : Math.max(goldNeeded > 10 ? 1 : 0, Math.round(goldPct * totalHarvesters));
     idealWood = Math.max(woodNeeded > 10 ? 1 : 0, Math.round(woodPct * totalHarvesters));
     idealMeat = Math.max(meatNeeded > 10 ? 1 : 0, Math.round(meatPct * totalHarvesters));
 
@@ -1449,7 +1454,7 @@ const UNIT_ABILITY_VALUE: Record<Race, Record<string, { survMult: number; dmgMul
     // Kill trigger is MASSIVE — snowballs fights. With Pack Hunter: +5% dmg per nearby ally.
     melee:  { survMult: 1.15, dmgMult: 1.40 },
     // Bonechucker: burn + wound via projectile. Anti-sustain.
-    // With Venomous Fangs: +1 burn + wound. With Predator's Mark: +15% dmg taken.
+    // With Venomous Fangs: +1 burn + wound. With Slowing Shots: +1 slow on hit.
     ranged: { survMult: 1.00, dmgMult: 1.35 },
     // Scaled Sage: haste pulse to 3 allies. With Alpha Howl: also grants Frenzy (+50% dmg).
     // Frenzy is the biggest DPS buff in the game — caster is a force multiplier.
@@ -1753,7 +1758,7 @@ function getOneShotSynergyScore(id: string, threats: ThreatProfile): number {
     case 'goblins_melee_1': return 3.0;                            // Coated Blades: +1 burn — core identity, scales with volume
     case 'goblins_melee_2': return 2.0;                            // Scurry: +35% move — helps engage/disengage
     case 'goblins_ranged_1': return 3.0;                           // Incendiary Tips: +1 burn ranged — more burn stacking
-    case 'goblins_ranged_2': return threats.hasTanks ? 3.0 : 2.0; // Acid Bolts: %HP dmg — great vs tanks
+    case 'goblins_ranged_2': return threats.hasTanks ? 3.0 : 2.0; // Lucky Shot: 15% extra proj — great vs tanks
     case 'goblins_caster_1': return 2.5;                           // Potent Hex: +1 burn AoE — synergy with casters
     case 'goblins_caster_2': return threats.hasSustain ? 3.5 : 2.0; // Jinx Cloud: wound on slowed — anti-heal combo
     // Goblin ability: Elixir Mastery + Potent Potions are the elite late-game combo
@@ -1805,7 +1810,7 @@ function getOneShotSynergyScore(id: string, threats: ThreatProfile): number {
     case 'wild_melee_1': return 3.0;                              // Savage Frenzy: +2s frenzy +10% dmg — core identity
     case 'wild_melee_2': return 3.0;                              // Pack Hunter: +5%/ally — scales with army size
     case 'wild_ranged_1': return 2.5;                             // Venomous Fangs: burn + wound — dual debuff
-    case 'wild_ranged_2': return 2.0;                             // Predator's Mark: +15% dmg taken — amplifier
+    case 'wild_ranged_2': return 2.0;                             // Slowing Shots: +1 slow on hit — control
     case 'wild_caster_1': return 2.5;                             // Nature's Wrath: +1 AoE radius — more coverage
     case 'wild_caster_2': return 3.0;                             // Alpha Howl: casters grant frenzy — huge multiplicative
     // Wild ability: Blood Frenzy is the army-wide snowball, Savage Instinct combos with it
@@ -3339,8 +3344,9 @@ function botManageHarvesters(
     }
   }
 
-  // --- Demon: assign exactly 1 harvester to Mana (never more) if we have 2+ harvesters ---
-  if (player.race === Race.Demon && myHarvesters.length >= 2) {
+  // --- Demon: assign exactly 1 harvester to Mana (never more) if we have 3+ harvesters ---
+  // With only 2 harvesters, 50% on mana starves wood/meat economy too hard
+  if (player.race === Race.Demon && myHarvesters.length >= 3) {
     const manaCount = assignments.filter(a => a === HarvesterAssignment.Mana).length;
     if (manaCount === 0) {
       // Replace the last non-center assignment with Mana

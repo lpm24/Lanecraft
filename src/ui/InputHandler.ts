@@ -156,6 +156,12 @@ export class InputHandler {
     if (mode === 'off') return false;
     return this.lastInputType === 'touch';
   }
+  /** Cached canvas bounding rect — invalidated on resize to avoid getBoundingClientRect() per mousemove. */
+  private _cachedRect: DOMRect | null = null;
+  private getCanvasRect(): DOMRect {
+    if (!this._cachedRect) this._cachedRect = this.canvas.getBoundingClientRect();
+    return this._cachedRect;
+  }
   /** Active rally override — all spawners send to this lane while set. 'random' = each spawner gets a random lane. */
   private rallyOverride: Lane | 'random' | null = null;
   /** Saved per-building lane assignments before rally override was activated. */
@@ -690,7 +696,7 @@ export class InputHandler {
   }
 
   private eventToWorld(e: MouseEvent): { x: number; y: number } {
-    const rect = this.canvas.getBoundingClientRect();
+    const rect = this.getCanvasRect();
     const canvasX = e.clientX - rect.left;
     const canvasY = e.clientY - rect.top;
     return this.camera.screenToWorld(canvasX, canvasY);
@@ -850,7 +856,7 @@ export class InputHandler {
   private setupMouse(): void {
     const sig = { signal: this.abortController.signal };
     this.canvas.addEventListener('mousemove', (e) => {
-      const rect = this.canvas.getBoundingClientRect();
+      const rect = this.getCanvasRect();
       this.pointerX = e.clientX - rect.left;
       this.pointerY = e.clientY - rect.top;
       this.tooltip = null;
@@ -892,7 +898,7 @@ export class InputHandler {
     // Slider drag support for settings panel
     this.canvas.addEventListener('pointerdown', (e) => {
       if (!this.settingsOpen) return;
-      const rect = this.canvas.getBoundingClientRect();
+      const rect = this.getCanvasRect();
       const cx = e.clientX - rect.left;
       const cy = e.clientY - rect.top;
       const L = this.getSettingsPanelLayout();
@@ -915,7 +921,7 @@ export class InputHandler {
       if (e.pointerType === 'mouse') this.lastInputType = 'mouse';
       else if (e.pointerType === 'touch') this.lastInputType = 'touch';
       if (!this.settingsSliderDrag) return;
-      const rect = this.canvas.getBoundingClientRect();
+      const rect = this.getCanvasRect();
       const cx = e.clientX - rect.left;
       this.applySettingsSlider(cx, this.getSettingsPanelLayout());
       e.preventDefault();
@@ -945,12 +951,12 @@ export class InputHandler {
       // Settings panel is exempt: always process settings clicks first.
       if (this.matchTutorialActive && isMatchTutorial()) {
         if (this.settingsOpen) {
-          const sr = this.canvas.getBoundingClientRect();
+          const sr = this.getCanvasRect();
           const scx = e.clientX - sr.left;
           const scy = e.clientY - sr.top;
           if (this.handleSettingsPanelClick(scx, scy)) return;
         }
-        const trect = this.canvas.getBoundingClientRect();
+        const trect = this.getCanvasRect();
         const tcx = e.clientX - trect.left;
         const tcy = e.clientY - trect.top;
         if (this.handleMatchTutorialClick(tcx, tcy)) return;
@@ -961,7 +967,7 @@ export class InputHandler {
 
       // Minimap click → pan camera to that world position (blocked during tutorial)
       if (this.currentRenderer && !this.matchTutorialActive) {
-        const rect = this.canvas.getBoundingClientRect();
+        const rect = this.getCanvasRect();
         const hit = this.currentRenderer.minimapHitTest(e.clientX - rect.left, e.clientY - rect.top);
         if (hit) {
           if (this.minimapPanEnabled) this.camera.panTo(hit.worldX, hit.worldY);
@@ -1101,7 +1107,7 @@ export class InputHandler {
 
       // Only start hold timer for single-finger touch, and not during UI interactions
       // Skip if touch is in the bottom tray area (build buttons, nuke, research, rally)
-      const rect = this.canvas.getBoundingClientRect();
+      const rect = this.getCanvasRect();
       const touchY = e.clientY - rect.top;
       const { milY: trayTop, nukeRect: nr } = this.getTrayLayout();
       const uiTop = Math.min(trayTop, nr.y); // top of nuke/research buttons
@@ -1568,7 +1574,7 @@ export class InputHandler {
   }
 
   private handleTutorialClick(e: MouseEvent): void {
-    const rect = this.canvas.getBoundingClientRect();
+    const rect = this.getCanvasRect();
     const cx = e.clientX - rect.left;
     const cy = e.clientY - rect.top;
     const cb = this.tutorialCheckboxRect;
@@ -1862,7 +1868,7 @@ export class InputHandler {
   private handleFollowBtnClick(e: MouseEvent): boolean {
     if (!this.followBtnRect) return false;
     if (this.selectedUnitId === null && this.selectedHarvesterId === null) return false;
-    const rect = this.canvas.getBoundingClientRect();
+    const rect = this.getCanvasRect();
     const cx = e.clientX - rect.left;
     const cy = e.clientY - rect.top;
     const b = this.followBtnRect;
@@ -1893,7 +1899,7 @@ export class InputHandler {
   }
 
   private handleHelpButtonClick(e: MouseEvent): boolean {
-    const rect = this.canvas.getBoundingClientRect();
+    const rect = this.getCanvasRect();
     const cx = e.clientX - rect.left;
     const cy = e.clientY - rect.top;
 
@@ -1972,7 +1978,12 @@ export class InputHandler {
     }
   }
 
+  private _trayLayoutCache: ReturnType<InputHandler['_computeTrayLayout']> | null = null;
   private getTrayLayout() {
+    if (this._trayLayoutCache) return this._trayLayoutCache;
+    return (this._trayLayoutCache = this._computeTrayLayout());
+  }
+  private _computeTrayLayout() {
     const W = this.canvas.clientWidth;
     const H = this.canvas.clientHeight;
     const safeBottom = getSafeBottom();
@@ -2044,7 +2055,7 @@ export class InputHandler {
   // Returns true if click was consumed by a UI panel
   private handleUIClick(e: MouseEvent): boolean {
     const { milH, milY, milW } = this.getTrayLayout();
-    const rect = this.canvas.getBoundingClientRect();
+    const rect = this.getCanvasRect();
     const popupCx = e.clientX - rect.left;
     const popupCy = e.clientY - rect.top;
 
@@ -2318,6 +2329,8 @@ export class InputHandler {
     this.currentRenderer = renderer;
     this.networkLatencyMs = networkLatencyMs;
     if (!this.sprites) this.sprites = renderer.sprites;
+    this._cachedRect = null; // invalidate once per frame so resize is picked up
+    this._trayLayoutCache = null; // recompute tray geometry at most once per frame
     this.trayTick++;
     this.processQueuedQuickChat();
 

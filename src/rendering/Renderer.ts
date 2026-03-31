@@ -161,6 +161,8 @@ export class Renderer {
   private combatVfx = new CombatVFX();
   private lastConsumedTick = -1;
   private unitHpTracker = new Map<number, number>();
+  // Reusable harvester-by-hutId map — rebuilt once per render frame, avoids O(n) find() per hut draw
+  private _renderHarvByHut = new Map<number, HarvesterState>();
   // Reusable unit-by-ID map — rebuilt once per render frame, avoids O(n) find() per projectile/unit draw
   private _renderUnitById = new Map<number, UnitState>();
   private matchStartTime = Date.now();
@@ -177,6 +179,12 @@ export class Renderer {
   private lastHqHp: number[] = [-1, -1];
   // Smooth deluge vignette alpha (0 = hidden, 1 = fully visible)
   private delugeVignetteAlpha = 0;
+  private _delugeGrad: CanvasGradient | null = null;
+  private _delugeGradW = 0;
+  private _delugeGradH = 0;
+  // Cached shadow style strings — rebuilt when dayNight changes
+  private _shadowStyle = 'rgba(0,0,0,0.2)';
+  private _harvShadowStyle = 'rgba(0,0,0,0.18)';
   // Minimap offscreen cache — entity content redrawn only on tick change
   private minimapCache: HTMLCanvasElement | null = null;
   private minimapCacheTick = -1;
@@ -431,6 +439,9 @@ export class Renderer {
     // Build unit-by-ID map once per frame (used by drawOneProjectile, drawOneUnit, drawTowerAttackLines)
     this._renderUnitById.clear();
     for (const u of state.units) this._renderUnitById.set(u.id, u);
+    // Build harvester-by-hutId map once per frame (used by drawOneBuilding for hut icons)
+    this._renderHarvByHut.clear();
+    for (const h of state.harvesters) this._renderHarvByHut.set(h.hutId, h);
 
     // Detect deaths: compare current IDs to last frame
     this.detectDeaths(state);
@@ -446,6 +457,8 @@ export class Renderer {
     const newPhase = (dnInput % 240) / 240;
     if (!this.dayNight || Math.abs(newPhase - this.dayNight.phase) > 0.004) {
       this.dayNight = getDayNight(dnInput);
+      this._shadowStyle = `rgba(0,0,0,${this.dayNight.brightness * 0.2})`;
+      this._harvShadowStyle = `rgba(0,0,0,${this.dayNight.brightness * 0.18})`;
     }
     if (vfxPrefs.screenShake) this.screenShake.update(dt); else { this.screenShake.offsetX = 0; this.screenShake.offsetY = 0; }
     if (vfxPrefs.weather) {
@@ -490,7 +503,8 @@ export class Renderer {
         }
       }
     }
-    this.lastHqHp = [...state.hqHp];
+    this.lastHqHp[0] = state.hqHp[0];
+    this.lastHqHp[1] = state.hqHp[1];
 
     // Gather combat zones for ambient particles
     const combatZones = this._pooledCombatZones;
@@ -621,23 +635,27 @@ export class Renderer {
 
     // Deep deluge blue vignette (screen-space)
     {
-      const hasDeluge = state.abilityEffects.some(e => e.type === 'deep_rain');
       const target = hasDeluge ? 1 : 0;
       const fadeSpeed = hasDeluge ? 3 : 2; // fade in faster than fade out
       this.delugeVignetteAlpha += (target - this.delugeVignetteAlpha) * Math.min(1, fadeSpeed * dt);
       if (this.delugeVignetteAlpha > 0.005) {
         const w = this.canvas.clientWidth;
         const h = this.canvas.clientHeight;
-        const cx = w / 2;
-        const cy = h / 2;
-        const r = Math.max(w, h) * 0.7;
-        const grad = ctx.createRadialGradient(cx, cy, r * 0.5, cx, cy, r);
-        const a = this.delugeVignetteAlpha;
-        grad.addColorStop(0, `rgba(30, 80, 160, 0)`);
-        grad.addColorStop(0.6, `rgba(20, 60, 140, ${a * 0.12})`);
-        grad.addColorStop(1, `rgba(10, 30, 80, ${a * 0.35})`);
-        ctx.fillStyle = grad;
+        // Cache gradient — only rebuild on canvas resize
+        if (!this._delugeGrad || this._delugeGradW !== w || this._delugeGradH !== h) {
+          const cx = w / 2, cy = h / 2, r = Math.max(w, h) * 0.7;
+          const grad = ctx.createRadialGradient(cx, cy, r * 0.5, cx, cy, r);
+          grad.addColorStop(0, 'rgba(30, 80, 160, 0)');
+          grad.addColorStop(0.6, 'rgba(20, 60, 140, 0.12)');
+          grad.addColorStop(1, 'rgba(10, 30, 80, 0.35)');
+          this._delugeGrad = grad;
+          this._delugeGradW = w;
+          this._delugeGradH = h;
+        }
+        ctx.globalAlpha = this.delugeVignetteAlpha;
+        ctx.fillStyle = this._delugeGrad;
         ctx.fillRect(0, 0, w, h);
+        ctx.globalAlpha = 1;
       }
     }
 
@@ -2137,7 +2155,7 @@ export class Renderer {
     ctx.globalAlpha = alpha;
 
     // Shadow: grows as unit falls, responds to day/night
-    ctx.fillStyle = `rgba(0,0,0,${this.dayNight.brightness * 0.2})`;
+    ctx.fillStyle = this._shadowStyle;
     ctx.beginPath();
     ctx.ellipse(cx, py + T * 0.70, 7 + fallEased * 4, 2.5 + fallEased * 1.5, 0, 0, Math.PI * 2);
     ctx.fill();
@@ -2372,8 +2390,6 @@ export class Renderer {
           } else {
             ctx.drawImage(sprite!, drawX, drawY, drawW, drawH);
           }
-        } else if (b.type !== BuildingType.Research) {
-          ctx.drawImage(sprite, drawX, drawY, drawW, drawH);
         } else {
           ctx.drawImage(sprite, drawX, drawY, drawW, drawH);
         }
@@ -2467,7 +2483,7 @@ export class Renderer {
 
         // Harvester hut assignment icon overlay — top-right of building
         if (b.type === BuildingType.HarvesterHut) {
-          const harv = state.harvesters.find(h => h.hutId === b.id);
+          const harv = this._renderHarvByHut.get(b.id);
           if (harv) {
             const iconSz = Math.max(8, half * 0.9);
             const iconX = px + half - iconSz * 0.2;
@@ -2534,7 +2550,7 @@ export class Renderer {
           case BuildingType.HarvesterHut: {
             ctx.beginPath(); ctx.arc(px, py, h2, 0, Math.PI * 2);
             ctx.fill(); ctx.strokeStyle = '#ffd700'; ctx.stroke();
-            const harv = state.harvesters.find(h => h.hutId === b.id);
+            const harv = this._renderHarvByHut.get(b.id);
             if (harv) {
               const iconSz = Math.max(8, half * 0.9);
               const iconX = px + half - iconSz * 0.2;
@@ -2654,7 +2670,28 @@ export class Renderer {
 
     let drewSprite = false;
 
-    if (p.visual === 'arrow') {
+    if (p.visual === 'sprite' && p.spriteKey) {
+      // Per-unit projectile sprite — single 128x128 PNG, rotated toward target
+      const sprData = this.sprites.getProjectileSprite(p.spriteKey);
+      if (sprData) {
+        const [img] = sprData;
+        const target = p.targetId != null ? this._renderUnitById.get(p.targetId) : undefined;
+        const angle = p.targetX !== undefined && p.targetY !== undefined
+          ? this.projAngle(p.x, p.y, p.targetX, p.targetY)
+          : target
+            ? this.projAngle(p.x, p.y, target.x, target.y)
+            : isBottom ? -Math.PI / 2 : Math.PI / 2;
+        const spin = this.sprites.isSpinningProjectile(p.spriteKey)
+          ? (state.tick * 0.4) % (Math.PI * 2) : 0;
+        const size = p.aoeRadius > 0 ? T * 1.4 : T * 1.1;
+        ctx.save();
+        ctx.translate(px, py);
+        ctx.rotate(angle + spin);
+        ctx.drawImage(img, -size / 2, -size / 2, size, size);
+        ctx.restore();
+        drewSprite = true;
+      }
+    } else if (p.visual === 'arrow') {
       // Arrow sprite — rotate toward target (all ranged units)
       const arrowData = this.sprites.getArrowSprite(teamIdx);
       if (arrowData) {
@@ -2903,12 +2940,12 @@ export class Renderer {
       const cat = u.category as 'melee' | 'ranged' | 'caster';
       const attackCooldownTicks = Math.round(u.attackSpeed * TICK_RATE);
       const justFired = u.attackTimer > attackCooldownTicks * 0.5;
-      const isSiege = !!u.upgradeSpecial?.isSiegeUnit;
-      // Siege units attack buildings without setting targetId — detect those from attackTimer alone
-      const isAttacking = justFired && (u.targetId !== null || isSiege);
+      const attackingBuilding = u._attackBuildingIdx !== undefined;
+      // Units attack buildings/HQ without setting targetId — _attackBuildingIdx is set by simulation
+      const isAttacking = justFired && (u.targetId !== null || attackingBuilding);
       // Ranged/caster on cooldown but past attack anim window — idle, don't walk
       const isRangedOnCooldown = u.attackTimer > 0 && !justFired
-        && (u.targetId !== null || isSiege) && (cat === 'ranged' || cat === 'caster');
+        && (u.targetId !== null || attackingBuilding) && (cat === 'ranged' || cat === 'caster');
       const spriteData = race ? this.sprites.getUnitSprite(race, cat, u.playerId, isAttacking, u.upgradeNode) : null;
       if (spriteData) {
         const [img, def] = spriteData;
@@ -2953,19 +2990,21 @@ export class Renderer {
             }
             this.facing.set(u.id, faceLeft);
           }
-        } else if (isSiege) {
-          // Siege units target buildings, not units — face toward nearest enemy building/HQ
-          // Uses pre-cached enemy alley buildings (built once per frame in drawYSorted)
-          let bestDx = 0, bestDist = Infinity;
-          for (const eb of this._enemyAlleyBuildings) {
-            if (eb.team === u.team) continue;
-            const bx = eb.x - u.x, by = eb.y - u.y;
-            const bd = bx * bx + by * by;
-            if (bd < bestDist) { bestDist = bd; bestDx = bx; }
-          }
-          if (bestDist < Infinity) {
-            // Face toward building; if mostly vertical, use team default
-            faceLeft = Math.abs(bestDx) > 0.5 ? bestDx < 0 : u.team === Team.Top;
+        } else if (attackingBuilding) {
+          // Units attacking buildings — face toward the target building/HQ
+          if (u._attackBuildingIdx! >= 0) {
+            const b = state.buildings[u._attackBuildingIdx!];
+            if (b) {
+              const bx = b.worldX + 0.5 - u.x;
+              faceLeft = Math.abs(bx) > 0.5 ? bx < 0 : u.team === Team.Top;
+              this.facing.set(u.id, faceLeft);
+            }
+          } else {
+            // HQ target (-1): face toward enemy HQ
+            const enemyTeam = u.team === Team.Bottom ? Team.Top : Team.Bottom;
+            const hq = getHQPosition(enemyTeam, state.mapDef);
+            const bx = hq.x + 2 - u.x; // +2 = half HQ width
+            faceLeft = Math.abs(bx) > 0.5 ? bx < 0 : u.team === Team.Top;
             this.facing.set(u.id, faceLeft);
           }
         }
@@ -3513,7 +3552,7 @@ export class Renderer {
       const px = this._cachedPx, py = this._cachedPy;
 
       // Drop shadow (day/night responsive)
-      ctx.fillStyle = `rgba(0,0,0,${this.dayNight.brightness * 0.18})`;
+      ctx.fillStyle = this._harvShadowStyle;
       ctx.beginPath();
       ctx.ellipse(px, py + 2, 4, 2, 0, 0, Math.PI * 2);
       ctx.fill();
@@ -3882,7 +3921,7 @@ export class Renderer {
     for (const u of state.units) {
       currentUnitIds.add(u.id);
       const faceLeft = this.facing.get(u.id) ?? (u.team === Team.Top);
-      const wasAttacking = u.targetId !== null && u.attackTimer <= u.attackSpeed * 0.5;
+      const wasAttacking = (u.targetId !== null || u._attackBuildingIdx !== undefined) && u.attackTimer > 0;
       const category = u.category as UnitCategory;
       const race = state.players[u.playerId]?.race;
       const spriteData = race

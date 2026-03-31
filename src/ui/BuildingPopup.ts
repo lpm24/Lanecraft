@@ -85,41 +85,41 @@ export function getRaceBuildingName(race: Race | undefined, type: BuildingType, 
 
 // Per-race caster support ability descriptions
 const CASTER_SUPPORT_DESC: Record<Race, string> = {
-  [Race.Crown]: '{shield} Shields 2 nearby allies, absorbing 12 dmg.',
-  [Race.Horde]: '{haste} Hastes up to 5 allies, boosting {attack-speed} atk speed.',
-  [Race.Goblins]: '{slow} Hexes nearby enemies, slowing movement.',
-  [Race.Oozlings]: '{haste} Hastes up to 3 nearby allies.',
-  [Race.Demon]: '{burn} Pure damage. Fires {aoe} AoE blasts.',
-  [Race.Deep]: '{cleanse} Cleanses burn from allies. Fires {aoe} AoE.',
-  [Race.Wild]: '{haste} Hastes up to 3 allies. Fires {aoe} AoE.',
-  [Race.Geists]: '{healing} Heals 2 HP to 3 lowest-HP allies. {aoe} AoE.',
-  [Race.Tenders]: '{healing} Heals 3 HP to all nearby allies. {aoe} AoE.',
+  [Race.Crown]: '{shield} Shields 2 nearest allies (12 HP absorb, 4s).',
+  [Race.Horde]: '{haste} Haste 5 nearest allies (3s). {aoe} AoE r3, Wound.',
+  [Race.Goblins]: '{slow} Slows all enemies in range. {aoe} AoE r3, 2 {burn} Burn + {wound} Wound.',
+  [Race.Oozlings]: '{haste} Haste 3 nearest allies (3s). {aoe} AoE r3, 1 {slow} Slow.',
+  [Race.Demon]: '{burn} Pure damage (no support). {aoe} AoE r3, 2 {burn} Burn + {wound} Wound.',
+  [Race.Deep]: '{cleanse} Cleanse 2 Burn from all allies. {aoe} AoE r4, 2 {slow} Slow.',
+  [Race.Wild]: '{haste} Haste 3 nearest allies (3s). {aoe} AoE r3, 2 {burn} Burn + {wound} Wound.',
+  [Race.Geists]: '{damage} Single-target attacker. {lifesteal} 10% lifesteal.',
+  [Race.Tenders]: '{healing} Heals 1 most injured ally for 1 HP. {aoe} AoE r4, 2 {slow} Slow.',
 };
 
 // Per-race melee on-hit descriptions
 const MELEE_ONHIT_DESC: Record<Race, string> = {
-  [Race.Crown]: '{damage-reduction} 10% damage reduction.',
+  [Race.Crown]: '{damage} Balanced melee fighter.',
   [Race.Horde]: '{knockback} Knockback every 3rd hit. {lifesteal} 10% lifesteal.',
-  [Race.Goblins]: '{dodge} 15% dodge chance.',
+  [Race.Goblins]: '{dodge} 15% dodge. {wound} Wound on hit (-50% healing, 6s).',
   [Race.Oozlings]: '{haste} 15% chance haste on hit. {spawn-rate} Spawns x2.',
-  [Race.Demon]: '{burn} Burns enemies on every hit.',
-  [Race.Deep]: '{slow} Slows enemies on hit.',
-  [Race.Wild]: '{burn} Poisons enemies on hit.',
-  [Race.Geists]: '{burn} Burns on hit. {lifesteal} 15% lifesteal.',
-  [Race.Tenders]: '{regen} Regenerates 1 HP/s passively.',
+  [Race.Demon]: '{burn} +1 Burn on hit. {wound} Wound (-50% healing, 6s).',
+  [Race.Deep]: '{slow} +1 Slow on hit.',
+  [Race.Wild]: '{burn} +1 Burn on hit. {frenzy} Kill: Frenzy+Haste to allies (6t).',
+  [Race.Geists]: '{burn} +1 Burn on hit. {lifesteal} 10% lifesteal. {wound} Wound.',
+  [Race.Tenders]: '{health} High HP tank.',
 };
 
 // Per-race ranged on-hit descriptions
 const RANGED_ONHIT_DESC: Record<Race, string> = {
   [Race.Crown]: '{damage} Balanced ranged attacker.',
-  [Race.Horde]: '{cleave} Heavy damage ranged cleaver.',
-  [Race.Goblins]: '{burn} Burns enemies on hit.',
-  [Race.Oozlings]: '{spawn-rate} Spawns 2 at half power.',
-  [Race.Demon]: '{damage} High damage, long range sniper.',
-  [Race.Deep]: '{slow} Slows enemies on hit.',
-  [Race.Wild]: '{burn} Poisons enemies on hit.',
-  [Race.Geists]: '{burn} Burns enemies on hit.',
-  [Race.Tenders]: '{damage} Balanced ranged attacker.',
+  [Race.Horde]: '{wound} Wound on hit (-50% healing, 6s).',
+  [Race.Goblins]: '{burn} +1 Burn on hit. {wound} Wound (-50% healing, 6s).',
+  [Race.Oozlings]: '{spawn-rate} Spawns x2. {chain} Chain to 1 enemy at 50% dmg.',
+  [Race.Demon]: '{burn} +1 Burn + {wound} Wound. {damage} 20% crit, 1.75x dmg.',
+  [Race.Deep]: '{slow} +2 Slow on hit.',
+  [Race.Wild]: '{burn} +1 Burn + {wound} Wound on hit.',
+  [Race.Geists]: '{burn} +1 Burn on hit. {lifesteal} 10% lifesteal.',
+  [Race.Tenders]: '{slow} +1 Slow on hit (2 on AoE).',
 };
 
 // Remember whether the user has closed the info panel

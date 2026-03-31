@@ -71,17 +71,162 @@ const INITIAL_RESOURCES: Record<Race, { gold: number; wood: number; meat: number
 };
 
 /** Projectile visual per race for ranged units. */
-const RANGED_VISUAL: Record<Race, ProjectileVisual> = {
-  [Race.Crown]:    'arrow',  // Bowman
-  [Race.Horde]:    'arrow',  // Bowcleaver
-  [Race.Goblins]:  'arrow',  // Knifer (thrown blade)
-  [Race.Oozlings]: 'orb',    // Spitter (acid spit)
-  [Race.Demon]:    'orb',    // Eye Sniper (eye beam)
-  [Race.Deep]:     'arrow',  // Harpooner (harpoon)
-  [Race.Wild]:     'bone',   // Bonechucker
-  [Race.Geists]:   'arrow',  // Wraith Bow
-  [Race.Tenders]:  'arrow',  // Tinker
+// Per-unit projectile visual lookup: (race, category, upgradeNode) → visual + optional spriteKey
+type ProjVis = { visual: ProjectileVisual; spriteKey?: string };
+const S = (key: string): ProjVis => ({ visual: 'sprite', spriteKey: key });
+
+const UNIT_PROJECTILE: Record<string, ProjVis> = {
+  // --- Crown ranged ---
+  [`${Race.Crown}:ranged:A`]: { visual: 'arrow' },
+  [`${Race.Crown}:ranged:B`]: { visual: 'arrow' },
+  [`${Race.Crown}:ranged:C`]: S('stone_ball'),    // Dwarfette Scout
+  [`${Race.Crown}:ranged:D`]: { visual: 'arrow' },
+  [`${Race.Crown}:ranged:E`]: { visual: 'arrow' },
+  [`${Race.Crown}:ranged:F`]: S('stone_ball'),    // Dwarfette Blitzer
+  [`${Race.Crown}:ranged:G`]: S('stone_ball'),    // Cannon (siege)
+  // --- Crown caster ---
+  [`${Race.Crown}:caster:A`]: S('holy_bolt'),     // Priest
+  [`${Race.Crown}:caster:B`]: S('holy_bolt'),     // High Priest
+  [`${Race.Crown}:caster:C`]: S('magic_missile'), // War Mage
+  [`${Race.Crown}:caster:D`]: S('holy_bolt'),     // Arch Bishop
+  [`${Race.Crown}:caster:E`]: S('holy_bolt'),     // War Cleric
+  [`${Race.Crown}:caster:F`]: S('magic_missile'), // Battle Magus
+  [`${Race.Crown}:caster:G`]: S('magic_missile'), // Archmage
+
+  // --- Horde ranged ---
+  [`${Race.Horde}:ranged:A`]: { visual: 'arrow' },
+  [`${Race.Horde}:ranged:B`]: { visual: 'arrow' },
+  [`${Race.Horde}:ranged:C`]: S('stone_ball'),    // Orc Catapult (siege)
+  [`${Race.Horde}:ranged:D`]: { visual: 'arrow' },
+  [`${Race.Horde}:ranged:E`]: { visual: 'arrow' },
+  [`${Race.Horde}:ranged:F`]: S('stone_ball'),    // Horde Bombard (siege)
+  [`${Race.Horde}:ranged:G`]: S('stone_ball'),    // Doom Catapult (siege)
+  // --- Horde caster ---
+  [`${Race.Horde}:caster:A`]: S('music_note'),
+  [`${Race.Horde}:caster:B`]: S('music_note'),
+  [`${Race.Horde}:caster:C`]: S('music_note'),
+  [`${Race.Horde}:caster:D`]: S('music_note'),
+  [`${Race.Horde}:caster:E`]: S('music_note'),
+  [`${Race.Horde}:caster:F`]: S('music_note'),
+  [`${Race.Horde}:caster:G`]: S('music_note'),
+
+  // --- Goblins ranged ---
+  [`${Race.Goblins}:ranged:A`]: S('dagger'),
+  [`${Race.Goblins}:ranged:B`]: S('poison_arrow'),  // Venom Knifer
+  [`${Race.Goblins}:ranged:C`]: S('dagger'),         // War Boar
+  [`${Race.Goblins}:ranged:D`]: S('poison_arrow'),  // Plague Knifer
+  [`${Race.Goblins}:ranged:E`]: S('dagger'),         // Fan Knifer
+  [`${Race.Goblins}:ranged:F`]: S('dagger'),         // King Boar
+  [`${Race.Goblins}:ranged:G`]: S('stone_ball'),    // Goblin Mortar (siege)
+  // Goblins caster: keep existing green meteorite
+
+  // --- Oozlings ranged ---
+  [`${Race.Oozlings}:ranged:A`]: S('slime_missile'),
+  [`${Race.Oozlings}:ranged:B`]: S('slime_missile'),
+  [`${Race.Oozlings}:ranged:C`]: S('slime_missile'),
+  [`${Race.Oozlings}:ranged:D`]: S('slime_missile'),
+  [`${Race.Oozlings}:ranged:E`]: S('slime_missile'),
+  [`${Race.Oozlings}:ranged:F`]: S('slime_missile'),
+  [`${Race.Oozlings}:ranged:G`]: S('slime_missile'), // Glob Siege
+  // Oozlings caster: keep existing purple orb/circle
+
+  // --- Demon ranged ---
+  [`${Race.Demon}:ranged:A`]: S('fire_bolt'),
+  [`${Race.Demon}:ranged:B`]: S('fire_bolt'),
+  [`${Race.Demon}:ranged:C`]: S('fire_bolt'),
+  [`${Race.Demon}:ranged:D`]: S('fire_bolt'),
+  [`${Race.Demon}:ranged:E`]: S('fire_bolt'),
+  [`${Race.Demon}:ranged:F`]: S('fire_bolt'),
+  [`${Race.Demon}:ranged:G`]: S('stone_ball'),      // Brimstone Cannon (siege)
+  // Demon caster: keep existing orange meteorite
+
+  // --- Deep ranged ---
+  [`${Race.Deep}:ranged:A`]: S('harpoon'),
+  [`${Race.Deep}:ranged:B`]: S('harpoon'),           // Reef Shark
+  [`${Race.Deep}:ranged:C`]: S('water_bolt'),        // Spray Crab
+  [`${Race.Deep}:ranged:D`]: S('harpoon'),           // Hammerhead
+  [`${Race.Deep}:ranged:E`]: S('harpoon'),           // Great White
+  [`${Race.Deep}:ranged:F`]: S('stone_ball'),        // Depth Charge (siege)
+  [`${Race.Deep}:ranged:G`]: S('water_bolt'),        // King Crab
+  // --- Deep caster ---
+  [`${Race.Deep}:caster:A`]: S('water_bolt'),
+  [`${Race.Deep}:caster:B`]: S('water_bolt'),
+  [`${Race.Deep}:caster:C`]: S('water_bolt'),
+  [`${Race.Deep}:caster:D`]: S('water_bolt'),
+  [`${Race.Deep}:caster:E`]: S('water_bolt'),
+  [`${Race.Deep}:caster:F`]: S('water_bolt'),
+  [`${Race.Deep}:caster:G`]: S('water_bolt'),
+
+  // --- Wild ranged ---
+  [`${Race.Wild}:ranged:A`]: { visual: 'bone' },
+  [`${Race.Wild}:ranged:B`]: { visual: 'bone' },     // Chameleon
+  [`${Race.Wild}:ranged:C`]: S('poison_arrow'),      // Spitting Snake
+  [`${Race.Wild}:ranged:D`]: { visual: 'bone' },     // Stalker
+  [`${Race.Wild}:ranged:E`]: S('stone_ball'),        // Catapult Beast (siege)
+  [`${Race.Wild}:ranged:F`]: S('poison_arrow'),      // Venom Serpent
+  [`${Race.Wild}:ranged:G`]: S('poison_arrow'),      // Hydra Spit
+  // --- Wild caster ---
+  [`${Race.Wild}:caster:A`]: S('nature_bolt'),
+  [`${Race.Wild}:caster:B`]: S('nature_bolt'),
+  [`${Race.Wild}:caster:C`]: S('nature_bolt'),
+  [`${Race.Wild}:caster:D`]: S('nature_bolt'),
+  [`${Race.Wild}:caster:E`]: S('nature_bolt'),
+  [`${Race.Wild}:caster:F`]: S('nature_bolt'),
+  [`${Race.Wild}:caster:G`]: S('nature_bolt'),
+
+  // --- Geists ranged ---
+  [`${Race.Geists}:ranged:A`]: S('shadow_bolt'),
+  [`${Race.Geists}:ranged:B`]: S('shadow_bolt'),     // Venom Wraith
+  [`${Race.Geists}:ranged:C`]: { visual: 'bone' },   // Bone Skull
+  [`${Race.Geists}:ranged:D`]: S('fire_arrow'),      // Plague Arrow
+  [`${Race.Geists}:ranged:E`]: S('shadow_bolt'),     // Hex Volley
+  [`${Race.Geists}:ranged:F`]: { visual: 'bone' },   // Wailing Skull
+  [`${Race.Geists}:ranged:G`]: S('stone_ball'),      // Bone Ballista (siege)
+  // --- Geists caster ---
+  [`${Race.Geists}:caster:A`]: S('shadow_bolt'),
+  [`${Race.Geists}:caster:B`]: S('shadow_bolt'),
+  [`${Race.Geists}:caster:C`]: S('shadow_bolt'),
+  [`${Race.Geists}:caster:D`]: S('shadow_bolt'),
+  [`${Race.Geists}:caster:E`]: S('shadow_bolt'),
+  [`${Race.Geists}:caster:F`]: S('shadow_bolt'),
+  [`${Race.Geists}:caster:G`]: S('shadow_bolt'),
+
+  // --- Tenders ranged ---
+  [`${Race.Tenders}:ranged:A`]: S('arrow'),
+  [`${Race.Tenders}:ranged:B`]: S('arrow'),
+  [`${Race.Tenders}:ranged:C`]: S('nature_bolt'),    // Thorn Thrower
+  [`${Race.Tenders}:ranged:D`]: S('poison_arrow'),   // Blight Tinker
+  [`${Race.Tenders}:ranged:E`]: S('nature_bolt'),    // Grand Tinker
+  [`${Race.Tenders}:ranged:F`]: S('poison_arrow'),   // Toxic Hurler
+  [`${Race.Tenders}:ranged:G`]: S('stone_ball'),     // Vine Siege
+  // --- Tenders caster ---
+  [`${Race.Tenders}:caster:A`]: S('nature_bolt'),
+  [`${Race.Tenders}:caster:B`]: S('nature_bolt'),
+  [`${Race.Tenders}:caster:C`]: S('nature_bolt'),
+  [`${Race.Tenders}:caster:D`]: S('nature_bolt'),
+  [`${Race.Tenders}:caster:E`]: S('nature_bolt'),
+  [`${Race.Tenders}:caster:F`]: S('nature_bolt'),
+  [`${Race.Tenders}:caster:G`]: S('nature_bolt'),
 };
+
+// Fallback visuals for races without per-node entries
+const DEFAULT_RANGED_VISUAL: Record<Race, ProjVis> = {
+  [Race.Crown]:    { visual: 'arrow' },
+  [Race.Horde]:    { visual: 'arrow' },
+  [Race.Goblins]:  S('dagger'),
+  [Race.Oozlings]: S('slime_missile'),
+  [Race.Demon]:    S('fire_bolt'),
+  [Race.Deep]:     S('harpoon'),
+  [Race.Wild]:     { visual: 'bone' },
+  [Race.Geists]:   S('shadow_bolt'),
+  [Race.Tenders]:  S('arrow'),
+};
+
+/** Get the projectile visual for a specific unit. Returns visual + optional spriteKey. */
+function getProjectileVisual(race: Race, category: string, upgradeNode: string): ProjVis {
+  const key = `${race}:${category}:${upgradeNode}`;
+  return UNIT_PROJECTILE[key] ?? DEFAULT_RANGED_VISUAL[race] ?? { visual: 'arrow' };
+}
 
 /** Check if a player can afford a cost (gold/wood/meat + optional special resources). */
 function canAffordCost(player: { gold: number; wood: number; meat: number; mana: number; deathEssence: number; souls: number },
@@ -331,6 +476,7 @@ class SpatialGrid {
 }
 
 const _combatGrid = new SpatialGrid(8);
+const _collisionGrid = new SpatialGrid(2); // finer grid for unit-vs-unit collision pushout
 
 // Module-level reusable structures (avoid per-tick allocations)
 const _unitById = new Map<number, UnitState>();
@@ -357,6 +503,12 @@ function compactInPlace<T>(arr: T[], keep: (item: T) => boolean): void {
     }
   }
   arr.length = write;
+}
+
+/** Check if a unit has a specific status effect — no closure allocation unlike .some(). */
+function hasStatus(effects: { type: StatusType }[], type: StatusType): boolean {
+  for (let i = 0; i < effects.length; i++) if (effects[i].type === type) return true;
+  return false;
 }
 
 // === Visual effect helpers ===
@@ -2208,7 +2360,7 @@ function tickAbilityEffects(state: GameState): void {
           if (deepBu?.raceUpgrades['deep_ability_4'] && state.tick % (2 * TICK_RATE) === 0) {
             const hadDebuff = u.statusEffects.some(s =>
               s.type !== StatusType.Haste && s.type !== StatusType.Shield && s.type !== StatusType.Frenzy);
-            u.statusEffects = u.statusEffects.filter(s =>
+            compactInPlace(u.statusEffects, s =>
               s.type === StatusType.Haste || s.type === StatusType.Shield || s.type === StatusType.Frenzy);
             if (hadDebuff) {
               addFloatingText(state, u.x, u.y - 0.3, '', '#4fc3f7', undefined, undefined,
@@ -2730,7 +2882,7 @@ function getEffectiveDamage(unit: UnitState, state?: GameState): number {
   // Horde aura damage bonus
   const auraDmg = unit.upgradeSpecial?._auraDmg ?? 0;
   if (auraDmg > 0) dmg += auraDmg;
-  // Crown: Aegis Wrath — shielded allies deal +40% damage
+  // Crown: Aegis Wrath — shielded allies deal +25% damage
   if (state && unit.shieldHp > 0) {
     const p = state.players[unit.playerId];
     if (p?.researchUpgrades.raceUpgrades['crown_ability_3']) dmg = Math.round(dmg * 1.25);
@@ -3227,7 +3379,7 @@ function applyVulnerable(target: UnitState, state?: GameState): void {
 /** Heal a unit, respecting Wound status (-50% healing). Returns actual HP healed. */
 function healUnit(unit: UnitState, amount: number): number {
   if (amount <= 0 || unit.hp >= unit.maxHp) return 0;
-  const wounded = unit.statusEffects.some(e => e.type === StatusType.Wound);
+  const wounded = hasStatus(unit.statusEffects, StatusType.Wound);
   const effective = wounded ? Math.round(amount * 0.5) : amount;
   if (effective <= 0) return 0;
   const actual = Math.min(unit.maxHp - unit.hp, effective);
@@ -3298,12 +3450,12 @@ function dealDamage(state: GameState, target: UnitState, amount: number, showFlo
       if (drBonus > 0) amount = Math.max(1, Math.round(amount * (1 - drBonus)));
     }
     // Vulnerable: target takes +20% damage from all sources
-    if (target.statusEffects.some(e => e.type === StatusType.Vulnerable))
+    if (hasStatus(target.statusEffects, StatusType.Vulnerable))
       amount = Math.max(1, Math.round(amount * 1.20));
     // Goblins Jinx Cloud: slowed targets receive Wound (anti-heal) from Goblin team hits
     if (sourcePlayerId !== undefined) {
       const srcPlayer = state.players[sourcePlayerId];
-      if (srcPlayer && srcPlayer.researchUpgrades.raceUpgrades['goblins_caster_2'] && target.statusEffects.some(e => e.type === StatusType.Slow)) {
+      if (srcPlayer && srcPlayer.researchUpgrades.raceUpgrades['goblins_caster_2'] && hasStatus(target.statusEffects, StatusType.Slow)) {
         applyWound(target);
       }
     }
@@ -3321,7 +3473,7 @@ function dealDamage(state: GameState, target: UnitState, amount: number, showFlo
     target.shieldHp -= absorbed;
     amount -= absorbed;
     if (target.shieldHp <= 0) {
-      target.statusEffects = target.statusEffects.filter(e => e.type !== StatusType.Shield);
+      compactInPlace(target.statusEffects, e => e.type !== StatusType.Shield);
     }
     if (absorbed > 0 && showFloat) {
       addFloatingText(state, target.x, target.y, `${absorbed}`, '#64b5f6', undefined, undefined,
@@ -3527,7 +3679,7 @@ function applyCasterSupport(state: GameState, caster: UnitState, race: Race, sp:
       let hordeHasteCount = 0;
       const hordeP = state.players[caster.playerId];
       for (const a of allies) {
-        if (!a.statusEffects.some(e => e.type === StatusType.Haste)) {
+        if (!hasStatus(a.statusEffects, StatusType.Haste)) {
           applyStatus(a, StatusType.Haste, 1, state);
           // Research: War Drums — +2s haste duration
           if (hordeP?.researchUpgrades.raceUpgrades['horde_caster_1']) {
@@ -3560,7 +3712,7 @@ function applyCasterSupport(state: GameState, caster: UnitState, race: Race, sp:
       // Haste pulse: nearby allies get brief haste
       let oozHasteCount = 0;
       for (const a of allies) {
-        if (!a.statusEffects.some(e => e.type === StatusType.Haste)) {
+        if (!hasStatus(a.statusEffects, StatusType.Haste)) {
           applyStatus(a, StatusType.Haste, 1, state);
           oozHasteCount++;
           caster.buffsApplied++;
@@ -3619,7 +3771,7 @@ function applyCasterSupport(state: GameState, caster: UnitState, race: Race, sp:
       // Research: Purifying Tide — also grant +25% move speed via haste to cleansed/nearby allies
       if (extraCleanse > 0) {
         for (const a of allies.slice(0, 5)) {
-          if (!a.statusEffects.some(e => e.type === StatusType.Haste)) {
+          if (!hasStatus(a.statusEffects, StatusType.Haste)) {
             applyStatus(a, StatusType.Haste, 1, state);
           }
         }
@@ -3643,7 +3795,7 @@ function applyCasterSupport(state: GameState, caster: UnitState, race: Race, sp:
       // Haste pulse: nearby allies get brief haste
       let hasteCount = 0;
       for (const a of allies) {
-        if (!a.statusEffects.some(e => e.type === StatusType.Haste)) {
+        if (!hasStatus(a.statusEffects, StatusType.Haste)) {
           applyStatus(a, StatusType.Haste, 1, state);
           hasteCount++;
           caster.buffsApplied++;
@@ -3768,7 +3920,7 @@ function applyOnHitEffects(state: GameState, attacker: UnitState, target: UnitSt
       // Lurker: burn (poison) on melee hit
       if (isMelee) applyStatus(target, StatusType.Burn, 1 + (sp?.extraBurnStacks ?? 0));
       // Savage Instinct: frenzied Wild units gain 15% lifesteal
-      if (isMelee && state.players[attacker.playerId]?.researchUpgrades.raceUpgrades['wild_ability_4'] && attacker.statusEffects.some(e => e.type === StatusType.Frenzy)) {
+      if (isMelee && state.players[attacker.playerId]?.researchUpgrades.raceUpgrades['wild_ability_4'] && hasStatus(attacker.statusEffects, StatusType.Frenzy)) {
         const wildSteal = Math.round(attacker.damage * 0.15);
         if (wildSteal > 0) {
           const wah = healUnit(attacker, wildSteal);
@@ -3779,7 +3931,7 @@ function applyOnHitEffects(state: GameState, attacker: UnitState, target: UnitSt
       }
       break;
     case Race.Geists:
-      // Bone Knight: burn (soul drain) on melee hit + lifesteal 20% + Wound
+      // Bone Knight: burn (soul drain) on melee hit + lifesteal 10% + Wound
       if (isMelee) {
         applyStatus(target, StatusType.Burn, 1 + (sp?.extraBurnStacks ?? 0));
         applyWound(target, state); // Geists melee applies Wound
@@ -3791,7 +3943,7 @@ function applyOnHitEffects(state: GameState, attacker: UnitState, target: UnitSt
           addSound(state, 'combat_lifesteal', attacker.x, attacker.y);
         }
       }
-      // Wraith Bow: 20% ranged lifesteal is applied via projectile hit logic (tickProjectiles)
+      // Wraith Bow: 10% ranged lifesteal is applied via projectile hit logic (tickProjectiles)
       break;
     case Race.Tenders:
       // Treant: slow on melee hit only when upgraded (entangling roots — Radish King G-tier)
@@ -3810,7 +3962,7 @@ function applyOnHitEffects(state: GameState, attacker: UnitState, target: UnitSt
     // Horde Blood Rage: +20% dmg when <50% HP (handled at damage calc time)
     // Deep Crushing Depths: +20% vs slowed (handled at damage calc time)
     // Crown Royal Guard: +2g on kill (handled in dealDamage kill section)
-    // Wild Predator's Mark: marked target takes +15% from all
+    // Wild Slowing Shots: +1 Slow on ranged hit
     if (bu.raceUpgrades['wild_ranged_2'] && attacker.category === 'ranged') {
       applyStatus(target, StatusType.Slow, 1);
     }
@@ -4231,26 +4383,14 @@ function tickUnitCollision(state: GameState): void {
   const minSep = UNIT_COLLISION_RADIUS * 2; // two radii = minimum distance between centers
 
   // Unit-vs-unit hard collision — creates battle lines.
-  // Spatial grid to avoid O(n^2) — bucket units into 2-tile cells.
-  const cellSize = 2;
-  const grid = new Map<number, UnitState[]>();
-  for (const u of units) {
-    if (u.hp <= 0) continue;
-    const key = (Math.floor(u.x / cellSize) * 10000) + Math.floor(u.y / cellSize);
-    const bucket = grid.get(key);
-    if (bucket) bucket.push(u); else grid.set(key, [u]);
-  }
+  // Reuse module-level _collisionGrid (cell size 2) to avoid per-tick Map allocation.
+  _collisionGrid.build(units);
 
   for (const u of units) {
     if (u.hp <= 0) continue;
-    const cx = Math.floor(u.x / cellSize);
-    const cy = Math.floor(u.y / cellSize);
-    // Check 3x3 neighborhood
-    for (let gx = cx - 1; gx <= cx + 1; gx++) {
-      for (let gy = cy - 1; gy <= cy + 1; gy++) {
-        const bucket = grid.get(gx * 10000 + gy);
-        if (!bucket) continue;
-        for (const o of bucket) {
+    const nearby = _collisionGrid.getNearby(u.x, u.y, minSep);
+    for (let ni = 0; ni < nearby.length; ni++) {
+      const o = nearby[ni];
           if (o.id <= u.id || o.hp <= 0) continue; // process each pair once
           let dx = o.x - u.x;
           let dy = o.y - u.y;
@@ -4279,8 +4419,6 @@ function tickUnitCollision(state: GameState): void {
           u.y -= ny * push;
           o.x += nx * push;
           o.y += ny * push;
-        }
-      }
     }
   }
 
@@ -4321,6 +4459,9 @@ function tickCombat(state: GameState): void {
     _attackerCount.set(u.targetId, (_attackerCount.get(u.targetId) ?? 0) + 1);
   }
   const attackerCount = _attackerCount;
+
+  // Reset transient building-attack flags (set below when units attack towers/HQ)
+  for (const u of state.units) u._attackBuildingIdx = undefined;
 
   // Shuffle combat processing order to prevent first-mover advantage
   // Fisher-Yates shuffle using deterministic rng for lockstep safety
@@ -4529,13 +4670,16 @@ function tickCombat(state: GameState): void {
       }
       if (bestSiegeBuilding) {
         const effDmg = getEffectiveDamage(unit, state);
+        const siegeRace = state.players[unit.playerId]?.race ?? Race.Crown;
+        const siegeVis = getProjectileVisual(siegeRace, unit.category, unit.upgradeNode);
         state.projectiles.push({
           id: genId(state), x: unit.x, y: unit.y,
           targetId: 0,
           targetX: bestSiegeBuilding.worldX,
           targetY: bestSiegeBuilding.worldY,
           damage: effDmg,
-          speed: 8, aoeRadius: sp?.splashRadius ?? 3, team: unit.team, visual: 'cannonball',
+          speed: 8, aoeRadius: sp?.splashRadius ?? 3, team: unit.team,
+          visual: siegeVis.visual, spriteKey: siegeVis.spriteKey,
           sourcePlayerId: unit.playerId, sourceUnitId: unit.id,
           splashDamagePct: sp?.splashDamagePct ?? 0.60,
           buildingDamageMult: sp?.buildingDamageMult ?? 3.0,
@@ -4543,6 +4687,7 @@ function tickCombat(state: GameState): void {
           extraSlowStacks: sp?.extraSlowStacks,
         });
         unit.attackTimer = Math.round(unit.attackSpeed * TICK_RATE);
+        unit._attackBuildingIdx = state.buildings.indexOf(bestSiegeBuilding);
         addSound(state, 'ranged_hit', unit.x, unit.y, { race: state.players[unit.playerId]?.race });
         continue; // skip regular attack this tick
       }
@@ -4576,10 +4721,12 @@ function tickCombat(state: GameState): void {
           // Geists caster: single-target projectile (no AoE — summons skeletons from deaths instead)
           if (race === Race.Geists) {
             const effDmg = getEffectiveDamage(unit, state);
+            const gVis = getProjectileVisual(race, 'caster', unit.upgradeNode);
             state.projectiles.push({
               id: genId(state), x: unit.x, y: unit.y,
               targetId: target.id, damage: effDmg,
-              speed: 12, aoeRadius: 0, team: unit.team, visual: 'circle',
+              speed: 12, aoeRadius: 0, team: unit.team,
+              visual: gVis.visual, spriteKey: gVis.spriteKey,
               sourcePlayerId: unit.playerId, sourceUnitId: unit.id,
               extraBurnStacks: sp?.extraBurnStacks,
               lifestealPct: sp?.lifeDrainPct ?? 0.1,
@@ -4589,10 +4736,12 @@ function tickCombat(state: GameState): void {
             // Crown mage branch: high-damage AoE with spell effects
             const aoeRadius = 3 + (sp?.aoeRadiusBonus ?? 0);
             const effDmg = getEffectiveDamage(unit, state);
+            const cmVis = getProjectileVisual(race, 'caster', unit.upgradeNode);
             state.projectiles.push({
               id: genId(state), x: unit.x, y: unit.y,
               targetId: target.id, damage: effDmg,
-              speed: 10, aoeRadius, team: unit.team, visual: 'circle',
+              speed: 10, aoeRadius, team: unit.team,
+              visual: cmVis.visual, spriteKey: cmVis.spriteKey,
               sourcePlayerId: unit.playerId, sourceUnitId: unit.id,
               extraBurnStacks: sp?.extraBurnStacks,
             });
@@ -4609,6 +4758,7 @@ function tickCombat(state: GameState): void {
             const cbuGen = state.players[unit.playerId]?.researchUpgrades;
             if (cbuGen?.raceUpgrades['wild_caster_1']) aoeRadius += 1;
             const effDmg = getEffectiveDamage(unit, state);
+            const cVis = getProjectileVisual(race, 'caster', unit.upgradeNode);
             // Caster chain lightning: fire chain projectiles to nearby enemies (Oozlings, Goblins, Tenders)
             const casterChainCount = sp?.extraChainTargets ?? 0;
             if (casterChainCount > 0) {
@@ -4616,7 +4766,8 @@ function tickCombat(state: GameState): void {
               state.projectiles.push({
                 id: genId(state), x: unit.x, y: unit.y,
                 targetId: target.id, damage: effDmg,
-                speed: 12, aoeRadius: 0, team: unit.team, visual: 'orb',
+                speed: 12, aoeRadius: 0, team: unit.team,
+                visual: cVis.spriteKey ? cVis.visual : 'orb', spriteKey: cVis.spriteKey,
                 sourcePlayerId: unit.playerId, sourceUnitId: unit.id,
                 extraSlowStacks: sp?.extraSlowStacks,
                 applyWound: sp?.applyWound,
@@ -4648,7 +4799,8 @@ function tickCombat(state: GameState): void {
               state.projectiles.push({
                 id: genId(state), x: unit.x, y: unit.y,
                 targetId: target.id, damage: effDmg,
-                speed: 10, aoeRadius, team: unit.team, visual: 'circle',
+                speed: 10, aoeRadius, team: unit.team,
+                visual: cVis.spriteKey ? cVis.visual : 'circle', spriteKey: cVis.spriteKey,
                 sourcePlayerId: unit.playerId, sourceUnitId: unit.id,
                 extraBurnStacks: sp?.extraBurnStacks,
                 extraSlowStacks: sp?.extraSlowStacks,
@@ -4690,17 +4842,18 @@ function tickCombat(state: GameState): void {
             // Horde Bombardier: add AoE to ranged projectiles
             if (rbu.raceUpgrades['horde_ranged_2'] && rangedAoe === 0) { rangedAoe = 2.5; rangedSplashPct = 0.30; }
             // Horde Berserker Howl: +25% ranged damage while hasted
-            if (rbu.raceUpgrades['horde_caster_2'] && unit.statusEffects.some(e => e.type === StatusType.Haste)) effDmg = Math.round(effDmg * 1.25);
+            if (rbu.raceUpgrades['horde_caster_2'] && hasStatus(unit.statusEffects, StatusType.Haste)) effDmg = Math.round(effDmg * 1.25);
             // Deep Anchor Shot: +100% damage for siege units
             if (rbu.raceUpgrades['deep_ranged_2'] && (sp?.isSiegeUnit ?? false)) effDmg = Math.round(effDmg * 2.00);
           }
           const isSiege = sp?.isSiegeUnit ?? false;
+          const rVis = getProjectileVisual(race, 'ranged', unit.upgradeNode);
           state.projectiles.push({
             id: genId(state), x: unit.x, y: unit.y,
             targetId: target.id, damage: effDmg,
             speed: isSiege ? 8 : 15,
             aoeRadius: rangedAoe, team: unit.team,
-            visual: isSiege ? 'cannonball' : (RANGED_VISUAL[race] ?? 'arrow'),
+            visual: rVis.visual, spriteKey: rVis.spriteKey,
             sourcePlayerId: unit.playerId, sourceUnitId: unit.id,
             extraBurnStacks: sp?.extraBurnStacks,
             extraSlowStacks: sp?.extraSlowStacks,
@@ -4715,16 +4868,18 @@ function tickCombat(state: GameState): void {
             state.projectiles.push({
               id: genId(state), x: unit.x, y: unit.y,
               targetId: target.id, damage: Math.round(effDmg * 0.40),
-              speed: 15, aoeRadius: 0, team: unit.team, visual: RANGED_VISUAL[race] ?? 'arrow',
+              speed: 15, aoeRadius: 0, team: unit.team,
+              visual: rVis.visual, spriteKey: rVis.spriteKey,
               sourcePlayerId: unit.playerId, sourceUnitId: unit.id,
             });
           }
-          // Research: Goblins Acid Bolts — 15% chance extra projectile
+          // Research: Goblins Lucky Shot — 15% chance extra projectile
           if (rbu?.raceUpgrades['goblins_ranged_2'] && state.rng() < 0.15) {
             state.projectiles.push({
               id: genId(state), x: unit.x, y: unit.y,
               targetId: target.id, damage: effDmg,
-              speed: 15, aoeRadius: 0, team: unit.team, visual: RANGED_VISUAL[race] ?? 'arrow',
+              speed: 15, aoeRadius: 0, team: unit.team,
+              visual: rVis.visual, spriteKey: rVis.spriteKey,
               sourcePlayerId: unit.playerId, sourceUnitId: unit.id,
               extraBurnStacks: sp?.extraBurnStacks,
               extraSlowStacks: sp?.extraSlowStacks,
@@ -4745,7 +4900,8 @@ function tickCombat(state: GameState): void {
               state.projectiles.push({
                 id: genId(state), x: unit.x, y: unit.y,
                 targetId: pvTarget.id, damage: effDmg,
-                speed: 15, aoeRadius: 0, team: unit.team, visual: RANGED_VISUAL[race] ?? 'arrow',
+                speed: 15, aoeRadius: 0, team: unit.team,
+                visual: rVis.visual, spriteKey: rVis.spriteKey,
                 sourcePlayerId: unit.playerId, sourceUnitId: unit.id,
                 lifestealPct: 0.1,
               });
@@ -4766,7 +4922,8 @@ function tickCombat(state: GameState): void {
               state.projectiles.push({
                 id: genId(state), x: unit.x, y: unit.y,
                 targetId: nearby[mi].u.id, damage: msDmg,
-                speed: 15, aoeRadius: 0, team: unit.team, visual: RANGED_VISUAL[race] ?? 'arrow',
+                speed: 15, aoeRadius: 0, team: unit.team,
+                visual: rVis.visual, spriteKey: rVis.spriteKey,
                 sourcePlayerId: unit.playerId, sourceUnitId: unit.id,
                 extraBurnStacks: sp?.extraBurnStacks,
                 extraSlowStacks: sp?.extraSlowStacks,
@@ -4861,9 +5018,9 @@ function tickCombat(state: GameState): void {
               meleeDmg = Math.round(meleeDmg * (1 + 0.80 * missingPct));
             }
             // Demon Infernal Rage: +25% vs burning
-            if (mbu.raceUpgrades['demon_melee_1'] && target.statusEffects.some(e => e.type === StatusType.Burn)) meleeDmg = Math.round(meleeDmg * 1.25);
+            if (mbu.raceUpgrades['demon_melee_1'] && hasStatus(target.statusEffects, StatusType.Burn)) meleeDmg = Math.round(meleeDmg * 1.25);
             // Deep Crushing Depths: +50% vs slowed
-            if (mbu.raceUpgrades['deep_melee_2'] && target.statusEffects.some(e => e.type === StatusType.Slow)) meleeDmg = Math.round(meleeDmg * 1.50);
+            if (mbu.raceUpgrades['deep_melee_2'] && hasStatus(target.statusEffects, StatusType.Slow)) meleeDmg = Math.round(meleeDmg * 1.50);
             // Wild Pack Hunter: +5% per nearby ally, max +40%
             if (mbu.raceUpgrades['wild_melee_2']) {
               let nearAllies = 0;
@@ -4875,9 +5032,9 @@ function tickCombat(state: GameState): void {
               meleeDmg = Math.round(meleeDmg * (1 + Math.min(0.40, nearAllies * 0.05)));
             }
             // Wild Savage Frenzy: +10% extra damage during frenzy
-            if (mbu.raceUpgrades['wild_melee_1'] && unit.statusEffects.some(e => e.type === StatusType.Frenzy)) meleeDmg = Math.round(meleeDmg * 1.10);
+            if (mbu.raceUpgrades['wild_melee_1'] && hasStatus(unit.statusEffects, StatusType.Frenzy)) meleeDmg = Math.round(meleeDmg * 1.10);
             // Horde Berserker Howl: +25% damage while hasted
-            if (mbu.raceUpgrades['horde_caster_2'] && unit.statusEffects.some(e => e.type === StatusType.Haste)) meleeDmg = Math.round(meleeDmg * 1.25);
+            if (mbu.raceUpgrades['horde_caster_2'] && hasStatus(unit.statusEffects, StatusType.Haste)) meleeDmg = Math.round(meleeDmg * 1.25);
           }
           dealDamage(state, target, meleeDmg, meleeDmg >= 5, unit.playerId, unit.id);
           if (meleeHitSounds < 4) { addSound(state, 'melee_hit', unit.x, unit.y, { race: state.players[unit.playerId]?.race }); meleeHitSounds++; }
@@ -4948,6 +5105,7 @@ function tickCombat(state: GameState): void {
         addFloatingText(state, nearestTower.worldX, nearestTower.worldY, `${tDmg}`, '#ffffff', undefined, undefined,
           { ftType: 'damage', magnitude: tDmg, miniIcon: 'sword' });
         unit.attackTimer = Math.round(unit.attackSpeed * TICK_RATE);
+        unit._attackBuildingIdx = state.buildings.indexOf(nearestTower);
         if (nearestTower.hp <= 0) {
           addFloatingText(state, nearestTower.worldX, nearestTower.worldY, 'DESTROYED', '#ff0000', undefined, undefined,
           { ftType: 'status' });
@@ -4998,6 +5156,7 @@ function tickCombat(state: GameState): void {
           { ftType: 'damage', magnitude: hDmg, miniIcon: 'sword' });
         addSound(state, 'hq_damaged', hqCx, hqCy);
         unit.attackTimer = Math.round(unit.attackSpeed * TICK_RATE);
+        unit._attackBuildingIdx = -1; // -1 = HQ
       }
     }
 
@@ -5024,7 +5183,7 @@ function tickCombat(state: GameState): void {
     // Horde War Drums: hasted units attack 20% faster (extra tick every 5th tick)
     const warDrumPlayer = state.players[unit.playerId];
     if (warDrumPlayer?.researchUpgrades.raceUpgrades['horde_caster_1']
-      && unit.statusEffects.some(e => e.type === StatusType.Haste)
+      && hasStatus(unit.statusEffects, StatusType.Haste)
       && unit.attackTimer > 0 && state.tick % 5 === 0) {
       unit.attackTimer--;
     }
@@ -5499,7 +5658,7 @@ function tickProjectiles(state: GameState): void {
         // Wild Savage Instinct: frenzied Wild units gain 15% lifesteal on ranged
         if (pbu.raceUpgrades['wild_ability_4']) {
           const wildSrc = p.sourceUnitId != null ? unitById.get(p.sourceUnitId) : undefined;
-          if (wildSrc && wildSrc.hp > 0 && wildSrc.statusEffects.some(e => e.type === StatusType.Frenzy)) {
+          if (wildSrc && wildSrc.hp > 0 && hasStatus(wildSrc.statusEffects, StatusType.Frenzy)) {
             const wildSteal = Math.round(p.damage * 0.15);
             if (wildSteal > 0) {
               const wah = healUnit(wildSrc, wildSteal);
@@ -5658,8 +5817,8 @@ function tickStatusEffects(state: GameState): void {
       }
       if (regen > 0 && unit.hp < unit.maxHp) {
         // Any burn or slow (poison) effect suppresses regen
-        const hasBurn = unit.statusEffects.some(e => e.type === StatusType.Burn);
-        const hasSlow = unit.statusEffects.some(e => e.type === StatusType.Slow);
+        const hasBurn = hasStatus(unit.statusEffects, StatusType.Burn);
+        const hasSlow = hasStatus(unit.statusEffects, StatusType.Slow);
         if (!hasBurn && !hasSlow) {
           const regenAh = healUnit(unit, regen);
           if (regenAh > 0) trackHealing(state, unit, regenAh);
@@ -5680,7 +5839,7 @@ function tickStatusEffects(state: GameState): void {
       // Burn DoT: 2 damage per stack per second (routes through shield)
       // SEARED combo: if also slowed, burn does 50% more damage
       if (eff.type === StatusType.Burn && state.tick % TICK_RATE === 0) {
-        const hasSlowCombo = unit.statusEffects.some(e => e.type === StatusType.Slow);
+        const hasSlowCombo = hasStatus(unit.statusEffects, StatusType.Slow);
         const baseBurnDmg = 2 * eff.stacks;
         const burnDmg = hasSlowCombo ? Math.round(baseBurnDmg * 1.5) : baseBurnDmg;
         // Attribute burn to first active enemy player (correct in 1v1, approximate in team modes)
@@ -5725,7 +5884,7 @@ function tickStatusEffects(state: GameState): void {
     for (const unit of state.units) {
       const sympPlayer = state.players[unit.playerId];
       if (sympPlayer?.researchUpgrades.raceUpgrades['oozlings_caster_1'] && unit.category === 'caster') {
-        if (unit.statusEffects.some(e => e.type === StatusType.Haste) && unit.hp < unit.maxHp) {
+        if (hasStatus(unit.statusEffects, StatusType.Haste) && unit.hp < unit.maxHp) {
           healUnit(unit, 1);
         }
       }
@@ -6299,9 +6458,7 @@ function tickHarvesters(state: GameState): void {
 const CARDINAL_DIRS: ReadonlyArray<readonly [number, number]> = [[0, -1], [0, 1], [-1, 0], [1, 0]];
 
 /** Pre-compute shared data for center harvesters (once per tick). */
-function buildCenterHarvesterContext(state: GameState): { cellSet: Set<string>; taken: Set<number> } {
-  const cellSet = new Set<string>();
-  for (const c of state.diamondCells) if (c.gold > 0) cellSet.add(`${c.tileX},${c.tileY}`);
+function buildCenterHarvesterContext(state: GameState): { taken: Set<number> } {
   const taken = new Set<number>();
   for (const oh of state.harvesters) {
     if (oh.state === 'dead') continue;
@@ -6309,14 +6466,13 @@ function buildCenterHarvesterContext(state: GameState): { cellSet: Set<string>; 
       taken.add(oh.targetCellIdx);
     }
   }
-  return { cellSet, taken };
+  return { taken };
 }
 
 /** Find an unmined diamond cell the harvester can reach (has a passable adjacent tile). */
 function findMinableDiamondCell(
   state: GameState,
   h: HarvesterState,
-  cellSet: Set<string>,
   taken: Set<number>,
 ): { cellIdx: number; minePos: { x: number; y: number } } | null {
   const cells = state.diamondCells;
@@ -6335,8 +6491,9 @@ function findMinableDiamondCell(
     for (const [ox, oy] of CARDINAL_DIRS) {
       const ax = c.tileX + ox;
       const ay = c.tileY + oy;
-      // Adjacent cell must not be unmined
-      if (cellSet.has(`${ax},${ay}`)) continue;
+      // Adjacent cell must not be unmined (O(1) integer-key lookup instead of string Set)
+      const adjCell = _diamondCellMapInt.get(ax * 10000 + ay);
+      if (adjCell && adjCell.gold > 0) continue;
       // Must not be inside an HQ
       if (isInsideAnyHQ(ax + 0.5, ay + 0.5, 0.3)) continue;
       const dx = (ax + 0.5) - h.x, dy = (ay + 0.5) - h.y;
@@ -6360,7 +6517,7 @@ function findMinableDiamondCell(
   return bestIdx >= 0 ? { cellIdx: bestIdx, minePos: bestPos } : null;
 }
 
-function tickCenterHarvester(state: GameState, h: HarvesterState, movePerTick: number, centerCtx: { cellSet: Set<string>; taken: Set<number> }): void {
+function tickCenterHarvester(state: GameState, h: HarvesterState, movePerTick: number, centerCtx: { taken: Set<number> }): void {
   if (h.carryingDiamond) {
     if (h.state !== 'walking_home') h.state = 'walking_home';
     walkHome(state, h, movePerTick);
@@ -6471,7 +6628,7 @@ function tickCenterHarvester(state: GameState, h: HarvesterState, movePerTick: n
     return;
   }
   // Find nearest unmined cell reachable from outside the diamond
-  const cellTarget = findMinableDiamondCell(state, h, centerCtx.cellSet, centerCtx.taken);
+  const cellTarget = findMinableDiamondCell(state, h, centerCtx.taken);
   if (!cellTarget) {
     // All cells mined — idle near diamond center waiting for exposure check
     const dc = state.mapDef.diamondCenter;

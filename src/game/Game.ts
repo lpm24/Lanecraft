@@ -545,10 +545,12 @@ export class Game {
     const ownHqHpRatio = this.state.hqHp[myTeam] / HQ_HP;
     if (ownHqHpRatio < 0.3) {
       this.sfx.setIntensity(2);
-    } else if (this.state.units.some(u => u.targetId !== null)) {
-      this.sfx.setIntensity(1);
     } else {
-      this.sfx.setIntensity(0);
+      let anyCombat = false;
+      for (let i = 0; i < this.state.units.length; i++) {
+        if (this.state.units[i].targetId !== null) { anyCombat = true; break; }
+      }
+      this.sfx.setIntensity(anyCombat ? 1 : 0);
     }
 
     // Check for match end — delay 3 seconds so player can see the final moment

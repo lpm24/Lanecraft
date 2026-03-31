@@ -48,15 +48,51 @@ const DISPLAY_SCALE = 1.8;
 // Race innate traits for melee/ranged/caster (verified against GameState.ts combat logic)
 interface InnateTrait { text: string; icon: StatVisualKey; }
 const RACE_INNATE_TRAITS: Record<Race, Record<string, InnateTrait[]>> = {
-  [Race.Crown]:    { melee: [{ text: '10% damage reduction', icon: 'damage-reduction' }], ranged: [], caster: [{ text: 'Shields nearby allies', icon: 'shield' }] },
-  [Race.Horde]:    { melee: [{ text: 'Knockback every 3rd hit', icon: 'knockback' }, { text: '10% lifesteal', icon: 'lifesteal' }], ranged: [{ text: 'Wound on hit', icon: 'wound' }], caster: [{ text: 'Grants Haste to allies', icon: 'haste' }, { text: 'AoE damage', icon: 'aoe' }] },
-  [Race.Goblins]:  { melee: [{ text: '15% dodge', icon: 'dodge' }, { text: 'Wound on hit', icon: 'wound' }], ranged: [{ text: 'Burn on hit', icon: 'burn' }, { text: 'Wound on hit', icon: 'wound' }], caster: [{ text: 'Slows enemies', icon: 'slow' }, { text: 'AoE damage', icon: 'aoe' }, { text: 'Wound on hit', icon: 'wound' }] },
-  [Race.Oozlings]: { melee: [{ text: 'Spawns x2', icon: 'spawn-rate' }, { text: '15% chance Haste on hit', icon: 'haste' }], ranged: [{ text: 'Spawns x2', icon: 'spawn-rate' }], caster: [{ text: 'Spawns x2', icon: 'spawn-rate' }, { text: 'Haste allies', icon: 'haste' }, { text: 'AoE damage', icon: 'aoe' }] },
-  [Race.Demon]:    { melee: [{ text: 'Burn on hit', icon: 'burn' }, { text: 'Wound on hit', icon: 'wound' }], ranged: [{ text: 'Burn on hit', icon: 'burn' }, { text: 'Wound on hit', icon: 'wound' }], caster: [{ text: 'AoE burn (pure damage)', icon: 'burn' }] },
-  [Race.Deep]:     { melee: [{ text: 'Slow on hit', icon: 'slow' }], ranged: [{ text: '2 Slow on hit', icon: 'slow' }], caster: [{ text: 'Cleanses burn from allies', icon: 'cleanse' }, { text: 'AoE damage', icon: 'aoe' }] },
-  [Race.Wild]:     { melee: [{ text: 'Burn (poison) on hit', icon: 'burn' }], ranged: [{ text: 'Burn on hit', icon: 'burn' }, { text: 'Wound on hit', icon: 'wound' }], caster: [{ text: 'Haste allies', icon: 'haste' }, { text: 'AoE damage', icon: 'aoe' }] },
-  [Race.Geists]:   { melee: [{ text: 'Burn on hit', icon: 'burn' }, { text: '20% lifesteal', icon: 'lifesteal' }, { text: 'Wound on hit', icon: 'wound' }], ranged: [{ text: 'Burn on hit', icon: 'burn' }, { text: '20% lifesteal', icon: 'lifesteal' }, { text: 'Wound on hit', icon: 'wound' }], caster: [{ text: 'Single-target attacker', icon: 'damage' }, { text: '20% lifesteal', icon: 'lifesteal' }, { text: 'Skeleton summon on nearby death', icon: 'summon' }] },
-  [Race.Tenders]:  { melee: [{ text: '1 HP/s regen', icon: 'regen' }], ranged: [{ text: 'Slow on hit', icon: 'slow' }], caster: [{ text: 'Heals most injured ally', icon: 'healing' }, { text: 'AoE damage', icon: 'aoe' }] },
+  [Race.Crown]: {
+    melee: [],
+    ranged: [],
+    caster: [{ text: 'Shields 2 nearest allies (12 HP, 4s)', icon: 'shield' }],
+  },
+  [Race.Horde]: {
+    melee: [{ text: 'Knockback every 3rd hit', icon: 'knockback' }, { text: '10% lifesteal', icon: 'lifesteal' }],
+    ranged: [{ text: 'Wound on hit: -50% healing, 6s', icon: 'wound' }],
+    caster: [{ text: 'Haste 5 nearest allies (3s)', icon: 'haste' }, { text: 'AoE r3, applies Wound', icon: 'aoe' }],
+  },
+  [Race.Goblins]: {
+    melee: [{ text: '15% dodge', icon: 'dodge' }, { text: 'Wound on hit: -50% healing, 6s', icon: 'wound' }],
+    ranged: [{ text: '+1 Burn on hit', icon: 'burn' }, { text: 'Wound on hit: -50% healing, 6s', icon: 'wound' }],
+    caster: [{ text: 'Slows all enemies in range', icon: 'slow' }, { text: 'AoE r3, 2 Burn + Wound', icon: 'aoe' }],
+  },
+  [Race.Oozlings]: {
+    melee: [{ text: 'Spawns x2', icon: 'spawn-rate' }, { text: '15% chance Haste on hit (self)', icon: 'haste' }],
+    ranged: [{ text: 'Spawns x2', icon: 'spawn-rate' }, { text: 'Chain to 1 enemy at 50% dmg', icon: 'chain' }],
+    caster: [{ text: 'Spawns x2', icon: 'spawn-rate' }, { text: 'Haste 3 nearest allies (3s)', icon: 'haste' }, { text: 'AoE r3, 1 Slow on splash', icon: 'aoe' }],
+  },
+  [Race.Demon]: {
+    melee: [{ text: '+1 Burn on hit', icon: 'burn' }, { text: 'Wound on hit: -50% healing, 6s', icon: 'wound' }],
+    ranged: [{ text: '+1 Burn on hit', icon: 'burn' }, { text: 'Wound on hit', icon: 'wound' }, { text: '20% crit chance, 1.75x dmg', icon: 'damage' }],
+    caster: [{ text: 'Pure damage (no support)', icon: 'damage' }, { text: 'AoE r3, 2 Burn + Wound', icon: 'burn' }],
+  },
+  [Race.Deep]: {
+    melee: [{ text: '+1 Slow on hit', icon: 'slow' }],
+    ranged: [{ text: '+2 Slow on hit', icon: 'slow' }],
+    caster: [{ text: 'Cleanse 2 Burn from all allies in range', icon: 'cleanse' }, { text: 'AoE r4, 2 Slow', icon: 'aoe' }],
+  },
+  [Race.Wild]: {
+    melee: [{ text: '+1 Burn on hit', icon: 'burn' }, { text: 'On kill: heal 15% HP, Frenzy+Haste nearby (6t)', icon: 'frenzy' }],
+    ranged: [{ text: '+1 Burn + Wound on hit', icon: 'burn' }, { text: 'On kill: heal 15% HP, Frenzy+Haste nearby (6t)', icon: 'frenzy' }],
+    caster: [{ text: 'Haste 3 nearest allies (3s)', icon: 'haste' }, { text: 'AoE r3, 2 Burn + Wound', icon: 'aoe' }, { text: 'On kill: heal 15% HP, Frenzy+Haste nearby (6t)', icon: 'frenzy' }],
+  },
+  [Race.Geists]: {
+    melee: [{ text: '+1 Burn on hit', icon: 'burn' }, { text: '10% lifesteal', icon: 'lifesteal' }, { text: 'Wound on hit: -50% healing, 6s', icon: 'wound' }],
+    ranged: [{ text: '+1 Burn on hit', icon: 'burn' }, { text: '10% lifesteal', icon: 'lifesteal' }],
+    caster: [{ text: 'Single-target attacker', icon: 'damage' }, { text: '10% lifesteal', icon: 'lifesteal' }],
+  },
+  [Race.Tenders]: {
+    melee: [],
+    ranged: [{ text: '+1 Slow on hit (2 on AoE)', icon: 'slow' }],
+    caster: [{ text: 'Heals 1 most injured ally for 1 HP', icon: 'healing' }, { text: 'AoE r4, 2 Slow', icon: 'aoe' }],
+  },
 };
 
 interface DetailSelection {

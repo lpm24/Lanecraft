@@ -919,11 +919,11 @@ export interface ResearchUpgradeDef {
 
 // 6 universal upgrades: melee/ranged/caster x atk/def
 export const RESEARCH_UPGRADES: ResearchUpgradeDef[] = [
-  { id: 'melee_atk', category: 'melee', type: 'attack', name: 'Melee Attack', desc: '{damage} +25% melee damage per level', oneShot: false },
+  { id: 'melee_atk', category: 'melee', type: 'attack', name: 'Melee Attack', desc: '{damage} x1.25 melee damage per level (compounds)', oneShot: false },
   { id: 'melee_def', category: 'melee', type: 'defense', name: 'Melee Defense', desc: '{damage-reduction} +6% melee DR per level (diminishing)', oneShot: false },
-  { id: 'ranged_atk', category: 'ranged', type: 'attack', name: 'Ranged Attack', desc: '{damage} +25% ranged damage per level', oneShot: false },
+  { id: 'ranged_atk', category: 'ranged', type: 'attack', name: 'Ranged Attack', desc: '{damage} x1.25 ranged damage per level (compounds)', oneShot: false },
   { id: 'ranged_def', category: 'ranged', type: 'defense', name: 'Ranged Defense', desc: '{damage-reduction} +6% ranged DR per level (diminishing)', oneShot: false },
-  { id: 'caster_atk', category: 'caster', type: 'attack', name: 'Caster Attack', desc: '{damage} +25% caster damage per level', oneShot: false },
+  { id: 'caster_atk', category: 'caster', type: 'attack', name: 'Caster Attack', desc: '{damage} x1.25 caster damage per level (compounds)', oneShot: false },
   { id: 'caster_def', category: 'caster', type: 'defense', name: 'Caster Defense', desc: '{damage-reduction} +6% caster DR per level (diminishing)', oneShot: false },
 ];
 
@@ -934,7 +934,7 @@ export const RACE_RESEARCH_UPGRADES: Record<Race, ResearchUpgradeDef[]> = {
     { id: 'crown_melee_2', category: 'melee', type: 'race_special', name: 'Royal Guard', desc: '{health} +15% HP, {gold} +2g on kill', oneShot: true },
     { id: 'crown_ranged_1', category: 'ranged', type: 'race_special', name: 'Piercing Arrows', desc: '{damage} +20% ranged damage', oneShot: true },
     { id: 'crown_ranged_2', category: 'ranged', type: 'race_special', name: 'Crown Volley', desc: '{additional-projectile} +1 proj at 40% dmg', oneShot: true },
-    { id: 'crown_caster_1', category: 'caster', type: 'race_special', name: 'Fortified Shields', desc: '{shield} +8 shield absorb per cast', oneShot: true },
+    { id: 'crown_caster_1', category: 'caster', type: 'race_special', name: 'Fortified Shields', desc: '{shield} +8 shield absorb per cast (12→20 HP)', oneShot: true },
     { id: 'crown_caster_2', category: 'caster', type: 'race_special', name: 'Healing Aura', desc: '{healing} Heal 2 nearest allies 1 HP/s within 6t', oneShot: true },
   ],
   [Race.Horde]: [
@@ -942,16 +942,16 @@ export const RACE_RESEARCH_UPGRADES: Record<Race, ResearchUpgradeDef[]> = {
     { id: 'horde_melee_2', category: 'melee', type: 'race_special', name: 'Thick Skin', desc: '{health} +25% HP', oneShot: true },
     { id: 'horde_ranged_1', category: 'ranged', type: 'race_special', name: 'Heavy Bolts', desc: '{wound} Wound on hit: -50% healing, 6s', oneShot: true },
     { id: 'horde_ranged_2', category: 'ranged', type: 'race_special', name: 'Bombardier', desc: '{splash} Splash 2.5t at 30%', oneShot: true },
-    { id: 'horde_caster_1', category: 'caster', type: 'race_special', name: 'War Drums', desc: '{haste} Haste 3s->5s, {attack-speed} +20% atk speed', oneShot: true },
+    { id: 'horde_caster_1', category: 'caster', type: 'race_special', name: 'War Drums', desc: '{haste} Haste +2s (3→5s). Hasted units {attack-speed} +20% atk speed', oneShot: true },
     { id: 'horde_caster_2', category: 'caster', type: 'race_special', name: 'Berserker Howl', desc: '{haste} Haste gives {damage} +25% dmg', oneShot: true },
   ],
   [Race.Goblins]: [
     { id: 'goblins_melee_1', category: 'melee', type: 'race_special', name: 'Coated Blades', desc: '{burn} +1 Burn on melee', oneShot: true },
     { id: 'goblins_melee_2', category: 'melee', type: 'race_special', name: 'Scurry', desc: '{move-speed} +35% move speed', oneShot: true },
     { id: 'goblins_ranged_1', category: 'ranged', type: 'race_special', name: 'Incendiary Tips', desc: '{burn} +1 Burn on ranged', oneShot: true },
-    { id: 'goblins_ranged_2', category: 'ranged', type: 'race_special', name: 'Acid Bolts', desc: '{additional-projectile} 15% chance to fire extra projectile', oneShot: true },
+    { id: 'goblins_ranged_2', category: 'ranged', type: 'race_special', name: 'Lucky Shot', desc: '{additional-projectile} 15% chance to fire extra projectile', oneShot: true },
     { id: 'goblins_caster_1', category: 'caster', type: 'race_special', name: 'Potent Hex', desc: '{burn} +1 Burn on caster AoE', oneShot: true },
-    { id: 'goblins_caster_2', category: 'caster', type: 'race_special', name: 'Jinx Cloud', desc: '{slow} Slowed targets get {wound} Wound: -50% healing', oneShot: true },
+    { id: 'goblins_caster_2', category: 'caster', type: 'race_special', name: 'Jinx Cloud', desc: '{slow} Slowed targets get {wound} Wound: -50% healing, 6s', oneShot: true },
   ],
   [Race.Oozlings]: [
     { id: 'oozlings_melee_1', category: 'melee', type: 'race_special', name: 'Volatile Membrane', desc: '{explode} Explode on death: 15 dmg in {aoe} 2t radius', oneShot: true },
@@ -981,7 +981,7 @@ export const RACE_RESEARCH_UPGRADES: Record<Race, ResearchUpgradeDef[]> = {
     { id: 'wild_melee_1', category: 'melee', type: 'race_special', name: 'Savage Frenzy', desc: '{frenzy} +10% dmg while Frenzied', oneShot: true },
     { id: 'wild_melee_2', category: 'melee', type: 'race_special', name: 'Pack Hunter', desc: '{damage} +5% dmg per ally within 4t, max +40%', oneShot: true },
     { id: 'wild_ranged_1', category: 'ranged', type: 'race_special', name: 'Venomous Fangs', desc: '{burn} +1 Burn + {wound} Wound on hit', oneShot: true },
-    { id: 'wild_ranged_2', category: 'ranged', type: 'race_special', name: "Predator's Mark", desc: '{slow} +1 {slow} Slow on ranged hit', oneShot: true },
+    { id: 'wild_ranged_2', category: 'ranged', type: 'race_special', name: 'Slowing Shots', desc: '{slow} +1 {slow} Slow on ranged hit', oneShot: true },
     { id: 'wild_caster_1', category: 'caster', type: 'race_special', name: "Nature's Wrath", desc: '{aoe} +1 AoE radius', oneShot: true },
     { id: 'wild_caster_2', category: 'caster', type: 'race_special', name: 'Alpha Howl', desc: '{frenzy} Casters grant Frenzy to 2 allies per cast', oneShot: true },
   ],
@@ -1013,21 +1013,21 @@ export const ABILITY_COST_MODIFIERS: Record<string, { upgradeId: string; field: 
 export const RACE_ABILITY_UPGRADES: Record<Race, ResearchUpgradeDef[]> = {
   [Race.Crown]: [
     { id: 'crown_ability_1', category: 'ability', type: 'race_ability', name: 'Swift Workers', desc: '{move-speed} +40% worker move speed', oneShot: true },
-    { id: 'crown_ability_2', category: 'ability', type: 'race_ability', name: 'Royal Forge', desc: 'Foundry costs no wood', oneShot: true },
+    { id: 'crown_ability_2', category: 'ability', type: 'race_ability', name: 'Royal Forge', desc: '{gold} Foundry costs no wood', oneShot: true },
     { id: 'crown_ability_3', category: 'ability', type: 'race_ability', name: 'Aegis Wrath', desc: '{shield} Shielded allies deal {damage} +25% damage', oneShot: true },
-    { id: 'crown_ability_4', category: 'ability', type: 'race_ability', name: 'Timber Surplus', desc: '+40% wood returned by workers', oneShot: true },
+    { id: 'crown_ability_4', category: 'ability', type: 'race_ability', name: 'Timber Surplus', desc: '{gold} +40% wood returned by workers', oneShot: true },
   ],
   [Race.Horde]: [
     { id: 'horde_ability_1', category: 'ability', type: 'race_ability', name: 'Trample', desc: '{aoe} War Troll deals 40% dmg in 2.5t AoE on hit', oneShot: true },
-    { id: 'horde_ability_2', category: 'ability', type: 'race_ability', name: 'Troll Discount', desc: 'War Troll costs 30% less', oneShot: true },
+    { id: 'horde_ability_2', category: 'ability', type: 'race_ability', name: 'Troll Discount', desc: '{gold} War Troll costs 30% less', oneShot: true },
     { id: 'horde_ability_3', category: 'ability', type: 'race_ability', name: 'Wide Aura', desc: '{aura} Caster aura range doubled (5→10t)', oneShot: true },
     { id: 'horde_ability_4', category: 'ability', type: 'race_ability', name: 'Trophy Hunter', desc: '{kill-scale} War Troll +2% HP/dmg per kill. Carries over.', oneShot: true },
   ],
   [Race.Goblins]: [
     { id: 'goblins_ability_1', category: 'ability', type: 'race_ability', name: 'Quick Brew', desc: '{spawn-rate} Potions spawn 33% faster, attract within 4t', oneShot: true },
-    { id: 'goblins_ability_2', category: 'ability', type: 'race_ability', name: 'Cower Reflexes', desc: '{dodge} Cowering goblins gain 25% dodge', oneShot: true },
-    { id: 'goblins_ability_3', category: 'ability', type: 'race_ability', name: 'Potent Potions', desc: 'Potion effects are 100% stronger', oneShot: true },
-    { id: 'goblins_ability_4', category: 'ability', type: 'race_ability', name: 'Elixir Mastery', desc: 'Potion buffs are permanent', oneShot: true },
+    { id: 'goblins_ability_2', category: 'ability', type: 'race_ability', name: 'Cower Reflexes', desc: '{dodge} Goblins below 50% HP gain 25% {dodge} dodge', oneShot: true },
+    { id: 'goblins_ability_3', category: 'ability', type: 'race_ability', name: 'Potent Potions', desc: '{damage} Potion effects apply 2x stacks', oneShot: true },
+    { id: 'goblins_ability_4', category: 'ability', type: 'race_ability', name: 'Elixir Mastery', desc: '{haste} Potion buffs are permanent', oneShot: true },
   ],
   [Race.Oozlings]: [
     { id: 'oozlings_ability_1', category: 'ability', type: 'race_ability', name: 'Spitter Mound', desc: '{spawn-rate} 25% chance to spawn ranged ooze', oneShot: true },
@@ -1048,7 +1048,7 @@ export const RACE_ABILITY_UPGRADES: Record<Race, ResearchUpgradeDef[]> = {
     { id: 'deep_ability_4', category: 'ability', type: 'race_ability', name: 'Purifying Deluge', desc: '{cleanse} Deluge cleanses all debuffs every 2s', oneShot: true },
   ],
   [Race.Wild]: [
-    { id: 'wild_ability_1', category: 'ability', type: 'race_ability', name: 'Meat Harvest', desc: '30% chance to gain +3 meat on kill', oneShot: true },
+    { id: 'wild_ability_1', category: 'ability', type: 'race_ability', name: 'Meat Harvest', desc: '{gold} 30% chance to gain +3 meat on kill', oneShot: true },
     { id: 'wild_ability_2', category: 'ability', type: 'race_ability', name: 'Blood Frenzy', desc: '{frenzy} Kill frenzy radius doubled (6→12t)', oneShot: true },
     { id: 'wild_ability_3', category: 'ability', type: 'race_ability', name: 'Pack Speed', desc: '{move-speed} +10% global move speed', oneShot: true },
     { id: 'wild_ability_4', category: 'ability', type: 'race_ability', name: 'Savage Instinct', desc: '{frenzy} Frenzied units gain {lifesteal} 15% lifesteal', oneShot: true },
@@ -1063,7 +1063,7 @@ export const RACE_ABILITY_UPGRADES: Record<Race, ResearchUpgradeDef[]> = {
     { id: 'tenders_ability_1', category: 'ability', type: 'race_ability', name: 'Fast Growth', desc: '{spawn-rate} Seeds grow 40% faster', oneShot: true },
     { id: 'tenders_ability_2', category: 'ability', type: 'race_ability', name: 'Quick Seeds', desc: '{attack-speed} Seed cooldown reduced by 30%', oneShot: true },
     { id: 'tenders_ability_3', category: 'ability', type: 'race_ability', name: 'Reseed', desc: '{spawn-rate} 30% chance to replant a T1 seed', oneShot: true },
-    { id: 'tenders_ability_4', category: 'ability', type: 'race_ability', name: 'Ironwood', desc: 'Tower upgrade costs reduced by 50%', oneShot: true },
+    { id: 'tenders_ability_4', category: 'ability', type: 'race_ability', name: 'Ironwood', desc: '{gold} Tower upgrade costs reduced by 50%', oneShot: true },
   ],
 };
 
@@ -1083,8 +1083,17 @@ export function getResearchUpgradeCost(id: string, level: number, race: Race): {
     return { gold: 0, wood: 0, meat: 0, souls: cost };
   }
   // Geists: one-shot racial upgrades cost souls (race_special tab only; race_ability handled by per-race table below)
+  // Costs vary by power level — lifesteal/summon buffs are premium, utility is cheaper
   if (race === Race.Geists && def.oneShot && id.startsWith('geists_') && def.type !== 'race_ability') {
-    return { gold: 0, wood: 0, meat: 0, souls: 100 };
+    const geistSoulCosts: Record<string, number> = {
+      geists_melee_1: 120,  // Death Grip: +5% lifesteal — core sustain, premium
+      geists_melee_2: 150,  // Spectral Armor: scaling DR — very strong late
+      geists_ranged_1: 120, // Soul Arrows: +5% ranged lifesteal — core sustain
+      geists_ranged_2: 100, // Phantom Volley: 15% chance 2nd target — moderate
+      geists_caster_1: 80,  // Necrotic Burst: heal 3 allies 2 HP — utility
+      geists_caster_2: 140, // Undying Will: +15% skeleton summon — strong scaling
+    };
+    return { gold: 0, wood: 0, meat: 0, souls: geistSoulCosts[id] ?? 120 };
   }
   // Oozlings: research costs ooze (deathEssence) — race_ability handled by per-race table below
   if (race === Race.Oozlings && def.type !== 'race_ability') {

@@ -379,6 +379,22 @@ import circleBlueLg from '../assets/images/OVERBURN AssetPack/OVERBURN AssetPack
 import circleGreenLg from '../assets/images/OVERBURN AssetPack/OVERBURN AssetPack/02 Green FX/FX_Fire02_Circle64px_8x6.png?url';
 import circlePurpleLg from '../assets/images/OVERBURN AssetPack/OVERBURN AssetPack/03 Purple FX/FX_Fire03_Circle64px_8x6.png?url';
 
+// Per-unit projectile sprites (128x128 transparent PNGs)
+import projArrow from '../assets/images/projectiles/arrow.png?url';
+import projDagger from '../assets/images/projectiles/dagger.png?url';
+import projFireArrow from '../assets/images/projectiles/fire_arrow.png?url';
+import projFireBolt from '../assets/images/projectiles/fire_bolt.png?url';
+import projHarpoon from '../assets/images/projectiles/harpoon.png?url';
+import projHolyBolt from '../assets/images/projectiles/holy_bolt.png?url';
+import projMagicMissile from '../assets/images/projectiles/magic_missile.png?url';
+import projMusicNote from '../assets/images/projectiles/music_note.png?url';
+import projNatureBolt from '../assets/images/projectiles/nature_bolt.png?url';
+import projPoisonArrow from '../assets/images/projectiles/poison_arrow.png?url';
+import projShadowBolt from '../assets/images/projectiles/shadow_bolt.png?url';
+import projSlimeMissile from '../assets/images/projectiles/slime_missile.png?url';
+import projStoneBall from '../assets/images/projectiles/stone_ball.png?url';
+import projWaterBolt from '../assets/images/projectiles/water_bolt.png?url';
+
 // ============================================================
 // VFX SPRITES (OVERBURN + Tiny Swords Particle FX)
 // ============================================================
@@ -1200,6 +1216,27 @@ const ARROW_SPRITES: { [team: number]: SpriteDef } = {
 // Bone projectile: 4x1 spritesheet (256x64, use first frame 64x64)
 const BONE_SPRITE: SpriteDef = singleFrame(gnollBone, 64, 64, 0.5);
 
+// Per-unit projectile sprites (128x128 single-frame PNGs)
+const PROJECTILE_SPRITES: Record<string, SpriteDef> = {
+  arrow:          singleFrame(projArrow, 128, 128),
+  dagger:         singleFrame(projDagger, 128, 128),
+  fire_arrow:     singleFrame(projFireArrow, 128, 128),
+  fire_bolt:      singleFrame(projFireBolt, 128, 128),
+  harpoon:        singleFrame(projHarpoon, 128, 128),
+  holy_bolt:      singleFrame(projHolyBolt, 128, 128),
+  magic_missile:  singleFrame(projMagicMissile, 128, 128),
+  music_note:     singleFrame(projMusicNote, 128, 128),
+  nature_bolt:    singleFrame(projNatureBolt, 128, 128),
+  poison_arrow:   singleFrame(projPoisonArrow, 128, 128),
+  shadow_bolt:    singleFrame(projShadowBolt, 128, 128),
+  slime_missile:  singleFrame(projSlimeMissile, 128, 128),
+  stone_ball:     singleFrame(projStoneBall, 128, 128),
+  water_bolt:     singleFrame(projWaterBolt, 128, 128),
+};
+
+// Sprite keys that should spin in addition to rotating toward target
+const SPINNING_PROJECTILES = new Set(['stone_ball']);
+
 // Orbs — small 32px: 6x5 grid (288x240, 48x48/frame, 30 frames)
 const ORB_SM = {
   yellow: gridSheet(orbYellowSm, 288, 240, 6, 5),
@@ -1531,6 +1568,19 @@ export class SpriteLoader {
     return img ? [img, def] : null;
   }
 
+  /** Get a named projectile sprite (per-unit sprites) */
+  getProjectileSprite(key: string): [HTMLImageElement, SpriteDef] | null {
+    const def = PROJECTILE_SPRITES[key];
+    if (!def) return null;
+    const img = this.loadImage(def.url);
+    return img ? [img, def] : null;
+  }
+
+  /** Whether this sprite key should spin (e.g. stone_ball) */
+  isSpinningProjectile(key: string): boolean {
+    return SPINNING_PROJECTILES.has(key);
+  }
+
   // --- VFX ---
 
   getFxSprite(key: keyof typeof FX_SPRITES): [HTMLImageElement, SpriteDef | GridSpriteDef] | null {
@@ -1597,6 +1647,7 @@ export class SpriteLoader {
     for (const def of Object.values(ORB_LG)) urls.add(def.url);
     for (const def of Object.values(CIRCLE_SM)) urls.add(def.url);
     for (const def of Object.values(CIRCLE_LG)) urls.add(def.url);
+    for (const def of Object.values(PROJECTILE_SPRITES)) urls.add(def.url);
 
     // Kick off loading for all URLs and collect promises
     const promises: Promise<void>[] = [];

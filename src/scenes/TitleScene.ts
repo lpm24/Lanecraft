@@ -22,6 +22,7 @@ import {
   TitleSfx, getSpawnCountForUnit, pickUpgradePath, createDuelUnit,
   getEffectiveSpeed, tickDuelStatusEffects, tickDuelCombat, tickDuelProjectiles, findNearestEnemy,
 } from './TitleDuelSim';
+import titleLogoUrl from '../assets/images/title_logo.png?url';
 
 
 const PARTY_DIFFICULTY_OPTIONS: { level: BotDifficultyLevel; label: string; color: string }[] = [
@@ -97,6 +98,9 @@ export class TitleScene implements Scene {
   private winTimer = 0;
   private winScale = 0;
 
+  // Title logo image
+  private titleLogoImg: HTMLImageElement | null = null;
+
   // Sound
   private sfx = new TitleSfx();
   private menuMusic = new SoundManager();
@@ -162,6 +166,10 @@ export class TitleScene implements Scene {
     this.ui = ui;
     this.sprites = sprites;
     this.musicPlayer = musicPlayer;
+    // Load title logo
+    const logoImg = new Image();
+    logoImg.src = titleLogoUrl;
+    logoImg.onload = () => { this.titleLogoImg = logoImg; };
     // Load persisted duel settings
     try {
       const ts = localStorage.getItem('lanecraft.duelTeamSize');
@@ -2025,27 +2033,23 @@ export class TitleScene implements Scene {
 
     // === UI Elements ===
 
-    // Title banner
-    const bannerW = Math.min(w * 0.75, 550);
-    const bannerH = Math.min(h * 0.18, 140);
-    const bannerX = (w - bannerW) / 2;
-    const bannerY = h * 0.04;
-    this.ui.drawBanner(ctx, bannerX, bannerY, bannerW, bannerH);
-
-    const titleSize = Math.max(20, Math.min(bannerW / 10, 44));
-    ctx.font = `bold ${titleSize}px monospace`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillStyle = 'rgba(0,0,0,0.5)';
-    ctx.fillText('LANECRAFT', w / 2 + 2, bannerY + bannerH * 0.45 + 2);
-    ctx.fillStyle = '#fff';
-    ctx.fillText('LANECRAFT', w / 2, bannerY + bannerH * 0.45);
-
-    // Subtitle
+    // Title logo + subtitle drawn on top
+    const bannerH = Math.min(h * 0.35, 280);
+    const bannerY = h * 0.01;
+    if (this.titleLogoImg) {
+      const aspect = this.titleLogoImg.width / this.titleLogoImg.height;
+      const maxW = Math.min(w * 0.75, 500);
+      let logoW = bannerH * aspect;
+      let logoH = bannerH;
+      if (logoW > maxW) { logoW = maxW; logoH = logoW / aspect; }
+      const logoX = (w - logoW) / 2;
+      ctx.drawImage(this.titleLogoImg, logoX, bannerY, logoW, logoH);
+    }
     const subW = Math.min(w * 0.62, 420);
     const subH = Math.min(h * 0.055, 40);
     const subX = (w - subW) / 2;
-    const subY = bannerY + bannerH - subH * 0.2;
+    const logoActualH = this.titleLogoImg ? Math.min(bannerH, Math.min(w * 0.75, 500) / (this.titleLogoImg.width / this.titleLogoImg.height)) : bannerH;
+    const subY = bannerY + logoActualH * 1.02 - subH * 0.5;
     this.ui.drawSmallRibbon(ctx, subX, subY, subW, subH, 0);
     const subFontSize = Math.max(11, subH * 0.38);
     ctx.font = `bold ${subFontSize}px monospace`;
@@ -2223,7 +2227,7 @@ export class TitleScene implements Scene {
     if (this.openLobbyCount == null) return;
     const label = this.openLobbyCount === 1 ? '1 lobby' : `${this.openLobbyCount} lobbies`;
     const fontSize = Math.max(9, Math.min(rect.h * 0.23, 13));
-    const tx = rect.x + rect.w * 0.84;
+    const tx = rect.x + rect.w * 0.84 - 30;
     const ty = rect.y + rect.h * 0.5;
     ctx.save();
     ctx.font = `bold ${fontSize}px monospace`;
@@ -2435,8 +2439,11 @@ export class TitleScene implements Scene {
           const sprSize = avatarSize - sprInset * 2;
           // Apply sprite scale so avatars match in-game relative sizes
           const sprScale = def.scale ?? 1.0;
-          const drawH = sprSize * sprScale;
-          const drawW = drawH * aspect;
+          const maxH = sprSize * sprScale;
+          const maxW = sprSize;
+          let drawW: number, drawH: number;
+          if (maxH * aspect > maxW) { drawW = maxW; drawH = maxW / aspect; }
+          else { drawH = maxH; drawW = maxH * aspect; }
           const gY = def.groundY ?? 0.71;
           const feetY = avatarY + avatarSize - sprInset - 2;
           const drawY = feetY - drawH * gY;
@@ -3131,8 +3138,11 @@ export class TitleScene implements Scene {
         const aspect = def.frameW / def.frameH;
         const sprInset = 2;
         const sprScale = def.scale ?? 1.0;
-        const drawH = (badgeSize - sprInset * 2) * sprScale;
-        const drawW = drawH * aspect;
+        const maxH = (badgeSize - sprInset * 2) * sprScale;
+        const maxW = badgeSize - sprInset * 2;
+        let drawW: number, drawH: number;
+        if (maxH * aspect > maxW) { drawW = maxW; drawH = maxW / aspect; }
+        else { drawH = maxH; drawW = maxH * aspect; }
         const gY = def.groundY ?? 0.71;
         const feetY = badgeY + badgeSize - sprInset - 1;
         const drawY = feetY - drawH * gY;

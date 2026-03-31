@@ -444,8 +444,11 @@ export class ProfileScene implements Scene {
         const sprInset = 4;
         const sprSize = avatarSize - sprInset * 2;
         const sprScale = def.scale ?? 1.0;
-        const drawH = sprSize * sprScale;
-        const drawW = drawH * aspect;
+        const maxH = sprSize * sprScale;
+        const maxW = sprSize;
+        let drawW: number, drawH: number;
+        if (maxH * aspect > maxW) { drawW = maxW; drawH = maxW / aspect; }
+        else { drawH = maxH; drawW = maxH * aspect; }
         const gY = def.groundY ?? 0.71;
         const feetY = avY + avatarSize - sprInset - 2;
         const drawY = feetY - drawH * gY;
@@ -759,8 +762,11 @@ export class ProfileScene implements Scene {
       const aspect = def.frameW / def.frameH;
       // Apply sprite scale so avatars match in-game relative sizes
       const sprScale = def.scale ?? 1.0;
-      const drawH = size * sprScale;
-      const drawW = drawH * aspect;
+      const maxH = size * sprScale;
+      const maxW = size;
+      let drawW: number, drawH: number;
+      if (maxH * aspect > maxW) { drawW = maxW; drawH = maxW / aspect; }
+      else { drawH = maxH; drawW = maxH * aspect; }
       const drawX = x + (size - drawW) / 2;
       const gY = def.groundY ?? 0.71;
       const feetY = y + size * 0.85;

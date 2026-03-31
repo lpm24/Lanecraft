@@ -278,3 +278,4 @@ Some ranged units fire multiple projectiles per attack:
 - Per-node upgrade costs must use the race's actual resources. Crown nodes use gold+wood, Demon nodes use meat+wood (never gold), etc.
 - Siege units (`isSiegeUnit: true`) should only appear at T2 (terminal nodes D-G). They're too impactful for T1.
 - Building sprites are clamped to tile width in iso mode — don't set tier scaling so high that buildings overflow their tile.
+- Units attacking towers/HQ keep `targetId === null` — the simulation gates building-attack on `targetId === null`. The transient `_attackBuildingIdx` field is set by the simulation when a unit attacks a building (index into `state.buildings`, or -1 for HQ). Use it in renderer/UI code to detect building combat instead of relying on `targetId`.
