@@ -1,6 +1,6 @@
 import { Race, BuildingType, StatusType, StatusEffect, TICK_RATE } from '../simulation/types';
 import { UNIT_STATS, UPGRADE_TREES } from '../simulation/data';
-import { getUnitUpgradeMultipliers } from '../simulation/GameState';
+import { getUnitUpgradeMultipliers } from '../simulation/SimShared';
 import { getAudioSettings } from '../audio/AudioSettings';
 
 // ─── Mini 1v1 simulation using real game stats ───
@@ -139,7 +139,7 @@ function dealDuelDamage(target: DuelUnit, amount: number): void {
   }
 }
 
-// On-hit effects matching the real game (GameState.ts applyOnHitEffects)
+// On-hit effects matching the real game combat subsystem (SimCombat.ts applyOnHitEffects)
 function applyDuelOnHit(attacker: DuelUnit, target: DuelUnit): void {
   const isMelee = attacker.range <= 2;
   const isCaster = attacker.category === 'caster';

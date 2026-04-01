@@ -385,6 +385,9 @@ import projDagger from '../assets/images/projectiles/dagger.png?url';
 import projFireArrow from '../assets/images/projectiles/fire_arrow.png?url';
 import projFireBolt from '../assets/images/projectiles/fire_bolt.png?url';
 import projHarpoon from '../assets/images/projectiles/harpoon.png?url';
+import projIceArrow from '../assets/images/projectiles/ice_arrow.png?url';
+import projAcidSpit from '../assets/images/projectiles/acid_spit.png?url';
+import projShadowArrow from '../assets/images/projectiles/shadow_arrow.png?url';
 import projHolyBolt from '../assets/images/projectiles/holy_bolt.png?url';
 import projMagicMissile from '../assets/images/projectiles/magic_missile.png?url';
 import projMusicNote from '../assets/images/projectiles/music_note.png?url';
@@ -1232,6 +1235,9 @@ const PROJECTILE_SPRITES: Record<string, SpriteDef> = {
   slime_missile:  singleFrame(projSlimeMissile, 128, 128),
   stone_ball:     singleFrame(projStoneBall, 128, 128),
   water_bolt:     singleFrame(projWaterBolt, 128, 128),
+  ice_arrow:      singleFrame(projIceArrow, 128, 128),
+  acid_spit:      singleFrame(projAcidSpit, 128, 128),
+  shadow_arrow:   singleFrame(projShadowArrow, 128, 128),
 };
 
 // Sprite keys that should spin in addition to rotating toward target

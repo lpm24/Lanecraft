@@ -8,7 +8,7 @@ import {
   RACE_BUILDING_COSTS, RACE_RESEARCH_UPGRADES, SPAWN_INTERVAL_TICKS,
   getNodeUpgradeCost, TOWER_STATS,
 } from '../simulation/data';
-import { getUnitUpgradeMultipliers } from '../simulation/GameState';
+import { getUnitUpgradeMultipliers } from '../simulation/SimShared';
 import { getElo, ELO_DEFAULT } from './TitleElo';
 import { getSafeTop } from '../ui/SafeArea';
 import { MAX_STATS, STAT_COLORS, drawStatBar, drawStatVisualIcon, formatSpecialBonuses, type StatVisualKey } from '../ui/StatBarUtils';
@@ -45,7 +45,7 @@ const TAB_PATHS: { label: string; path: string[]; desc: string }[] = [
 // Display scale multiplier (visual only, not shown in %)
 const DISPLAY_SCALE = 1.8;
 
-// Race innate traits for melee/ranged/caster (verified against GameState.ts combat logic)
+// Race innate traits for melee/ranged/caster (verified against SimCombat.ts combat logic)
 interface InnateTrait { text: string; icon: StatVisualKey; }
 const RACE_INNATE_TRAITS: Record<Race, Record<string, InnateTrait[]>> = {
   [Race.Crown]: {

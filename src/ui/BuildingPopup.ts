@@ -228,27 +228,12 @@ export class BuildingPopup {
     // Small screens always use touch interaction regardless of setting.
     const isTouch = isMobile || (touchMode ?? false);
 
-    // Hover/selection detection
-    // Desktop: driven by mouse position. Touch: driven by tap selection.
-    this.hoveredChoice = null;
-    if (isTouch) {
-      this.hoveredChoice = this.selectedChoice;
-    } else if (pointerX !== undefined && pointerY !== undefined) {
-      for (const btn of this.upgradeBtnRects) {
-        if (this.hitTest(pointerX, pointerY, btn)) {
-          this.hoveredChoice = btn.choice;
-          break;
-        }
-      }
-    }
-
     this.animTick++;
 
     const options = this.getUpgradeOptions(building, race, state);
     // Clear stale selection if the selected choice is no longer a valid option
     if (this.selectedChoice && !options.some(o => o.choice === this.selectedChoice)) {
       this.selectedChoice = null;
-      this.hoveredChoice = null;
     }
     const isSpawner = building.type !== BuildingType.Tower && building.type !== BuildingType.HarvesterHut;
     const category = BUILDING_CATEGORY[building.type];
@@ -283,7 +268,35 @@ export class BuildingPopup {
 
     this.rect = { x: px, y: py, w: popupW, h: popupH };
 
-    // Reset button rects
+    // Pre-compute button rects for this frame BEFORE hover detection so we use
+    // current-frame positions instead of stale previous-frame rects.
+    this.upgradeBtnRects = [];
+    if (options.length > 0) {
+      const btnW = options.length === 2
+        ? Math.floor((popupW - PAD * 2 - GAP) / 2)
+        : popupW - PAD * 2;
+      const btnBaseY = py + PAD + HEADER_H + statsH;
+      for (let i = 0; i < options.length; i++) {
+        const bx = px + PAD + (i > 0 ? btnW + GAP : 0);
+        this.upgradeBtnRects.push({ x: bx, y: btnBaseY, w: btnW, h: UPGRADE_BTN_H, choice: options[i].choice, canAfford: false });
+      }
+    }
+
+    // Hover/selection detection — now uses current-frame button positions.
+    // Desktop: driven by mouse position. Touch: driven by tap selection.
+    this.hoveredChoice = null;
+    if (isTouch) {
+      this.hoveredChoice = this.selectedChoice;
+    } else if (pointerX !== undefined && pointerY !== undefined) {
+      for (const btn of this.upgradeBtnRects) {
+        if (this.hitTest(pointerX, pointerY, btn)) {
+          this.hoveredChoice = btn.choice;
+          break;
+        }
+      }
+    }
+
+    // Reset button rects — will be fully populated with canAfford during draw
     this.upgradeBtnRects = [];
     this.sellBtnRect = { x: 0, y: 0, w: 0, h: 0 };
     this.closeBtnRect = { x: 0, y: 0, w: 0, h: 0 };

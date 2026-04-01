@@ -26,7 +26,7 @@ The simulation must be **fully deterministic** for multiplayer lockstep sync. Al
 - **NEVER use `Date.now()`, `performance.now()`, or any time-dependent value** in simulation logic. Tick count is the only clock.
 - **NEVER iterate `Map` or `Object.keys()` in simulation** where order matters unless the result is sorted. Use arrays or sort by entity ID.
 - **NEVER use `Set` iteration order** for game logic — convert to sorted array first.
-- Sort tie-breakers in GameState.ts and BotAI.ts must be stable (use entity ID as final tiebreaker).
+- Simulation-side sort tie-breakers must be stable (use entity ID as final tiebreaker).
 - **All player actions must flow through `GameCommand` objects** — never mutate game state directly from input handlers or UI code.
 - If you add/remove/reorder any code path that calls `state.rng()`, even conditionally, every subsequent random result shifts and all clients diverge.
 
@@ -63,8 +63,18 @@ src/
   simulation/        # Pure game logic (no DOM, no rendering)
     types.ts         # All types, enums, constants, map shape functions
     data.ts          # Unit stats, building costs, upgrade trees, race colors
-    GameState.ts     # State creation, tick simulation, command processing
-    BotAI.ts         # Bot AI (no DOM deps), used by Game.ts and headless tests
+    GameState.ts     # State creation, tick orchestration, command processing
+    SimShared.ts     # Shared helpers, SpatialGrid, constants, projectile visuals
+    SimLayout.ts     # Grid origins, HQ positions, lane paths, choke points
+    SimMovement.ts   # Spawning, movement, pathfinding, collision, damage/status
+    SimCombat.ts     # Combat targeting, towers, projectiles, status effect ticking
+    SimAbilities.ts  # Race abilities, nukes, diamond/wood, death tracking
+    SimHarvesters.ts # Harvester AI, mining, resource delivery
+    BotAI.ts         # Bot AI entry point + orchestrator (thin, re-exports)
+    BotProfiles.ts   # Race profiles, composition selection, difficulty presets
+    BotIntelligence.ts # Threat assessment, combat telemetry, resource planning
+    BotValuation.ts  # Throughput estimation, upgrade scoring, value functions
+    BotDecisions.ts  # Build orders, upgrades, lanes, nukes, actions
     maps.ts          # Data-driven map definitions (Duel, Skirmish, Warzone)
   rendering/         # Canvas rendering (client only)
     Renderer.ts      # World, HUD, minimap drawing
@@ -212,7 +222,7 @@ Each race has a unique ability building with 4 upgrade tiers (defined in `RACE_A
 - **Tree shape:** A → B or C (tier 1) → D/E under B, F/G under C (tier 2). Each building has exactly 2 choices at each tier.
 - **Per-node costs:** Every upgrade node has an explicit `cost: { gold, wood, meat }` in `UPGRADE_TREES` (data.ts). B vs C paths deliberately favor different resources, creating economic tradeoffs.
 - **Upgrade cost function:** `getNodeUpgradeCost()` in data.ts returns the node's cost. If no `cost` field exists, falls back to the flat `RACE_UPGRADE_COSTS` table.
-- **Stat multipliers:** `getUnitUpgradeMultipliers()` in GameState.ts walks the upgrade path and compounds all multipliers (hp, damage, attackSpeed, moveSpeed, range, spawnSpeed).
+- **Stat multipliers:** `getUnitUpgradeMultipliers()` lives in `SimShared.ts` and is re-exported by `GameState.ts`; it walks the upgrade path and compounds all multipliers (hp, damage, attackSpeed, moveSpeed, range, spawnSpeed).
 - **Specials:** `UpgradeSpecial` (data.ts) — per-node special effects like `dodgeChance`, `extraBurnStacks`, `splashRadius`, `auraDamageBonus`, `isSiegeUnit`, etc.
 
 ## Aura System

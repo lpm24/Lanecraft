@@ -2035,7 +2035,7 @@ export class TitleScene implements Scene {
 
     // Title logo + subtitle drawn on top
     const bannerH = Math.min(h * 0.35, 280);
-    const bannerY = h * 0.01;
+    const bannerY = h * 0.01 + getSafeTop();
     if (this.titleLogoImg) {
       const aspect = this.titleLogoImg.width / this.titleLogoImg.height;
       const maxW = Math.min(w * 0.75, 500);

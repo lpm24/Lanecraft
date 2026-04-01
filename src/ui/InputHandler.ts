@@ -920,6 +920,13 @@ export class InputHandler {
       // pointerType reliably distinguishes real mouse from touch-generated events
       if (e.pointerType === 'mouse') this.lastInputType = 'mouse';
       else if (e.pointerType === 'touch') this.lastInputType = 'touch';
+      // Keep pointer position in sync for mouse — some devices/browsers only fire
+      // pointermove (not mousemove) on touch-capable screens using a mouse.
+      if (e.pointerType === 'mouse') {
+        const rect = this.getCanvasRect();
+        this.pointerX = e.clientX - rect.left;
+        this.pointerY = e.clientY - rect.top;
+      }
       if (!this.settingsSliderDrag) return;
       const rect = this.getCanvasRect();
       const cx = e.clientX - rect.left;
