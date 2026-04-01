@@ -43,6 +43,10 @@ export class PostMatchScene implements Scene {
   /** Pre-rendered static minimap background (water + shape + HQ + diamond center). */
   private replayBgCanvas: HTMLCanvasElement | null = null;
 
+  // Graph state
+  private graphPlayerMode = false;
+  private graphToggleRect: { x: number; y: number; w: number; h: number } | null = null;
+
   // Scroll state
   private scrollY = 0;
   private maxScrollY = 0;
@@ -95,6 +99,8 @@ export class PostMatchScene implements Scene {
     this.tabAnimTime = { summary: 0, map: 0, awards: 0 };
     this.confetti = [];
     this.confettiFired = new Set();
+    this.graphPlayerMode = false;
+    this.graphToggleRect = null;
 
     const frames = stats.replayFrames;
     if (frames && frames.length > 0) {
@@ -197,6 +203,7 @@ export class PostMatchScene implements Scene {
       const cy = e.clientY - rect.top;
       if (this.handleTabClick(cx, cy)) return;
       if (this.handleColHeaderClick(cx, cy)) return;
+      if (this.handleGraphToggleClick(cx, cy)) return;
       if (this.isButtonAt(cx, cy)) { this.sfx.playUIConfirm(); this.manager.switchTo(continueTarget); }
     };
 
@@ -224,6 +231,7 @@ export class PostMatchScene implements Scene {
       const cy = touch.clientY - rect.top;
       if (this.handleTabClick(cx, cy)) return;
       if (this.handleColHeaderClick(cx, cy)) return;
+      if (this.handleGraphToggleClick(cx, cy)) return;
       if (this.isButtonAt(cx, cy)) { this.sfx.playUIConfirm(); this.manager.switchTo(continueTarget); }
     };
 
@@ -275,6 +283,17 @@ export class PostMatchScene implements Scene {
         }
         return true;
       }
+    }
+    return false;
+  }
+
+  private handleGraphToggleClick(cx: number, cy: number): boolean {
+    if (this.activeTab !== 'map' || !this.graphToggleRect) return false;
+    const r = this.graphToggleRect;
+    const adjCy = cy + this.scrollY;
+    if (cx >= r.x && cx <= r.x + r.w && adjCy >= r.y && adjCy <= r.y + r.h) {
+      this.graphPlayerMode = !this.graphPlayerMode;
+      return true;
     }
     return false;
   }
@@ -848,8 +867,8 @@ export class PostMatchScene implements Scene {
       return startY + 80;
     }
 
-    const minimapH = this.drawMinimapReplay(ctx, state, frames, canvasW, startY, fontSize);
-    const graphsBottom = this.drawGraphPanel(ctx, state, frames, canvasW, startY + minimapH + Math.round(fontSize * 0.8), fontSize);
+    const { h: minimapH, mmW, mmX } = this.drawMinimapReplay(ctx, state, frames, canvasW, startY, fontSize);
+    const graphsBottom = this.drawGraphPanel(ctx, state, frames, mmX, mmW, startY + minimapH + Math.round(fontSize * 0.8), fontSize);
     return graphsBottom;
   }
 
@@ -1160,7 +1179,7 @@ export class PostMatchScene implements Scene {
     return y + heroCardH;
   }
 
-  /** Draws the minimap replay panel. Returns the height consumed. */
+  /** Draws the minimap replay panel. Returns height consumed plus minimap x/width for graph alignment. */
   private drawMinimapReplay(
     ctx: CanvasRenderingContext2D,
     state: GameState,
@@ -1168,7 +1187,7 @@ export class PostMatchScene implements Scene {
     canvasW: number,
     topY: number,
     fontSize: number,
-  ): number {
+  ): { h: number; mmW: number; mmX: number } {
     const mapDef = state.mapDef;
     const mapW = mapDef.width;
     const mapH = mapDef.height;
@@ -1268,7 +1287,7 @@ export class PostMatchScene implements Scene {
     const ss = String(elapsed % 60).padStart(2, '0');
     ctx.fillText(`\u21bb REPLAY  ${mm}:${ss}`, canvasW / 2, labelY);
 
-    return totalH;
+    return { h: totalH, mmW, mmX };
   }
 
   /** Draws all stat graphs below the minimap. Returns the bottom Y consumed. */
@@ -1276,19 +1295,18 @@ export class PostMatchScene implements Scene {
     ctx: CanvasRenderingContext2D,
     state: GameState,
     frames: MinimapFrame[],
-    canvasW: number,
+    graphX: number,
+    graphW: number,
     startY: number,
     fontSize: number,
   ): number {
     if (frames.length < 2) return startY;
 
-    const graphW = Math.min(canvasW * 0.9, 520);
-    const graphX = Math.round((canvasW - graphW) / 2);
     const graphH = Math.round(fontSize * 5.5);
     const gap = Math.round(fontSize * 1.2);
     const cursorIdx = this.replayFrameIdx;
+    const playerMode = this.graphPlayerMode;
 
-    // Aggregate per-team series from per-player snapshots
     const teamColors: Record<Team, string> = {
       [Team.Bottom]: '#4a9eff',
       [Team.Top]:    '#ff5252',
@@ -1298,19 +1316,39 @@ export class PostMatchScene implements Scene {
       [Team.Top]:    'Red',
     };
 
-    // Build per-frame team arrays
+    // --- Toggle button ---
+    const btnLabel = playerMode ? 'PLAYERS' : 'TEAM';
+    const btnFontSize = Math.round(fontSize * 0.45);
+    ctx.font = `bold ${btnFontSize}px monospace`;
+    const btnTW = ctx.measureText(btnLabel).width;
+    const btnPadX = Math.round(fontSize * 0.4);
+    const btnPadY = Math.round(fontSize * 0.2);
+    const btnW = btnTW + btnPadX * 2;
+    const btnH = btnFontSize + btnPadY * 2;
+    const btnX = graphX + graphW - btnW;
+    const btnY = startY - btnH - Math.round(fontSize * 0.15);
+    this.graphToggleRect = { x: btnX, y: btnY, w: btnW, h: btnH };
+    ctx.fillStyle = 'rgba(255,255,255,0.12)';
+    ctx.beginPath();
+    ctx.roundRect(btnX, btnY, btnW, btnH, 3);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.7)';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(btnLabel, btnX + btnW / 2, btnY + btnH / 2);
+    ctx.textBaseline = 'alphabetic';
+
+    // --- Per-team data (always computed — used for power score and HQ HP) ---
     const hqHpTeam0 = frames.map(f => f.hqHp[Team.Bottom]);
     const hqHpTeam1 = frames.map(f => f.hqHp[Team.Top]);
 
     const unitsTeam0 = frames.map(f => f.units.filter(u => u.team === Team.Bottom).length);
     const unitsTeam1 = frames.map(f => f.units.filter(u => u.team === Team.Top).length);
 
-    // Aggregate per-player stats by team
     const damageTeam0: number[] = [];
     const damageTeam1: number[] = [];
     const resourcesTeam0: number[] = [];
     const resourcesTeam1: number[] = [];
-
     for (const f of frames) {
       let d0 = 0, d1 = 0, r0 = 0, r1 = 0;
       for (let pid = 0; pid < (f.playerStats?.length ?? 0); pid++) {
@@ -1321,68 +1359,59 @@ export class PostMatchScene implements Scene {
         if (team === Team.Bottom) { d0 += ps.damageDealt; r0 += totalRes; }
         else if (team === Team.Top) { d1 += ps.damageDealt; r1 += totalRes; }
       }
-      damageTeam0.push(d0);
-      damageTeam1.push(d1);
-      resourcesTeam0.push(r0);
-      resourcesTeam1.push(r1);
+      damageTeam0.push(d0); damageTeam1.push(d1);
+      resourcesTeam0.push(r0); resourcesTeam1.push(r1);
     }
 
-    // Power score: weighted composite (unit share + HQ HP share + damage share + resource share)
+    // Power score (always per-team)
     const powerTeam0: number[] = [];
     const powerTeam1: number[] = [];
     for (let i = 0; i < frames.length; i++) {
-      const u0 = unitsTeam0[i], u1 = unitsTeam1[i];
-      const h0 = hqHpTeam0[i],  h1 = hqHpTeam1[i];
-      const d0 = damageTeam0[i], d1 = damageTeam1[i];
-      const r0 = resourcesTeam0[i], r1 = resourcesTeam1[i];
-      const unitShare0 = (u0 + u1) > 0 ? u0 / (u0 + u1) : 0.5;
-      const hpShare0   = (h0 + h1) > 0 ? h0 / (h0 + h1) : 0.5;
-      const dmgShare0  = (d0 + d1) > 0 ? d0 / (d0 + d1) : 0.5;
-      const resShare0  = (r0 + r1) > 0 ? r0 / (r0 + r1) : 0.5;
-      const score0 = Math.round((35 * unitShare0 + 35 * hpShare0 + 15 * dmgShare0 + 15 * resShare0));
+      const unitShare0 = (unitsTeam0[i] + unitsTeam1[i]) > 0 ? unitsTeam0[i] / (unitsTeam0[i] + unitsTeam1[i]) : 0.5;
+      const hpShare0   = (hqHpTeam0[i]  + hqHpTeam1[i])  > 0 ? hqHpTeam0[i]  / (hqHpTeam0[i]  + hqHpTeam1[i])  : 0.5;
+      const dmgShare0  = (damageTeam0[i] + damageTeam1[i]) > 0 ? damageTeam0[i] / (damageTeam0[i] + damageTeam1[i]) : 0.5;
+      const resShare0  = (resourcesTeam0[i] + resourcesTeam1[i]) > 0 ? resourcesTeam0[i] / (resourcesTeam0[i] + resourcesTeam1[i]) : 0.5;
+      const score0 = Math.round(35 * unitShare0 + 35 * hpShare0 + 15 * dmgShare0 + 15 * resShare0);
       powerTeam0.push(score0);
       powerTeam1.push(100 - score0);
     }
 
+    // --- Per-player data (for player mode) ---
+    const playerIds = state.players.map((_, i) => i).filter(pid => state.players[pid] != null);
+    const perPlayerUnits: number[][] = playerIds.map(pid => frames.map(f => f.units.filter(u => u.playerId === pid).length));
+    const perPlayerDamage: number[][] = playerIds.map(pid => frames.map(f => f.playerStats?.[pid]?.damageDealt ?? 0));
+    const perPlayerResources: number[][] = playerIds.map(pid => frames.map(f => {
+      const ps = f.playerStats?.[pid];
+      return ps ? ps.goldEarned + ps.woodEarned + ps.meatEarned : 0;
+    }));
+
+    // Build series for each graph depending on mode
+    const teamSeries = (v0: number[], v1: number[]) => [
+      { values: v0, color: teamColors[Team.Bottom], label: teamLabels[Team.Bottom] },
+      { values: v1, color: teamColors[Team.Top],    label: teamLabels[Team.Top] },
+    ];
+    const playerSeries = (perPlayer: number[][]) => playerIds.map((pid, i) => ({
+      values: perPlayer[i],
+      color: PLAYER_COLORS[pid % PLAYER_COLORS.length],
+      label: this.slotLabel(pid),
+    }));
+
     const graphs: Array<{ title: string; series: Array<{ values: number[]; color: string; label: string }>; yMin: number; yMax?: number }> = [
-      {
-        title: 'POWER SCORE',
-        series: [
-          { values: powerTeam0,    color: teamColors[Team.Bottom], label: teamLabels[Team.Bottom] },
-          { values: powerTeam1,    color: teamColors[Team.Top],    label: teamLabels[Team.Top] },
-        ],
-        yMin: 0, yMax: 100,
-      },
-      {
-        title: 'HQ HP',
-        series: [
-          { values: hqHpTeam0, color: teamColors[Team.Bottom], label: teamLabels[Team.Bottom] },
-          { values: hqHpTeam1, color: teamColors[Team.Top],    label: teamLabels[Team.Top] },
-        ],
-        yMin: 0, yMax: HQ_HP,
-      },
+      { title: 'POWER SCORE', series: teamSeries(powerTeam0, powerTeam1), yMin: 0, yMax: 100 },
+      { title: 'HQ HP',       series: teamSeries(hqHpTeam0, hqHpTeam1),  yMin: 0, yMax: HQ_HP },
       {
         title: 'UNITS ON FIELD',
-        series: [
-          { values: unitsTeam0, color: teamColors[Team.Bottom], label: teamLabels[Team.Bottom] },
-          { values: unitsTeam1, color: teamColors[Team.Top],    label: teamLabels[Team.Top] },
-        ],
+        series: playerMode ? playerSeries(perPlayerUnits)     : teamSeries(unitsTeam0, unitsTeam1),
         yMin: 0,
       },
       {
         title: 'DAMAGE DEALT',
-        series: [
-          { values: damageTeam0, color: teamColors[Team.Bottom], label: teamLabels[Team.Bottom] },
-          { values: damageTeam1, color: teamColors[Team.Top],    label: teamLabels[Team.Top] },
-        ],
+        series: playerMode ? playerSeries(perPlayerDamage)    : teamSeries(damageTeam0, damageTeam1),
         yMin: 0,
       },
       {
         title: 'RESOURCES EARNED',
-        series: [
-          { values: resourcesTeam0, color: teamColors[Team.Bottom], label: teamLabels[Team.Bottom] },
-          { values: resourcesTeam1, color: teamColors[Team.Top],    label: teamLabels[Team.Top] },
-        ],
+        series: playerMode ? playerSeries(perPlayerResources) : teamSeries(resourcesTeam0, resourcesTeam1),
         yMin: 0,
       },
     ];
@@ -1440,15 +1469,36 @@ export class PostMatchScene implements Scene {
       ctx.stroke();
     }
 
-    // Series lines
+    // Series lines — ghost future (drawn first, underneath), then revealed past
+    const plotPt = (i: number, s: { values: number[] }) => {
+      const px = chartX + (i / (n - 1)) * chartW;
+      const normalised = Math.max(0, Math.min(1, (s.values[i] - yMin) / yRange));
+      return { px, py: chartY + chartH * (1 - normalised) };
+    };
+
+    // Ghost: from cursorIdx to end at 10% opacity
+    if (cursorIdx < n - 1) {
+      ctx.globalAlpha = 0.10;
+      for (const s of series) {
+        ctx.strokeStyle = s.color;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        for (let i = cursorIdx; i < n; i++) {
+          const { px, py } = plotPt(i, s);
+          if (i === cursorIdx) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+        }
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1.0;
+    }
+
+    // Revealed: from 0 to cursorIdx at full opacity
     for (const s of series) {
       ctx.strokeStyle = s.color;
       ctx.lineWidth = 2;
       ctx.beginPath();
-      for (let i = 0; i < n; i++) {
-        const px = chartX + (i / (n - 1)) * chartW;
-        const normalised = Math.max(0, Math.min(1, (s.values[i] - yMin) / yRange));
-        const py = chartY + chartH * (1 - normalised);
+      for (let i = 0; i <= Math.min(cursorIdx, n - 1); i++) {
+        const { px, py } = plotPt(i, s);
         if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
       }
       ctx.stroke();
