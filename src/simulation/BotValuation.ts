@@ -18,7 +18,7 @@ import {
   GOLD_YIELD_PER_TRIP, WOOD_YIELD_PER_TRIP, MEAT_YIELD_PER_TRIP,
   getAllResearchUpgrades, getResearchUpgradeCost,
 } from './data';
-import { getUnitUpgradeMultipliers } from './GameState';
+import { getUnitUpgradeMultipliers } from './SimShared';
 import {
   BotContext, BotDifficulty, BotIntelligence, RaceProfile, ThreatProfile,
   ResourceProjection,
@@ -29,7 +29,7 @@ import {
   PASSIVE_RATES, UNIT_ABILITY_VALUE,
 } from './BotIntelligence';
 
-// Re-export UNIT_ABILITY_VALUE so external consumers that imported from BotAI can still find it
+// Re-export for local convenience when valuation tooling wants one import surface.
 export { UNIT_ABILITY_VALUE };
 
 // ==================== UPGRADE INTELLIGENCE ====================

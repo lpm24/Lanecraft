@@ -122,7 +122,7 @@ function computeUnitPower(race: Race, btype: BuildingType, upgradePath: string[]
   let hpMult = 1, dmgMult = 1, atkSpdMult = 1, spawnSpdMult = 1;
   let spawnCount = stats.spawnCount ?? 1;
 
-  // Merge specials using Object.assign semantics (later nodes override, matching GameState)
+  // Merge specials using Object.assign semantics (later nodes override, matching SimShared)
   const special: Record<string, any> = {};
 
   for (const node of upgradePath) {

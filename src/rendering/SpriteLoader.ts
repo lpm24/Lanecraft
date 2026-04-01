@@ -198,6 +198,8 @@ import crownCasterAtkYellow from '../assets/images/Tiny Swords (Free Pack)/Tiny 
 import crownMeleeAtkBlack from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Units/Black Units/Warrior/Warrior_Attack1.png?url';
 import crownRangedAtkBlack from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Units/Black Units/Archer/Archer_Shoot.png?url';
 import crownCasterAtkBlack from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Units/Black Units/Monk/Heal.png?url';
+import humanWizardIdle from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Human Wizard-idle.png?url';
+import humanWizardAttack from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Human Wizard-attack.png?url';
 // Horde (CHARACTER MEGAPACK)
 import hordeMeleeAtk from '../assets/images/CHARACTER MEGAPACK/CHARACTER MEGAPACK/Orc_Barbare_01 (Green Skinned)/Orc_Barbare_01_ATK_Full_12x1.png?url';
 import hordeRangedAtk from '../assets/images/CHARACTER MEGAPACK/CHARACTER MEGAPACK/Orc_Archer_01 (Green Skinned)/Orc_Archer_01_ATK_Full_18x1.png?url';
@@ -497,6 +499,9 @@ export interface SpriteDef {
   frameW: number;   // width of one frame in pixels
   frameH: number;   // height of one frame in pixels
   cols: number;     // number of columns (frames) in the sheet
+  rows?: number;    // optional number of rows for grid-like animation sheets
+  srcX?: number;    // source x offset inside the image
+  srcY?: number;    // source y offset inside the image
   groundY?: number;  // where the feet/ground contact is as fraction of frame height (0=top, 1=bottom)
   scale?: number;    // optional display scale multiplier (default 1.0)
   heightScale?: number; // squash/stretch height independently of width (default 1.0)
@@ -509,8 +514,9 @@ export interface SpriteDef {
  *  Always targets ~1 cycle per second regardless of frame count.
  *  High-frame sprites (48+) skip frames to stay at 1s; low-frame sprites hold frames longer. */
 export function getSpriteFrame(tick: number, def: SpriteDef): number {
+  const totalFrames = def.cols * (def.rows ?? 1);
   const speed = def.animSpeed ?? 1.0;
-  return Math.floor(tick * def.cols * speed / 20) % def.cols;
+  return Math.floor(tick * totalFrames * speed / 20) % totalFrames;
 }
 
 // Tiny Swords spritesheets: divide total width by frame height to get frame count
@@ -530,6 +536,34 @@ function singleFrame(url: string, w: number, h: number, groundY = 0.95): SpriteD
 // CHARACTER MEGAPACK horizontal strip: name contains NxM (e.g. Idle_34x1.png = 34 cols, 1 row)
 function cmStrip(url: string, totalW: number, totalH: number, cols: number, groundY = 0.95): SpriteDef {
   return { url, frameW: Math.round(totalW / cols), frameH: totalH, cols, groundY };
+}
+
+function rowStrip(
+  url: string,
+  frameSize: number,
+  cols: number,
+  row: number,
+  groundY = 0.86,
+): SpriteDef {
+  return {
+    url,
+    frameW: frameSize,
+    frameH: frameSize,
+    cols,
+    srcY: row * frameSize,
+    groundY,
+  };
+}
+
+function gridAnim(
+  url: string,
+  frameW: number,
+  frameH: number,
+  cols: number,
+  rows: number,
+  groundY = 0.86,
+): SpriteDef {
+  return { url, frameW, frameH, cols, rows, groundY };
 }
 
 /** Grid-based spritesheet (e.g. 8x6 = 48 frames in an 8-col grid) */
@@ -780,6 +814,10 @@ const UPGRADE_MOVE_SPRITES: Record<string, SpriteDef> = {
   [upgradeKey(Race.Crown, 'melee', 'B')]: { ...cmStrip(baldPirateRun, 882, 67, 14, 0.97), scale: 0.55 },
   [upgradeKey(Race.Crown, 'melee', 'D')]: { ...cmStrip(captainRun, 1120, 72, 14, 0.97), scale: 0.5 },
   [upgradeKey(Race.Crown, 'melee', 'E')]: { ...cmStrip(clownNoseRun, 384, 40, 6, 0.73), scale: 0.6 },
+  // --- Crown caster: Priest branch (B/D/E) → Human Wizard sheet ---
+  [upgradeKey(Race.Crown, 'caster', 'C')]: { ...rowStrip(humanWizardIdle, 256, 5, 0, 0.66), scale: 1.25, animSpeed: 0.75 },
+  [upgradeKey(Race.Crown, 'caster', 'F')]: { ...rowStrip(humanWizardIdle, 256, 5, 0, 0.66), scale: 1.35, animSpeed: 0.75 },
+  [upgradeKey(Race.Crown, 'caster', 'G')]: { ...rowStrip(humanWizardIdle, 256, 5, 0, 0.66), scale: 1.45, animSpeed: 0.75 },
   // --- Deep ranged: → Fierce Tooth / shark branch (B/D/E) ---
   [upgradeKey(Race.Deep, 'ranged', 'B')]: { ...cmStrip(fierceToothRun, 204, 30, 6, 0.97), scale: 0.55 },
   [upgradeKey(Race.Deep, 'ranged', 'D')]: { ...cmStrip(fierceToothRun, 204, 30, 6, 0.97), scale: 0.6 },
@@ -792,6 +830,12 @@ const UPGRADE_MOVE_SPRITES: Record<string, SpriteDef> = {
   [upgradeKey(Race.Deep, 'caster', 'B')]: { ...cmStrip(pinkStarRun, 204, 30, 6, 0.97), scale: 0.55 },
   [upgradeKey(Race.Deep, 'caster', 'D')]: { ...cmStrip(pinkStarRun, 204, 30, 6, 0.97), scale: 0.6 },
   [upgradeKey(Race.Deep, 'caster', 'E')]: { ...cmStrip(pinkStarRun, 204, 30, 6, 0.97), scale: 0.7 },
+};
+
+const UPGRADE_IDLE_SPRITES: Record<string, SpriteDef> = {
+  [upgradeKey(Race.Crown, 'caster', 'C')]: { ...rowStrip(humanWizardIdle, 256, 5, 0, 0.66), scale: 1.25, animSpeed: 0.75 },
+  [upgradeKey(Race.Crown, 'caster', 'F')]: { ...rowStrip(humanWizardIdle, 256, 5, 0, 0.66), scale: 1.35, animSpeed: 0.75 },
+  [upgradeKey(Race.Crown, 'caster', 'G')]: { ...rowStrip(humanWizardIdle, 256, 5, 0, 0.66), scale: 1.45, animSpeed: 0.75 },
 };
 
 const UPGRADE_ATK_SPRITES: Record<string, SpriteDef> = {
@@ -849,6 +893,10 @@ const UPGRADE_ATK_SPRITES: Record<string, SpriteDef> = {
   [upgradeKey(Race.Tenders, 'melee', 'B')]: cmStrip(entL2Atk, 690, 45, 10, 0.94),
   [upgradeKey(Race.Tenders, 'melee', 'D')]: cmStrip(entL3Atk, 688, 56, 8, 0.94),
   [upgradeKey(Race.Tenders, 'melee', 'E')]: cmStrip(entL4Atk, 1888, 70, 32, 0.94),
+  // --- Crown caster: Priest branch (B/D/E) → Human Wizard attack row ---
+  [upgradeKey(Race.Crown, 'caster', 'C')]: { ...gridAnim(humanWizardAttack, 256, 256, 5, 5, 0.66), scale: 1.25, animSpeed: 1.0 },
+  [upgradeKey(Race.Crown, 'caster', 'F')]: { ...gridAnim(humanWizardAttack, 256, 256, 5, 5, 0.66), scale: 1.35, animSpeed: 1.0 },
+  [upgradeKey(Race.Crown, 'caster', 'G')]: { ...gridAnim(humanWizardAttack, 256, 256, 5, 5, 0.66), scale: 1.45, animSpeed: 1.0 },
   // --- Crown melee: King Human sword attacks (C/F), Dwarfette Champion (G) — faces RIGHT natively ---
   [upgradeKey(Race.Crown, 'melee', 'C')]: cmStrip(kingHumanAtk, 234, 58, 3, 0.74),
   [upgradeKey(Race.Crown, 'melee', 'F')]: cmStrip(kingHumanAtk, 234, 58, 3, 0.74),
@@ -1444,7 +1492,20 @@ export class SpriteLoader {
     return !!(atkSprites?.[category]);
   }
 
-  getUnitSprite(race: Race, category: UnitCategory, playerId: number, attacking = false, upgradeNode?: string): [HTMLImageElement, SpriteDef] | null {
+  hasIdleSprite(race: Race, category: UnitCategory, upgradeNode?: string): boolean {
+    if (!upgradeNode) return false;
+    const key = upgradeKey(race, category, upgradeNode);
+    return !!UPGRADE_IDLE_SPRITES[key];
+  }
+
+  getUnitSprite(
+    race: Race,
+    category: UnitCategory,
+    playerId: number,
+    attacking = false,
+    upgradeNode?: string,
+    preferIdle = false,
+  ): [HTMLImageElement, SpriteDef] | null {
     // Check upgrade-path sprites first
     if (upgradeNode) {
       const key = upgradeKey(race, category, upgradeNode);
@@ -1453,6 +1514,13 @@ export class SpriteLoader {
         if (atkDef) {
           const atkImg = this.loadImage(atkDef.url);
           if (atkImg) return [atkImg, atkDef];
+        }
+      }
+      if (preferIdle) {
+        const idleDef = UPGRADE_IDLE_SPRITES[key];
+        if (idleDef) {
+          const idleImg = this.loadImage(idleDef.url);
+          if (idleImg) return [idleImg, idleDef];
         }
       }
       const moveDef = UPGRADE_MOVE_SPRITES[key];
@@ -1688,9 +1756,13 @@ export function drawSpriteFrame(
   dx: number, dy: number,
   drawW: number, drawH: number,
 ): void {
-  const f = frame % def.cols;
-  const sx = f * def.frameW;
-  ctx.drawImage(img, sx, 0, def.frameW, def.frameH, dx, dy, drawW, drawH);
+  const totalFrames = def.cols * (def.rows ?? 1);
+  const f = frame % totalFrames;
+  const col = f % def.cols;
+  const row = Math.floor(f / def.cols);
+  const sx = (def.srcX ?? 0) + col * def.frameW;
+  const sy = (def.srcY ?? 0) + row * def.frameH;
+  ctx.drawImage(img, sx, sy, def.frameW, def.frameH, dx, dy, drawW, drawH);
 }
 
 /** Draw a frame from a grid-based spritesheet (cols x rows) */

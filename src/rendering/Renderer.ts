@@ -2938,15 +2938,20 @@ export class Renderer {
       // Try sprite first, fall back to procedural shapes
       const race = u.spriteRace ?? state.players[u.playerId]?.race;
       const cat = u.category as 'melee' | 'ranged' | 'caster';
-      const attackCooldownTicks = Math.round(u.attackSpeed * TICK_RATE);
-      const justFired = u.attackTimer > attackCooldownTicks * 0.5;
+      const attackCooldownTicks = Math.max(1, Math.round(u.attackSpeed * TICK_RATE));
       const attackingBuilding = u._attackBuildingIdx !== undefined;
+      const attackActive = u.attackTimer > 0 && (u.targetId !== null || attackingBuilding);
+      const hasDedicatedAttackSprite = race != null && this.sprites.hasAttackSprite(race, cat, u.upgradeNode);
+      const justFired = u.attackTimer > attackCooldownTicks * 0.5;
       // Units attack buildings/HQ without setting targetId — _attackBuildingIdx is set by simulation
-      const isAttacking = justFired && (u.targetId !== null || attackingBuilding);
+      const isAttacking = hasDedicatedAttackSprite ? attackActive : (justFired && attackActive);
       // Ranged/caster on cooldown but past attack anim window — idle, don't walk
       const isRangedOnCooldown = u.attackTimer > 0 && !justFired
         && (u.targetId !== null || attackingBuilding) && (cat === 'ranged' || cat === 'caster');
-      const spriteData = race ? this.sprites.getUnitSprite(race, cat, u.playerId, isAttacking, u.upgradeNode) : null;
+      // Check if unit moved this tick (pre-computed once per tick so all renders agree)
+      const isStationary = !this.movedThisTick.has(u.id);
+      const preferIdleSprite = !isAttacking && isStationary;
+      const spriteData = race ? this.sprites.getUnitSprite(race, cat, u.playerId, isAttacking, u.upgradeNode, preferIdleSprite) : null;
       if (spriteData) {
         const [img, def] = spriteData;
         const spriteScale = def.scale ?? 1.0;
@@ -2956,20 +2961,21 @@ export class Renderer {
         const drawW = baseH * aspect;
         const drawH = baseH * (def.heightScale ?? 1.0);
         // Check if this unit has a dedicated attack sprite
-        const hasAtkSprite = isAttacking && race != null && this.sprites.hasAttackSprite(race, cat, u.upgradeNode);
+        const hasAtkSprite = isAttacking && hasDedicatedAttackSprite;
+        const hasIdleSprite = !isAttacking && race != null && this.sprites.hasIdleSprite(race, cat, u.upgradeNode);
         // Ranged/caster units stand still when attacking without a dedicated attack sprite
         const idleWhileAttacking = isAttacking && (cat === 'ranged' || cat === 'caster') && !hasAtkSprite;
-        // Check if unit moved this tick (pre-computed once per tick so all renders agree)
-        const isStationary = !this.movedThisTick.has(u.id);
         // Determine animation frame
         let frame: number;
-        if (idleWhileAttacking || isRangedOnCooldown || (isStationary && !isAttacking)) {
+        if (idleWhileAttacking || isRangedOnCooldown || (isStationary && !isAttacking && !hasIdleSprite)) {
           frame = 0;
+        } else if (hasIdleSprite && isStationary && !isAttacking) {
+          frame = getSpriteFrame(state.tick, def);
         } else if (hasAtkSprite) {
-          // Dedicated attack sprite: play full animation from frame 0, fitted to the attack window
+          // Dedicated attack sprite: map the full cooldown to the full sheet so attack anims do not get clipped.
           const elapsed = attackCooldownTicks - u.attackTimer; // 0 at swing start, increases
-          const window = Math.max(1, Math.ceil(attackCooldownTicks * 0.5));
-          frame = Math.min(def.cols - 1, Math.floor(elapsed * def.cols / window));
+          const totalFrames = def.cols * (def.rows ?? 1);
+          frame = Math.min(totalFrames - 1, Math.floor(elapsed * totalFrames / attackCooldownTicks));
         } else {
           frame = getSpriteFrame(state.tick, def);
         }

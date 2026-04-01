@@ -96,6 +96,7 @@ src/
 - `simulation/` is **pure** — no DOM, no rendering, no imports from rendering/ui/scenes. This is the shared logic for both client and headless test runners.
 - All player actions flow through `GameCommand` objects processed by `simulateTick()`.
 - Rendering reads state but never mutates it.
+- `GameState.ts` and `BotAI.ts` are public facades. Inside `src/simulation/`, prefer importing from the owning `Sim*` / `Bot*` module directly instead of routing through compatibility re-exports.
 
 ## Maps
 

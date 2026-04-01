@@ -19,7 +19,7 @@ import {
   GOLD_YIELD_PER_TRIP, WOOD_YIELD_PER_TRIP, MEAT_YIELD_PER_TRIP,
   RACE_ABILITY_DEFS, getAllResearchUpgrades, getResearchUpgradeCost,
 } from './data';
-import { getHQPosition, getTeamAlleyOrigin, getBaseGoldPosition } from './GameState';
+import { getHQPosition, getTeamAlleyOrigin, getBaseGoldPosition } from './SimLayout';
 import {
   BotContext, BotDifficulty, RaceProfile,
   Emit,

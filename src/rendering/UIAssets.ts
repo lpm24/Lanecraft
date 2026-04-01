@@ -118,6 +118,8 @@ export class UIAssets {
   private cache = new Map<string, HTMLImageElement>();
   private loading = new Set<string>();
   private tintCanvas: HTMLCanvasElement | null = null;
+  private swordCanvasCache = new Map<string, HTMLCanvasElement>();
+  private waterBgCanvasCache = new Map<string, HTMLCanvasElement>();
 
   private loadImage(url: string): HTMLImageElement | null {
     if (this.cache.has(url)) return this.cache.get(url)!;
@@ -253,6 +255,24 @@ export class UIAssets {
     ctx.drawImage(img, sx2, srcY, sw2, srcH, x + w - drawnRightW, y, drawnRightW, h);
   }
 
+  private getCachedSwordCanvas(w: number, h: number, color: SwordColor): HTMLCanvasElement | null {
+    const img = this.loadImage(swordsPng);
+    if (!img) return null;
+    const key = `${Math.round(w)}x${Math.round(h)}:${color}`;
+    const cached = this.swordCanvasCache.get(key);
+    if (cached) return cached;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(w));
+    canvas.height = Math.max(1, Math.round(h));
+    const cctx = canvas.getContext('2d');
+    if (!cctx) return null;
+    cctx.imageSmoothingEnabled = false;
+    this.drawThreePartH(cctx, img, STRIP_448, color * 128, 128, 0, 0, canvas.width, canvas.height);
+    this.swordCanvasCache.set(key, canvas);
+    return canvas;
+  }
+
   // BigRibbons: 448x640, 5 rows of 128px
   drawBigRibbon(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, color: RibbonColor = 0): boolean {
     const img = this.loadImage(bigRibbonsPng);
@@ -273,11 +293,11 @@ export class UIAssets {
   // reveal: 0→1 slides the sword from the left edge to its final x position.
   // Returns the x offset applied (0 when fully revealed), so callers can shift labels to match.
   drawSword(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, color: SwordColor = 0, reveal = 1): number {
-    const img = this.loadImage(swordsPng);
-    if (!img) return 0;
+    const swordCanvas = this.getCachedSwordCanvas(w, h, color);
+    if (!swordCanvas) return 0;
     if (reveal <= 0) return -(x + w);
     if (reveal >= 1) {
-      this.drawThreePartH(ctx, img, STRIP_448, color * 128, 128, x, y, w, h);
+      ctx.drawImage(swordCanvas, Math.round(x), Math.round(y), swordCanvas.width, swordCanvas.height);
       return 0;
     }
     // Ease-out quart for snappy deceleration with a satisfying stop
@@ -288,7 +308,7 @@ export class UIAssets {
     // Fade in quickly during the first half of the slide
     const prevAlpha = ctx.globalAlpha;
     ctx.globalAlpha = prevAlpha * Math.min(1, reveal / 0.6);
-    this.drawThreePartH(ctx, img, STRIP_448, color * 128, 128, drawX, y, w, h);
+    ctx.drawImage(swordCanvas, Math.round(drawX), Math.round(y), swordCanvas.width, swordCanvas.height);
     ctx.globalAlpha = prevAlpha;
     return offsetX;
   }
@@ -438,12 +458,26 @@ export class UIAssets {
   drawWaterBg(ctx: CanvasRenderingContext2D, w: number, h: number, _time = 0): boolean {
     const img = this.loadImage(waterBgPng);
     if (!img) return false;
-    const tileSize = 64;
-    for (let ty = 0; ty < h; ty += tileSize) {
-      for (let tx = 0; tx < w; tx += tileSize) {
-        ctx.drawImage(img, tx, ty, tileSize, tileSize);
+    const roundedW = Math.max(1, Math.round(w));
+    const roundedH = Math.max(1, Math.round(h));
+    const key = `${roundedW}x${roundedH}`;
+    let cached = this.waterBgCanvasCache.get(key);
+    if (!cached) {
+      const tileSize = 64;
+      cached = document.createElement('canvas');
+      cached.width = roundedW;
+      cached.height = roundedH;
+      const cctx = cached.getContext('2d');
+      if (!cctx) return false;
+      cctx.imageSmoothingEnabled = false;
+      for (let ty = 0; ty < roundedH; ty += tileSize) {
+        for (let tx = 0; tx < roundedW; tx += tileSize) {
+          cctx.drawImage(img, tx, ty, tileSize, tileSize);
+        }
       }
+      this.waterBgCanvasCache.set(key, cached);
     }
+    ctx.drawImage(cached, 0, 0, roundedW, roundedH);
     return true;
   }
 }

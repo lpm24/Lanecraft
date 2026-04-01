@@ -12,6 +12,10 @@
  *   SimHarvesters— harvester AI, mining, resource delivery
  *   SimLayout    — grid origins, HQ positions, lane paths
  *   SimShared    — shared state (spatial grids, caches) and common helpers
+ *
+ * GameState.ts remains the public facade for external callers. Internal simulation
+ * modules should import from the owning Sim* module directly rather than routing
+ * through these compatibility re-exports.
  */
 import {
   GameState, PlayerState, DiamondState, Team, Race, Lane, MapDef, createPlayerStats,
