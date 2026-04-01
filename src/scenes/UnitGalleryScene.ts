@@ -11,7 +11,7 @@ import {
 import { getUnitUpgradeMultipliers } from '../simulation/SimShared';
 import { getElo, ELO_DEFAULT } from './TitleElo';
 import { getSafeTop } from '../ui/SafeArea';
-import { MAX_STATS, STAT_COLORS, drawStatBar, drawStatVisualIcon, formatSpecialBonuses, type StatVisualKey } from '../ui/StatBarUtils';
+import { MAX_STATS, STAT_COLORS, drawStatBar, drawStatVisualIcon, formatNodeStatChanges, formatSpecialBonuses, type StatVisualKey } from '../ui/StatBarUtils';
 import { SoundManager } from '../audio/SoundManager';
 
 const T = TILE_SIZE;
@@ -45,59 +45,68 @@ const TAB_PATHS: { label: string; path: string[]; desc: string }[] = [
 // Display scale multiplier (visual only, not shown in %)
 const DISPLAY_SCALE = 1.8;
 
-// Race innate traits for melee/ranged/caster (verified against SimCombat.ts combat logic)
+// Race innate traits shown in the detail panel (verified against SimCombat.ts combat logic)
 interface InnateTrait { text: string; icon: StatVisualKey; }
 const RACE_INNATE_TRAITS: Record<Race, Record<string, InnateTrait[]>> = {
   [Race.Crown]: {
     melee: [],
     ranged: [],
     caster: [{ text: 'Shields 2 nearest allies (12 HP, 4s)', icon: 'shield' }],
+    tower: [],
   },
   [Race.Horde]: {
     melee: [{ text: 'Knockback every 3rd hit', icon: 'knockback' }, { text: '10% lifesteal', icon: 'lifesteal' }],
     ranged: [{ text: 'Wound on hit: -50% healing, 6s', icon: 'wound' }],
     caster: [{ text: 'Haste 5 nearest allies (3s)', icon: 'haste' }, { text: 'AoE r3, applies Wound', icon: 'aoe' }],
+    tower: [{ text: '30% chance to knock back on hit', icon: 'knockback' }],
   },
   [Race.Goblins]: {
     melee: [{ text: '15% dodge', icon: 'dodge' }, { text: 'Wound on hit: -50% healing, 6s', icon: 'wound' }],
     ranged: [{ text: '+1 Burn on hit', icon: 'burn' }, { text: 'Wound on hit: -50% healing, 6s', icon: 'wound' }],
     caster: [{ text: 'Slows all enemies in range', icon: 'slow' }, { text: 'AoE r3, 2 Burn + Wound', icon: 'aoe' }],
+    tower: [],
   },
   [Race.Oozlings]: {
     melee: [{ text: 'Spawns x2', icon: 'spawn-rate' }, { text: '15% chance Haste on hit (self)', icon: 'haste' }],
     ranged: [{ text: 'Spawns x2', icon: 'spawn-rate' }, { text: 'Chain to 1 enemy at 50% dmg', icon: 'chain' }],
     caster: [{ text: 'Spawns x2', icon: 'spawn-rate' }, { text: 'Haste 3 nearest allies (3s)', icon: 'haste' }, { text: 'AoE r3, 1 Slow on splash', icon: 'aoe' }],
+    tower: [{ text: 'Chains to 3 enemies (later hits at 60% dmg)', icon: 'chain' }],
   },
   [Race.Demon]: {
     melee: [{ text: '+1 Burn on hit', icon: 'burn' }, { text: 'Wound on hit: -50% healing, 6s', icon: 'wound' }],
     ranged: [{ text: '+1 Burn on hit', icon: 'burn' }, { text: 'Wound on hit', icon: 'wound' }, { text: '20% crit chance, 1.75x dmg', icon: 'damage' }],
     caster: [{ text: 'Pure damage (no support)', icon: 'damage' }, { text: 'AoE r3, 2 Burn + Wound', icon: 'burn' }],
+    tower: [{ text: 'Applies 1 Burn on hit', icon: 'burn' }],
   },
   [Race.Deep]: {
     melee: [{ text: '+1 Slow on hit', icon: 'slow' }],
     ranged: [{ text: '+2 Slow on hit', icon: 'slow' }],
     caster: [{ text: 'Cleanse 2 Burn from all allies in range', icon: 'cleanse' }, { text: 'AoE r4, 2 Slow', icon: 'aoe' }],
+    tower: [{ text: 'AoE pulse hits all enemies in range, applies 1 Slow', icon: 'aoe' }],
   },
   [Race.Wild]: {
     melee: [{ text: '+1 Burn on hit', icon: 'burn' }, { text: 'On kill: heal 15% HP, Frenzy+Haste nearby (6t)', icon: 'frenzy' }],
     ranged: [{ text: '+1 Burn + Wound on hit', icon: 'burn' }, { text: 'On kill: heal 15% HP, Frenzy+Haste nearby (6t)', icon: 'frenzy' }],
     caster: [{ text: 'Haste 3 nearest allies (3s)', icon: 'haste' }, { text: 'AoE r3, 2 Burn + Wound', icon: 'aoe' }, { text: 'On kill: heal 15% HP, Frenzy+Haste nearby (6t)', icon: 'frenzy' }],
+    tower: [{ text: 'AoE pulse hits all enemies in range, applies 1 Burn', icon: 'aoe' }],
   },
   [Race.Geists]: {
     melee: [{ text: '+1 Burn on hit', icon: 'burn' }, { text: '10% lifesteal', icon: 'lifesteal' }, { text: 'Wound on hit: -50% healing, 6s', icon: 'wound' }],
     ranged: [{ text: '+1 Burn on hit', icon: 'burn' }, { text: '10% lifesteal', icon: 'lifesteal' }],
     caster: [{ text: 'Single-target attacker', icon: 'damage' }, { text: '10% lifesteal', icon: 'lifesteal' }],
+    tower: [{ text: 'Applies 1 Burn on hit', icon: 'burn' }],
   },
   [Race.Tenders]: {
     melee: [],
     ranged: [{ text: '+1 Slow on hit (2 on AoE)', icon: 'slow' }],
     caster: [{ text: 'Heals 1 most injured ally for 1 HP', icon: 'healing' }, { text: 'AoE r4, 2 Slow', icon: 'aoe' }],
+    tower: [{ text: 'AoE pulse hits all enemies in range, applies 1 Slow', icon: 'aoe' }],
   },
 };
 
 interface DetailSelection {
   race: Race;
-  catIndex: number; // 0=melee, 1=ranged, 2=caster
+  catIndex: number; // 0=melee, 1=ranged, 2=caster, 3=tower
 }
 
 export class UnitGalleryScene implements Scene {
@@ -1294,8 +1303,9 @@ export class UnitGalleryScene implements Scene {
     headerY += 22;
 
     const fixedHeaderH = headerY - panelY;
+    const totalContentH = this.getTowerDetailContentHeight(race);
     const scrollableH = panelH - fixedHeaderH;
-    const maxDetailScroll = Math.max(0, 600 - scrollableH);
+    const maxDetailScroll = Math.max(0, totalContentH - scrollableH + 10);
     this.detailScrollY = Math.min(this.detailScrollY, maxDetailScroll);
 
     // Scrollable content
@@ -1376,29 +1386,53 @@ export class UnitGalleryScene implements Scene {
     }
     y += secGap;
 
-    // ========== SECTION 4: Upgrade Specials ==========
+    // ========== SECTION 4: Innate Traits ==========
+    const traits = RACE_INNATE_TRAITS[race]?.tower ?? [];
+    if (traits.length > 0) {
+      const traitsH = secPad + 20 + traits.length * 17 + secPad;
+      drawTowerSectionBg(y, traitsH, 0.25);
+      y += secPad;
+      ctx.fillStyle = '#aaa';
+      ctx.font = 'bold 12px monospace';
+      ctx.textAlign = 'left';
+      ctx.fillText('INNATE TRAITS', barX, y + 10);
+      y += 20;
+      for (const trait of traits) {
+        drawStatVisualIcon(ctx, this.ui, trait.icon, barX + 4, y - 2, 14);
+        ctx.fillStyle = '#78c878';
+        ctx.font = '12px monospace';
+        ctx.fillText(trait.text, barX + 22, y + 10);
+        y += 17;
+      }
+      y += secPad;
+      y += secGap;
+    }
+
+    // ========== SECTION 5: Selected Upgrade Changes ==========
     if (nodeDef) {
-      const specials = formatSpecialBonuses(nodeDef.special ?? {});
-      if (specials.length > 0) {
-        const specialsH = secPad + 20 + specials.length * 17 + secPad;
-        drawTowerSectionBg(y, specialsH, 0.25);
+      const changes = formatNodeStatChanges(nodeDef);
+      if (changes.length > 0) {
+        const changesH = secPad + 20 + changes.length * 17 + secPad;
+        drawTowerSectionBg(y, changesH, 0.25);
         y += secPad;
         ctx.fillStyle = '#aaa';
         ctx.font = 'bold 12px monospace';
         ctx.textAlign = 'left';
-        ctx.fillText('UPGRADE BONUSES', barX, y + 10);
+        ctx.fillText('SELECTED UPGRADE', barX, y + 10);
         y += 20;
-        for (const s of specials) {
-          drawStatVisualIcon(ctx, this.ui, s.key, barX + 4, y - 2, 14);
-          ctx.fillStyle = '#e0c860';
+        for (const change of changes) {
+          drawStatVisualIcon(ctx, this.ui, change.key, barX + 4, y - 2, 14);
+          ctx.fillStyle = change.isBuff ? '#e0c860' : '#ef9a9a';
           ctx.font = '11px monospace';
-          ctx.fillText(s.text, barX + 22, y + 10);
+          ctx.fillText(change.text, barX + 22, y + 10);
           y += 17;
         }
         y += secPad;
         y += secGap;
       }
     }
+
+    y += 20;
 
     ctx.restore();
 
@@ -1411,6 +1445,42 @@ export class UnitGalleryScene implements Scene {
     const closeVisY = closeY2 + (closeBtnSize - closeSize) / 2;
     this.ui.drawSmallRedRoundButton(ctx, closeVisX, closeVisY, closeSize);
     this.ui.drawIcon(ctx, 'close', closeVisX + closeSize / 2 - 10, closeVisY + closeSize / 2 - 10, 20);
+
+    if (maxDetailScroll > 0) {
+      const scrollPct = this.detailScrollY / maxDetailScroll;
+      const trackH = scrollableH - 20;
+      const thumbH = Math.max(20, (scrollableH / totalContentH) * trackH);
+      const thumbY = headerY + 10 + scrollPct * (trackH - thumbH);
+      ctx.fillStyle = 'rgba(255,255,255,0.15)';
+      roundRect(ctx, panelX + panelW - 6, thumbY, 4, thumbH, 2);
+      ctx.fill();
+    }
+  }
+
+  private getTowerDetailContentHeight(race: Race): number {
+    const secPad = 8;
+    const secGap = 6;
+    let h = 8;
+    const costSteps = TAB_PATHS[this.activeTab]?.path.length ?? 1;
+
+    h += secPad + 28 + 90 + 4 + secPad + secGap;
+    h += secPad + 26 * 5 + secPad + secGap;
+
+    h += secPad + 18 + costSteps * 17 + (costSteps > 1 ? 26 : 5) + secPad + secGap;
+
+    const traits = RACE_INNATE_TRAITS[race]?.tower ?? [];
+    if (traits.length > 0) h += secPad + 20 + traits.length * 17 + secPad + secGap;
+
+    const nodeKey = TAB_PATHS[this.activeTab]?.path[TAB_PATHS[this.activeTab].path.length - 1];
+    const tree = UPGRADE_TREES[race]?.[BuildingType.Tower];
+    const nodeDef: UpgradeNodeDef | undefined = nodeKey && nodeKey !== 'A' ? (tree as any)?.[nodeKey] : undefined;
+    if (nodeDef) {
+      const changes = formatNodeStatChanges(nodeDef);
+      if (changes.length > 0) h += secPad + 20 + changes.length * 17 + secPad + secGap;
+    }
+
+    h += 30;
+    return h;
   }
 
   private renderUpgradeTree(
