@@ -3276,7 +3276,8 @@ export class TitleScene implements Scene {
   }
 
   private drawDuelUnit(ctx: CanvasRenderingContext2D, unit: DuelUnit, size: number, baseY: number, frameTick: number, screenW: number): void {
-    const attacking = unit.isAttacking;
+    const hasAttackSprite = this.sprites.hasAttackSprite(unit.race, unit.category, unit.upgradeNode);
+    const attacking = unit.isAttacking && hasAttackSprite;
     const spriteData = this.sprites.getUnitSprite(unit.race, unit.category, unit.playerId, attacking, unit.upgradeNode);
     if (!spriteData) return;
 
@@ -3286,7 +3287,15 @@ export class TitleScene implements Scene {
     const aspect = def.frameW / def.frameH;
     const drawW = baseH * aspect;
     const drawH = baseH * (def.heightScale ?? 1.0);
-    const frame = getSpriteFrame(frameTick, def);
+    let frame: number;
+    if (attacking) {
+      const totalFrames = def.cols * (def.rows ?? 1);
+      const attackDuration = Math.max(0.001, unit.attackSpeed);
+      const elapsed = Math.max(0, attackDuration - unit.attackAnimTimer);
+      frame = Math.min(totalFrames - 1, Math.floor(elapsed * totalFrames / attackDuration));
+    } else {
+      frame = getSpriteFrame(frameTick, def);
+    }
     const sx = this.tileToScreen(unit.x, screenW);
     const gY = def.groundY ?? 0.71;
     const drawY = baseY - drawH * gY;

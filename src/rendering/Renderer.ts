@@ -2442,9 +2442,12 @@ export class Renderer {
           ctx.stroke();
 
           // Draw race's ranged unit on top of tower for identification
-          // Show attack animation while tower is on cooldown (just fired), idle otherwise
+          // Use the full cooldown for dedicated attack sheets so tower attack anims play through once.
+          const towerCooldownTicks = Math.max(1, Math.round(towerStats.attackSpeed * TICK_RATE));
+          const towerHasAttackSprite = this.sprites.hasAttackSprite(player.race, 'ranged', b.upgradePath[b.upgradePath.length - 1] ?? 'A');
           const towerFiring = b.actionTimer > 0;
-          const unitData = this.sprites.getUnitSprite(player.race, 'ranged', b.playerId, towerFiring);
+          const towerShowingAttack = towerHasAttackSprite ? towerFiring : b.actionTimer > towerCooldownTicks * 0.5;
+          const unitData = this.sprites.getUnitSprite(player.race, 'ranged', b.playerId, towerShowingAttack, b.upgradePath[b.upgradePath.length - 1] ?? 'A');
           if (unitData) {
             const [unitImg, unitDef] = unitData;
             const spriteScale = unitDef.scale ?? 1.0;
@@ -2458,12 +2461,12 @@ export class Renderer {
             const unitX = px - uW / 2;
             const unitY = feetY - uH * gY;
             let frame: number;
-            if (towerFiring) {
-              // Play attack animation once through during cooldown
-              const cooldownTotal = Math.round(towerStats.attackSpeed * 20); // ticks
-              const elapsed = cooldownTotal - b.actionTimer;
-              const atkProgress = Math.min(1, elapsed / Math.max(1, unitDef.cols));
-              frame = Math.min(Math.floor(atkProgress * unitDef.cols), unitDef.cols - 1);
+            if (towerShowingAttack && towerHasAttackSprite) {
+              const elapsed = towerCooldownTicks - b.actionTimer;
+              const totalFrames = unitDef.cols * (unitDef.rows ?? 1);
+              frame = Math.min(totalFrames - 1, Math.floor(elapsed * totalFrames / towerCooldownTicks));
+            } else if (towerShowingAttack) {
+              frame = 0;
             } else {
               // Idle: hold frame 0
               frame = 0;
