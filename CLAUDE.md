@@ -77,13 +77,25 @@ src/
     BotDecisions.ts  # Build orders, upgrades, lanes, nukes, actions
     maps.ts          # Data-driven map definitions (Duel, Skirmish, Warzone)
   rendering/         # Canvas rendering (client only)
-    Renderer.ts      # World, HUD, minimap drawing
+    Renderer.ts      # Render orchestrator, camera transforms, zone drawing
+    RendererEntities.ts # Y-sorted entity drawing (units, buildings, projectiles)
+    RendererOverlays.ts # HUD, minimap, fog of war, floating text, effects
+    RendererTerrain.ts  # Terrain cache, water animation, resource nodes
+    RendererShapes.ts   # Unit shape drawing, type defs, pure helpers
     SpriteLoader.ts  # Sprite loading (Tiny Swords + character packs)
     UIAssets.ts      # 9-slice panels, ribbons, icons
     Camera.ts        # Pan/zoom (mouse, keyboard, touch)
     VisualEffects.ts # Day/night, weather, particles, screen shake
   scenes/            # Scene system (Title, RaceSelect, Match, PostMatch, etc.)
+    TitleScene.ts    # Title screen orchestrator, lifecycle, click handling
+    TitleParty.ts    # Party/Firebase/matchmaking logic
+    TitleRender.ts   # Title screen rendering (menus, panels, duel units)
   ui/                # Input handling, popups (Building, Hut, Research), TutorialManager
+    InputHandler.ts  # Input orchestrator, keyboard/mouse setup, placement
+    InputBuildTray.ts # Build tray layout and rendering
+    InputSettings.ts  # Settings panel drawing and persistence
+    InputTutorial.ts  # Tutorial overlay rendering and state
+    InputAbilities.ts # Ability icons, nuke overlay, unit selection
   game/              # Game orchestration (Game.ts, GameLoop.ts)
   network/           # Firebase RTDB multiplayer (PartyManager, CommandSync)
   audio/             # Music + procedural SFX
