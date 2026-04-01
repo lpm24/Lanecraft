@@ -48,6 +48,7 @@ export interface DuelProjectile {
   damage: number;
   sourceRace: Race;
   sourceCategory: 'melee' | 'ranged' | 'caster';
+  sourceUpgradeNode: string; // 'A', 'B', etc. — for projectile visual lookup
   sourcePlayerId: number;
   targetUnit: DuelUnit;
   facingLeft: boolean;
@@ -293,6 +294,7 @@ export function tickDuelCombat(
         damage: attacker.damage,
         sourceRace: attacker.race,
         sourceCategory: attacker.category,
+        sourceUpgradeNode: attacker.upgradeNode ?? 'A',
         sourcePlayerId: attacker.playerId,
         targetUnit: target,
         facingLeft: attacker.facingLeft,

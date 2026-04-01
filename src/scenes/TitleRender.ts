@@ -8,6 +8,7 @@
 import { UIAssets } from '../rendering/UIAssets';
 import { SpriteLoader, drawSpriteFrame, drawGridFrame, getSpriteFrame } from '../rendering/SpriteLoader';
 import { Race, StatusType } from '../simulation/types';
+import { getProjectileVisual } from '../simulation/SimShared';
 import { RACE_COLORS, RACE_LABELS } from '../simulation/data';
 import { PartyState, PartyPlayer, getActiveSlots } from '../network/PartyManager';
 import { BotDifficultyLevel } from '../simulation/BotAI';
@@ -1149,14 +1150,30 @@ export function drawDuelProjectile(
   const sx = tileToScreen(proj.x, screenW);
   const py = baseY - unitSize * 0.5;
   const animFrame = 5 + Math.floor(animTime * 10) % 10;
+  const angle = proj.facingLeft ? Math.PI : 0;
+  const spin = (animTime * 8) % (Math.PI * 2);
 
-  const usesArrow = proj.sourceRace === Race.Crown && !proj.aoe;
+  const vis = getProjectileVisual(proj.sourceRace, proj.sourceCategory, proj.sourceUpgradeNode);
 
-  if (usesArrow) {
+  if (vis.visual === 'sprite' && vis.spriteKey) {
+    const sprData = sprites.getProjectileSprite(vis.spriteKey);
+    if (sprData) {
+      const [img] = sprData;
+      const doSpin = sprites.isSpinningProjectile(vis.spriteKey) ? spin : 0;
+      const size = proj.aoe ? unitSize * 0.45 : unitSize * 0.4;
+      ctx.save();
+      ctx.translate(sx, py);
+      ctx.rotate(angle + doSpin);
+      ctx.drawImage(img, -size / 2, -size / 2, size, size);
+      ctx.restore();
+      return;
+    }
+  }
+
+  if (vis.visual === 'arrow') {
     const arrowData = sprites.getArrowSprite(proj.sourcePlayerId < 2 ? 0 : 1);
     if (arrowData) {
       const [img] = arrowData;
-      const angle = proj.facingLeft ? Math.PI : 0;
       const size = unitSize * 0.35;
       ctx.save();
       ctx.translate(sx, py);
@@ -1167,7 +1184,21 @@ export function drawDuelProjectile(
     }
   }
 
-  if (proj.aoe) {
+  if (vis.visual === 'bone') {
+    const boneData = sprites.getBoneSprite();
+    if (boneData) {
+      const [img] = boneData;
+      const size = unitSize * 0.35;
+      ctx.save();
+      ctx.translate(sx, py);
+      ctx.rotate(angle + spin);
+      ctx.drawImage(img, 0, 0, 64, 64, -size / 2, -size / 2, size, size);
+      ctx.restore();
+      return;
+    }
+  }
+
+  if (vis.visual === 'circle') {
     const circData = sprites.getCircleSprite(proj.sourceRace);
     if (circData) {
       const [img, def] = circData;
@@ -1177,14 +1208,7 @@ export function drawDuelProjectile(
     }
   }
 
-  const orbData = sprites.getOrbSprite(proj.sourceRace);
-  if (orbData) {
-    const [img, def] = orbData;
-    const size = unitSize * 0.3;
-    drawGridFrame(ctx, img, def, animFrame, sx - size / 2, py - size / 2, size, size);
-    return;
-  }
-
+  // Final fallback: colored dot
   const color = proj.sourcePlayerId < 2 ? '#4fc3f7' : '#ff8a65';
   ctx.beginPath();
   ctx.arc(sx, py, 4, 0, Math.PI * 2);
