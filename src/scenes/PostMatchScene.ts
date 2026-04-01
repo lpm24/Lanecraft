@@ -1393,7 +1393,7 @@ export class PostMatchScene implements Scene {
     const playerSeries = (perPlayer: number[][]) => playerIds.map((pid, i) => ({
       values: perPlayer[i],
       color: PLAYER_COLORS[pid % PLAYER_COLORS.length],
-      label: this.slotLabel(pid),
+      label: `P${pid + 1}`,
     }));
 
     const graphs: Array<{ title: string; series: Array<{ values: number[]; color: string; label: string }>; yMin: number; yMax?: number }> = [
