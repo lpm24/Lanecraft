@@ -539,15 +539,6 @@ export class Game {
               meatEarned: ps.totalMeatEarned, damageDealt: ps.totalDamageDealt }
           : { goldEarned: 0, woodEarned: 0, meatEarned: 0, damageDealt: 0 };
       }),
-      harvesters: s.harvesters
-        .filter(h => h.state !== 'dead')
-        .map(h => ({ x: h.x, y: h.y, playerId: h.playerId, team: h.team as number })),
-      buildings: s.buildings.map(b => ({
-        x: b.worldX, y: b.worldY,
-        playerId: b.playerId,
-        team: (s.players[b.playerId]?.team ?? 0) as number,
-        btype: b.type as string,
-      })),
     });
   }
 

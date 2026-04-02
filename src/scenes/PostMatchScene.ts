@@ -1241,37 +1241,12 @@ export class PostMatchScene implements Scene {
       ctx.fill();
     }
 
-    // Buildings (drawn before units so they sit underneath)
-    for (const b of frame.buildings ?? []) {
-      const bx = Math.round(mmX + (b.x / mapW) * mmW);
-      const by = Math.round(mmY + (b.y / mapH) * mmH);
-      const isHut = b.btype === 'harvester_hut';
-      const isTower = b.btype === 'tower';
-      const sz = isHut ? 2 : 3;
-      const color = PLAYER_COLORS[b.playerId % PLAYER_COLORS.length] || (b.team === 0 ? '#2979ff' : '#ff1744');
-      ctx.fillStyle = isTower ? color + 'cc' : color + 'aa';
-      ctx.fillRect(bx - Math.floor(sz / 2), by - Math.floor(sz / 2), sz, sz);
-      ctx.strokeStyle = 'rgba(255,255,255,0.4)';
-      ctx.lineWidth = 0.5;
-      ctx.strokeRect(bx - Math.floor(sz / 2) + 0.25, by - Math.floor(sz / 2) + 0.25, sz - 0.5, sz - 0.5);
-    }
-
     // Unit dots
     for (const u of frame.units) {
       const ux = mmX + (u.x / mapW) * mmW;
       const uy = mmY + (u.y / mapH) * mmH;
       ctx.fillStyle = PLAYER_COLORS[u.playerId] || (u.team === 0 ? '#2979ff' : '#ff1744');
       ctx.fillRect(ux - 1, uy - 1, 2, 2);
-    }
-
-    // Harvester crosses (drawn after units — cross/plus shape at 60% opacity)
-    for (const h of frame.harvesters ?? []) {
-      const hx = Math.round(mmX + (h.x / mapW) * mmW);
-      const hy = Math.round(mmY + (h.y / mapH) * mmH);
-      const color = PLAYER_COLORS[h.playerId % PLAYER_COLORS.length] || (h.team === 0 ? '#2979ff' : '#ff1744');
-      ctx.fillStyle = color + '99';
-      ctx.fillRect(hx, hy - 1, 1, 3);  // vertical bar
-      ctx.fillRect(hx - 1, hy, 3, 1);  // horizontal bar
     }
 
     // War hero stars
