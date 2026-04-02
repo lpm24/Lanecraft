@@ -29,7 +29,7 @@ import { ResearchPopup } from './ResearchPopup';
 import { SeedPopup } from './SeedPopup';
 import { getSafeTop } from './SafeArea';
 import { getVisualSettings, type TouchControlsMode } from '../rendering/VisualSettings';
-import { tileToPixel, pixelToTile } from '../rendering/Projection';
+import { tileToPixel, pixelToTile, isoArc } from '../rendering/Projection';
 import {
   isMatchTutorial,
   refreshTutorialCache,
@@ -247,6 +247,7 @@ export class InputHandler {
       getCanvasRect: () => this.getCanvasRect(),
       getTrayLayout: () => this.getTrayLayout(),
       getSettingsButtonRect: () => this.getSettingsButtonRect(),
+      playSfx: this.game.sfx,
     };
   }
 
@@ -1330,6 +1331,8 @@ export class InputHandler {
                 this.game.sfx.playUIToggle();
               }
             }
+          } else if (result.action === 'toggle_stats') {
+            this.game.sfx.playUIToggle();
           } else if (result.action === 'close') {
             this.buildingPopup.close();
             this.game.sfx.playUIClose();
@@ -1369,6 +1372,8 @@ export class InputHandler {
             }
             this.hutPopup.close();
             this.game.sfx.playUIClick();
+          } else if (result.action === 'toggle_info') {
+            this.game.sfx.playUIToggle();
           } else if (result.action === 'close') {
             this.hutPopup.close();
             this.game.sfx.playUIClose();
@@ -1603,7 +1608,7 @@ export class InputHandler {
         const hpx = hpx0 + TILE_SIZE / 2;
         const hpy = hpy0 + TILE_SIZE / 2;
         ctx.beginPath();
-        ctx.arc(hpx, hpy, TILE_SIZE * 0.55, 0, Math.PI * 2);
+        isoArc(ctx, hpx, hpy, TILE_SIZE * 0.55, this.iso);
         ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
         ctx.lineWidth = 1;
         ctx.stroke();
@@ -2239,6 +2244,7 @@ export class InputHandler {
       game: this.game, camera: this.camera, canvas: this.canvas,
       pid: this.pid, isTouchDevice: this.isTouchDevice,
       pointerX: this.pointerX, pointerY: this.pointerY,
+      isometric: this.iso,
     });
   }
 
@@ -2252,6 +2258,7 @@ export class InputHandler {
       pid: this.pid, isTouchDevice: this.isTouchDevice,
       pointerX: this.pointerX, pointerY: this.pointerY,
       tp: (tx, ty) => this.tp(tx, ty),
+      isometric: this.iso,
     });
   }
 

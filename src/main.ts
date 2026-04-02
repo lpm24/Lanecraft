@@ -46,9 +46,26 @@ canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 const sharedSprites = new SpriteLoader();
 const sharedUI = new UIAssets();
 
+// Loading progress UI
+const barFill = document.getElementById('loading-bar-fill');
+const loadingText = document.getElementById('loading-text');
+let uiTotal = 0, uiLoaded = 0, spriteTotal = 0, spriteLoaded = 0;
+function updateProgress() {
+  const total = uiTotal + spriteTotal;
+  const loaded = uiLoaded + spriteLoaded;
+  if (total === 0) return;
+  const pct = Math.round((loaded / total) * 100);
+  if (barFill) barFill.style.width = pct + '%';
+  if (loadingText) loadingText.textContent = `Loading assets... ${loaded}/${total}`;
+}
+
 // Start loading all assets immediately
-const uiReady = sharedUI.preload();
-const spritesReady = sharedSprites.preloadAll();
+const uiReady = sharedUI.preload((loaded, total) => {
+  uiLoaded = loaded; uiTotal = total; updateProgress();
+});
+const spritesReady = sharedSprites.preloadAll((loaded, total) => {
+  spriteLoaded = loaded; spriteTotal = total; updateProgress();
+});
 
 // Wait for UI assets (critical for title screen), then start.
 // Game sprites can finish loading in the background.

@@ -16,7 +16,7 @@ import { PLAYER_COLORS, getRaceUsedResources } from '../simulation/data';
 import { getSafeTop, getSafeBottom } from '../ui/SafeArea';
 import { drawStatVisualIcon } from '../ui/StatBarUtils';
 import { getVisualSettings } from './VisualSettings';
-import { tileToPixel, isoWorldBounds, ISO_TILE_W, ISO_TILE_H } from './Projection';
+import { tileToPixel, isoWorldBounds, isoArc, ISO_TILE_W, ISO_TILE_H } from './Projection';
 import { FLOATING_TEXT_ICON_MAP, hexToRgba, quickChatStyle } from './RendererShapes';
 
 const T = TILE_SIZE;
@@ -544,7 +544,7 @@ export function drawNukeEffects(ctx: CanvasRenderingContext2D, state: GameState,
 
     const ringAlpha = Math.max(0, 1 - progress);
     ctx.beginPath();
-    ctx.arc(px, py, r, 0, Math.PI * 2);
+    isoArc(ctx, px, py, r, isometric);
     ctx.fillStyle = `rgba(50, 20, 0, ${ringAlpha * 0.3})`;
     ctx.fill();
 
@@ -586,7 +586,7 @@ export function drawNukeEffects(ctx: CanvasRenderingContext2D, state: GameState,
     }
 
     ctx.beginPath();
-    ctx.arc(px, py, r, 0, Math.PI * 2);
+    isoArc(ctx, px, py, r, isometric);
     ctx.strokeStyle = `rgba(255, 80, 0, ${ringAlpha * 0.5})`;
     ctx.lineWidth = 3;
     ctx.stroke();
@@ -635,7 +635,7 @@ export function drawAbilityEffects(ctx: CanvasRenderingContext2D, state: GameSta
       grad.addColorStop(0.7, `rgba(255, 130, 30, ${fade * 0.08 * pulse})`);
       grad.addColorStop(1, `rgba(255, 60, 0, 0)`);
       ctx.beginPath();
-      ctx.arc(px, py, r, 0, Math.PI * 2);
+      isoArc(ctx, px, py, r, isometric);
       ctx.fillStyle = grad;
       ctx.fill();
 
@@ -643,7 +643,7 @@ export function drawAbilityEffects(ctx: CanvasRenderingContext2D, state: GameSta
       ctx.translate(px, py);
       ctx.rotate(tick * 0.05);
       ctx.beginPath();
-      ctx.arc(0, 0, r * 0.95, 0, Math.PI * 2);
+      isoArc(ctx, 0, 0, r * 0.95, isometric);
       ctx.setLineDash([8, 12]);
       ctx.strokeStyle = `rgba(255, 200, 50, ${fade * 0.4})`;
       ctx.lineWidth = 2;
@@ -668,12 +668,12 @@ export function drawAbilityEffects(ctx: CanvasRenderingContext2D, state: GameSta
       const warn = 1.0;
 
       ctx.beginPath();
-      ctx.arc(px, py, r * 0.85, 0, Math.PI * 2);
+      isoArc(ctx, px, py, r * 0.85, isometric);
       ctx.fillStyle = `rgba(60, 10, 0, ${warn * 0.18})`;
       ctx.fill();
 
       ctx.beginPath();
-      ctx.arc(px, py, r, 0, Math.PI * 2);
+      isoArc(ctx, px, py, r, isometric);
       ctx.strokeStyle = `rgba(255, 80, 0, ${warn * (0.5 + 0.5 * pulse)})`;
       ctx.lineWidth = 2.5;
       ctx.stroke();
@@ -682,7 +682,7 @@ export function drawAbilityEffects(ctx: CanvasRenderingContext2D, state: GameSta
       ctx.translate(px, py);
       ctx.rotate(tick * 0.07);
       ctx.beginPath();
-      ctx.arc(0, 0, r * 0.65, 0, Math.PI * 2);
+      isoArc(ctx, 0, 0, r * 0.65, isometric);
       ctx.setLineDash([6, 10]);
       ctx.strokeStyle = `rgba(255, 200, 50, ${warn * 0.55})`;
       ctx.lineWidth = 1.5;
@@ -807,7 +807,7 @@ export function drawAbilityEffects(ctx: CanvasRenderingContext2D, state: GameSta
       const ringR = r * (0.3 + progress * 0.7);
       const ringAlpha = Math.max(0, 1 - progress);
       ctx.beginPath();
-      ctx.arc(px, py, ringR, 0, Math.PI * 2);
+      isoArc(ctx, px, py, ringR, isometric);
       const fireGrad = ctx.createRadialGradient(px, py, 0, px, py, ringR);
       fireGrad.addColorStop(0, `rgba(255, 220, 50, ${ringAlpha * 0.4})`);
       fireGrad.addColorStop(0.4, `rgba(255, 120, 0, ${ringAlpha * 0.3})`);
@@ -826,7 +826,7 @@ export function drawAbilityEffects(ctx: CanvasRenderingContext2D, state: GameSta
       }
 
       ctx.beginPath();
-      ctx.arc(px, py, r * 0.8, 0, Math.PI * 2);
+      isoArc(ctx, px, py, r * 0.8, isometric);
       ctx.fillStyle = `rgba(40, 10, 0, ${ringAlpha * 0.2})`;
       ctx.fill();
 
@@ -902,10 +902,33 @@ export function drawFogOfWar(
     const vpY1 = camera.y + canvas.clientHeight / camera.zoom + T;
     const hw = ISO_TILE_W / 2;
     const hh = ISO_TILE_H / 2;
+    // Compute visible tile range from viewport to avoid iterating the full map
+    // Iso transform: cx = (tx - ty) * hw, cy = (tx + ty) * hh
+    // Invert: tx = cy/hh/2 + cx/hw/2, ty = cy/hh/2 - cx/hw/2
+    // Use viewport corners to find tile bounds with generous margin
+    const margin = 2;
+    const invHW = 1 / (2 * hw), invHH = 1 / (2 * hh);
+    // Sample all 4 viewport corners to find tile range
+    const corners = [
+      { x: vpX0, y: vpY0 }, { x: vpX1, y: vpY0 },
+      { x: vpX0, y: vpY1 }, { x: vpX1, y: vpY1 },
+    ];
+    let tMinX = mw, tMaxX = 0, tMinY = mh, tMaxY = 0;
+    for (const c of corners) {
+      const ttx = c.y * invHH + c.x * invHW;
+      const tty = c.y * invHH - c.x * invHW;
+      tMinX = Math.min(tMinX, ttx); tMaxX = Math.max(tMaxX, ttx);
+      tMinY = Math.min(tMinY, tty); tMaxY = Math.max(tMaxY, tty);
+    }
+    const fogTxMin = Math.max(0, Math.floor(tMinX - margin));
+    const fogTxMax = Math.min(mw - 1, Math.ceil(tMaxX + margin));
+    const fogTyMin = Math.max(0, Math.floor(tMinY - margin));
+    const fogTyMax = Math.min(mh - 1, Math.ceil(tMaxY + margin));
+
     ctx.beginPath();
     let hasLinger = false;
-    for (let ty = 0; ty < mh; ty++) {
-      for (let tx = 0; tx < mw; tx++) {
+    for (let ty = fogTyMin; ty <= fogTyMax; ty++) {
+      for (let tx = fogTxMin; tx <= fogTxMax; tx++) {
         const idx = ty * mw + tx;
         if (vis[idx]) continue;
         const tileXc = tx + 0.5, tileYc = ty + 0.5;
@@ -926,8 +949,8 @@ export function drawFogOfWar(
     ctx.fillStyle = `rgba(0,0,0,${FOG_ALPHA / 255})`;
     ctx.fill();
     if (hasLinger) {
-      for (let ty = 0; ty < mh; ty++) {
-        for (let tx = 0; tx < mw; tx++) {
+      for (let ty = fogTyMin; ty <= fogTyMax; ty++) {
+        for (let tx = fogTxMin; tx <= fogTxMax; tx++) {
           const idx = ty * mw + tx;
           if (vis[idx] || linger[idx] <= 0) continue;
           const tileXc = tx + 0.5, tileYc = ty + 0.5;
@@ -1114,22 +1137,23 @@ export function drawMinimap(
     const fog = state.fogOfWar;
     const localTeam = state.players[localPlayerId]?.team ?? Team.Bottom;
 
-    const combatClusters: { x: number; y: number; count: number }[] = [];
+    // Grid-based combat clustering (O(n) instead of O(n×k))
+    const clusterCellSize = 8;
+    const clusterGrid = new Map<number, { x: number; y: number; count: number }>();
     for (const u of state.units) {
       if (u.targetId === null) continue;
       if (fog && u.team !== localTeam && !isTileVisible(state, u.x, u.y)) continue;
-      let added = false;
-      for (const c of combatClusters) {
-        if (Math.abs(c.x - u.x) < 8 && Math.abs(c.y - u.y) < 8) {
-          c.x = (c.x * c.count + u.x) / (c.count + 1);
-          c.y = (c.y * c.count + u.y) / (c.count + 1);
-          c.count++;
-          added = true;
-          break;
-        }
+      const key = (Math.floor(u.x / clusterCellSize)) * 10000 + Math.floor(u.y / clusterCellSize);
+      const c = clusterGrid.get(key);
+      if (c) {
+        c.x = (c.x * c.count + u.x) / (c.count + 1);
+        c.y = (c.y * c.count + u.y) / (c.count + 1);
+        c.count++;
+      } else {
+        clusterGrid.set(key, { x: u.x, y: u.y, count: 1 });
       }
-      if (!added) combatClusters.push({ x: u.x, y: u.y, count: 1 });
     }
+    const combatClusters = Array.from(clusterGrid.values());
     const pulse = 0.5 + 0.5 * Math.sin(frameNow / 200);
     for (const c of combatClusters) {
       if (c.count < 2) continue;

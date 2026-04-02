@@ -13,7 +13,7 @@ import {
   type MapDef,
 } from '../simulation/types';
 import { getHQPosition } from '../simulation/GameState';
-import { tileToPixel } from './Projection';
+import { tileToPixel, isoArc } from './Projection';
 
 const T = TILE_SIZE;
 
@@ -722,7 +722,7 @@ export function drawResourceNodes(
   const drawNodeFallback = (x: number, y: number, label: string, color: string) => {
     const { px, py } = tp(x, y);
     ctx.beginPath();
-    ctx.arc(px, py, T * 1.2, 0, Math.PI * 2);
+    isoArc(ctx, px, py, T * 1.2, isometric);
     ctx.fillStyle = color;
     ctx.fill();
     ctx.fillStyle = '#bbb';

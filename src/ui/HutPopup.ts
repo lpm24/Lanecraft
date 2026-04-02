@@ -8,6 +8,7 @@ import { getPopupSafeY } from './SafeArea';
 export type HutPopupAction =
   | { action: 'assign'; assignment: HarvesterAssignment }
   | { action: 'center_builder' }
+  | { action: 'toggle_info' }
   | { action: 'close' };
 
 // Minimum touch target (Apple HIG = 44px)
@@ -125,7 +126,7 @@ export class HutPopup {
     if (this.hitTest(cx, cy, this.infoBtnRect)) {
       this.showInfo = !this.showInfo;
       hutInfoPreference = this.showInfo ? 'open' : 'closed';
-      return null;
+      return { action: 'toggle_info' };
     }
 
     for (const btn of this.assignBtnRects) {

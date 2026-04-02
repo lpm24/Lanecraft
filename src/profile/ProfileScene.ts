@@ -261,7 +261,7 @@ export class ProfileScene implements Scene {
       for (let i = 0; i < tabs.length; i++) {
         const tx = startX + i * (tabW + gap);
         if (cx >= tx && cx <= tx + tabW) {
-          if (this.tab !== tabs[i]) this.sfx.playUITab();
+          this.sfx.playUITab();
           this.tab = tabs[i];
           this.scrollY = 0;
           this.scrollVelocity = 0;
@@ -296,9 +296,15 @@ export class ProfileScene implements Scene {
       if (cx >= ax && cx < ax + cellSize && cy >= ay && cy < ay + cellSize) {
         const avatar = ALL_AVATARS[i];
         if (isAvatarUnlocked(this.profile, avatar)) {
-          if (this.profile.avatarId !== avatar.id) this.sfx.playUIConfirm();
-          this.profile.avatarId = avatar.id;
-          saveProfile(this.profile);
+          if (this.profile.avatarId !== avatar.id) {
+            this.sfx.playUIConfirm();
+            this.profile.avatarId = avatar.id;
+            saveProfile(this.profile);
+          } else {
+            this.sfx.playUIClick();
+          }
+        } else {
+          this.sfx.playUIClick();
         }
         return;
       }

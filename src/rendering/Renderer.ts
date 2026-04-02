@@ -36,7 +36,7 @@ import {
 } from './VisualEffects';
 import { getSafeTop } from '../ui/SafeArea';
 import { getVisualSettings } from './VisualSettings';
-import { tileToPixel, isoWorldBounds, ISO_TILE_W, ISO_TILE_H } from './Projection';
+import { tileToPixel, isoWorldBounds, isoArc, ISO_TILE_W, ISO_TILE_H } from './Projection';
 // Extracted modules
 import { hexToRgba, type DeadUnitSnapshot, type UnitRenderSnapshot, type UnitCategory, drawUnitShape as _drawUnitShapeStandalone } from './RendererShapes';
 import * as Entities from './RendererEntities';
@@ -64,7 +64,8 @@ export class Renderer {
    *  Only valid during the dispatch loop; drawOne* can use these instead of calling tp(). */
   private _cachedPx = 0;
   private _cachedPy = 0;
-  private isoTerrainCache: HTMLCanvasElement | null = null;
+  private isoTerrainChunks = new Map<string, HTMLCanvasElement>();
+  private static readonly ISO_CHUNK_SIZE = 2048;
   private terrainCache: HTMLCanvasElement | null = null;
   private waterCache: HTMLCanvasElement | null = null;
   private terrainReady = false;
@@ -164,7 +165,7 @@ export class Renderer {
 
   destroy(): void {
     window.removeEventListener('resize', this.resizeHandler);
-    this.isoTerrainCache = null;
+    this.isoTerrainChunks.clear();
     this.terrainCache = null;
     this.waterCache = null;
   }
@@ -522,41 +523,67 @@ export class Renderer {
 
   private drawZones(ctx: CanvasRenderingContext2D, tick: number): void {
     if (this.isometric) {
-      // Isometric mode: build terrain cache on first frame, then blit
-      if (!this.isoTerrainCache) {
-        const bounds = isoWorldBounds(this.mapW, this.mapH);
-        const pad = T;
-        const cw = Math.ceil(bounds.width + pad * 2);
-        const ch = Math.ceil(bounds.height + pad * 2);
-        const offscreen = document.createElement('canvas');
-        offscreen.width = cw;
-        offscreen.height = ch;
-        const oc = offscreen.getContext('2d')!;
-        // Offset so bounds.minX maps to pad
-        oc.translate(-bounds.minX + pad, -bounds.minY + pad);
-        // Water background
-        oc.fillStyle = '#5b9a8b';
-        oc.fillRect(bounds.minX - pad, bounds.minY - pad, cw, ch);
-        // Playable tiles as green diamonds (slightly oversized to eliminate seam gaps)
-        oc.fillStyle = '#3a6b3a';
-        const seamPad = 0.5; // extra half-pixel per edge to cover anti-aliasing seams
-        for (let ty = 0; ty < this.mapH; ty++) {
-          for (let tx = 0; tx < this.mapW; tx++) {
-            if (!this.mapDef.isPlayable(tx, ty)) continue;
-            const { px: cx, py: cy } = this.tp(tx + 0.5, ty + 0.5);
-            oc.beginPath();
-            oc.moveTo(cx, cy - ISO_TILE_H / 2 - seamPad);
-            oc.lineTo(cx + ISO_TILE_W / 2 + seamPad, cy);
-            oc.lineTo(cx, cy + ISO_TILE_H / 2 + seamPad);
-            oc.lineTo(cx - ISO_TILE_W / 2 - seamPad, cy);
-            oc.closePath();
-            oc.fill();
-          }
-        }
-        this.isoTerrainCache = offscreen;
-      }
+      // Isometric mode: chunked terrain cache (mobile-friendly, lazy-built)
+      const CHUNK = Renderer.ISO_CHUNK_SIZE;
       const bounds = isoWorldBounds(this.mapW, this.mapH);
-      ctx.drawImage(this.isoTerrainCache, bounds.minX - T, bounds.minY - T);
+      const originX = bounds.minX - T;
+      const originY = bounds.minY - T;
+      const totalW = Math.ceil(bounds.width + T * 2);
+      const totalH = Math.ceil(bounds.height + T * 2);
+      const cols = Math.ceil(totalW / CHUNK);
+      const rows = Math.ceil(totalH / CHUNK);
+
+      // Camera viewport in world-pixel space
+      const vpL = this.camera.x;
+      const vpT = this.camera.y;
+      const vpR = vpL + this.canvas.clientWidth / this.camera.zoom;
+      const vpB = vpT + this.canvas.clientHeight / this.camera.zoom;
+
+      for (let row = 0; row < rows; row++) {
+        for (let col = 0; col < cols; col++) {
+          const cx = originX + col * CHUNK;
+          const cy = originY + row * CHUNK;
+          const cw = Math.min(CHUNK, totalW - col * CHUNK);
+          const ch = Math.min(CHUNK, totalH - row * CHUNK);
+
+          // Skip chunks outside the camera viewport
+          if (cx + cw < vpL || cx > vpR || cy + ch < vpT || cy > vpB) continue;
+
+          const key = `${col},${row}`;
+          let chunk = this.isoTerrainChunks.get(key);
+          if (!chunk) {
+            chunk = document.createElement('canvas');
+            chunk.width = cw;
+            chunk.height = ch;
+            const oc = chunk.getContext('2d')!;
+            oc.translate(-cx, -cy);
+            // Water background
+            oc.fillStyle = '#5b9a8b';
+            oc.fillRect(cx, cy, cw, ch);
+            // Playable tiles as green diamonds
+            oc.fillStyle = '#3a6b3a';
+            const seamPad = 0.5;
+            for (let ty = 0; ty < this.mapH; ty++) {
+              for (let tx = 0; tx < this.mapW; tx++) {
+                if (!this.mapDef.isPlayable(tx, ty)) continue;
+                const { px: tpx, py: tpy } = this.tp(tx + 0.5, ty + 0.5);
+                // Skip tiles whose diamond doesn't overlap this chunk
+                if (tpx + ISO_TILE_W / 2 < cx || tpx - ISO_TILE_W / 2 > cx + cw ||
+                    tpy + ISO_TILE_H / 2 < cy || tpy - ISO_TILE_H / 2 > cy + ch) continue;
+                oc.beginPath();
+                oc.moveTo(tpx, tpy - ISO_TILE_H / 2 - seamPad);
+                oc.lineTo(tpx + ISO_TILE_W / 2 + seamPad, tpy);
+                oc.lineTo(tpx, tpy + ISO_TILE_H / 2 + seamPad);
+                oc.lineTo(tpx - ISO_TILE_W / 2 - seamPad, tpy);
+                oc.closePath();
+                oc.fill();
+              }
+            }
+            this.isoTerrainChunks.set(key, chunk);
+          }
+          ctx.drawImage(chunk, cx, cy);
+        }
+      }
       return;
     }
 
@@ -1175,7 +1202,7 @@ export class Renderer {
       ctx.save();
       ctx.globalAlpha = 0.4 + 0.2 * Math.sin(this.frameNow / 500);
       ctx.beginPath();
-      ctx.arc(px, py, 14, 0, Math.PI * 2);
+      isoArc(ctx, px, py, 14, this.isometric);
       ctx.strokeStyle = '#00ffff';
       ctx.lineWidth = 2;
       ctx.setLineDash([4, 4]);
@@ -1199,7 +1226,7 @@ export class Renderer {
       // "mid control + mining unlocks the diamond win path".
       const r = 18 + 4 * pulse;
       ctx.beginPath();
-      ctx.arc(px, py, r, 0, Math.PI * 2);
+      isoArc(ctx, px, py, r, this.isometric);
       ctx.strokeStyle = 'rgba(255, 230, 120, 0.45)';
       ctx.lineWidth = 2;
       ctx.setLineDash([6, 5]);
@@ -1207,7 +1234,7 @@ export class Renderer {
       ctx.setLineDash([]);
 
       ctx.beginPath();
-      ctx.arc(px, py, 7, 0, Math.PI * 2);
+      isoArc(ctx, px, py, 7, this.isometric);
       ctx.fillStyle = 'rgba(255, 230, 150, 0.55)';
       ctx.fill();
       ctx.strokeStyle = 'rgba(255, 255, 220, 0.7)';
@@ -1236,7 +1263,7 @@ export class Renderer {
     // Glow ring (cheap replacement for expensive shadowBlur)
     ctx.fillStyle = `rgba(255, 255, 255, ${0.15 * pulse})`;
     ctx.beginPath();
-    ctx.arc(px, py, size * 2, 0, Math.PI * 2);
+    isoArc(ctx, px, py, size * 2, this.isometric);
     ctx.fill();
 
     ctx.beginPath();
@@ -1293,13 +1320,13 @@ export class Renderer {
 
       // Warning circle - gets more intense as it approaches detonation
       ctx.beginPath();
-      ctx.arc(px, py, r, 0, Math.PI * 2);
+      isoArc(ctx, px, py, r, this.isometric);
       ctx.fillStyle = `${pc}${(0.05 + 0.15 * progress).toFixed(2)})`;
       ctx.fill();
 
       // Pulsing ring
       ctx.beginPath();
-      ctx.arc(px, py, r, 0, Math.PI * 2);
+      isoArc(ctx, px, py, r, this.isometric);
       ctx.strokeStyle = `${pc}${(0.3 + 0.4 * pulse * progress).toFixed(2)})`;
       ctx.lineWidth = 2 + progress * 3;
       ctx.setLineDash([8, 4]);
@@ -1308,7 +1335,7 @@ export class Renderer {
 
       // Inner concentric ring
       ctx.beginPath();
-      ctx.arc(px, py, r * 0.5, 0, Math.PI * 2);
+      isoArc(ctx, px, py, r * 0.5, this.isometric);
       ctx.strokeStyle = `${pc}${(0.2 + 0.3 * pulse * progress).toFixed(2)})`;
       ctx.lineWidth = 1;
       ctx.stroke();
@@ -1332,13 +1359,13 @@ export class Renderer {
       const baseR = 10 + progress * 16;
 
       ctx.beginPath();
-      ctx.arc(px, py, baseR, 0, Math.PI * 2);
+      isoArc(ctx, px, py, baseR, this.isometric);
       ctx.strokeStyle = `rgba(255, 235, 59, ${0.7 * alpha})`;
       ctx.lineWidth = 2;
       ctx.stroke();
 
       ctx.beginPath();
-      ctx.arc(px, py, 4, 0, Math.PI * 2);
+      isoArc(ctx, px, py, 4, this.isometric);
       ctx.fillStyle = `rgba(255, 235, 59, ${0.9 * alpha})`;
       ctx.fill();
 

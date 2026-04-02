@@ -268,10 +268,10 @@ export class PostMatchScene implements Scene {
   private handleTabClick(cx: number, cy: number): boolean {
     for (const tab of this.tabRects) {
       if (cx >= tab.x && cx <= tab.x + tab.w && cy >= tab.y && cy <= tab.y + tab.h) {
+        this.sfx.playUITab();
         if (this.activeTab !== tab.id) {
           this.activeTab = tab.id;
           this.scrollY = 0;
-          this.sfx.playUITab();
         }
         return true;
       }

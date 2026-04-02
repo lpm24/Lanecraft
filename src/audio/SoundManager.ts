@@ -10,7 +10,7 @@ const SFX_MASTER_GAIN = 0.7;
 const MUSIC_MASTER_GAIN = 0.075;
 
 type RhythmStyle = 'standard' | 'heavy' | 'sparse' | 'tribal' | 'none';
-type MusicMode = 'menu' | 'raceSelect' | 'battle';
+type MusicMode = 'menu' | 'battle';
 
 interface RaceMusicProfile {
   bpmCalm: number;
@@ -129,14 +129,6 @@ function cloneProfile(profile: RaceMusicProfile): RaceMusicProfile {
     chordsAction: profile.chordsAction.map(chord => [...chord]),
     chordsCritical: profile.chordsCritical.map(chord => [...chord]),
   };
-}
-
-function createRaceSelectProfile(race: Race): RaceMusicProfile {
-  const base = cloneProfile(RACE_MUSIC[race] ?? RACE_MUSIC[Race.Crown]);
-  base.bpmCalm = Math.max(52, Math.round(base.bpmCalm * 0.82));
-  base.bpmAction = Math.max(base.bpmCalm + 6, Math.round(base.bpmAction * 0.84));
-  base.bpmCritical = Math.max(base.bpmAction + 8, Math.round(base.bpmCritical * 0.84));
-  return base;
 }
 
 export class SoundManager {
@@ -525,9 +517,8 @@ export class SoundManager {
     const chord = chords[this.currentChordIndex % chords.length];
     const barStart = this.nextBarTime;
     const isMenu = this.musicMode === 'menu';
-    const isRaceSelect = this.musicMode === 'raceSelect';
 
-    const padVol = isMenu ? 0.17 : isRaceSelect ? 0.2 : intensity === 0 ? 0.24 : 0.18;
+    const padVol = isMenu ? 0.17 : intensity === 0 ? 0.24 : 0.18;
     for (const freq of chord) {
       this.padTone(freq, barDur, padVol, this.padGain!, barStart, profile.padType);
       this.padTone(freq * profile.padDetune, barDur, padVol * 0.4, this.padGain!, barStart, 'sine');
@@ -581,13 +572,13 @@ export class SoundManager {
       }
     }
 
-    const shouldArp = isMenu || isRaceSelect || intensity >= 1;
+    const shouldArp = isMenu || intensity >= 1;
     if (shouldArp) {
       const arpPattern = ARP_PATTERNS[this.currentChordIndex % ARP_PATTERNS.length];
       const arpOctave = intensity === 2 ? profile.arpOctaveCrit : profile.arpOctaveCalm;
-      const subdivisions = isMenu ? 4 : isRaceSelect ? 4 : intensity === 2 ? 8 : 4;
+      const subdivisions = isMenu ? 4 : intensity === 2 ? 8 : 4;
       const subDur = barDur / subdivisions;
-      const arpGain = isMenu ? 0.12 : isRaceSelect ? 0.16 : intensity === 2 ? 0.18 : 0.14;
+      const arpGain = isMenu ? 0.12 : intensity === 2 ? 0.18 : 0.14;
       for (let i = 0; i < subdivisions; i++) {
         if (isMenu && i % 2 === 1) continue;
         const noteIndex = arpPattern[i % arpPattern.length];
@@ -636,9 +627,9 @@ export class SoundManager {
     const fadeTime = 0.8;
     const intensity = this.effectiveIntensity();
 
-    const padTarget = this.musicMode === 'menu' ? 0.85 : this.musicMode === 'raceSelect' ? 0.9 : 1.0;
+    const padTarget = this.musicMode === 'menu' ? 0.85 : 1.0;
     const rhythmTarget = this.musicMode === 'battle' && intensity >= 1 ? (intensity === 2 ? 0.5 : 0.35) : 0;
-    const arpTarget = this.musicMode === 'menu' ? 0.42 : this.musicMode === 'raceSelect' ? 0.5 : intensity >= 1 ? (intensity === 2 ? 0.45 : 0.34) : 0;
+    const arpTarget = this.musicMode === 'menu' ? 0.42 : intensity >= 1 ? (intensity === 2 ? 0.45 : 0.34) : 0;
     const warningTarget = this.musicMode === 'battle' && intensity >= 2 ? 0.2 : 0;
 
     if (this.padGain) {
@@ -1239,15 +1230,6 @@ export class SoundManager {
 
   startMenuMusic(): void {
     this.beginMusic('menu', cloneProfile(MENU_PROFILE));
-  }
-
-  startRaceSelectMusic(race: Race): void {
-    this.beginMusic('raceSelect', createRaceSelectProfile(race));
-  }
-
-  previewRaceSelection(race: Race): void {
-    this.raceProfile = createRaceSelectProfile(race);
-    if (!this.musicPlaying) this.startRaceSelectMusic(race);
   }
 
   startMusic(race: Race = Race.Crown): void {

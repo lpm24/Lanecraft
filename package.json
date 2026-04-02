@@ -2,6 +2,10 @@
   "name": "lanecraft",
   "version": "0.1.0",
   "private": true,
+  "description": "Fantasy RTS with 9 races, sprite-based HTML5 Canvas rendering, and deterministic tick simulation",
+  "author": "Krool",
+  "license": "UNLICENSED",
+  "homepage": "https://krool.github.io/SpawnWars/",
   "type": "module",
   "scripts": {
     "dev": "vite",

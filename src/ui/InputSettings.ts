@@ -47,6 +47,8 @@ export interface SettingsPanelDeps {
     playUISlider: () => void;
     playUIClose: () => void;
     playUIOpen: () => void;
+    playUIConfirm: () => void;
+    playUIBack: () => void;
   };
 }
 
@@ -497,14 +499,17 @@ export function handleSettingsPanelClick(
   // Actions
   if (inRow(L.resetRowY)) {
     resetUiDefaults(s);
+    deps.playSfx.playUIConfirm();
     return true;
   }
   if (deps.onConcede && L.concedeRowY >= 0 && inRow(L.concedeRowY)) {
+    deps.playSfx.playUIConfirm();
     s.settingsOpen = false;
     deps.onConcede();
     return true;
   }
   if (inRow(L.quitRowY)) {
+    deps.playSfx.playUIBack();
     s.settingsOpen = false;
     deps.onQuitGame?.();
     return true;

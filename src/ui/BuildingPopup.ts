@@ -19,6 +19,7 @@ export type PopupAction =
   | { action: 'upgrade'; choice: string }
   | { action: 'sell' }
   | { action: 'toggle_lane' }
+  | { action: 'toggle_stats' }
   | { action: 'close' };
 
 // Minimum touch target (Apple HIG = 44px)

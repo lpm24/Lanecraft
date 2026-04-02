@@ -41,6 +41,11 @@ export interface TutorialDeps {
     rallyRightRect: { x: number; y: number; w: number; h: number };
   };
   getSettingsButtonRect: () => { x: number; y: number; w: number; h: number };
+  playSfx: {
+    playUIClick: () => void;
+    playUIToggle: () => void;
+    playUIClose: () => void;
+  };
 }
 
 export function drawTutorial(ctx: CanvasRenderingContext2D, ts: TutorialState, deps: TutorialDeps): void {
@@ -210,11 +215,13 @@ export function handleTutorialClick(e: MouseEvent, ts: TutorialState, deps: Tuto
   if (cb && cx >= cb.x && cx <= cb.x + cb.w && cy >= cb.y && cy <= cb.y + cb.h) {
     ts.hideTutorialOnStart = !ts.hideTutorialOnStart;
     localStorage.setItem('lanecraft.hideTutorial', ts.hideTutorialOnStart ? 'true' : 'false');
+    deps.playSfx.playUIToggle();
     return;
   }
   const cl = ts.tutorialCloseRect;
   if (cl && cx >= cl.x && cx <= cl.x + cl.w && cy >= cl.y && cy <= cl.y + cl.h) {
     ts.showTutorial = false;
+    deps.playSfx.playUIClose();
   }
 }
 
@@ -394,6 +401,7 @@ export function handleMatchTutorialClick(
       advanceTutorial();
       ts.tutorialStepStartTime = performance.now();
       ts.matchTutorialActive = isMatchTutorial();
+      deps.playSfx.playUIClick();
       return true;
     }
   }
@@ -403,6 +411,7 @@ export function handleMatchTutorialClick(
     if (cx >= r.x && cx < r.x + r.w && cy >= r.y && cy < r.y + r.h) {
       skipTutorial();
       ts.matchTutorialActive = false;
+      deps.playSfx.playUIClose();
       return true;
     }
   }
@@ -412,6 +421,7 @@ export function handleMatchTutorialClick(
     advanceTutorial();
     ts.tutorialStepStartTime = performance.now();
     ts.matchTutorialActive = isMatchTutorial();
+    deps.playSfx.playUIClick();
     return true;
   }
 

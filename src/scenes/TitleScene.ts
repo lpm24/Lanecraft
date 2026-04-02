@@ -502,6 +502,7 @@ export class TitleScene implements Scene {
           const pad = 15;
           if (cx >= sr.x - pad && cx <= sr.x + sr.w + pad && cy >= sr.y - pad && cy <= sr.y + sr.h + pad) {
             this.localSetupSwapSlots(this.dragSlot, i);
+            this.menuMusic.playUIClick();
             break;
           }
         }
@@ -523,6 +524,7 @@ export class TitleScene implements Scene {
         const pad = 15;
         if (cx >= sr.x - pad && cx <= sr.x + sr.w + pad && cy >= sr.y - pad && cy <= sr.y + sr.h + pad) {
           this.party.swapSlots(this.dragSlot, i);
+          this.menuMusic.playUIClick();
           break;
         }
       }
@@ -1125,6 +1127,7 @@ export class TitleScene implements Scene {
       // Tapping the code display area refocuses the hidden input (reopens keyboard)
       const codeArea = { x: jl.boxX, y: jl.boxY + jl.boxH * 0.35, w: jl.boxW, h: jl.boxH * 0.35 };
       if (this.hitRect(cx, cy, codeArea)) {
+        this.menuMusic.playUIClick();
         this.focusJoinHiddenInput();
         return;
       }
