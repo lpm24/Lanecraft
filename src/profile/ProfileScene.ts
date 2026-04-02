@@ -261,7 +261,7 @@ export class ProfileScene implements Scene {
       for (let i = 0; i < tabs.length; i++) {
         const tx = startX + i * (tabW + gap);
         if (cx >= tx && cx <= tx + tabW) {
-          if (this.tab !== tabs[i]) this.sfx.playUITab();
+          this.sfx.playUITab();
           this.tab = tabs[i];
           this.scrollY = 0;
           this.scrollVelocity = 0;
@@ -296,9 +296,15 @@ export class ProfileScene implements Scene {
       if (cx >= ax && cx < ax + cellSize && cy >= ay && cy < ay + cellSize) {
         const avatar = ALL_AVATARS[i];
         if (isAvatarUnlocked(this.profile, avatar)) {
-          if (this.profile.avatarId !== avatar.id) this.sfx.playUIConfirm();
-          this.profile.avatarId = avatar.id;
-          saveProfile(this.profile);
+          if (this.profile.avatarId !== avatar.id) {
+            this.sfx.playUIConfirm();
+            this.profile.avatarId = avatar.id;
+            saveProfile(this.profile);
+          } else {
+            this.sfx.playUIClick();
+          }
+        } else {
+          this.sfx.playUIClick();
         }
         return;
       }
@@ -444,8 +450,11 @@ export class ProfileScene implements Scene {
         const sprInset = 4;
         const sprSize = avatarSize - sprInset * 2;
         const sprScale = def.scale ?? 1.0;
-        const drawH = sprSize * sprScale;
-        const drawW = drawH * aspect;
+        const maxH = sprSize * sprScale;
+        const maxW = sprSize;
+        let drawW: number, drawH: number;
+        if (maxH * aspect > maxW) { drawW = maxW; drawH = maxW / aspect; }
+        else { drawH = maxH; drawW = maxH * aspect; }
         const gY = def.groundY ?? 0.71;
         const feetY = avY + avatarSize - sprInset - 2;
         const drawY = feetY - drawH * gY;
@@ -759,8 +768,11 @@ export class ProfileScene implements Scene {
       const aspect = def.frameW / def.frameH;
       // Apply sprite scale so avatars match in-game relative sizes
       const sprScale = def.scale ?? 1.0;
-      const drawH = size * sprScale;
-      const drawW = drawH * aspect;
+      const maxH = size * sprScale;
+      const maxW = size;
+      let drawW: number, drawH: number;
+      if (maxH * aspect > maxW) { drawW = maxW; drawH = maxW / aspect; }
+      else { drawH = maxH; drawW = maxH * aspect; }
       const drawX = x + (size - drawW) / 2;
       const gY = def.groundY ?? 0.71;
       const feetY = y + size * 0.85;

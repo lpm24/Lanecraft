@@ -19,6 +19,7 @@ export type PopupAction =
   | { action: 'upgrade'; choice: string }
   | { action: 'sell' }
   | { action: 'toggle_lane' }
+  | { action: 'toggle_stats' }
   | { action: 'close' };
 
 // Minimum touch target (Apple HIG = 44px)
@@ -85,41 +86,41 @@ export function getRaceBuildingName(race: Race | undefined, type: BuildingType, 
 
 // Per-race caster support ability descriptions
 const CASTER_SUPPORT_DESC: Record<Race, string> = {
-  [Race.Crown]: '{shield} Shields 2 nearby allies, absorbing 12 dmg.',
-  [Race.Horde]: '{haste} Hastes up to 5 allies, boosting {attack-speed} atk speed.',
-  [Race.Goblins]: '{slow} Hexes nearby enemies, slowing movement.',
-  [Race.Oozlings]: '{haste} Hastes up to 3 nearby allies.',
-  [Race.Demon]: '{burn} Pure damage. Fires {aoe} AoE blasts.',
-  [Race.Deep]: '{cleanse} Cleanses burn from allies. Fires {aoe} AoE.',
-  [Race.Wild]: '{haste} Hastes up to 3 allies. Fires {aoe} AoE.',
-  [Race.Geists]: '{healing} Heals 2 HP to 3 lowest-HP allies. {aoe} AoE.',
-  [Race.Tenders]: '{healing} Heals 3 HP to all nearby allies. {aoe} AoE.',
+  [Race.Crown]: '{shield} Shields 2 nearest allies (12 HP absorb, 4s).',
+  [Race.Horde]: '{haste} Haste 5 nearest allies (3s). {aoe} AoE r3, Wound.',
+  [Race.Goblins]: '{slow} Slows all enemies in range. {aoe} AoE r3, 2 {burn} Burn + {wound} Wound.',
+  [Race.Oozlings]: '{haste} Haste 3 nearest allies (3s). {aoe} AoE r3, 1 {slow} Slow.',
+  [Race.Demon]: '{burn} Pure damage (no support). {aoe} AoE r3, 2 {burn} Burn + {wound} Wound.',
+  [Race.Deep]: '{cleanse} Cleanse 2 Burn from all allies. {aoe} AoE r4, 2 {slow} Slow.',
+  [Race.Wild]: '{haste} Haste 3 nearest allies (3s). {aoe} AoE r3, 2 {burn} Burn + {wound} Wound.',
+  [Race.Geists]: '{damage} Single-target attacker. {lifesteal} 10% lifesteal.',
+  [Race.Tenders]: '{healing} Heals 1 most injured ally for 1 HP. {aoe} AoE r4, 2 {slow} Slow.',
 };
 
 // Per-race melee on-hit descriptions
 const MELEE_ONHIT_DESC: Record<Race, string> = {
-  [Race.Crown]: '{damage-reduction} 10% damage reduction.',
+  [Race.Crown]: '{damage} Balanced melee fighter.',
   [Race.Horde]: '{knockback} Knockback every 3rd hit. {lifesteal} 10% lifesteal.',
-  [Race.Goblins]: '{dodge} 15% dodge chance.',
+  [Race.Goblins]: '{dodge} 15% dodge. {wound} Wound on hit (-50% healing, 6s).',
   [Race.Oozlings]: '{haste} 15% chance haste on hit. {spawn-rate} Spawns x2.',
-  [Race.Demon]: '{burn} Burns enemies on every hit.',
-  [Race.Deep]: '{slow} Slows enemies on hit.',
-  [Race.Wild]: '{burn} Poisons enemies on hit.',
-  [Race.Geists]: '{burn} Burns on hit. {lifesteal} 15% lifesteal.',
-  [Race.Tenders]: '{regen} Regenerates 1 HP/s passively.',
+  [Race.Demon]: '{burn} +1 Burn on hit. {wound} Wound (-50% healing, 6s).',
+  [Race.Deep]: '{slow} +1 Slow on hit.',
+  [Race.Wild]: '{burn} +1 Burn on hit. {frenzy} Kill: Frenzy+Haste to allies (6t).',
+  [Race.Geists]: '{burn} +1 Burn on hit. {lifesteal} 10% lifesteal. {wound} Wound.',
+  [Race.Tenders]: '{health} High HP tank.',
 };
 
 // Per-race ranged on-hit descriptions
 const RANGED_ONHIT_DESC: Record<Race, string> = {
   [Race.Crown]: '{damage} Balanced ranged attacker.',
-  [Race.Horde]: '{cleave} Heavy damage ranged cleaver.',
-  [Race.Goblins]: '{burn} Burns enemies on hit.',
-  [Race.Oozlings]: '{spawn-rate} Spawns 2 at half power.',
-  [Race.Demon]: '{damage} High damage, long range sniper.',
-  [Race.Deep]: '{slow} Slows enemies on hit.',
-  [Race.Wild]: '{burn} Poisons enemies on hit.',
-  [Race.Geists]: '{burn} Burns enemies on hit.',
-  [Race.Tenders]: '{damage} Balanced ranged attacker.',
+  [Race.Horde]: '{wound} Wound on hit (-50% healing, 6s).',
+  [Race.Goblins]: '{burn} +1 Burn on hit. {wound} Wound (-50% healing, 6s).',
+  [Race.Oozlings]: '{spawn-rate} Spawns x2. {chain} Chain to 1 enemy at 50% dmg.',
+  [Race.Demon]: '{burn} +1 Burn + {wound} Wound. {damage} 20% crit, 1.75x dmg.',
+  [Race.Deep]: '{slow} +2 Slow on hit.',
+  [Race.Wild]: '{burn} +1 Burn + {wound} Wound on hit.',
+  [Race.Geists]: '{burn} +1 Burn on hit. {lifesteal} 10% lifesteal.',
+  [Race.Tenders]: '{slow} +1 Slow on hit (2 on AoE).',
 };
 
 // Remember whether the user has closed the info panel
@@ -228,27 +229,12 @@ export class BuildingPopup {
     // Small screens always use touch interaction regardless of setting.
     const isTouch = isMobile || (touchMode ?? false);
 
-    // Hover/selection detection
-    // Desktop: driven by mouse position. Touch: driven by tap selection.
-    this.hoveredChoice = null;
-    if (isTouch) {
-      this.hoveredChoice = this.selectedChoice;
-    } else if (pointerX !== undefined && pointerY !== undefined) {
-      for (const btn of this.upgradeBtnRects) {
-        if (this.hitTest(pointerX, pointerY, btn)) {
-          this.hoveredChoice = btn.choice;
-          break;
-        }
-      }
-    }
-
     this.animTick++;
 
     const options = this.getUpgradeOptions(building, race, state);
     // Clear stale selection if the selected choice is no longer a valid option
     if (this.selectedChoice && !options.some(o => o.choice === this.selectedChoice)) {
       this.selectedChoice = null;
-      this.hoveredChoice = null;
     }
     const isSpawner = building.type !== BuildingType.Tower && building.type !== BuildingType.HarvesterHut;
     const category = BUILDING_CATEGORY[building.type];
@@ -283,7 +269,35 @@ export class BuildingPopup {
 
     this.rect = { x: px, y: py, w: popupW, h: popupH };
 
-    // Reset button rects
+    // Pre-compute button rects for this frame BEFORE hover detection so we use
+    // current-frame positions instead of stale previous-frame rects.
+    this.upgradeBtnRects = [];
+    if (options.length > 0) {
+      const btnW = options.length === 2
+        ? Math.floor((popupW - PAD * 2 - GAP) / 2)
+        : popupW - PAD * 2;
+      const btnBaseY = py + PAD + HEADER_H + statsH;
+      for (let i = 0; i < options.length; i++) {
+        const bx = px + PAD + (i > 0 ? btnW + GAP : 0);
+        this.upgradeBtnRects.push({ x: bx, y: btnBaseY, w: btnW, h: UPGRADE_BTN_H, choice: options[i].choice, canAfford: false });
+      }
+    }
+
+    // Hover/selection detection — now uses current-frame button positions.
+    // Desktop: driven by mouse position. Touch: driven by tap selection.
+    this.hoveredChoice = null;
+    if (isTouch) {
+      this.hoveredChoice = this.selectedChoice;
+    } else if (pointerX !== undefined && pointerY !== undefined) {
+      for (const btn of this.upgradeBtnRects) {
+        if (this.hitTest(pointerX, pointerY, btn)) {
+          this.hoveredChoice = btn.choice;
+          break;
+        }
+      }
+    }
+
+    // Reset button rects — will be fully populated with canAfford during draw
     this.upgradeBtnRects = [];
     this.sellBtnRect = { x: 0, y: 0, w: 0, h: 0 };
     this.closeBtnRect = { x: 0, y: 0, w: 0, h: 0 };
@@ -495,7 +509,8 @@ export class BuildingPopup {
     let barCount = 4;
     if (!isTower) barCount += 3; // DPS, SPEED, SPAWN RATE
     // Conditional bars
-    if (upgrade.special.dodgeChance) barCount++;
+    const hasInnateDodge = race === Race.Goblins && building.type === BuildingType.MeleeSpawner;
+    if (upgrade.special.dodgeChance || hasInnateDodge) barCount++;
     if (upgrade.special.damageReductionPct) barCount++;
     // If hovering could add dodge/DR, we need stable height — use max possible for this building
     // Check if any upgrade option could add dodge/DR
@@ -506,7 +521,7 @@ export class BuildingPopup {
       let addedDodge = false, addedDr = false;
       for (const node of checkNodes) {
         const def = tree[node as keyof typeof tree] as UpgradeNodeDef | undefined;
-        if (!addedDodge && def?.special?.dodgeChance && !upgrade.special.dodgeChance) { barCount++; addedDodge = true; }
+        if (!addedDodge && def?.special?.dodgeChance && !upgrade.special.dodgeChance && !hasInnateDodge) { barCount++; addedDodge = true; }
         if (!addedDr && def?.special?.damageReductionPct && !upgrade.special.damageReductionPct) { barCount++; addedDr = true; }
       }
     }
@@ -782,8 +797,10 @@ export class BuildingPopup {
     }
 
     // Conditional bars: only shown when current OR projected value > 0
-    const dodge = upgrade.special.dodgeChance ?? 0;
-    const pDodge = projected ? (projected.special.dodgeChance ?? 0) : dodge;
+    // Goblins melee have innate 15% dodge
+    const innateDodge = (race === Race.Goblins && building.type === BuildingType.MeleeSpawner) ? 0.15 : 0;
+    const dodge = (upgrade.special.dodgeChance ?? 0) + innateDodge;
+    const pDodge = projected ? (projected.special.dodgeChance ?? 0) + innateDodge : dodge;
     if (dodge > 0 || pDodge > 0) {
       all.push({ key: 'dodge', label: 'DODGE', val: dodge, projVal: pDodge, max: 1, disp: `${Math.round(dodge * 100)}%`, projDisp: `${Math.round(pDodge * 100)}%`, color: '#80cbc4' });
     }

@@ -98,7 +98,7 @@ export class DifficultySelectScene implements Scene {
       if (e.key === 'Tab' || e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
         e.preventDefault();
         const delta = e.key === 'ArrowLeft' ? -1 : 1;
-        const maxMode = this.isometric ? 2 : MODE_OPTIONS.length; // iso: only 1v1, 2v2
+        const maxMode = MODE_OPTIONS.length;
         this.modeIndex = (this.modeIndex + delta + maxMode) % maxMode;
         this.sfx.playUIClick();
         this.saveSelections();
@@ -139,7 +139,6 @@ export class DifficultySelectScene implements Scene {
       }
       const modeIdx = this.getModeButtonIndexAt(cx, cy);
       if (modeIdx >= 0) {
-        if (this.isometric && modeIdx > 1) return; // disabled in iso mode
         this.modeIndex = modeIdx;
         this.sfx.playUIClick();
         this.saveSelections();
@@ -187,7 +186,6 @@ export class DifficultySelectScene implements Scene {
       }
       const modeIdx = this.getModeButtonIndexAt(cx, cy);
       if (modeIdx >= 0) {
-        if (this.isometric && modeIdx > 1) return;
         this.modeIndex = modeIdx;
         this.sfx.playUIClick();
         this.saveSelections();
@@ -246,8 +244,6 @@ export class DifficultySelectScene implements Scene {
 
       const savedIso = localStorage.getItem(LAST_ISO_KEY);
       this.isometric = savedIso === 'true';
-      // Clamp mode if iso was saved with 3v3/4v4
-      if (this.isometric && this.modeIndex > 1) this.modeIndex = 1;
     } catch {}
   }
 
@@ -262,10 +258,6 @@ export class DifficultySelectScene implements Scene {
 
   private toggleIsometric(): void {
     this.isometric = !this.isometric;
-    // Isometric only supports 1v1 and 2v2
-    if (this.isometric && this.modeIndex > 1) {
-      this.modeIndex = 1; // fall back to 2v2
-    }
   }
 
   private confirmSelection(): void {
@@ -491,21 +483,18 @@ export class DifficultySelectScene implements Scene {
       const btn = modeBtns[i];
       const isSelected = i === this.modeIndex;
       const isHover = i === this.modeHoverIndex;
-      const isDisabled = this.isometric && i > 1; // 3v3/4v4 disabled in iso
-
       const bgPadX = Math.round(btn.w * 0.06);
       const bgPadY = Math.round(btn.h * 0.06);
-      if (isDisabled) ctx.globalAlpha = 0.35;
       this.ui.drawWoodTable(ctx, btn.x - bgPadX, btn.y - bgPadY, btn.w + bgPadX * 2, btn.h + bgPadY * 2);
 
-      if (isSelected && !isDisabled) {
+      if (isSelected) {
         ctx.strokeStyle = mode.color;
         ctx.shadowColor = mode.color;
         ctx.shadowBlur = 12;
         ctx.lineWidth = 3;
         ctx.strokeRect(btn.x + 1, btn.y + 1, btn.w - 2, btn.h - 2);
         ctx.shadowBlur = 0;
-      } else if (isHover && !isDisabled) {
+      } else if (isHover) {
         ctx.strokeStyle = 'rgba(255,255,255,0.25)';
         ctx.lineWidth = 1;
         ctx.strokeRect(btn.x + 1, btn.y + 1, btn.w - 2, btn.h - 2);
@@ -515,8 +504,7 @@ export class DifficultySelectScene implements Scene {
       ctx.font = `bold ${labelSize}px monospace`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      shadowText(ctx, mode.label, btn.x + btn.w / 2, btn.y + btn.h / 2, isSelected && !isDisabled ? mode.color : 'rgba(255,255,255,0.7)', 'rgba(0,0,0,0.7)');
-      if (isDisabled) ctx.globalAlpha = 1;
+      shadowText(ctx, mode.label, btn.x + btn.w / 2, btn.y + btn.h / 2, isSelected ? mode.color : 'rgba(255,255,255,0.7)', 'rgba(0,0,0,0.7)');
     }
 
     // --- Difficulty cards (1-line each) ---
@@ -576,7 +564,7 @@ export class DifficultySelectScene implements Scene {
     this.drawToggleRow(ctx, this.getFogToggleLayout(), this.fogOfWar, this.fogHover, '#66d9ef', 'FOG OF WAR', 'Hidden map, revealed by your units');
 
     // --- Isometric toggle ---
-    this.drawToggleRow(ctx, this.getIsoToggleLayout(), this.isometric, this.isoHover, '#a6e22e', 'ISOMETRIC', 'Diamond grid, 1v1 & 2v2 only');
+    this.drawToggleRow(ctx, this.getIsoToggleLayout(), this.isometric, this.isoHover, '#a6e22e', 'ISOMETRIC', 'Diamond grid view');
 
     // Bottom button row
     const { backX, startX, btnW, btnH, btnY } = this.getButtonRow();

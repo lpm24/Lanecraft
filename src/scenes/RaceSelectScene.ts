@@ -60,7 +60,6 @@ export class RaceSelectScene implements Scene {
   private settingsOpen = false;
   private sliderDrag = new SettingsSliderDrag();
   private music = new SoundManager();
-  private musicPlayer: MusicPlayer;
   private audioSettings = getAudioSettings();
   private audioSettingsUnsub: (() => void) | null = null;
 
@@ -73,12 +72,11 @@ export class RaceSelectScene implements Scene {
   private touchMoveHandler: ((e: TouchEvent) => void) | null = null;
   private touchEndHandler: (() => void) | null = null;
 
-  constructor(manager: SceneManager, canvas: HTMLCanvasElement, sprites: SpriteLoader, ui: UIAssets, musicPlayer: MusicPlayer, onConfirm: (race: Race) => void) {
+  constructor(manager: SceneManager, canvas: HTMLCanvasElement, sprites: SpriteLoader, ui: UIAssets, _musicPlayer: MusicPlayer, onConfirm: (race: Race) => void) {
     this.manager = manager;
     this.canvas = canvas;
     this.sprites = sprites;
     this.ui = ui;
-    this.musicPlayer = musicPlayer;
     this.onConfirm = onConfirm;
   }
 
@@ -100,12 +98,7 @@ export class RaceSelectScene implements Scene {
       }
     } catch {}
 
-    const raceForMusic = this.selectedIndex < RACES.length ? RACES[this.selectedIndex].race : Race.Crown;
-    this.music.startRaceSelectMusic(raceForMusic);
-    this.musicPlayer.playRaceSelect();
-
     this.keyHandler = (e) => {
-      const prevIndex = this.selectedIndex;
       if (this.selectedIndex === RANDOM_INDEX) {
         // Random button: up goes to middle of last row (Geists = 7)
         if (e.key === 'ArrowUp' || e.key === 'w') this.selectedIndex = 7;
@@ -120,10 +113,6 @@ export class RaceSelectScene implements Scene {
           else this.selectedIndex = RANDOM_INDEX; // bottom row → Random
         }
         this.selectedIndex = Math.max(0, Math.min(RANDOM_INDEX, this.selectedIndex));
-      }
-      if (this.selectedIndex !== prevIndex) {
-        const race = this.selectedIndex < RACES.length ? RACES[this.selectedIndex].race : Race.Crown;
-        this.music.previewRaceSelection(race);
       }
       if (e.key === 'Enter' || e.key === ' ') { this.music.playUIConfirm(); this.confirm(); }
       if (e.key === 'Escape') {
@@ -149,7 +138,6 @@ export class RaceSelectScene implements Scene {
         if (idx === this.selectedIndex) { this.music.playUIConfirm(); this.confirm(); return; }
         this.selectedIndex = idx;
         this.music.playUIClick();
-        this.music.previewRaceSelection(RACES[this.selectedIndex].race);
       } else if (this.isStartButtonAt(cx, cy)) {
         this.music.playUIConfirm();
         this.confirm();
@@ -199,7 +187,6 @@ export class RaceSelectScene implements Scene {
         if (idx === this.selectedIndex) { this.music.playUIConfirm(); this.confirm(); return; }
         this.selectedIndex = idx;
         this.music.playUIClick();
-        this.music.previewRaceSelection(RACES[this.selectedIndex].race);
       } else if (this.isStartButtonAt(cx, cy)) {
         this.music.playUIConfirm();
         this.confirm();
@@ -247,8 +234,6 @@ export class RaceSelectScene implements Scene {
     this.sliderDrag.end();
     this.audioSettingsUnsub?.();
     this.audioSettingsUnsub = null;
-    this.music.stopMusic();
-    this.music.disableTabSuspend();
   }
 
   private handleSettingsClick(cx: number, cy: number): boolean {

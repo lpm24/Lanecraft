@@ -15,3 +15,4 @@ scripts/generated_sprites/
 scripts/generated_sprites_lora/
 scripts/lora_training_data/
 scripts/lora_training_data.zip
+scripts/lora_state.json

@@ -122,7 +122,7 @@ function computeUnitPower(race: Race, btype: BuildingType, upgradePath: string[]
   let hpMult = 1, dmgMult = 1, atkSpdMult = 1, spawnSpdMult = 1;
   let spawnCount = stats.spawnCount ?? 1;
 
-  // Merge specials using Object.assign semantics (later nodes override, matching GameState)
+  // Merge specials using Object.assign semantics (later nodes override, matching SimShared)
   const special: Record<string, any> = {};
 
   for (const node of upgradePath) {
@@ -211,6 +211,8 @@ function computeUnitPower(race: Race, btype: BuildingType, upgradePath: string[]
   if (hopAttack) { effDps *= 1.15; notes.push('hop'); }
   if (guaranteedHaste) { effDps *= 1.15; notes.push('haste'); }
   if (crownMage) { effDps *= 1.5; notes.push('mage'); }
+  const stunChance = special.stunChance ?? 0;
+  if (stunChance > 0) { effDps *= (1 + stunChance * 0.5); notes.push(`stun ${(stunChance * 100).toFixed(0)}%`); }
 
   // --- Team/support bonus (flat power addition) ---
   let teamBonus = 0;

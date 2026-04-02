@@ -268,6 +268,7 @@ export enum StatusType {
   Frenzy = 'frenzy',       // Wild kill bonus: +50% damage, 3s, refreshes on kills
   Wound = 'wound',         // -50% healing received, 6s, max 1 stack, refreshes
   Vulnerable = 'vulnerable', // +20% damage taken, 3s, max 1 stack, refreshes
+  Stun = 'stun',             // can't move or attack, 1s, max 1 stack
 }
 
 export interface StatusEffect {
@@ -435,6 +436,7 @@ export interface UnitState {
   stuckTicks?: number;     // consecutive ticks without moving — triggers path-snap escape
   soulStacks?: number;     // Geist Soul Gorger: stacks gained from nearby deaths (max 20)
   visualScale?: number;    // extra render scale multiplier (e.g. 2.0 for War Troll)
+  _attackBuildingIdx?: number; // transient: index into state.buildings when attacking a building/HQ (-1 = HQ, undefined = not attacking building)
 }
 
 // Snapshot of a notable unit for post-match display
@@ -538,7 +540,7 @@ export interface DiamondState {
   deliveries: number;   // how many times diamond has been delivered (champion gets stronger)
 }
 
-export type ProjectileVisual = 'arrow' | 'orb' | 'circle' | 'bolt' | 'bone' | 'cannonball';
+export type ProjectileVisual = 'arrow' | 'orb' | 'circle' | 'bolt' | 'bone' | 'cannonball' | 'sprite';
 
 export interface ProjectileState {
   id: number;
@@ -565,6 +567,7 @@ export interface ProjectileState {
   critMult?: number;            // critical hit damage multiplier
   applyVulnerable?: boolean;    // apply Vulnerable status on hit (upgrade special)
   applyWound?: boolean;         // apply Wound status on hit (upgrade special)
+  spriteKey?: string;           // when visual === 'sprite', names the projectile PNG asset
 }
 
 export interface FloatingText {
@@ -660,7 +663,7 @@ export type SoundEventType =
   | 'diamond_exposed' | 'diamond_carried' | 'hq_damaged'
   | 'match_start' | 'match_end_win' | 'match_end_lose'
   | 'status_burn' | 'status_shield' | 'status_haste' | 'status_slow' | 'status_frenzy'
-  | 'status_wound' | 'status_vulnerable'
+  | 'status_wound' | 'status_vulnerable' | 'status_stun'
   | 'combat_knockback' | 'combat_lifesteal'
   | 'resource_delivered';
 

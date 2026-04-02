@@ -69,7 +69,7 @@ export type StatVisualKey =
   | 'burn' | 'slow' | 'dodge' | 'damage-reduction' | 'shield' | 'aoe' | 'splash'
   | 'additional-projectile' | 'chain' | 'chain-heal' | 'healing' | 'regen' | 'wound' | 'cleanse'
   | 'cleave' | 'siege' | 'knockback' | 'gold' | 'haste' | 'revive' | 'summon'
-  | 'kill-scale' | 'aura' | 'explode' | 'lifesteal' | 'frenzy' | 'vulnerable';
+  | 'kill-scale' | 'aura' | 'explode' | 'lifesteal' | 'frenzy' | 'vulnerable' | 'stun';
 
 interface StatVisualMeta {
   color: string;
@@ -102,16 +102,17 @@ export const STAT_VISUALS: Record<StatVisualKey, StatVisualMeta> = {
   cleave: { color: '#ffa726', statIcon: 'cleave' },
   siege: { color: '#8d6e63', statIcon: 'siege' },
   knockback: { color: '#ffb74d', statIcon: 'knockback' },
-  gold: { color: '#ffd740', fallbackIcon: 'gold' },
-  haste: { color: '#ec407a', statIcon: 'move-speed' },
-  revive: { color: '#aed581', fallbackIcon: 'star' },
-  summon: { color: '#bcaaa4', fallbackIcon: 'souls' },
+  gold: { color: '#ffd740', statIcon: 'gold', fallbackIcon: 'gold' },
+  haste: { color: '#ec407a', statIcon: 'haste' },
+  revive: { color: '#aed581', statIcon: 'revive', fallbackIcon: 'star' },
+  summon: { color: '#bcaaa4', statIcon: 'summon', fallbackIcon: 'souls' },
   'kill-scale': { color: '#ffee58', statIcon: 'damage', fallbackIcon: 'star' },
-  aura: { color: '#fff176', statIcon: 'aoe', fallbackIcon: 'star' },
-  explode: { color: '#ff8a65', statIcon: 'aoe' },
-  lifesteal: { color: '#ab47bc', statIcon: 'wound', fallbackIcon: 'souls' },
-  frenzy: { color: '#ef5350', statIcon: 'damage', fallbackIcon: 'sword' },
-  vulnerable: { color: '#ffca28', statIcon: 'wound', fallbackIcon: 'info' },
+  aura: { color: '#fff176', statIcon: 'aura', fallbackIcon: 'star' },
+  explode: { color: '#ff8a65', statIcon: 'explode' },
+  lifesteal: { color: '#ab47bc', statIcon: 'lifesteal', fallbackIcon: 'souls' },
+  frenzy: { color: '#ef5350', statIcon: 'frenzy', fallbackIcon: 'sword' },
+  vulnerable: { color: '#ffca28', statIcon: 'vulnerable', fallbackIcon: 'info' },
+  stun: { color: '#ffeb3b', statIcon: 'stun', fallbackIcon: 'info' },
 };
 
 export interface StatTextLine {
@@ -332,6 +333,12 @@ export function formatSpecialBonuses(special: UpgradeSpecial): StatTextLine[] {
   if (special.auraDamageBonus) lines.push({ key: 'aura', text: `AURA: +${special.auraDamageBonus} damage nearby`, isBuff: true });
   if (special.auraSpeedBonus) lines.push({ key: 'aura', text: `AURA: +${Math.round(special.auraSpeedBonus * 100)}% speed nearby`, isBuff: true });
   if (special.auraArmorBonus) lines.push({ key: 'aura', text: `AURA: +${Math.round(special.auraArmorBonus * 100)}% armor nearby`, isBuff: true });
+  if (special.auraAttackSpeedBonus) lines.push({ key: 'aura', text: `AURA: +${Math.round(special.auraAttackSpeedBonus * 100)}% atk speed nearby`, isBuff: true });
+  if (special.auraHealPerSec) lines.push({ key: 'aura', text: `AURA: ${special.auraHealPerSec} HP/s heal nearby`, isBuff: true });
+  if (special.auraDodgeBonus) lines.push({ key: 'aura', text: `AURA: +${Math.round(special.auraDodgeBonus * 100)}% dodge nearby`, isBuff: true });
+  if (special.lifeDrainPct) lines.push({ key: 'lifesteal', text: `${Math.round(special.lifeDrainPct * 100)}% lifesteal`, isBuff: true });
+  if (special.applyVulnerable) lines.push({ key: 'vulnerable', text: 'Applies Vulnerable: +20% dmg taken, 3s', isBuff: true });
+  if (special.applyWound) lines.push({ key: 'wound', text: 'Applies Wound: -50% healing, 6s', isBuff: true });
 
   return lines;
 }

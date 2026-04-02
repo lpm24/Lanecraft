@@ -9,6 +9,7 @@ import { runAllBotAI, createBotContext, BotContext, BotDifficultyLevel, BOT_DIFF
 import { UIAssets } from '../rendering/UIAssets';
 import { CommandSync, TICKS_PER_TURN } from '../network/CommandSync';
 import { tileToPixel } from '../rendering/Projection';
+import { Capacitor } from '@capacitor/core';
 
 export interface GamePartyOptions {
   /** All human players in slot order: { slotIndex, race }.
@@ -72,6 +73,7 @@ export class Game {
   /** How long (ms) we've been stalled waiting for the remote player's turn data. 0 = not stalled. */
   waitingForAllyMs = 0;
   private stallStartTime = 0;
+  private localConcedeQueued = false;
 
   /** Current round-trip latency in ms (0 for solo). */
   get networkLatencyMs(): number { return this.commandSync?.latencyMs ?? 0; }
@@ -213,8 +215,11 @@ export class Game {
       () => this.render(),
     );
 
-    // Pause/resume Firebase connection on app background/foreground
-    if (this.commandSync) {
+    // Pause/resume Firebase connection on app background/foreground.
+    // Only on native platforms — on web, a brief tab switch fires visibilitychange
+    // and goOffline() severs the WebSocket, triggering onDisconnect handlers that
+    // remove the ready signal and disconnect the player irreversibly.
+    if (this.commandSync && Capacitor.isNativePlatform()) {
       const cs = this.commandSync;
       this.loop.onPause = () => cs.pause();
       this.loop.onResume = () => cs.resume();
@@ -320,19 +325,26 @@ export class Game {
 
   /** Concede the match — enemy team wins immediately. */
   private handleConcede(): void {
-    if (this.state.matchPhase === 'ended') return;
+    if (this.state.matchPhase === 'ended' || this.localConcedeQueued) return;
+
+    this.localConcedeQueued = true;
 
     if (this.isMultiplayer && this.commandSync) {
-      // Multiplayer: broadcast leave so peers know we conceded, then force-end locally
-      this.commandSync.broadcastLeave();
+      // End locally immediately before leaving. Queuing concede through the normal
+      // turn buffer races with the leave signal and can be dropped remotely.
+      const concedeCmd: GameCommand = { type: 'concede', playerId: this.localPlayerId };
+      this.localCommandBuffer.push(concedeCmd);
+      const nextTurn = Math.floor(this.state.tick / TICKS_PER_TURN) + 1;
+      this.commandSync.pushTurn(nextTurn, [...this.localCommandBuffer]);
       const localTeam = this.state.players[this.localPlayerId]?.team ?? Team.Bottom;
       const enemyTeam = localTeam === Team.Bottom ? Team.Top : Team.Bottom;
       this.state.winner = enemyTeam;
-      this.state.winCondition = 'military';
+      this.state.winCondition = 'concede';
       this.state.matchPhase = 'ended';
       this.state.soundEvents.push({ type: 'match_end_lose' });
+      this.commandSync.broadcastLeave();
     } else {
-      // Solo: send concede command through simulation
+      // Solo: process concede through simulation
       this.sendCommand({ type: 'concede', playerId: this.localPlayerId });
     }
   }
@@ -423,9 +435,14 @@ export class Game {
     // Apply player commands only on first tick of turn
     if (isFirstTickOfTurn) {
       this.pendingCommands.push(...turnCmds);
+      const concedingSlots = new Set<number>();
+      for (const cmd of turnCmds) {
+        if (cmd.type === 'concede') concedingSlots.add(cmd.playerId);
+      }
       // Drain leave queue deterministically at turn boundary (both clients are synced here)
       if (this.commandSync && this.commandSync.leftSlotQueue.length > 0) {
         for (const slotId of this.commandSync.leftSlotQueue) {
+          if (concedingSlots.has(slotId)) continue;
           this.convertPlayerToBot(slotId);
         }
         this.commandSync.leftSlotQueue = [];
@@ -535,10 +552,12 @@ export class Game {
     const ownHqHpRatio = this.state.hqHp[myTeam] / HQ_HP;
     if (ownHqHpRatio < 0.3) {
       this.sfx.setIntensity(2);
-    } else if (this.state.units.some(u => u.targetId !== null)) {
-      this.sfx.setIntensity(1);
     } else {
-      this.sfx.setIntensity(0);
+      let anyCombat = false;
+      for (let i = 0; i < this.state.units.length; i++) {
+        if (this.state.units[i].targetId !== null) { anyCombat = true; break; }
+      }
+      this.sfx.setIntensity(anyCombat ? 1 : 0);
     }
 
     // Check for match end — delay 3 seconds so player can see the final moment

@@ -29,7 +29,6 @@ function collectFolder(folder: string): TrackInfo[] {
 }
 
 const MENU_TRACKS = collectFolder('Main Menu');
-const RACE_SELECT_TRACKS = collectFolder('Character Select');
 
 const COMBAT_TRACKS: Partial<Record<Race, TrackInfo[]>> = {
   [Race.Crown]: collectFolder('CombatCrown'),
@@ -43,7 +42,7 @@ const COMBAT_TRACKS: Partial<Record<Race, TrackInfo[]>> = {
   [Race.Tenders]: collectFolder('CombatTenders'),
 };
 
-type MusicCategory = 'menu' | 'raceSelect' | 'combat';
+type MusicCategory = 'menu' | 'combat';
 
 /**
  * Music player using pure Web Audio API (AudioBufferSourceNode) to stay in the
@@ -119,7 +118,6 @@ export class MusicPlayer {
   private getTracksForCategory(): TrackInfo[] {
     switch (this.category) {
       case 'menu': return MENU_TRACKS;
-      case 'raceSelect': return RACE_SELECT_TRACKS;
       case 'combat': return COMBAT_TRACKS[this.combatRace!] ?? [];
       default: return [];
     }
@@ -306,10 +304,6 @@ export class MusicPlayer {
 
   playMenu(): void {
     this.switchTo('menu');
-  }
-
-  playRaceSelect(): void {
-    this.switchTo('raceSelect');
   }
 
   playCombat(race: Race): void {

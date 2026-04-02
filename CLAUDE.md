@@ -26,7 +26,7 @@ The simulation must be **fully deterministic** for multiplayer lockstep sync. Al
 - **NEVER use `Date.now()`, `performance.now()`, or any time-dependent value** in simulation logic. Tick count is the only clock.
 - **NEVER iterate `Map` or `Object.keys()` in simulation** where order matters unless the result is sorted. Use arrays or sort by entity ID.
 - **NEVER use `Set` iteration order** for game logic — convert to sorted array first.
-- Sort tie-breakers in GameState.ts and BotAI.ts must be stable (use entity ID as final tiebreaker).
+- Simulation-side sort tie-breakers must be stable (use entity ID as final tiebreaker).
 - **All player actions must flow through `GameCommand` objects** — never mutate game state directly from input handlers or UI code.
 - If you add/remove/reorder any code path that calls `state.rng()`, even conditionally, every subsequent random result shifts and all clients diverge.
 
@@ -63,17 +63,39 @@ src/
   simulation/        # Pure game logic (no DOM, no rendering)
     types.ts         # All types, enums, constants, map shape functions
     data.ts          # Unit stats, building costs, upgrade trees, race colors
-    GameState.ts     # State creation, tick simulation, command processing
-    BotAI.ts         # Bot AI (no DOM deps), used by Game.ts and headless tests
+    GameState.ts     # State creation, tick orchestration, command processing
+    SimShared.ts     # Shared helpers, SpatialGrid, constants, projectile visuals
+    SimLayout.ts     # Grid origins, HQ positions, lane paths, choke points
+    SimMovement.ts   # Spawning, movement, pathfinding, collision, damage/status
+    SimCombat.ts     # Combat targeting, towers, projectiles, status effect ticking
+    SimAbilities.ts  # Race abilities, nukes, diamond/wood, death tracking
+    SimHarvesters.ts # Harvester AI, mining, resource delivery
+    BotAI.ts         # Bot AI entry point + orchestrator (thin, re-exports)
+    BotProfiles.ts   # Race profiles, composition selection, difficulty presets
+    BotIntelligence.ts # Threat assessment, combat telemetry, resource planning
+    BotValuation.ts  # Throughput estimation, upgrade scoring, value functions
+    BotDecisions.ts  # Build orders, upgrades, lanes, nukes, actions
     maps.ts          # Data-driven map definitions (Duel, Skirmish, Warzone)
   rendering/         # Canvas rendering (client only)
-    Renderer.ts      # World, HUD, minimap drawing
+    Renderer.ts      # Render orchestrator, camera transforms, zone drawing
+    RendererEntities.ts # Y-sorted entity drawing (units, buildings, projectiles)
+    RendererOverlays.ts # HUD, minimap, fog of war, floating text, effects
+    RendererTerrain.ts  # Terrain cache, water animation, resource nodes
+    RendererShapes.ts   # Unit shape drawing, type defs, pure helpers
     SpriteLoader.ts  # Sprite loading (Tiny Swords + character packs)
     UIAssets.ts      # 9-slice panels, ribbons, icons
     Camera.ts        # Pan/zoom (mouse, keyboard, touch)
     VisualEffects.ts # Day/night, weather, particles, screen shake
   scenes/            # Scene system (Title, RaceSelect, Match, PostMatch, etc.)
+    TitleScene.ts    # Title screen orchestrator, lifecycle, click handling
+    TitleParty.ts    # Party/Firebase/matchmaking logic
+    TitleRender.ts   # Title screen rendering (menus, panels, duel units)
   ui/                # Input handling, popups (Building, Hut, Research), TutorialManager
+    InputHandler.ts  # Input orchestrator, keyboard/mouse setup, placement
+    InputBuildTray.ts # Build tray layout and rendering
+    InputSettings.ts  # Settings panel drawing and persistence
+    InputTutorial.ts  # Tutorial overlay rendering and state
+    InputAbilities.ts # Ability icons, nuke overlay, unit selection
   game/              # Game orchestration (Game.ts, GameLoop.ts)
   network/           # Firebase RTDB multiplayer (PartyManager, CommandSync)
   audio/             # Music + procedural SFX
@@ -86,6 +108,7 @@ src/
 - `simulation/` is **pure** — no DOM, no rendering, no imports from rendering/ui/scenes. This is the shared logic for both client and headless test runners.
 - All player actions flow through `GameCommand` objects processed by `simulateTick()`.
 - Rendering reads state but never mutates it.
+- `GameState.ts` and `BotAI.ts` are public facades. Inside `src/simulation/`, prefer importing from the owning `Sim*` / `Bot*` module directly instead of routing through compatibility re-exports.
 
 ## Maps
 
@@ -212,7 +235,7 @@ Each race has a unique ability building with 4 upgrade tiers (defined in `RACE_A
 - **Tree shape:** A → B or C (tier 1) → D/E under B, F/G under C (tier 2). Each building has exactly 2 choices at each tier.
 - **Per-node costs:** Every upgrade node has an explicit `cost: { gold, wood, meat }` in `UPGRADE_TREES` (data.ts). B vs C paths deliberately favor different resources, creating economic tradeoffs.
 - **Upgrade cost function:** `getNodeUpgradeCost()` in data.ts returns the node's cost. If no `cost` field exists, falls back to the flat `RACE_UPGRADE_COSTS` table.
-- **Stat multipliers:** `getUnitUpgradeMultipliers()` in GameState.ts walks the upgrade path and compounds all multipliers (hp, damage, attackSpeed, moveSpeed, range, spawnSpeed).
+- **Stat multipliers:** `getUnitUpgradeMultipliers()` lives in `SimShared.ts` and is re-exported by `GameState.ts`; it walks the upgrade path and compounds all multipliers (hp, damage, attackSpeed, moveSpeed, range, spawnSpeed).
 - **Specials:** `UpgradeSpecial` (data.ts) — per-node special effects like `dodgeChance`, `extraBurnStacks`, `splashRadius`, `auraDamageBonus`, `isSiegeUnit`, etc.
 
 ## Aura System
@@ -278,3 +301,4 @@ Some ranged units fire multiple projectiles per attack:
 - Per-node upgrade costs must use the race's actual resources. Crown nodes use gold+wood, Demon nodes use meat+wood (never gold), etc.
 - Siege units (`isSiegeUnit: true`) should only appear at T2 (terminal nodes D-G). They're too impactful for T1.
 - Building sprites are clamped to tile width in iso mode — don't set tier scaling so high that buildings overflow their tile.
+- Units attacking towers/HQ keep `targetId === null` — the simulation gates building-attack on `targetId === null`. The transient `_attackBuildingIdx` field is set by the simulation when a unit attacks a building (index into `state.buildings`, or -1 for HQ). Use it in renderer/UI code to detect building combat instead of relying on `targetId`.

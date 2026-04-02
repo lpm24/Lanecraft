@@ -1234,7 +1234,11 @@ export class HitFlashTracker {
 
   /** Track HP changes to detect hits */
   updateFromState(unitHps: Map<number, number>, currentUnits: { id: number; hp: number }[]): void {
+    // Build a Set of current IDs once — O(n) instead of O(n²) find() per tracked unit
+    const aliveIds = this._aliveIdPool;
+    aliveIds.clear();
     for (const u of currentUnits) {
+      aliveIds.add(u.id);
       const prevHp = unitHps.get(u.id);
       if (prevHp !== undefined && u.hp < prevHp) {
         this.trigger(u.id);
@@ -1243,9 +1247,10 @@ export class HitFlashTracker {
     }
     // Cleanup removed units
     for (const id of unitHps.keys()) {
-      if (!currentUnits.find(u => u.id === id)) unitHps.delete(id);
+      if (!aliveIds.has(id)) unitHps.delete(id);
     }
   }
+  private _aliveIdPool = new Set<number>();
 }
 
 // ─── Combat VFX (rings, arcs, lifesteal, heal sparkles) ─────

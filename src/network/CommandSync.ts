@@ -152,6 +152,10 @@ export class CommandSync {
           // Only fully disconnect if ALL remote players are gone
           if (this.remoteSlotIds.length === 0) {
             this.connected = false;
+            if (this.pingInterval) {
+              clearInterval(this.pingInterval);
+              this.pingInterval = null;
+            }
             this.onDisconnect?.();
           }
         }
@@ -179,6 +183,7 @@ export class CommandSync {
   }
 
   private async measureLatency(): Promise<void> {
+    if (!this.connected || this.writesDisabled) return;
     const db = getDb();
     const pingRef = `games/${this.partyCode}/ping/${this.localSlotId}`;
     const start = Date.now();
@@ -294,6 +299,7 @@ export class CommandSync {
               console.error('[CommandSync] Re-auth failed — treating as disconnect');
               this.writesDisabled = true;
               this.connected = false;
+              if (this.pingInterval) { clearInterval(this.pingInterval); this.pingInterval = null; }
               this.onDisconnect?.();
             }
           });
@@ -302,6 +308,7 @@ export class CommandSync {
           console.error('[CommandSync] Too many write failures — treating as disconnect');
           this.writesDisabled = true; // immediately stop future writes
           this.connected = false;
+          if (this.pingInterval) { clearInterval(this.pingInterval); this.pingInterval = null; }
           this.onDisconnect?.();
         }
       });
@@ -349,6 +356,10 @@ export class CommandSync {
           // Only fully disconnect if ALL remote players are gone
           if (this.remoteSlotIds.length === 0) {
             this.connected = false;
+            if (this.pingInterval) {
+              clearInterval(this.pingInterval);
+              this.pingInterval = null;
+            }
             this.onDisconnect?.();
           }
           resolve(this.collectTurn(turn));
