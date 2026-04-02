@@ -78,3 +78,22 @@ export function isoWorldBounds(mapW: number, mapH: number): { minX: number; minY
   _isoBounds.height = maxY - minY;
   return _isoBounds;
 }
+
+/**
+ * Draw a circle in tile-space that appears correctly in isometric projection.
+ * In ortho mode this draws a normal circle; in iso mode it draws a 2:1 ellipse.
+ * @param r - radius in tile-pixel units (e.g. range * TILE_SIZE)
+ */
+export function isoArc(
+  ctx: CanvasRenderingContext2D,
+  px: number, py: number,
+  r: number,
+  isometric: boolean,
+): void {
+  if (!isometric) {
+    ctx.arc(px, py, r, 0, Math.PI * 2);
+  } else {
+    // In iso, horizontal extent stays the same but vertical is halved (ISO_TILE_H / ISO_TILE_W = 0.5)
+    ctx.ellipse(px, py, r, r * 0.5, 0, 0, Math.PI * 2);
+  }
+}
