@@ -71,6 +71,9 @@ export function tickCombat(state: GameState): void {
   }
 
   for (const unit of combatOrder) {
+    // Stunned units can't attack — skip entire combat tick
+    if (unit.statusEffects.some(e => e.type === StatusType.Stun)) continue;
+
     // Goblin flee: when below 25% HP, run away for 2 seconds then re-engage
     const ownerRace = state.players[unit.playerId]?.race;
     if (ownerRace === Race.Goblins) {
@@ -1599,20 +1602,22 @@ export function applyTowerSpecial(state: GameState, building: BuildingState, rac
       // Chain: hit up to 3 + extra targets
       const chainMax = 3 + (sp.extraChainTargets ?? 0);
       const targets: UnitState[] = [];
+      const targetIds = new Set<number>();
       let lastX = tx, lastY = ty;
       for (let chain = 0; chain < chainMax; chain++) {
         let best: UnitState | null = null;
         const chainRange = chain === 0 ? stats.range : 4;
         let bestDist = chainRange * chainRange;
-        // Copy nearby results since we call getNearby multiple times in loop
-        const chainNearby = _combatGrid.getNearby(lastX, lastY, chainRange).slice();
-        for (const u of chainNearby) {
-          if (u.team !== enemyTeam || targets.some(t => t.id === u.id)) continue;
+        const chainNearby = _combatGrid.getNearby(lastX, lastY, chainRange);
+        for (let ci = 0; ci < chainNearby.length; ci++) {
+          const u = chainNearby[ci];
+          if (u.team !== enemyTeam || targetIds.has(u.id)) continue;
           const d = (u.x - lastX) ** 2 + (u.y - lastY) ** 2;
           if (d <= bestDist && (d < bestDist || (best && u.id < best.id))) { best = u; bestDist = d; }
         }
         if (best) {
           targets.push(best);
+          targetIds.add(best.id);
           lastX = best.x; lastY = best.y;
         } else break;
       }

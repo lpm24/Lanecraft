@@ -43,17 +43,80 @@ import { isInsideAnyHQ } from './SimMovement';
 
 // === Harvesters ===
 
-export function findOpenMiningSpot(state: GameState, h: HarvesterState, target: { x: number; y: number }): { x: number; y: number } {
-  // Check if any other harvester is already mining within 1.2 tiles of target
-  const otherMiners = state.harvesters.filter(o =>
-    o.id !== h.id && o.state === 'mining' && o.assignment === h.assignment &&
-    Math.sqrt((o.x - target.x) ** 2 + (o.y - target.y) ** 2) < 1.2
-  );
-  if (otherMiners.length === 0) return target;
+// Lightweight spatial grid for harvester collision (avoids O(n²) pairwise checks)
+const _harvGrid = {
+  cellSize: 3,
+  stride: 80, // ceil(maxWorldDim / cellSize) + 2
+  cells: new Map<number, HarvesterState[]>(),
+  pool: [] as HarvesterState[][],
+  active: [] as HarvesterState[][],
+  _result: [] as HarvesterState[],
+  build(harvesters: HarvesterState[]): void {
+    for (const b of this.active) { b.length = 0; this.pool.push(b); }
+    this.active.length = 0;
+    this.cells.clear();
+    const s = this.stride, cs = this.cellSize;
+    for (const h of harvesters) {
+      if (h.state === 'dead') continue;
+      const key = Math.floor(h.x / cs) * s + Math.floor(h.y / cs);
+      const bucket = this.cells.get(key);
+      if (bucket) { bucket.push(h); }
+      else {
+        const b = this.pool.pop() ?? [];
+        b.push(h);
+        this.cells.set(key, b);
+        this.active.push(b);
+      }
+    }
+  },
+  getNearby(x: number, y: number, radius: number): HarvesterState[] {
+    const cs = this.cellSize, s = this.stride;
+    const minCX = Math.floor((x - radius) / cs), maxCX = Math.floor((x + radius) / cs);
+    const minCY = Math.floor((y - radius) / cs), maxCY = Math.floor((y + radius) / cs);
+    this._result.length = 0;
+    for (let cx = minCX; cx <= maxCX; cx++) {
+      for (let cy = minCY; cy <= maxCY; cy++) {
+        const bucket = this.cells.get(cx * s + cy);
+        if (bucket) for (const h of bucket) this._result.push(h);
+      }
+    }
+    return this._result;
+  },
+};
+
+// Per-tick cache: foundry count per player (avoid scanning all buildings per harvester)
+let _foundryCountCache: Map<number, number> | null = null;
+function getFoundryCount(state: GameState, playerId: number): number {
+  if (!_foundryCountCache) {
+    _foundryCountCache = new Map();
+    for (const b of state.buildings) {
+      if (b.isFoundry && b.hp > 0) {
+        _foundryCountCache.set(b.playerId, (_foundryCountCache.get(b.playerId) ?? 0) + 1);
+      }
+    }
+  }
+  return _foundryCountCache.get(playerId) ?? 0;
+}
+
+// Scratch array for nearby miners (avoids allocation per call)
+const _nearbyMiners: HarvesterState[] = [];
+
+export function findOpenMiningSpot(_state: GameState, h: HarvesterState, target: { x: number; y: number }): { x: number; y: number } {
+  // Use harvester grid to find nearby miners instead of filtering all harvesters
+  _nearbyMiners.length = 0;
+  const nearby = _harvGrid.getNearby(target.x, target.y, 2); // 1.2 + margin
+  for (let i = 0; i < nearby.length; i++) {
+    const o = nearby[i];
+    if (o.id !== h.id && o.state === 'mining' && o.assignment === h.assignment) {
+      const d2 = (o.x - target.x) ** 2 + (o.y - target.y) ** 2;
+      if (d2 < 1.44) _nearbyMiners.push(o); // 1.2² = 1.44
+    }
+  }
+  if (_nearbyMiners.length === 0) return target;
 
   // Wood nodes read better with a wider ring so the forest feels broader and less pinched.
   const baseRing = h.assignment === HarvesterAssignment.Wood ? 1.8 : 1.0;
-  const ringDist = baseRing + otherMiners.length * 0.75;
+  const ringDist = baseRing + _nearbyMiners.length * 0.75;
   const angleStep = (Math.PI * 2) / 8;
   const baseAngle = (h.id * 137.508) % (Math.PI * 2); // golden angle spread
   let bestSpot = target;
@@ -63,10 +126,10 @@ export function findOpenMiningSpot(state: GameState, h: HarvesterState, target: 
     const a = baseAngle + i * angleStep;
     const cx = target.x + Math.cos(a) * ringDist;
     const cy = target.y + Math.sin(a) * ringDist;
-    // Count how many miners are near this spot
+    // Count how many miners are near this spot (squared distance, no sqrt)
     let occupied = 0;
-    for (const o of otherMiners) {
-      if (Math.sqrt((o.x - cx) ** 2 + (o.y - cy) ** 2) < 1.0) occupied++;
+    for (const o of _nearbyMiners) {
+      if ((o.x - cx) ** 2 + (o.y - cy) ** 2 < 1.0) occupied++;
     }
     if (occupied < bestOccupied) {
       bestOccupied = occupied;
@@ -77,20 +140,26 @@ export function findOpenMiningSpot(state: GameState, h: HarvesterState, target: 
 }
 
 export function tickHarvesters(state: GameState): void {
-  // Soft collision between harvesters: push apart
-  for (let i = 0; i < state.harvesters.length; i++) {
-    const a = state.harvesters[i];
+  // Reset per-tick caches
+  _foundryCountCache = null;
+  _foundryPositionsCache = null;
+
+  // Soft collision between harvesters: push apart (spatial grid, O(n) instead of O(n²))
+  _harvGrid.build(state.harvesters);
+  const minDist = HARVESTER_MIN_SEPARATION;
+  const minDist2 = minDist * minDist;
+  for (const a of state.harvesters) {
     if (a.state === 'dead') continue;
-    for (let j = i + 1; j < state.harvesters.length; j++) {
-      const b = state.harvesters[j];
-      if (b.state === 'dead') continue;
+    const nearby = _harvGrid.getNearby(a.x, a.y, minDist);
+    for (let ni = 0; ni < nearby.length; ni++) {
+      const b = nearby[ni];
+      if (b.id <= a.id) continue; // only process each pair once
       const dx = b.x - a.x, dy = b.y - a.y;
-      const dist = Math.sqrt(dx * dx + dy * dy);
-      const minDist = HARVESTER_MIN_SEPARATION;
-      if (dist < minDist && dist > 0.01) {
+      const dist2 = dx * dx + dy * dy;
+      if (dist2 < minDist2 && dist2 > 0.0001) {
+        const dist = Math.sqrt(dist2);
         const push = (minDist - dist) * 0.3;
         const nx = dx / dist, ny = dy / dist;
-        // Don't push miners who are actively mining
         if (a.state !== 'mining') { a.x -= nx * push; a.y -= ny * push; }
         if (b.state !== 'mining') { b.x += nx * push; b.y += ny * push; }
       }
@@ -267,10 +336,9 @@ export function tickHarvesters(state: GameState): void {
       if (h.miningTimer <= 0) {
         switch (h.assignment) {
           case HarvesterAssignment.BaseGold: {
-            // Crown foundry bonus: +1 gold per trip per foundry
+            // Crown foundry bonus: +1 gold per trip per foundry (cached per tick)
             const foundryBonus = state.players[h.playerId]?.race === Race.Crown
-              ? state.buildings.filter(fb => fb.isFoundry && fb.playerId === h.playerId && fb.hp > 0).length
-              : 0;
+              ? getFoundryCount(state, h.playerId) : 0;
             h.carryingResource = ResourceType.Gold; h.carryAmount = GOLD_YIELD_PER_TRIP + foundryBonus; break;
           }
           case HarvesterAssignment.Wood: {
@@ -436,10 +504,9 @@ export function tickCenterHarvester(state: GameState, h: HarvesterState, movePer
     if (h.miningTimer <= 0) {
       const cell = h.targetCellIdx >= 0 ? state.diamondCells[h.targetCellIdx] : null;
       if (cell && cell.gold > 0) {
-        // Crown foundry bonus: +1 gold per trip per foundry
+        // Crown foundry bonus: +1 gold per trip per foundry (cached per tick)
         const cFoundryBonus = state.players[h.playerId]?.race === Race.Crown
-          ? state.buildings.filter(fb => fb.isFoundry && fb.playerId === h.playerId && fb.hp > 0).length
-          : 0;
+          ? getFoundryCount(state, h.playerId) : 0;
         const yield_ = Math.min(GOLD_YIELD_PER_TRIP + cFoundryBonus, cell.gold);
         cell.gold -= yield_;
         h.carryingResource = ResourceType.Gold;
@@ -494,20 +561,35 @@ export function tickCenterHarvester(state: GameState, h: HarvesterState, movePer
   }
 }
 
+// Per-tick cache: foundry positions per player (avoids scanning all buildings per harvester)
+let _foundryPositionsCache: Map<number, { x: number; y: number }[]> | null = null;
+function getFoundryPositions(state: GameState, playerId: number): { x: number; y: number }[] {
+  if (!_foundryPositionsCache) {
+    _foundryPositionsCache = new Map();
+    for (const b of state.buildings) {
+      if (b.isFoundry && b.hp > 0) {
+        let arr = _foundryPositionsCache.get(b.playerId);
+        if (!arr) { arr = []; _foundryPositionsCache.set(b.playerId, arr); }
+        arr.push({ x: b.worldX + 0.5, y: b.worldY + 0.5 });
+      }
+    }
+  }
+  return _foundryPositionsCache.get(playerId) ?? [];
+}
+
 export function getDropOffTarget(state: GameState, h: HarvesterState): { x: number; y: number } {
   const hq = getHQPosition(h.team, state.mapDef);
   let tx = hq.x + HQ_WIDTH / 2, ty = hq.y + HQ_HEIGHT / 2;
   // Diamond must go to HQ (spawns champion)
   if (h.carryingDiamond) return { x: tx, y: ty };
-  // Crown foundries act as drop-off points — pick nearest
+  // Crown foundries act as drop-off points — pick nearest (cached positions)
   const player = state.players[h.playerId];
   if (player?.race === Race.Crown) {
     let bestDist = (tx - h.x) ** 2 + (ty - h.y) ** 2;
-    for (const b of state.buildings) {
-      if (!b.isFoundry || b.playerId !== h.playerId || b.hp <= 0) continue;
-      const fx = b.worldX + 0.5, fy = b.worldY + 0.5;
-      const fd = (fx - h.x) ** 2 + (fy - h.y) ** 2;
-      if (fd < bestDist) { bestDist = fd; tx = fx; ty = fy; }
+    const foundries = getFoundryPositions(state, h.playerId);
+    for (const f of foundries) {
+      const fd = (f.x - h.x) ** 2 + (f.y - h.y) ** 2;
+      if (fd < bestDist) { bestDist = fd; tx = f.x; ty = f.y; }
     }
   }
   return { x: tx, y: ty };

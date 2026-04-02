@@ -13,7 +13,7 @@ import {
 import { getHQPosition, getUnitUpgradeMultipliers, SEED_GROW_TIMES } from '../simulation/GameState';
 import { RACE_COLORS, TOWER_STATS, PLAYER_COLORS } from '../simulation/data';
 import { ConstructionAnims, HitFlashTracker } from './VisualEffects';
-import { tileToPixel, ISO_TILE_W, ISO_TILE_H } from './Projection';
+import { tileToPixel, isoArc, ISO_TILE_W, ISO_TILE_H } from './Projection';
 import { drawUnitShape } from './RendererShapes';
 import { LANE_LEFT_COLOR, LANE_RIGHT_COLOR, DEAD_UNIT_LIFETIME_SEC, type DeadUnitSnapshot } from './RendererShapes';
 
@@ -325,7 +325,7 @@ export function drawOneBuilding(ctx: CanvasRenderingContext2D, state: GameState,
         const towerRangeBonus = towerUpgrade.special.towerRangeBonus ?? 0;
         const effectiveRange = Math.max(1, towerStats.range * towerUpgrade.range) + towerRangeBonus;
         ctx.beginPath();
-        ctx.arc(px, py, effectiveRange * T, 0, Math.PI * 2);
+        isoArc(ctx, px, py, effectiveRange * T, ectx.isometric);
         ctx.strokeStyle = `${rc.primary}33`;
         ctx.lineWidth = 1;
         ctx.stroke();
@@ -427,7 +427,7 @@ export function drawOneBuilding(ctx: CanvasRenderingContext2D, state: GameState,
           const towerRangeBonus = towerUpgrade.special.towerRangeBonus ?? 0;
           const effectiveRange = Math.max(1, towerStats.range * towerUpgrade.range) + towerRangeBonus;
           ctx.beginPath();
-          ctx.arc(px, py, effectiveRange * T, 0, Math.PI * 2);
+          isoArc(ctx, px, py, effectiveRange * T, ectx.isometric);
           ctx.strokeStyle = `${rc.primary}33`;
           ctx.lineWidth = 1;
           ctx.stroke();
@@ -722,7 +722,7 @@ export function drawOneUnit(ctx: CanvasRenderingContext2D, state: GameState, u: 
       ctx.globalAlpha = 0.25 + glowPulse * 0.15;
       ctx.fillStyle = '#00ffff';
       ctx.beginPath();
-      ctx.arc(cx, py + T * 0.5, glowR, 0, Math.PI * 2);
+      isoArc(ctx, cx, py + T * 0.5, glowR, ectx.isometric);
       ctx.fill();
       ctx.restore();
     }
@@ -895,7 +895,7 @@ export function drawOneUnit(ctx: CanvasRenderingContext2D, state: GameState, u: 
         ctx.lineWidth = tier;
         ctx.globalAlpha = 0.4;
         ctx.beginPath();
-        ctx.arc(px + T / 2, py + T / 2, scaledR + 2, 0, Math.PI * 2);
+        isoArc(ctx, px + T / 2, py + T / 2, scaledR + 2, ectx.isometric);
         ctx.stroke();
         ctx.globalAlpha = 1;
       }
@@ -948,6 +948,29 @@ export function drawOneUnit(ctx: CanvasRenderingContext2D, state: GameState, u: 
         ctx.moveTo(wcx + ws / 2, wcy - ws / 2);
         ctx.lineTo(wcx - ws / 2, wcy + ws / 2);
         ctx.stroke();
+        ctx.globalAlpha = 1;
+      }
+      if (eff.type === StatusType.Stun) {
+        // Spinning yellow stars above stunned unit
+        ctx.globalAlpha = 0.7 + 0.2 * Math.sin(ectx.frameNow / 150 + u.id);
+        const starR = r * 1.5;
+        const starY = uy - r * 2.5;
+        const starCount = 3;
+        ctx.fillStyle = '#ffeb3b';
+        ctx.strokeStyle = '#f57f17';
+        ctx.lineWidth = 0.8;
+        for (let si = 0; si < starCount; si++) {
+          const angle = (ectx.frameNow / 300 + u.id) + (si * Math.PI * 2 / starCount);
+          const sx = ux + Math.cos(angle) * starR;
+          const sy = starY + Math.sin(angle) * starR * 0.4;
+          const ss = r * 0.6;
+          // 4-point star
+          ctx.beginPath();
+          ctx.moveTo(sx, sy - ss); ctx.lineTo(sx + ss * 0.3, sy);
+          ctx.lineTo(sx, sy + ss); ctx.lineTo(sx - ss * 0.3, sy);
+          ctx.closePath();
+          ctx.fill(); ctx.stroke();
+        }
         ctx.globalAlpha = 1;
       }
       if (eff.type === StatusType.Shield) {

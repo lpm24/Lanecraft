@@ -187,18 +187,26 @@ export function createInitialState(
   }
 
 
-  // Place one Research per non-empty player, between war units (build grid) and miners (hut grid)
+  // Place one Research per non-empty player, offset from the build grid
   for (let i = 0; i < playerStates.length; i++) {
     const p = playerStates[i];
     if (p.isEmpty) continue;
     const buildOrigin = getBuildGridOrigin(i, map, playerStates);
     const hutOrigin = getHutGridOrigin(i, map, playerStates);
     const isLandscape = map.shapeAxis === 'x';
-    // Place research at the midpoint between hut grid and build grid
-    const bx = isLandscape
-      ? Math.round((buildOrigin.x + hutOrigin.x) / 2)
-      : buildOrigin.x + Math.floor(map.buildGridCols / 2); // center across build grid columns
-    const by = isLandscape ? buildOrigin.y : Math.round((buildOrigin.y + hutOrigin.y) / 2);
+    let bx: number, by: number;
+    if (isLandscape) {
+      // Landscape: midpoint between build grid and huts (horizontal), at top of build grid
+      bx = Math.round((buildOrigin.x + hutOrigin.x) / 2);
+      by = buildOrigin.y;
+    } else {
+      // Portrait: place to the outside edge of the build grid (away from teammate),
+      // vertically centered — keeps it clear of the unit spawn/builder area
+      const gridCenterX = buildOrigin.x + Math.floor(map.buildGridCols / 2);
+      const isLeftSide = gridCenterX < Math.floor(map.width / 2);
+      bx = isLeftSide ? buildOrigin.x - 2 : buildOrigin.x + map.buildGridCols + 1;
+      by = buildOrigin.y + Math.floor(map.buildGridRows / 2);
+    }
     const researchHp = 500;
     state.buildings.push({
       id: genId(state), type: BuildingType.Research, playerId: i, buildGrid: 'military',
@@ -979,6 +987,7 @@ export function computeStateHash(state: GameState): number {
       case StatusType.Frenzy: mix(5); break;
       case StatusType.Wound: mix(6); break;
       case StatusType.Vulnerable: mix(7); break;
+      case StatusType.Stun: mix(8); break;
       default: mix(0); break;
     }
   };

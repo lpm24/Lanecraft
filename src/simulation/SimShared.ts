@@ -582,6 +582,7 @@ export let resourceDeliverySounds = 0;
 
 export let woundSounds = 0;
 export let vulnerableSounds = 0;
+export let stunSounds = 0;
 
 // Setters for sound throttle counters (needed because `export let` bindings are read-only from importers)
 export function resetSoundThrottles(): void {
@@ -593,6 +594,7 @@ export function resetSoundThrottles(): void {
   resourceDeliverySounds = 0;
   woundSounds = 0;
   vulnerableSounds = 0;
+  stunSounds = 0;
 }
 
 export function incStatusBurnSounds(): number { return ++statusBurnSounds; }
@@ -603,6 +605,7 @@ export function incStatusFrenzySounds(): number { return ++statusFrenzySounds; }
 export function incResourceDeliverySounds(): number { return ++resourceDeliverySounds; }
 export function incWoundSounds(): number { return ++woundSounds; }
 export function incVulnerableSounds(): number { return ++vulnerableSounds; }
+export function incStunSounds(): number { return ++stunSounds; }
 
 // Setters for module-level mutable state that importers need to write
 export function set_diamondCellMapInt(m: Map<number, GoldCell>): void { _diamondCellMapInt = m; }

@@ -36,6 +36,7 @@ const BUFF_ICON_META: Record<StatusType, { key: StatVisualKey; isDebuff: boolean
   [StatusType.Haste]:      { key: 'haste', isDebuff: false, maxDur: 3 },
   [StatusType.Shield]:     { key: 'shield', isDebuff: false, maxDur: 4 },
   [StatusType.Frenzy]:     { key: 'frenzy', isDebuff: false, maxDur: 4 },
+  [StatusType.Stun]:       { key: 'stun', isDebuff: true,  maxDur: 1 },
 };
 
 // ── Helper text functions ──
@@ -307,6 +308,7 @@ export interface AbilityOverlayDeps {
   isTouchDevice: boolean;
   pointerX: number;
   pointerY: number;
+  isometric?: boolean;
 }
 
 export function drawAbilityOverlay(ctx: CanvasRenderingContext2D, d: AbilityOverlayDeps): void {
@@ -333,7 +335,11 @@ export function drawAbilityOverlay(ctx: CanvasRenderingContext2D, d: AbilityOver
     const radiusScreen = def.aoeRadius * TILE_SIZE * cam.zoom;
     const pulse = 0.7 + 0.3 * Math.sin(Date.now() * 0.005);
     ctx.beginPath();
-    ctx.arc(d.pointerX, d.pointerY, radiusScreen, 0, Math.PI * 2);
+    if (d.isometric) {
+      ctx.ellipse(d.pointerX, d.pointerY, radiusScreen, radiusScreen * 0.5, 0, 0, Math.PI * 2);
+    } else {
+      ctx.arc(d.pointerX, d.pointerY, radiusScreen, 0, Math.PI * 2);
+    }
     ctx.fillStyle = c.fill;
     ctx.fill();
     ctx.strokeStyle = c.stroke;
@@ -384,6 +390,7 @@ export interface NukeOverlayDeps {
   pointerX: number;
   pointerY: number;
   tp: (tx: number, ty: number) => { px: number; py: number };
+  isometric?: boolean;
 }
 
 export function drawNukeOverlay(ctx: CanvasRenderingContext2D, d: NukeOverlayDeps): void {
@@ -440,7 +447,11 @@ export function drawNukeOverlay(ctx: CanvasRenderingContext2D, d: NukeOverlayDep
     const radiusScreen = NUKE_RADIUS * TILE_SIZE * cam.zoom;
     const pulse = 0.6 + 0.4 * Math.sin(Date.now() / 300);
     ctx.beginPath();
-    ctx.arc(d.pointerX, d.pointerY, radiusScreen, 0, Math.PI * 2);
+    if (d.isometric) {
+      ctx.ellipse(d.pointerX, d.pointerY, radiusScreen, radiusScreen * 0.5, 0, 0, Math.PI * 2);
+    } else {
+      ctx.arc(d.pointerX, d.pointerY, radiusScreen, 0, Math.PI * 2);
+    }
     ctx.fillStyle = `rgba(255, 60, 0, ${0.08 * pulse})`;
     ctx.fill();
     ctx.strokeStyle = `rgba(255, 80, 0, ${0.5 * pulse})`;
@@ -689,8 +700,13 @@ export function drawSelectedUnit(ctx: CanvasRenderingContext2D, renderer: Render
   const px = upx0 + TILE_SIZE / 2;
   const py = upy0 + TILE_SIZE / 2;
   const ringR = TILE_SIZE * 0.6;
+  const iso = d.currentRenderer?.isometric ?? false;
   ctx.beginPath();
-  ctx.arc(px, py, ringR, 0, Math.PI * 2);
+  if (iso) {
+    ctx.ellipse(px, py, ringR, ringR * 0.5, 0, 0, Math.PI * 2);
+  } else {
+    ctx.arc(px, py, ringR, 0, Math.PI * 2);
+  }
   ctx.strokeStyle = '#fff';
   ctx.lineWidth = 2;
   ctx.setLineDash([4, 3]);

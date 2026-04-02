@@ -211,6 +211,8 @@ function computeUnitPower(race: Race, btype: BuildingType, upgradePath: string[]
   if (hopAttack) { effDps *= 1.15; notes.push('hop'); }
   if (guaranteedHaste) { effDps *= 1.15; notes.push('haste'); }
   if (crownMage) { effDps *= 1.5; notes.push('mage'); }
+  const stunChance = special.stunChance ?? 0;
+  if (stunChance > 0) { effDps *= (1 + stunChance * 0.5); notes.push(`stun ${(stunChance * 100).toFixed(0)}%`); }
 
   // --- Team/support bonus (flat power addition) ---
   let teamBonus = 0;

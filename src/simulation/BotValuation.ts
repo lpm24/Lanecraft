@@ -78,6 +78,9 @@ export function scoreUpgradeNode(
     if (s.dodgeChance) score += s.dodgeChance * 20;
   }
 
+  // Stun is universally valuable — disables enemy movement + attack
+  if (s.stunChance) score += s.stunChance * 25; // 25% chance = +6.25, 30% = +7.5
+
   // DPS vs tanks
   if (threats.wantDPS) {
     if (s.knockbackEveryN) score += 3; // disruption has value

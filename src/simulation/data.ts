@@ -439,6 +439,8 @@ export interface UpgradeSpecial {
   lifeDrainPct?: number;           // % of damage dealt that heals the attacker (Geists Shadow Sorcerer)
   applyVulnerable?: boolean;       // apply Vulnerable status on hit (Geists Arch Lich)
   applyWound?: boolean;            // apply Wound status on hit (Goblins Doom Hexer)
+  // Stun: unit can't move or attack for duration
+  stunChance?: number;             // 0-1 chance to stun on melee hit
 }
 
 export interface UpgradeNodeDef {
@@ -514,7 +516,7 @@ export const UPGRADE_TREES: Record<Race, Partial<Record<BuildingType, Record<Upg
       C: { name: 'Raging Brute', desc: '+30% dmg, faster atk', damageMult: 1.30, attackSpeedMult: 0.85, spawnSpeedMult: 0.88, cost: { gold: 45, wood: 0, meat: 0 } },
       // D,E under B (meat)
       D: { name: 'Warchief', desc: '+70% HP, AURA: +10% armor', hpMult: 1.70, special: { damageReductionPct: 0.15, auraArmorBonus: 0.10 }, spawnSpeedMult: 0.82, cost: { gold: 0, wood: 0, meat: 90 } },
-      E: { name: 'Berserker', desc: '+55% dmg, AURA: +10% atk speed', damageMult: 1.55, special: { knockbackEveryN: 2, auraAttackSpeedBonus: 0.10 }, spawnSpeedMult: 0.82, cost: { gold: 0, wood: 0, meat: 90 } },
+      E: { name: 'Berserker', desc: '+40% dmg, 25% stun, AURA: +10% atk speed', damageMult: 1.40, special: { knockbackEveryN: 2, stunChance: 0.25, auraAttackSpeedBonus: 0.10 }, spawnSpeedMult: 0.82, cost: { gold: 0, wood: 0, meat: 90 } },
       // F,G under C (gold)
       F: { name: 'Bloodrager', desc: '+50% dmg, AURA: +10% speed', damageMult: 1.50, special: { guaranteedHaste: true, auraSpeedBonus: 0.10 }, spawnSpeedMult: 0.82, cost: { gold: 90, wood: 0, meat: 0 } },
       G: { name: 'Skull Crusher', desc: '+60% dmg, AURA: +4 dmg', damageMult: 1.60, attackSpeedMult: 0.80, special: { auraDamageBonus: 4 }, spawnSpeedMult: 0.82, cost: { gold: 90, wood: 0, meat: 0 } },
@@ -525,7 +527,7 @@ export const UPGRADE_TREES: Record<Race, Partial<Record<BuildingType, Record<Upg
       // C path = full SIEGE path (all 3 nodes are siege)
       C: { name: 'Orc Catapult', desc: 'SIEGE: 11 range, slow, devastating vs buildings', hpMult: 0.65, damageMult: 1.68, attackSpeedMult: 2.00, moveSpeedMult: 0.55, rangeMult: 1.57, spawnSpeedMult: 0.88, cost: { gold: 0, wood: 0, meat: 45 }, special: { isSiegeUnit: true, buildingDamageMult: 3.0, splashRadius: 2.5, splashDamagePct: 0.55, auraDamageBonus: 2 } },
       // D,E under B (wood) — multishot path
-      D: { name: 'War Thrower', desc: 'Fires 3 projectiles at 60% dmg, AURA: +8% dodge', special: { multishotCount: 2, multishotDamagePct: 0.60, auraDodgeBonus: 0.08 }, spawnSpeedMult: 0.82, cost: { gold: 0, wood: 90, meat: 0 } },
+      D: { name: 'War Thrower', desc: 'Fires 3 projectiles at 70% dmg, AURA: +8% dodge', special: { multishotCount: 2, multishotDamagePct: 0.70, auraDodgeBonus: 0.08 }, spawnSpeedMult: 0.82, cost: { gold: 0, wood: 90, meat: 0 } },
       E: { name: 'Battle Cleaver', desc: '+50% dmg, +20% range, AURA: 2 HP/s', damageMult: 1.50, rangeMult: 1.20, special: { auraHealPerSec: 2 }, spawnSpeedMult: 0.82, cost: { gold: 0, wood: 90, meat: 0 } },
       // F,G under C (siege T3s)
       F: { name: 'Horde Bombard', desc: 'SIEGE: 13 range, AURA: +10% armor', hpMult: 0.76, damageMult: 1.72, attackSpeedMult: 1.35, moveSpeedMult: 0.79, rangeMult: 1.18, spawnSpeedMult: 0.82, cost: { gold: 0, wood: 0, meat: 90 }, special: { isSiegeUnit: true, buildingDamageMult: 4.0, splashRadius: 3.5, splashDamagePct: 0.65, auraArmorBonus: 0.10 } },
@@ -559,8 +561,8 @@ export const UPGRADE_TREES: Record<Race, Partial<Record<BuildingType, Record<Upg
     [BuildingType.MeleeSpawner]: {
       B: { name: 'Troll Brute', desc: '+30% HP, +15% dmg', hpMult: 1.30, damageMult: 1.15, spawnSpeedMult: 0.80, cost: { gold: 10, wood: 25, meat: 0 } },
       C: { name: 'Quick Sticker', desc: '+25% speed, faster atk', moveSpeedMult: 1.25, attackSpeedMult: 0.85, spawnSpeedMult: 0.80, cost: { gold: 55, wood: 5, meat: 0 } },
-      D: { name: 'Troll Smasher', desc: '+40% HP, +30% dmg, +2 burn', hpMult: 1.40, damageMult: 1.30, special: { extraBurnStacks: 2 }, spawnSpeedMult: 0.70, cost: { gold: 18, wood: 40, meat: 0 } },
-      E: { name: 'Troll Warlord', desc: '+35% HP, +40% dmg, +2 slow', hpMult: 1.35, damageMult: 1.40, special: { extraSlowStacks: 2 }, cost: { gold: 27, wood: 45, meat: 0 } },
+      D: { name: 'Troll Smasher', desc: '+40% HP, +20% dmg, 30% stun on hit', hpMult: 1.40, damageMult: 1.20, special: { stunChance: 0.30 }, spawnSpeedMult: 0.70, cost: { gold: 18, wood: 40, meat: 0 } },
+      E: { name: 'Troll Warlord', desc: '+25% HP, +25% dmg, cleave +2', hpMult: 1.25, damageMult: 1.25, special: { cleaveTargets: 2 }, cost: { gold: 27, wood: 45, meat: 0 } },
       F: { name: 'Shadow Sticker', desc: '+30% dmg, +35% speed, 30% dodge', damageMult: 1.30, moveSpeedMult: 1.35, special: { dodgeChance: 0.30 }, spawnSpeedMult: 0.70, cost: { gold: 81, wood: 9, meat: 0 } },
       G: { name: 'Goblin Ace', desc: '+55% dmg, faster atk, dodge 15%', damageMult: 1.55, attackSpeedMult: 0.80, special: { dodgeChance: 0.15 }, cost: { gold: 99, wood: 14, meat: 0 } },
     },
@@ -678,8 +680,8 @@ export const UPGRADE_TREES: Record<Race, Partial<Record<BuildingType, Record<Upg
       C: { name: 'Frog Scout', desc: '+20% speed, +2 slow', moveSpeedMult: 1.20, special: { extraSlowStacks: 2 }, spawnSpeedMult: 0.90, cost: { gold: 40, wood: 10, meat: 0 } },
       D: { name: 'Armored Whale', desc: '+70% HP, 20% dmg reduction', hpMult: 1.70, special: { damageReductionPct: 0.20 }, spawnSpeedMult: 0.85, cost: { gold: 15, wood: 60, meat: 0 } },
       E: { name: 'Leviathan', desc: '+45% dmg, knockback/2', damageMult: 1.45, special: { knockbackEveryN: 2 }, spawnSpeedMult: 0.85, cost: { gold: 20, wood: 55, meat: 0 } },
-      F: { name: 'Leapfrog', desc: '+20% dmg, +25% speed, hop attack, +3 slow', damageMult: 1.20, moveSpeedMult: 1.25, special: { extraSlowStacks: 3, hopAttack: true }, spawnSpeedMult: 0.85, cost: { gold: 80, wood: 10, meat: 0 } },
-      G: { name: 'Frog Titan', desc: '+50% dmg, regen 3/s, hop attack', damageMult: 1.50, special: { regenPerSec: 3, hopAttack: true }, spawnSpeedMult: 0.85, cost: { gold: 90, wood: 15, meat: 0 } },
+      F: { name: 'Leapfrog', desc: '+35% dmg, +25% speed, hop, 25% stun, +3 slow', damageMult: 1.35, moveSpeedMult: 1.25, special: { extraSlowStacks: 3, hopAttack: true, stunChance: 0.25 }, spawnSpeedMult: 0.85, cost: { gold: 80, wood: 10, meat: 0 } },
+      G: { name: 'Frog Titan', desc: '+50% dmg, regen 3/s, hop, +2 slow', damageMult: 1.50, special: { regenPerSec: 3, hopAttack: true, extraSlowStacks: 2 }, spawnSpeedMult: 0.85, cost: { gold: 90, wood: 15, meat: 0 } },
     },
     // Ranged B-path = gold-heavy (shark/damage), C-path = wood-heavy (crab/control→siege)
     [BuildingType.RangedSpawner]: {
@@ -1068,8 +1070,14 @@ export const RACE_ABILITY_UPGRADES: Record<Race, ResearchUpgradeDef[]> = {
 };
 
 /** Get all research upgrades for a race (6 universal + 6 race-specific + 3 ability) */
+const _allResearchCache = new Map<Race, ResearchUpgradeDef[]>();
 export function getAllResearchUpgrades(race: Race): ResearchUpgradeDef[] {
-  return [...RESEARCH_UPGRADES, ...RACE_RESEARCH_UPGRADES[race], ...RACE_ABILITY_UPGRADES[race]];
+  let cached = _allResearchCache.get(race);
+  if (!cached) {
+    cached = [...RESEARCH_UPGRADES, ...RACE_RESEARCH_UPGRADES[race], ...RACE_ABILITY_UPGRADES[race]];
+    _allResearchCache.set(race, cached);
+  }
+  return cached;
 }
 
 /** Get cost for a research upgrade. Attack/defense: 80g base x 1.5^level. One-shots: 150g flat. */

@@ -297,7 +297,9 @@ export function explodeFireball(state: GameState, eff: { playerId: number; team:
   const r2 = radius * radius;
 
   let hitCount = 0;
-  for (const u of state.units) {
+  const fbNearby = _combatGrid.getNearby(targetX, targetY, radius);
+  for (let i = 0; i < fbNearby.length; i++) {
+    const u = fbNearby[i];
     if (u.team === eff.team) continue;
     if ((u.x - targetX) ** 2 + (u.y - targetY) ** 2 > r2) continue;
     dealDamage(state, u, totalDamage, true, eff.playerId);

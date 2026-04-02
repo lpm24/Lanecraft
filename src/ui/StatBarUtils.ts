@@ -69,7 +69,7 @@ export type StatVisualKey =
   | 'burn' | 'slow' | 'dodge' | 'damage-reduction' | 'shield' | 'aoe' | 'splash'
   | 'additional-projectile' | 'chain' | 'chain-heal' | 'healing' | 'regen' | 'wound' | 'cleanse'
   | 'cleave' | 'siege' | 'knockback' | 'gold' | 'haste' | 'revive' | 'summon'
-  | 'kill-scale' | 'aura' | 'explode' | 'lifesteal' | 'frenzy' | 'vulnerable';
+  | 'kill-scale' | 'aura' | 'explode' | 'lifesteal' | 'frenzy' | 'vulnerable' | 'stun';
 
 interface StatVisualMeta {
   color: string;
@@ -112,6 +112,7 @@ export const STAT_VISUALS: Record<StatVisualKey, StatVisualMeta> = {
   lifesteal: { color: '#ab47bc', statIcon: 'lifesteal', fallbackIcon: 'souls' },
   frenzy: { color: '#ef5350', statIcon: 'frenzy', fallbackIcon: 'sword' },
   vulnerable: { color: '#ffca28', statIcon: 'vulnerable', fallbackIcon: 'info' },
+  stun: { color: '#ffeb3b', statIcon: 'stun', fallbackIcon: 'info' },
 };
 
 export interface StatTextLine {

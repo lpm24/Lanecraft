@@ -268,6 +268,7 @@ export enum StatusType {
   Frenzy = 'frenzy',       // Wild kill bonus: +50% damage, 3s, refreshes on kills
   Wound = 'wound',         // -50% healing received, 6s, max 1 stack, refreshes
   Vulnerable = 'vulnerable', // +20% damage taken, 3s, max 1 stack, refreshes
+  Stun = 'stun',             // can't move or attack, 1s, max 1 stack
 }
 
 export interface StatusEffect {
@@ -660,7 +661,7 @@ export type SoundEventType =
   | 'diamond_exposed' | 'diamond_carried' | 'hq_damaged'
   | 'match_start' | 'match_end_win' | 'match_end_lose'
   | 'status_burn' | 'status_shield' | 'status_haste' | 'status_slow' | 'status_frenzy'
-  | 'status_wound' | 'status_vulnerable'
+  | 'status_wound' | 'status_vulnerable' | 'status_stun'
   | 'combat_knockback' | 'combat_lifesteal'
   | 'resource_delivered';
 

@@ -34,7 +34,7 @@ import {
   _spawnOrder, _moveOrder, _alleyBuildingsBottom, _alleyBuildingsTop,
   _diamondCellMapInt, _buildingIdSet,
   incStatusBurnSounds, incStatusShieldSounds, incStatusHasteSounds, incStatusSlowSounds,
-  incStatusFrenzySounds, incWoundSounds, incVulnerableSounds,
+  incStatusFrenzySounds, incWoundSounds, incVulnerableSounds, incStunSounds,
 } from './SimShared';
 import {
   getHQPosition,
@@ -190,6 +190,8 @@ export function tickUnitMovement(state: GameState): void {
   }
   for (const unit of moveOrder) {
     if (unit.targetId !== null) continue;
+    // Stunned units can't move
+    if (unit.statusEffects.some(e => e.type === StatusType.Stun)) continue;
 
     // Stop marching when an enemy alley building or HQ is within attack range.
     // Siege units skip this; they have their own building-targeting logic.
@@ -550,6 +552,7 @@ const STATUS_SOUND_MAP: Partial<Record<StatusType, SoundEvent['type']>> = {
   [StatusType.Frenzy]: 'status_frenzy',
   [StatusType.Wound]: 'status_wound',
   [StatusType.Vulnerable]: 'status_vulnerable',
+  [StatusType.Stun]: 'status_stun',
 };
 
 // === Status Effects, Damage, and Healing ===
@@ -561,6 +564,7 @@ export function applyStatus(target: UnitState, type: StatusType, stacks: number,
                    type === StatusType.Slow ? 3 * TICK_RATE :
                    type === StatusType.Haste ? 3 * TICK_RATE :
                    type === StatusType.Frenzy ? 4 * TICK_RATE :
+                   type === StatusType.Stun ? 1 * TICK_RATE :
                    4 * TICK_RATE; // Shield
   const isNew = !existing;
   if (existing) {
@@ -582,7 +586,8 @@ export function applyStatus(target: UnitState, type: StatusType, stacks: number,
         (type === StatusType.Slow && incStatusSlowSounds() <= 2) ||
         (type === StatusType.Frenzy && incStatusFrenzySounds() <= 1) ||
         (type === StatusType.Wound && incWoundSounds() <= 1) ||
-        (type === StatusType.Vulnerable && incVulnerableSounds() <= 1);
+        (type === StatusType.Vulnerable && incVulnerableSounds() <= 1) ||
+        (type === StatusType.Stun && incStunSounds() <= 1);
       if (canPlay) addSound(state, soundType, target.x, target.y);
     }
   }
@@ -879,6 +884,8 @@ export function dealDamage(state: GameState, target: UnitState, amount: number, 
 
 // === Caster Support Abilities ===
 // Each race's caster has a secondary support effect on nearby allies when they cast
+// Reusable scratch array for injured-ally selection (avoids filter+sort allocation per caster)
+const _injuredScratch: UnitState[] = [];
 
 export function applyCasterSupport(state: GameState, caster: UnitState, race: Race, sp: Record<string, any> | undefined): void {
   const supportRange = 6;
@@ -901,27 +908,23 @@ export function applyCasterSupport(state: GameState, caster: UnitState, race: Ra
   switch (race) {
     case Race.Crown: {
       // Shield nearby allies (Crown caster ability)
+      // allies is already sorted by distance+ID above — reuse directly
       const shieldCount = 2 + (sp?.shieldTargetBonus ?? 0);
-      const sorted = allies.slice().sort((a, b) => {
-        const da = (a.x - caster.x) ** 2 + (a.y - caster.y) ** 2;
-        const db = (b.x - caster.x) ** 2 + (b.y - caster.y) ** 2;
-        return da !== db ? da - db : a.id - b.id;
-      });
       let absorbBonus = sp?.shieldAbsorbBonus ?? 0;
       // Research: Fortified Shields +8 absorb
       const casterPlayer = state.players[caster.playerId];
       if (casterPlayer?.researchUpgrades.raceUpgrades['crown_caster_1']) absorbBonus += 8;
-      const crownShielded = Math.min(shieldCount, sorted.length);
+      const crownShielded = Math.min(shieldCount, allies.length);
       for (let i = 0; i < crownShielded; i++) {
-        applyStatus(sorted[i], StatusType.Shield, 1, state);
-        if (absorbBonus > 0) sorted[i].shieldHp += absorbBonus;
+        applyStatus(allies[i], StatusType.Shield, 1, state);
+        if (absorbBonus > 0) allies[i].shieldHp += absorbBonus;
         caster.buffsApplied++;
         if (state.playerStats[caster.playerId]) state.playerStats[caster.playerId].totalBuffsApplied++;
       }
       // Research: Healing Aura — 1 HP/s to 2 nearest allies
       if (casterPlayer?.researchUpgrades.raceUpgrades['crown_caster_2']) {
         let healed = 0;
-        for (const a of sorted) {
+        for (const a of allies) {
           if (healed >= 2) break;
           if (a.hp < a.maxHp) {
             const ah = healUnit(a, 1);
@@ -954,7 +957,16 @@ export function applyCasterSupport(state: GameState, caster: UnitState, race: Ra
       // Chain heal: heal most injured allies (Battle Chanter B-path upgrade)
       const chainHealCount = sp?.chainHeal ?? 0;
       if (chainHealCount > 0) {
-        const injured = allies.filter(a => a.hp < a.maxHp).sort((a, b) => (a.hp / a.maxHp) - (b.hp / b.maxHp) || a.id - b.id);
+        // Find N most-injured allies without filter+sort allocation
+        _injuredScratch.length = 0;
+        for (const a of allies) {
+          if (a.hp < a.maxHp) _injuredScratch.push(a);
+        }
+        // Only sort if we have more candidates than needed
+        if (_injuredScratch.length > chainHealCount) {
+          _injuredScratch.sort((a, b) => (a.hp * b.maxHp) - (b.hp * a.maxHp) || a.id - b.id); // cross-multiply to compare hp/maxHp ratios without division
+        }
+        const injured = _injuredScratch;
         let healed = 0;
         const healAmt = caster.damage; // heal amount = caster damage stat
         for (const a of injured) {
@@ -1082,15 +1094,18 @@ export function applyCasterSupport(state: GameState, caster: UnitState, race: Ra
       // Research: Necrotic Burst — heal 2 HP to 3 lowest allies
       const geistsP = state.players[caster.playerId];
       if (geistsP?.researchUpgrades.raceUpgrades['geists_caster_1']) {
-        const sorted = allies.slice().sort((a, b) => (a.hp / a.maxHp) - (b.hp / b.maxHp) || a.id - b.id);
-        let healedCount = 0;
-        for (const a of sorted) {
-          if (healedCount >= 3) break;
-          if (a.hp < a.maxHp) {
-            const ah = healUnit(a, 2);
-            if (ah > 0) trackHealing(state, caster, ah);
-            healedCount++;
-          }
+        // Find 3 most-injured allies without .slice().sort() allocation
+        _injuredScratch.length = 0;
+        for (const a of allies) {
+          if (a.hp < a.maxHp) _injuredScratch.push(a);
+        }
+        if (_injuredScratch.length > 3) {
+          _injuredScratch.sort((a, b) => (a.hp * b.maxHp) - (b.hp * a.maxHp) || a.id - b.id); // cross-multiply to compare hp/maxHp ratios without division
+        }
+        const healCount = Math.min(3, _injuredScratch.length);
+        for (let hi = 0; hi < healCount; hi++) {
+          const ah = healUnit(_injuredScratch[hi], 2);
+          if (ah > 0) trackHealing(state, caster, ah);
         }
       }
       break;
@@ -1101,10 +1116,15 @@ export function applyCasterSupport(state: GameState, caster: UnitState, race: Ra
       // Research: Bloom Burst +2 heal amount
       const tendersP = state.players[caster.playerId];
       if (tendersP?.researchUpgrades.raceUpgrades['tenders_caster_1']) tenderHealAmt += 2;
-      const injured = allies
-        .filter(a => a.hp < a.maxHp)
-        .sort((a, b) => (a.hp / a.maxHp) - (b.hp / b.maxHp) || a.id - b.id);
-      const target = injured[0];
+      // Find single most-injured ally without filter+sort allocation
+      let target: UnitState | undefined;
+      for (const a of allies) {
+        if (a.hp >= a.maxHp) continue;
+        if (!target || (a.hp * target.maxHp < target.hp * a.maxHp) ||
+            (a.hp * target.maxHp === target.hp * a.maxHp && a.id < target.id)) {
+          target = a;
+        }
+      }
       if (target) {
         // Research: Life Link — double heal if target <30% HP
         let thisHeal = tenderHealAmt;
@@ -1242,6 +1262,16 @@ export function applyOnHitEffects(state: GameState, attacker: UnitState, target:
       }
     }
     // Geists Soul Arrows: +10% lifesteal on ranged (handled via projectile)
+  }
+
+  // === Universal melee stun chance (from upgrade specials) ===
+  if (isMelee && sp?.stunChance && sp.stunChance > 0) {
+    if (state.rng() < sp.stunChance) {
+      applyStatus(target, StatusType.Stun, 1, state);
+      addFloatingText(state, target.x, target.y - 0.3, 'STUN', '#ffeb3b', undefined, true,
+        { ftType: 'status', miniIcon: 'stun' });
+      addDeathParticles(state, target.x, target.y, '#ffeb3b', 3);
+    }
   }
 }
 
