@@ -470,6 +470,10 @@ export interface MinimapFrame {
   warHeroPositions: Array<{ x: number; y: number; playerId: number }>;
   /** Cumulative per-player resource and damage totals at this tick. Indexed by playerId. */
   playerStats: Array<{ goldEarned: number; woodEarned: number; meatEarned: number; damageDealt: number }>;
+  /** Active harvesters (excludes dead). */
+  harvesters: Array<{ x: number; y: number; playerId: number; team: number }>;
+  /** All placed buildings (spawners, towers, huts, ability buildings). */
+  buildings: Array<{ x: number; y: number; playerId: number; team: number; btype: string }>;
 }
 
 // A single gold cell in the diamond obstacle
