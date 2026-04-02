@@ -49,6 +49,7 @@ export class SceneManager {
   private currentName = '';
   private toasts: Toast[] = [];
   private onToastShow: (() => void) | null = null;
+  private onToastDismiss: (() => void) | null = null;
   private toastSlideY = -70; // current toast Y for hit-testing
 
   private resizeHandler = () => this.resizeCanvas();
@@ -112,6 +113,10 @@ export class SceneManager {
     this.onToastShow = cb;
   }
 
+  setOnToastDismiss(cb: () => void): void {
+    this.onToastDismiss = cb;
+  }
+
   showToast(text: string, subtext = ''): void {
     this.toasts.push({
       text, subtext,
@@ -139,6 +144,7 @@ export class SceneManager {
       const toast = this.toasts[0];
       if (toast.timer > TOAST_FADE_OUT) {
         toast.timer = TOAST_FADE_OUT;
+        this.onToastDismiss?.();
       }
       return true;
     }

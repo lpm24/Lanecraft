@@ -11,3 +11,8 @@ vite-dev*.log
 # Full icon packs — only Used/ subfolder is needed for the build
 src/assets/images/NhanceSpellIconsBundle/Textures_PNG/
 src/assets/images/Skill_Icon_Pack/
+scripts/generated_sprites/
+scripts/generated_sprites_lora/
+scripts/lora_training_data/
+scripts/lora_training_data.zip
+scripts/lora_state.json

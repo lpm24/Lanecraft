@@ -198,6 +198,8 @@ import crownCasterAtkYellow from '../assets/images/Tiny Swords (Free Pack)/Tiny 
 import crownMeleeAtkBlack from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Units/Black Units/Warrior/Warrior_Attack1.png?url';
 import crownRangedAtkBlack from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Units/Black Units/Archer/Archer_Shoot.png?url';
 import crownCasterAtkBlack from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Units/Black Units/Monk/Heal.png?url';
+import humanWizardIdle from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Human Wizard-idle.png?url';
+import humanWizardAttack from '../assets/images/Tiny Swords (Free Pack)/Tiny Swords (Free Pack)/Human Wizard-attack.png?url';
 // Horde (CHARACTER MEGAPACK)
 import hordeMeleeAtk from '../assets/images/CHARACTER MEGAPACK/CHARACTER MEGAPACK/Orc_Barbare_01 (Green Skinned)/Orc_Barbare_01_ATK_Full_12x1.png?url';
 import hordeRangedAtk from '../assets/images/CHARACTER MEGAPACK/CHARACTER MEGAPACK/Orc_Archer_01 (Green Skinned)/Orc_Archer_01_ATK_Full_18x1.png?url';
@@ -379,6 +381,25 @@ import circleBlueLg from '../assets/images/OVERBURN AssetPack/OVERBURN AssetPack
 import circleGreenLg from '../assets/images/OVERBURN AssetPack/OVERBURN AssetPack/02 Green FX/FX_Fire02_Circle64px_8x6.png?url';
 import circlePurpleLg from '../assets/images/OVERBURN AssetPack/OVERBURN AssetPack/03 Purple FX/FX_Fire03_Circle64px_8x6.png?url';
 
+// Per-unit projectile sprites (128x128 transparent PNGs)
+import projArrow from '../assets/images/projectiles/arrow.png?url';
+import projDagger from '../assets/images/projectiles/dagger.png?url';
+import projFireArrow from '../assets/images/projectiles/fire_arrow.png?url';
+import projFireBolt from '../assets/images/projectiles/fire_bolt.png?url';
+import projHarpoon from '../assets/images/projectiles/harpoon.png?url';
+import projIceArrow from '../assets/images/projectiles/ice_arrow.png?url';
+import projAcidSpit from '../assets/images/projectiles/acid_spit.png?url';
+import projShadowArrow from '../assets/images/projectiles/shadow_arrow.png?url';
+import projHolyBolt from '../assets/images/projectiles/holy_bolt.png?url';
+import projMagicMissile from '../assets/images/projectiles/magic_missile.png?url';
+import projMusicNote from '../assets/images/projectiles/music_note.png?url';
+import projNatureBolt from '../assets/images/projectiles/nature_bolt.png?url';
+import projPoisonArrow from '../assets/images/projectiles/poison_arrow.png?url';
+import projShadowBolt from '../assets/images/projectiles/shadow_bolt.png?url';
+import projSlimeMissile from '../assets/images/projectiles/slime_missile.png?url';
+import projStoneBall from '../assets/images/projectiles/stone_ball.png?url';
+import projWaterBolt from '../assets/images/projectiles/water_bolt.png?url';
+
 // ============================================================
 // VFX SPRITES (OVERBURN + Tiny Swords Particle FX)
 // ============================================================
@@ -478,6 +499,9 @@ export interface SpriteDef {
   frameW: number;   // width of one frame in pixels
   frameH: number;   // height of one frame in pixels
   cols: number;     // number of columns (frames) in the sheet
+  rows?: number;    // optional number of rows for grid-like animation sheets
+  srcX?: number;    // source x offset inside the image
+  srcY?: number;    // source y offset inside the image
   groundY?: number;  // where the feet/ground contact is as fraction of frame height (0=top, 1=bottom)
   scale?: number;    // optional display scale multiplier (default 1.0)
   heightScale?: number; // squash/stretch height independently of width (default 1.0)
@@ -490,8 +514,9 @@ export interface SpriteDef {
  *  Always targets ~1 cycle per second regardless of frame count.
  *  High-frame sprites (48+) skip frames to stay at 1s; low-frame sprites hold frames longer. */
 export function getSpriteFrame(tick: number, def: SpriteDef): number {
+  const totalFrames = def.cols * (def.rows ?? 1);
   const speed = def.animSpeed ?? 1.0;
-  return Math.floor(tick * def.cols * speed / 20) % def.cols;
+  return Math.floor(tick * totalFrames * speed / 20) % totalFrames;
 }
 
 // Tiny Swords spritesheets: divide total width by frame height to get frame count
@@ -511,6 +536,34 @@ function singleFrame(url: string, w: number, h: number, groundY = 0.95): SpriteD
 // CHARACTER MEGAPACK horizontal strip: name contains NxM (e.g. Idle_34x1.png = 34 cols, 1 row)
 function cmStrip(url: string, totalW: number, totalH: number, cols: number, groundY = 0.95): SpriteDef {
   return { url, frameW: Math.round(totalW / cols), frameH: totalH, cols, groundY };
+}
+
+function rowStrip(
+  url: string,
+  frameSize: number,
+  cols: number,
+  row: number,
+  groundY = 0.86,
+): SpriteDef {
+  return {
+    url,
+    frameW: frameSize,
+    frameH: frameSize,
+    cols,
+    srcY: row * frameSize,
+    groundY,
+  };
+}
+
+function gridAnim(
+  url: string,
+  frameW: number,
+  frameH: number,
+  cols: number,
+  rows: number,
+  groundY = 0.86,
+): SpriteDef {
+  return { url, frameW, frameH, cols, rows, groundY };
 }
 
 /** Grid-based spritesheet (e.g. 8x6 = 48 frames in an 8-col grid) */
@@ -761,6 +814,10 @@ const UPGRADE_MOVE_SPRITES: Record<string, SpriteDef> = {
   [upgradeKey(Race.Crown, 'melee', 'B')]: { ...cmStrip(baldPirateRun, 882, 67, 14, 0.97), scale: 0.55 },
   [upgradeKey(Race.Crown, 'melee', 'D')]: { ...cmStrip(captainRun, 1120, 72, 14, 0.97), scale: 0.5 },
   [upgradeKey(Race.Crown, 'melee', 'E')]: { ...cmStrip(clownNoseRun, 384, 40, 6, 0.73), scale: 0.6 },
+  // --- Crown caster: Priest branch (B/D/E) → Human Wizard sheet ---
+  [upgradeKey(Race.Crown, 'caster', 'C')]: { ...rowStrip(humanWizardIdle, 256, 5, 0, 0.66), scale: 1.25, animSpeed: 0.75 },
+  [upgradeKey(Race.Crown, 'caster', 'F')]: { ...rowStrip(humanWizardIdle, 256, 5, 0, 0.66), scale: 1.35, animSpeed: 0.75 },
+  [upgradeKey(Race.Crown, 'caster', 'G')]: { ...rowStrip(humanWizardIdle, 256, 5, 0, 0.66), scale: 1.45, animSpeed: 0.75 },
   // --- Deep ranged: → Fierce Tooth / shark branch (B/D/E) ---
   [upgradeKey(Race.Deep, 'ranged', 'B')]: { ...cmStrip(fierceToothRun, 204, 30, 6, 0.97), scale: 0.55 },
   [upgradeKey(Race.Deep, 'ranged', 'D')]: { ...cmStrip(fierceToothRun, 204, 30, 6, 0.97), scale: 0.6 },
@@ -773,6 +830,12 @@ const UPGRADE_MOVE_SPRITES: Record<string, SpriteDef> = {
   [upgradeKey(Race.Deep, 'caster', 'B')]: { ...cmStrip(pinkStarRun, 204, 30, 6, 0.97), scale: 0.55 },
   [upgradeKey(Race.Deep, 'caster', 'D')]: { ...cmStrip(pinkStarRun, 204, 30, 6, 0.97), scale: 0.6 },
   [upgradeKey(Race.Deep, 'caster', 'E')]: { ...cmStrip(pinkStarRun, 204, 30, 6, 0.97), scale: 0.7 },
+};
+
+const UPGRADE_IDLE_SPRITES: Record<string, SpriteDef> = {
+  [upgradeKey(Race.Crown, 'caster', 'C')]: { ...rowStrip(humanWizardIdle, 256, 5, 0, 0.66), scale: 1.25, animSpeed: 0.75 },
+  [upgradeKey(Race.Crown, 'caster', 'F')]: { ...rowStrip(humanWizardIdle, 256, 5, 0, 0.66), scale: 1.35, animSpeed: 0.75 },
+  [upgradeKey(Race.Crown, 'caster', 'G')]: { ...rowStrip(humanWizardIdle, 256, 5, 0, 0.66), scale: 1.45, animSpeed: 0.75 },
 };
 
 const UPGRADE_ATK_SPRITES: Record<string, SpriteDef> = {
@@ -830,6 +893,10 @@ const UPGRADE_ATK_SPRITES: Record<string, SpriteDef> = {
   [upgradeKey(Race.Tenders, 'melee', 'B')]: cmStrip(entL2Atk, 690, 45, 10, 0.94),
   [upgradeKey(Race.Tenders, 'melee', 'D')]: cmStrip(entL3Atk, 688, 56, 8, 0.94),
   [upgradeKey(Race.Tenders, 'melee', 'E')]: cmStrip(entL4Atk, 1888, 70, 32, 0.94),
+  // --- Crown caster: Priest branch (B/D/E) → Human Wizard attack row ---
+  [upgradeKey(Race.Crown, 'caster', 'C')]: { ...gridAnim(humanWizardAttack, 256, 256, 5, 5, 0.66), scale: 1.25, animSpeed: 1.0 },
+  [upgradeKey(Race.Crown, 'caster', 'F')]: { ...gridAnim(humanWizardAttack, 256, 256, 5, 5, 0.66), scale: 1.35, animSpeed: 1.0 },
+  [upgradeKey(Race.Crown, 'caster', 'G')]: { ...gridAnim(humanWizardAttack, 256, 256, 5, 5, 0.66), scale: 1.45, animSpeed: 1.0 },
   // --- Crown melee: King Human sword attacks (C/F), Dwarfette Champion (G) — faces RIGHT natively ---
   [upgradeKey(Race.Crown, 'melee', 'C')]: cmStrip(kingHumanAtk, 234, 58, 3, 0.74),
   [upgradeKey(Race.Crown, 'melee', 'F')]: cmStrip(kingHumanAtk, 234, 58, 3, 0.74),
@@ -962,37 +1029,301 @@ const BUILDING_KEY: Partial<Record<BuildingType, string>> = {
 // RACE-SPECIFIC BUILDING SPRITES (new asset packs)
 // ============================================================
 
-// Glob-import all building PNGs from the 4 new packs (resolved at build time by Vite)
-const humanBldgModules = import.meta.glob<string>(
-  '../assets/images/Medieval Human Building Pack*/Source/Human Building (*).png',
-  { eager: true, import: 'default', query: '?url' }
-);
-const orcBldgModules = import.meta.glob<string>(
-  '../assets/images/Fantasy RTS Orc Building*/Source/Orc Building (*).png',
-  { eager: true, import: 'default', query: '?url' }
-);
-const elfBldgModules = import.meta.glob<string>(
-  '../assets/images/Fantasy RTS Elven Building*/Source/Elf Building (*).png',
-  { eager: true, import: 'default', query: '?url' }
-);
-const nightElfBldgModules = import.meta.glob<string>(
-  '../assets/images/Stylized Night Elf RTS Building*/Source/NightEfl Building (*).png',
-  { eager: true, import: 'default', query: '?url' }
-);
-
-function extractBldgUrl(modules: Record<string, string>, num: number): string | undefined {
-  for (const [path, url] of Object.entries(modules)) {
-    // Match "(N).png" at end of path
-    const m = path.match(/\((\d+)\)\.png$/);
-    if (m && parseInt(m[1]) === num) return url;
-  }
-  return undefined;
-}
-
-function H(n: number) { return extractBldgUrl(humanBldgModules, n); }
-function O(n: number) { return extractBldgUrl(orcBldgModules, n); }
-function E(n: number) { return extractBldgUrl(elfBldgModules, n); }
-function N(n: number) { return extractBldgUrl(nightElfBldgModules, n); }
+// Static imports for only the building PNGs actually used (288 of 493)
+// Human building pack — 61 of 123 used
+import h6 from '../assets/images/Medieval Human Building Pack – 2D Fantasy RTS Town Assets for Strategy Games/Source/Human Building (6).png?url';
+import h18 from '../assets/images/Medieval Human Building Pack – 2D Fantasy RTS Town Assets for Strategy Games/Source/Human Building (18).png?url';
+import h65 from '../assets/images/Medieval Human Building Pack – 2D Fantasy RTS Town Assets for Strategy Games/Source/Human Building (65).png?url';
+import h66 from '../assets/images/Medieval Human Building Pack – 2D Fantasy RTS Town Assets for Strategy Games/Source/Human Building (66).png?url';
+import h67 from '../assets/images/Medieval Human Building Pack – 2D Fantasy RTS Town Assets for Strategy Games/Source/Human Building (67).png?url';
+import h68 from '../assets/images/Medieval Human Building Pack – 2D Fantasy RTS Town Assets for Strategy Games/Source/Human Building (68).png?url';
+import h69 from '../assets/images/Medieval Human Building Pack – 2D Fantasy RTS Town Assets for Strategy Games/Source/Human Building (69).png?url';
+import h70 from '../assets/images/Medieval Human Building Pack – 2D Fantasy RTS Town Assets for Strategy Games/Source/Human Building (70).png?url';
+import h71 from '../assets/images/Medieval Human Building Pack – 2D Fantasy RTS Town Assets for Strategy Games/Source/Human Building (71).png?url';
+import h72 from '../assets/images/Medieval Human Building Pack – 2D Fantasy RTS Town Assets for Strategy Games/Source/Human Building (72).png?url';
+import h73 from '../assets/images/Medieval Human Building Pack – 2D Fantasy RTS Town Assets for Strategy Games/Source/Human Building (73).png?url';
+import h74 from '../assets/images/Medieval Human Building Pack – 2D Fantasy RTS Town Assets for Strategy Games/Source/Human Building (74).png?url';
+import h75 from '../assets/images/Medieval Human Building Pack – 2D Fantasy RTS Town Assets for Strategy Games/Source/Human Building (75).png?url';
+import h76 from '../assets/images/Medieval Human Building Pack – 2D Fantasy RTS Town Assets for Strategy Games/Source/Human Building (76).png?url';
+import h77 from '../assets/images/Medieval Human Building Pack – 2D Fantasy RTS Town Assets for Strategy Games/Source/Human Building (77).png?url';
+import h78 from '../assets/images/Medieval Human Building Pack – 2D Fantasy RTS Town Assets for Strategy Games/Source/Human Building (78).png?url';
+import h79 from '../assets/images/Medieval Human Building Pack – 2D Fantasy RTS Town Assets for Strategy Games/Source/Human Building (79).png?url';
+import h80 from '../assets/images/Medieval Human Building Pack – 2D Fantasy RTS Town Assets for Strategy Games/Source/Human Building (80).png?url';
+import h81 from '../assets/images/Medieval Human Building Pack – 2D Fantasy RTS Town Assets for Strategy Games/Source/Human Building (81).png?url';
+import h82 from '../assets/images/Medieval Human Building Pack – 2D Fantasy RTS Town Assets for Strategy Games/Source/Human Building (82).png?url';
+import h83 from '../assets/images/Medieval Human Building Pack – 2D Fantasy RTS Town Assets for Strategy Games/Source/Human Building (83).png?url';
+import h84 from '../assets/images/Medieval Human Building Pack – 2D Fantasy RTS Town Assets for Strategy Games/Source/Human Building (84).png?url';
+import h85 from '../assets/images/Medieval Human Building Pack – 2D Fantasy RTS Town Assets for Strategy Games/Source/Human Building (85).png?url';
+import h86 from '../assets/images/Medieval Human Building Pack – 2D Fantasy RTS Town Assets for Strategy Games/Source/Human Building (86).png?url';
+import h87 from '../assets/images/Medieval Human Building Pack – 2D Fantasy RTS Town Assets for Strategy Games/Source/Human Building (87).png?url';
+import h88 from '../assets/images/Medieval Human Building Pack – 2D Fantasy RTS Town Assets for Strategy Games/Source/Human Building (88).png?url';
+import h89 from '../assets/images/Medieval Human Building Pack – 2D Fantasy RTS Town Assets for Strategy Games/Source/Human Building (89).png?url';
+import h90 from '../assets/images/Medieval Human Building Pack – 2D Fantasy RTS Town Assets for Strategy Games/Source/Human Building (90).png?url';
+import h91 from '../assets/images/Medieval Human Building Pack – 2D Fantasy RTS Town Assets for Strategy Games/Source/Human Building (91).png?url';
+import h92 from '../assets/images/Medieval Human Building Pack – 2D Fantasy RTS Town Assets for Strategy Games/Source/Human Building (92).png?url';
+import h93 from '../assets/images/Medieval Human Building Pack – 2D Fantasy RTS Town Assets for Strategy Games/Source/Human Building (93).png?url';
+import h94 from '../assets/images/Medieval Human Building Pack – 2D Fantasy RTS Town Assets for Strategy Games/Source/Human Building (94).png?url';
+import h95 from '../assets/images/Medieval Human Building Pack – 2D Fantasy RTS Town Assets for Strategy Games/Source/Human Building (95).png?url';
+import h96 from '../assets/images/Medieval Human Building Pack – 2D Fantasy RTS Town Assets for Strategy Games/Source/Human Building (96).png?url';
+import h97 from '../assets/images/Medieval Human Building Pack – 2D Fantasy RTS Town Assets for Strategy Games/Source/Human Building (97).png?url';
+import h98 from '../assets/images/Medieval Human Building Pack – 2D Fantasy RTS Town Assets for Strategy Games/Source/Human Building (98).png?url';
+import h99 from '../assets/images/Medieval Human Building Pack – 2D Fantasy RTS Town Assets for Strategy Games/Source/Human Building (99).png?url';
+import h100 from '../assets/images/Medieval Human Building Pack – 2D Fantasy RTS Town Assets for Strategy Games/Source/Human Building (100).png?url';
+import h101 from '../assets/images/Medieval Human Building Pack – 2D Fantasy RTS Town Assets for Strategy Games/Source/Human Building (101).png?url';
+import h102 from '../assets/images/Medieval Human Building Pack – 2D Fantasy RTS Town Assets for Strategy Games/Source/Human Building (102).png?url';
+import h103 from '../assets/images/Medieval Human Building Pack – 2D Fantasy RTS Town Assets for Strategy Games/Source/Human Building (103).png?url';
+import h104 from '../assets/images/Medieval Human Building Pack – 2D Fantasy RTS Town Assets for Strategy Games/Source/Human Building (104).png?url';
+import h105 from '../assets/images/Medieval Human Building Pack – 2D Fantasy RTS Town Assets for Strategy Games/Source/Human Building (105).png?url';
+import h106 from '../assets/images/Medieval Human Building Pack – 2D Fantasy RTS Town Assets for Strategy Games/Source/Human Building (106).png?url';
+import h107 from '../assets/images/Medieval Human Building Pack – 2D Fantasy RTS Town Assets for Strategy Games/Source/Human Building (107).png?url';
+import h108 from '../assets/images/Medieval Human Building Pack – 2D Fantasy RTS Town Assets for Strategy Games/Source/Human Building (108).png?url';
+import h109 from '../assets/images/Medieval Human Building Pack – 2D Fantasy RTS Town Assets for Strategy Games/Source/Human Building (109).png?url';
+import h110 from '../assets/images/Medieval Human Building Pack – 2D Fantasy RTS Town Assets for Strategy Games/Source/Human Building (110).png?url';
+import h111 from '../assets/images/Medieval Human Building Pack – 2D Fantasy RTS Town Assets for Strategy Games/Source/Human Building (111).png?url';
+import h112 from '../assets/images/Medieval Human Building Pack – 2D Fantasy RTS Town Assets for Strategy Games/Source/Human Building (112).png?url';
+import h113 from '../assets/images/Medieval Human Building Pack – 2D Fantasy RTS Town Assets for Strategy Games/Source/Human Building (113).png?url';
+import h114 from '../assets/images/Medieval Human Building Pack – 2D Fantasy RTS Town Assets for Strategy Games/Source/Human Building (114).png?url';
+import h115 from '../assets/images/Medieval Human Building Pack – 2D Fantasy RTS Town Assets for Strategy Games/Source/Human Building (115).png?url';
+import h116 from '../assets/images/Medieval Human Building Pack – 2D Fantasy RTS Town Assets for Strategy Games/Source/Human Building (116).png?url';
+import h117 from '../assets/images/Medieval Human Building Pack – 2D Fantasy RTS Town Assets for Strategy Games/Source/Human Building (117).png?url';
+import h118 from '../assets/images/Medieval Human Building Pack – 2D Fantasy RTS Town Assets for Strategy Games/Source/Human Building (118).png?url';
+import h119 from '../assets/images/Medieval Human Building Pack – 2D Fantasy RTS Town Assets for Strategy Games/Source/Human Building (119).png?url';
+import h120 from '../assets/images/Medieval Human Building Pack – 2D Fantasy RTS Town Assets for Strategy Games/Source/Human Building (120).png?url';
+import h121 from '../assets/images/Medieval Human Building Pack – 2D Fantasy RTS Town Assets for Strategy Games/Source/Human Building (121).png?url';
+import h122 from '../assets/images/Medieval Human Building Pack – 2D Fantasy RTS Town Assets for Strategy Games/Source/Human Building (122).png?url';
+import h123 from '../assets/images/Medieval Human Building Pack – 2D Fantasy RTS Town Assets for Strategy Games/Source/Human Building (123).png?url';
+const H: Record<number, string> = { 6: h6, 18: h18, 65: h65, 66: h66, 67: h67, 68: h68, 69: h69, 70: h70, 71: h71, 72: h72, 73: h73, 74: h74, 75: h75, 76: h76, 77: h77, 78: h78, 79: h79, 80: h80, 81: h81, 82: h82, 83: h83, 84: h84, 85: h85, 86: h86, 87: h87, 88: h88, 89: h89, 90: h90, 91: h91, 92: h92, 93: h93, 94: h94, 95: h95, 96: h96, 97: h97, 98: h98, 99: h99, 100: h100, 101: h101, 102: h102, 103: h103, 104: h104, 105: h105, 106: h106, 107: h107, 108: h108, 109: h109, 110: h110, 111: h111, 112: h112, 113: h113, 114: h114, 115: h115, 116: h116, 117: h117, 118: h118, 119: h119, 120: h120, 121: h121, 122: h122, 123: h123 };
+// Orc building pack — 60 of 116 used
+import o33 from '../assets/images/Fantasy RTS Orc Building Icons for Base Building and Strategy Games/Source/Orc Building (33).png?url';
+import o38 from '../assets/images/Fantasy RTS Orc Building Icons for Base Building and Strategy Games/Source/Orc Building (38).png?url';
+import o59 from '../assets/images/Fantasy RTS Orc Building Icons for Base Building and Strategy Games/Source/Orc Building (59).png?url';
+import o60 from '../assets/images/Fantasy RTS Orc Building Icons for Base Building and Strategy Games/Source/Orc Building (60).png?url';
+import o61 from '../assets/images/Fantasy RTS Orc Building Icons for Base Building and Strategy Games/Source/Orc Building (61).png?url';
+import o62 from '../assets/images/Fantasy RTS Orc Building Icons for Base Building and Strategy Games/Source/Orc Building (62).png?url';
+import o63 from '../assets/images/Fantasy RTS Orc Building Icons for Base Building and Strategy Games/Source/Orc Building (63).png?url';
+import o64 from '../assets/images/Fantasy RTS Orc Building Icons for Base Building and Strategy Games/Source/Orc Building (64).png?url';
+import o65 from '../assets/images/Fantasy RTS Orc Building Icons for Base Building and Strategy Games/Source/Orc Building (65).png?url';
+import o66 from '../assets/images/Fantasy RTS Orc Building Icons for Base Building and Strategy Games/Source/Orc Building (66).png?url';
+import o67 from '../assets/images/Fantasy RTS Orc Building Icons for Base Building and Strategy Games/Source/Orc Building (67).png?url';
+import o68 from '../assets/images/Fantasy RTS Orc Building Icons for Base Building and Strategy Games/Source/Orc Building (68).png?url';
+import o69 from '../assets/images/Fantasy RTS Orc Building Icons for Base Building and Strategy Games/Source/Orc Building (69).png?url';
+import o70 from '../assets/images/Fantasy RTS Orc Building Icons for Base Building and Strategy Games/Source/Orc Building (70).png?url';
+import o71 from '../assets/images/Fantasy RTS Orc Building Icons for Base Building and Strategy Games/Source/Orc Building (71).png?url';
+import o72 from '../assets/images/Fantasy RTS Orc Building Icons for Base Building and Strategy Games/Source/Orc Building (72).png?url';
+import o73 from '../assets/images/Fantasy RTS Orc Building Icons for Base Building and Strategy Games/Source/Orc Building (73).png?url';
+import o74 from '../assets/images/Fantasy RTS Orc Building Icons for Base Building and Strategy Games/Source/Orc Building (74).png?url';
+import o75 from '../assets/images/Fantasy RTS Orc Building Icons for Base Building and Strategy Games/Source/Orc Building (75).png?url';
+import o76 from '../assets/images/Fantasy RTS Orc Building Icons for Base Building and Strategy Games/Source/Orc Building (76).png?url';
+import o77 from '../assets/images/Fantasy RTS Orc Building Icons for Base Building and Strategy Games/Source/Orc Building (77).png?url';
+import o78 from '../assets/images/Fantasy RTS Orc Building Icons for Base Building and Strategy Games/Source/Orc Building (78).png?url';
+import o79 from '../assets/images/Fantasy RTS Orc Building Icons for Base Building and Strategy Games/Source/Orc Building (79).png?url';
+import o80 from '../assets/images/Fantasy RTS Orc Building Icons for Base Building and Strategy Games/Source/Orc Building (80).png?url';
+import o81 from '../assets/images/Fantasy RTS Orc Building Icons for Base Building and Strategy Games/Source/Orc Building (81).png?url';
+import o82 from '../assets/images/Fantasy RTS Orc Building Icons for Base Building and Strategy Games/Source/Orc Building (82).png?url';
+import o83 from '../assets/images/Fantasy RTS Orc Building Icons for Base Building and Strategy Games/Source/Orc Building (83).png?url';
+import o84 from '../assets/images/Fantasy RTS Orc Building Icons for Base Building and Strategy Games/Source/Orc Building (84).png?url';
+import o85 from '../assets/images/Fantasy RTS Orc Building Icons for Base Building and Strategy Games/Source/Orc Building (85).png?url';
+import o86 from '../assets/images/Fantasy RTS Orc Building Icons for Base Building and Strategy Games/Source/Orc Building (86).png?url';
+import o87 from '../assets/images/Fantasy RTS Orc Building Icons for Base Building and Strategy Games/Source/Orc Building (87).png?url';
+import o88 from '../assets/images/Fantasy RTS Orc Building Icons for Base Building and Strategy Games/Source/Orc Building (88).png?url';
+import o89 from '../assets/images/Fantasy RTS Orc Building Icons for Base Building and Strategy Games/Source/Orc Building (89).png?url';
+import o90 from '../assets/images/Fantasy RTS Orc Building Icons for Base Building and Strategy Games/Source/Orc Building (90).png?url';
+import o91 from '../assets/images/Fantasy RTS Orc Building Icons for Base Building and Strategy Games/Source/Orc Building (91).png?url';
+import o92 from '../assets/images/Fantasy RTS Orc Building Icons for Base Building and Strategy Games/Source/Orc Building (92).png?url';
+import o93 from '../assets/images/Fantasy RTS Orc Building Icons for Base Building and Strategy Games/Source/Orc Building (93).png?url';
+import o94 from '../assets/images/Fantasy RTS Orc Building Icons for Base Building and Strategy Games/Source/Orc Building (94).png?url';
+import o95 from '../assets/images/Fantasy RTS Orc Building Icons for Base Building and Strategy Games/Source/Orc Building (95).png?url';
+import o96 from '../assets/images/Fantasy RTS Orc Building Icons for Base Building and Strategy Games/Source/Orc Building (96).png?url';
+import o97 from '../assets/images/Fantasy RTS Orc Building Icons for Base Building and Strategy Games/Source/Orc Building (97).png?url';
+import o98 from '../assets/images/Fantasy RTS Orc Building Icons for Base Building and Strategy Games/Source/Orc Building (98).png?url';
+import o99 from '../assets/images/Fantasy RTS Orc Building Icons for Base Building and Strategy Games/Source/Orc Building (99).png?url';
+import o100 from '../assets/images/Fantasy RTS Orc Building Icons for Base Building and Strategy Games/Source/Orc Building (100).png?url';
+import o101 from '../assets/images/Fantasy RTS Orc Building Icons for Base Building and Strategy Games/Source/Orc Building (101).png?url';
+import o102 from '../assets/images/Fantasy RTS Orc Building Icons for Base Building and Strategy Games/Source/Orc Building (102).png?url';
+import o103 from '../assets/images/Fantasy RTS Orc Building Icons for Base Building and Strategy Games/Source/Orc Building (103).png?url';
+import o104 from '../assets/images/Fantasy RTS Orc Building Icons for Base Building and Strategy Games/Source/Orc Building (104).png?url';
+import o105 from '../assets/images/Fantasy RTS Orc Building Icons for Base Building and Strategy Games/Source/Orc Building (105).png?url';
+import o106 from '../assets/images/Fantasy RTS Orc Building Icons for Base Building and Strategy Games/Source/Orc Building (106).png?url';
+import o107 from '../assets/images/Fantasy RTS Orc Building Icons for Base Building and Strategy Games/Source/Orc Building (107).png?url';
+import o108 from '../assets/images/Fantasy RTS Orc Building Icons for Base Building and Strategy Games/Source/Orc Building (108).png?url';
+import o109 from '../assets/images/Fantasy RTS Orc Building Icons for Base Building and Strategy Games/Source/Orc Building (109).png?url';
+import o110 from '../assets/images/Fantasy RTS Orc Building Icons for Base Building and Strategy Games/Source/Orc Building (110).png?url';
+import o111 from '../assets/images/Fantasy RTS Orc Building Icons for Base Building and Strategy Games/Source/Orc Building (111).png?url';
+import o112 from '../assets/images/Fantasy RTS Orc Building Icons for Base Building and Strategy Games/Source/Orc Building (112).png?url';
+import o113 from '../assets/images/Fantasy RTS Orc Building Icons for Base Building and Strategy Games/Source/Orc Building (113).png?url';
+import o114 from '../assets/images/Fantasy RTS Orc Building Icons for Base Building and Strategy Games/Source/Orc Building (114).png?url';
+import o115 from '../assets/images/Fantasy RTS Orc Building Icons for Base Building and Strategy Games/Source/Orc Building (115).png?url';
+import o116 from '../assets/images/Fantasy RTS Orc Building Icons for Base Building and Strategy Games/Source/Orc Building (116).png?url';
+const O: Record<number, string> = { 33: o33, 38: o38, 59: o59, 60: o60, 61: o61, 62: o62, 63: o63, 64: o64, 65: o65, 66: o66, 67: o67, 68: o68, 69: o69, 70: o70, 71: o71, 72: o72, 73: o73, 74: o74, 75: o75, 76: o76, 77: o77, 78: o78, 79: o79, 80: o80, 81: o81, 82: o82, 83: o83, 84: o84, 85: o85, 86: o86, 87: o87, 88: o88, 89: o89, 90: o90, 91: o91, 92: o92, 93: o93, 94: o94, 95: o95, 96: o96, 97: o97, 98: o98, 99: o99, 100: o100, 101: o101, 102: o102, 103: o103, 104: o104, 105: o105, 106: o106, 107: o107, 108: o108, 109: o109, 110: o110, 111: o111, 112: o112, 113: o113, 114: o114, 115: o115, 116: o116 };
+// Elf building pack — 65 of 111 used
+import e1 from '../assets/images/Fantasy RTS Elven Building Icons for Base Building and City-Building Games/Source/Elf Building (1).png?url';
+import e2 from '../assets/images/Fantasy RTS Elven Building Icons for Base Building and City-Building Games/Source/Elf Building (2).png?url';
+import e18 from '../assets/images/Fantasy RTS Elven Building Icons for Base Building and City-Building Games/Source/Elf Building (18).png?url';
+import e19 from '../assets/images/Fantasy RTS Elven Building Icons for Base Building and City-Building Games/Source/Elf Building (19).png?url';
+import e23 from '../assets/images/Fantasy RTS Elven Building Icons for Base Building and City-Building Games/Source/Elf Building (23).png?url';
+import e28 from '../assets/images/Fantasy RTS Elven Building Icons for Base Building and City-Building Games/Source/Elf Building (28).png?url';
+import e44 from '../assets/images/Fantasy RTS Elven Building Icons for Base Building and City-Building Games/Source/Elf Building (44).png?url';
+import e54 from '../assets/images/Fantasy RTS Elven Building Icons for Base Building and City-Building Games/Source/Elf Building (54).png?url';
+import e55 from '../assets/images/Fantasy RTS Elven Building Icons for Base Building and City-Building Games/Source/Elf Building (55).png?url';
+import e56 from '../assets/images/Fantasy RTS Elven Building Icons for Base Building and City-Building Games/Source/Elf Building (56).png?url';
+import e57 from '../assets/images/Fantasy RTS Elven Building Icons for Base Building and City-Building Games/Source/Elf Building (57).png?url';
+import e58 from '../assets/images/Fantasy RTS Elven Building Icons for Base Building and City-Building Games/Source/Elf Building (58).png?url';
+import e59 from '../assets/images/Fantasy RTS Elven Building Icons for Base Building and City-Building Games/Source/Elf Building (59).png?url';
+import e60 from '../assets/images/Fantasy RTS Elven Building Icons for Base Building and City-Building Games/Source/Elf Building (60).png?url';
+import e61 from '../assets/images/Fantasy RTS Elven Building Icons for Base Building and City-Building Games/Source/Elf Building (61).png?url';
+import e62 from '../assets/images/Fantasy RTS Elven Building Icons for Base Building and City-Building Games/Source/Elf Building (62).png?url';
+import e63 from '../assets/images/Fantasy RTS Elven Building Icons for Base Building and City-Building Games/Source/Elf Building (63).png?url';
+import e64 from '../assets/images/Fantasy RTS Elven Building Icons for Base Building and City-Building Games/Source/Elf Building (64).png?url';
+import e65 from '../assets/images/Fantasy RTS Elven Building Icons for Base Building and City-Building Games/Source/Elf Building (65).png?url';
+import e66 from '../assets/images/Fantasy RTS Elven Building Icons for Base Building and City-Building Games/Source/Elf Building (66).png?url';
+import e67 from '../assets/images/Fantasy RTS Elven Building Icons for Base Building and City-Building Games/Source/Elf Building (67).png?url';
+import e68 from '../assets/images/Fantasy RTS Elven Building Icons for Base Building and City-Building Games/Source/Elf Building (68).png?url';
+import e69 from '../assets/images/Fantasy RTS Elven Building Icons for Base Building and City-Building Games/Source/Elf Building (69).png?url';
+import e70 from '../assets/images/Fantasy RTS Elven Building Icons for Base Building and City-Building Games/Source/Elf Building (70).png?url';
+import e71 from '../assets/images/Fantasy RTS Elven Building Icons for Base Building and City-Building Games/Source/Elf Building (71).png?url';
+import e72 from '../assets/images/Fantasy RTS Elven Building Icons for Base Building and City-Building Games/Source/Elf Building (72).png?url';
+import e73 from '../assets/images/Fantasy RTS Elven Building Icons for Base Building and City-Building Games/Source/Elf Building (73).png?url';
+import e74 from '../assets/images/Fantasy RTS Elven Building Icons for Base Building and City-Building Games/Source/Elf Building (74).png?url';
+import e75 from '../assets/images/Fantasy RTS Elven Building Icons for Base Building and City-Building Games/Source/Elf Building (75).png?url';
+import e76 from '../assets/images/Fantasy RTS Elven Building Icons for Base Building and City-Building Games/Source/Elf Building (76).png?url';
+import e77 from '../assets/images/Fantasy RTS Elven Building Icons for Base Building and City-Building Games/Source/Elf Building (77).png?url';
+import e78 from '../assets/images/Fantasy RTS Elven Building Icons for Base Building and City-Building Games/Source/Elf Building (78).png?url';
+import e79 from '../assets/images/Fantasy RTS Elven Building Icons for Base Building and City-Building Games/Source/Elf Building (79).png?url';
+import e80 from '../assets/images/Fantasy RTS Elven Building Icons for Base Building and City-Building Games/Source/Elf Building (80).png?url';
+import e81 from '../assets/images/Fantasy RTS Elven Building Icons for Base Building and City-Building Games/Source/Elf Building (81).png?url';
+import e82 from '../assets/images/Fantasy RTS Elven Building Icons for Base Building and City-Building Games/Source/Elf Building (82).png?url';
+import e83 from '../assets/images/Fantasy RTS Elven Building Icons for Base Building and City-Building Games/Source/Elf Building (83).png?url';
+import e84 from '../assets/images/Fantasy RTS Elven Building Icons for Base Building and City-Building Games/Source/Elf Building (84).png?url';
+import e85 from '../assets/images/Fantasy RTS Elven Building Icons for Base Building and City-Building Games/Source/Elf Building (85).png?url';
+import e86 from '../assets/images/Fantasy RTS Elven Building Icons for Base Building and City-Building Games/Source/Elf Building (86).png?url';
+import e87 from '../assets/images/Fantasy RTS Elven Building Icons for Base Building and City-Building Games/Source/Elf Building (87).png?url';
+import e88 from '../assets/images/Fantasy RTS Elven Building Icons for Base Building and City-Building Games/Source/Elf Building (88).png?url';
+import e89 from '../assets/images/Fantasy RTS Elven Building Icons for Base Building and City-Building Games/Source/Elf Building (89).png?url';
+import e90 from '../assets/images/Fantasy RTS Elven Building Icons for Base Building and City-Building Games/Source/Elf Building (90).png?url';
+import e91 from '../assets/images/Fantasy RTS Elven Building Icons for Base Building and City-Building Games/Source/Elf Building (91).png?url';
+import e92 from '../assets/images/Fantasy RTS Elven Building Icons for Base Building and City-Building Games/Source/Elf Building (92).png?url';
+import e93 from '../assets/images/Fantasy RTS Elven Building Icons for Base Building and City-Building Games/Source/Elf Building (93).png?url';
+import e94 from '../assets/images/Fantasy RTS Elven Building Icons for Base Building and City-Building Games/Source/Elf Building (94).png?url';
+import e95 from '../assets/images/Fantasy RTS Elven Building Icons for Base Building and City-Building Games/Source/Elf Building (95).png?url';
+import e96 from '../assets/images/Fantasy RTS Elven Building Icons for Base Building and City-Building Games/Source/Elf Building (96).png?url';
+import e97 from '../assets/images/Fantasy RTS Elven Building Icons for Base Building and City-Building Games/Source/Elf Building (97).png?url';
+import e98 from '../assets/images/Fantasy RTS Elven Building Icons for Base Building and City-Building Games/Source/Elf Building (98).png?url';
+import e99 from '../assets/images/Fantasy RTS Elven Building Icons for Base Building and City-Building Games/Source/Elf Building (99).png?url';
+import e100 from '../assets/images/Fantasy RTS Elven Building Icons for Base Building and City-Building Games/Source/Elf Building (100).png?url';
+import e101 from '../assets/images/Fantasy RTS Elven Building Icons for Base Building and City-Building Games/Source/Elf Building (101).png?url';
+import e102 from '../assets/images/Fantasy RTS Elven Building Icons for Base Building and City-Building Games/Source/Elf Building (102).png?url';
+import e103 from '../assets/images/Fantasy RTS Elven Building Icons for Base Building and City-Building Games/Source/Elf Building (103).png?url';
+import e104 from '../assets/images/Fantasy RTS Elven Building Icons for Base Building and City-Building Games/Source/Elf Building (104).png?url';
+import e105 from '../assets/images/Fantasy RTS Elven Building Icons for Base Building and City-Building Games/Source/Elf Building (105).png?url';
+import e106 from '../assets/images/Fantasy RTS Elven Building Icons for Base Building and City-Building Games/Source/Elf Building (106).png?url';
+import e107 from '../assets/images/Fantasy RTS Elven Building Icons for Base Building and City-Building Games/Source/Elf Building (107).png?url';
+import e108 from '../assets/images/Fantasy RTS Elven Building Icons for Base Building and City-Building Games/Source/Elf Building (108).png?url';
+import e109 from '../assets/images/Fantasy RTS Elven Building Icons for Base Building and City-Building Games/Source/Elf Building (109).png?url';
+import e110 from '../assets/images/Fantasy RTS Elven Building Icons for Base Building and City-Building Games/Source/Elf Building (110).png?url';
+import e111 from '../assets/images/Fantasy RTS Elven Building Icons for Base Building and City-Building Games/Source/Elf Building (111).png?url';
+const E: Record<number, string> = { 1: e1, 2: e2, 18: e18, 19: e19, 23: e23, 28: e28, 44: e44, 54: e54, 55: e55, 56: e56, 57: e57, 58: e58, 59: e59, 60: e60, 61: e61, 62: e62, 63: e63, 64: e64, 65: e65, 66: e66, 67: e67, 68: e68, 69: e69, 70: e70, 71: e71, 72: e72, 73: e73, 74: e74, 75: e75, 76: e76, 77: e77, 78: e78, 79: e79, 80: e80, 81: e81, 82: e82, 83: e83, 84: e84, 85: e85, 86: e86, 87: e87, 88: e88, 89: e89, 90: e90, 91: e91, 92: e92, 93: e93, 94: e94, 95: e95, 96: e96, 97: e97, 98: e98, 99: e99, 100: e100, 101: e101, 102: e102, 103: e103, 104: e104, 105: e105, 106: e106, 107: e107, 108: e108, 109: e109, 110: e110, 111: e111 };
+// NightElf building pack — 100 of 143 used
+import n1 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (1).png?url';
+import n3 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (3).png?url';
+import n5 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (5).png?url';
+import n8 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (8).png?url';
+import n14 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (14).png?url';
+import n15 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (15).png?url';
+import n17 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (17).png?url';
+import n18 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (18).png?url';
+import n21 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (21).png?url';
+import n22 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (22).png?url';
+import n28 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (28).png?url';
+import n36 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (36).png?url';
+import n41 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (41).png?url';
+import n56 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (56).png?url';
+import n57 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (57).png?url';
+import n58 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (58).png?url';
+import n59 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (59).png?url';
+import n60 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (60).png?url';
+import n61 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (61).png?url';
+import n62 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (62).png?url';
+import n63 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (63).png?url';
+import n64 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (64).png?url';
+import n65 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (65).png?url';
+import n66 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (66).png?url';
+import n67 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (67).png?url';
+import n68 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (68).png?url';
+import n69 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (69).png?url';
+import n70 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (70).png?url';
+import n71 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (71).png?url';
+import n72 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (72).png?url';
+import n73 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (73).png?url';
+import n74 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (74).png?url';
+import n75 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (75).png?url';
+import n76 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (76).png?url';
+import n77 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (77).png?url';
+import n78 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (78).png?url';
+import n79 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (79).png?url';
+import n80 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (80).png?url';
+import n81 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (81).png?url';
+import n82 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (82).png?url';
+import n83 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (83).png?url';
+import n84 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (84).png?url';
+import n86 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (86).png?url';
+import n87 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (87).png?url';
+import n88 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (88).png?url';
+import n89 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (89).png?url';
+import n90 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (90).png?url';
+import n91 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (91).png?url';
+import n92 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (92).png?url';
+import n93 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (93).png?url';
+import n94 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (94).png?url';
+import n95 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (95).png?url';
+import n96 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (96).png?url';
+import n97 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (97).png?url';
+import n98 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (98).png?url';
+import n99 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (99).png?url';
+import n100 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (100).png?url';
+import n101 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (101).png?url';
+import n102 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (102).png?url';
+import n103 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (103).png?url';
+import n104 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (104).png?url';
+import n105 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (105).png?url';
+import n106 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (106).png?url';
+import n107 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (107).png?url';
+import n108 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (108).png?url';
+import n109 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (109).png?url';
+import n110 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (110).png?url';
+import n111 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (111).png?url';
+import n112 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (112).png?url';
+import n113 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (113).png?url';
+import n114 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (114).png?url';
+import n115 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (115).png?url';
+import n116 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (116).png?url';
+import n117 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (117).png?url';
+import n118 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (118).png?url';
+import n119 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (119).png?url';
+import n120 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (120).png?url';
+import n121 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (121).png?url';
+import n122 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (122).png?url';
+import n123 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (123).png?url';
+import n124 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (124).png?url';
+import n125 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (125).png?url';
+import n126 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (126).png?url';
+import n127 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (127).png?url';
+import n128 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (128).png?url';
+import n129 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (129).png?url';
+import n130 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (130).png?url';
+import n131 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (131).png?url';
+import n132 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (132).png?url';
+import n133 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (133).png?url';
+import n134 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (134).png?url';
+import n135 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (135).png?url';
+import n136 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (136).png?url';
+import n137 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (137).png?url';
+import n138 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (138).png?url';
+import n139 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (139).png?url';
+import n140 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (140).png?url';
+import n141 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (141).png?url';
+import n142 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (142).png?url';
+import n143 from '../assets/images/Stylized Night Elf RTS Building Pack for Fantasy Strategy and RPG Games/Source/NightEfl Building (143).png?url';
+const N: Record<number, string> = { 1: n1, 3: n3, 5: n5, 8: n8, 14: n14, 15: n15, 17: n17, 18: n18, 21: n21, 22: n22, 28: n28, 36: n36, 41: n41, 56: n56, 57: n57, 58: n58, 59: n59, 60: n60, 61: n61, 62: n62, 63: n63, 64: n64, 65: n65, 66: n66, 67: n67, 68: n68, 69: n69, 70: n70, 71: n71, 72: n72, 73: n73, 74: n74, 75: n75, 76: n76, 77: n77, 78: n78, 79: n79, 80: n80, 81: n81, 82: n82, 83: n83, 84: n84, 86: n86, 87: n87, 88: n88, 89: n89, 90: n90, 91: n91, 92: n92, 93: n93, 94: n94, 95: n95, 96: n96, 97: n97, 98: n98, 99: n99, 100: n100, 101: n101, 102: n102, 103: n103, 104: n104, 105: n105, 106: n106, 107: n107, 108: n108, 109: n109, 110: n110, 111: n111, 112: n112, 113: n113, 114: n114, 115: n115, 116: n116, 117: n117, 118: n118, 119: n119, 120: n120, 121: n121, 122: n122, 123: n123, 124: n124, 125: n125, 126: n126, 127: n127, 128: n128, 129: n129, 130: n130, 131: n131, 132: n132, 133: n133, 134: n134, 135: n135, 136: n136, 137: n137, 138: n138, 139: n139, 140: n140, 141: n141, 142: n142, 143: n143 };
 
 // Key: "race:buildingKey:upgradeNode" → asset URL
 // buildingKey = melee|ranged|caster|tower|hut|research
@@ -1002,113 +1333,113 @@ function N(n: number) { return extractBldgUrl(nightElfBldgModules, n); }
 // Missing nodes inherit from parent: D→B→A, E→B→A, F→C→A, G→C→A.
 const RACE_BUILDING_SPRITES: Record<string, string | undefined> = {
   // === CROWN (T0 = Tiny Swords, upgrades from Human Pack) ===
-  'crown:research:A': H(6), 'crown:foundry:A': H(102),
-  'crown:melee:A': H(103), 'crown:melee:B': H(104), 'crown:melee:C': H(105),
-  'crown:melee:D': H(106), 'crown:melee:E': H(107), 'crown:melee:F': H(108), 'crown:melee:G': H(109),
-  'crown:ranged:A': H(110), 'crown:ranged:B': H(111), 'crown:ranged:C': H(112),
-  'crown:ranged:D': H(113), 'crown:ranged:E': H(114), 'crown:ranged:F': H(115), 'crown:ranged:G': H(116),
-  'crown:caster:A': H(95), 'crown:caster:B': H(96), 'crown:caster:C': H(97),
-  'crown:caster:D': H(98), 'crown:caster:E': H(99), 'crown:caster:F': H(100), 'crown:caster:G': H(101),
-  'crown:tower:A': H(117), 'crown:tower:B': H(118), 'crown:tower:C': H(119),
-  'crown:tower:D': H(120), 'crown:tower:E': H(121), 'crown:tower:F': H(122), 'crown:tower:G': H(123),
+  'crown:research:A': H[6], 'crown:foundry:A': H[102],
+  'crown:melee:A': H[103], 'crown:melee:B': H[104], 'crown:melee:C': H[105],
+  'crown:melee:D': H[106], 'crown:melee:E': H[107], 'crown:melee:F': H[108], 'crown:melee:G': H[109],
+  'crown:ranged:A': H[110], 'crown:ranged:B': H[111], 'crown:ranged:C': H[112],
+  'crown:ranged:D': H[113], 'crown:ranged:E': H[114], 'crown:ranged:F': H[115], 'crown:ranged:G': H[116],
+  'crown:caster:A': H[95], 'crown:caster:B': H[96], 'crown:caster:C': H[97],
+  'crown:caster:D': H[98], 'crown:caster:E': H[99], 'crown:caster:F': H[100], 'crown:caster:G': H[101],
+  'crown:tower:A': H[117], 'crown:tower:B': H[118], 'crown:tower:C': H[119],
+  'crown:tower:D': H[120], 'crown:tower:E': H[121], 'crown:tower:F': H[122], 'crown:tower:G': H[123],
 
   // === GOBLINS (Human Pack) ===
-  'goblins:research:A': H(18), 'goblins:hut:A': H(79), 'goblins:potionshop:A': H(87),
-  'goblins:melee:A': H(80), 'goblins:melee:B': H(81), 'goblins:melee:C': H(82),
-  'goblins:melee:D': H(83), 'goblins:melee:E': H(84), 'goblins:melee:F': H(85), 'goblins:melee:G': H(86),
-  'goblins:ranged:A': H(88), 'goblins:ranged:B': H(89), 'goblins:ranged:C': H(90),
-  'goblins:ranged:D': H(91), 'goblins:ranged:E': H(92), 'goblins:ranged:F': H(93), 'goblins:ranged:G': H(94),
-  'goblins:caster:A': H(72), 'goblins:caster:B': H(73), 'goblins:caster:C': H(74),
-  'goblins:caster:D': H(75), 'goblins:caster:E': H(76), 'goblins:caster:F': H(77), 'goblins:caster:G': H(78),
-  'goblins:tower:A': H(65), 'goblins:tower:B': H(66), 'goblins:tower:C': H(67),
-  'goblins:tower:D': H(68), 'goblins:tower:E': H(69), 'goblins:tower:F': H(70), 'goblins:tower:G': H(71),
+  'goblins:research:A': H[18], 'goblins:hut:A': H[79], 'goblins:potionshop:A': H[87],
+  'goblins:melee:A': H[80], 'goblins:melee:B': H[81], 'goblins:melee:C': H[82],
+  'goblins:melee:D': H[83], 'goblins:melee:E': H[84], 'goblins:melee:F': H[85], 'goblins:melee:G': H[86],
+  'goblins:ranged:A': H[88], 'goblins:ranged:B': H[89], 'goblins:ranged:C': H[90],
+  'goblins:ranged:D': H[91], 'goblins:ranged:E': H[92], 'goblins:ranged:F': H[93], 'goblins:ranged:G': H[94],
+  'goblins:caster:A': H[72], 'goblins:caster:B': H[73], 'goblins:caster:C': H[74],
+  'goblins:caster:D': H[75], 'goblins:caster:E': H[76], 'goblins:caster:F': H[77], 'goblins:caster:G': H[78],
+  'goblins:tower:A': H[65], 'goblins:tower:B': H[66], 'goblins:tower:C': H[67],
+  'goblins:tower:D': H[68], 'goblins:tower:E': H[69], 'goblins:tower:F': H[70], 'goblins:tower:G': H[71],
 
   // === HORDE (Orc Pack — warm tribal) ===
-  'horde:research:A': O(38), 'horde:hut:A': O(66),
-  'horde:melee:A': O(67), 'horde:melee:B': O(68), 'horde:melee:C': O(69),
-  'horde:melee:D': O(70), 'horde:melee:E': O(71), 'horde:melee:F': O(72), 'horde:melee:G': O(73),
-  'horde:ranged:A': O(74), 'horde:ranged:B': O(75), 'horde:ranged:C': O(76),
-  'horde:ranged:D': O(77), 'horde:ranged:E': O(78), 'horde:ranged:F': O(79), 'horde:ranged:G': O(80),
-  'horde:caster:A': O(59), 'horde:caster:B': O(60), 'horde:caster:C': O(61),
-  'horde:caster:D': O(62), 'horde:caster:E': O(63), 'horde:caster:F': O(64), 'horde:caster:G': O(65),
-  'horde:tower:A': O(81), 'horde:tower:B': O(82), 'horde:tower:C': O(83),
-  'horde:tower:D': O(84), 'horde:tower:E': O(85), 'horde:tower:F': O(86), 'horde:tower:G': O(87),
+  'horde:research:A': O[38], 'horde:hut:A': O[66],
+  'horde:melee:A': O[67], 'horde:melee:B': O[68], 'horde:melee:C': O[69],
+  'horde:melee:D': O[70], 'horde:melee:E': O[71], 'horde:melee:F': O[72], 'horde:melee:G': O[73],
+  'horde:ranged:A': O[74], 'horde:ranged:B': O[75], 'horde:ranged:C': O[76],
+  'horde:ranged:D': O[77], 'horde:ranged:E': O[78], 'horde:ranged:F': O[79], 'horde:ranged:G': O[80],
+  'horde:caster:A': O[59], 'horde:caster:B': O[60], 'horde:caster:C': O[61],
+  'horde:caster:D': O[62], 'horde:caster:E': O[63], 'horde:caster:F': O[64], 'horde:caster:G': O[65],
+  'horde:tower:A': O[81], 'horde:tower:B': O[82], 'horde:tower:C': O[83],
+  'horde:tower:D': O[84], 'horde:tower:E': O[85], 'horde:tower:F': O[86], 'horde:tower:G': O[87],
 
   // === DEMON (Orc Pack — dark/fire/menace) ===
-  'demon:research:A': O(33), 'demon:hut:A': O(95),
-  'demon:melee:A': O(96), 'demon:melee:B': O(97), 'demon:melee:C': O(98),
-  'demon:melee:D': O(99), 'demon:melee:E': O(100), 'demon:melee:F': O(101), 'demon:melee:G': O(102),
-  'demon:ranged:A': O(103), 'demon:ranged:B': O(104), 'demon:ranged:C': O(105),
-  'demon:ranged:D': O(106), 'demon:ranged:E': O(107), 'demon:ranged:F': O(108), 'demon:ranged:G': O(109),
-  'demon:caster:A': O(88), 'demon:caster:B': O(89), 'demon:caster:C': O(90),
-  'demon:caster:D': O(91), 'demon:caster:E': O(92), 'demon:caster:F': O(93), 'demon:caster:G': O(94),
-  'demon:tower:A': O(110), 'demon:tower:B': O(111), 'demon:tower:C': O(112),
-  'demon:tower:D': O(113), 'demon:tower:E': O(114), 'demon:tower:F': O(115), 'demon:tower:G': O(116),
+  'demon:research:A': O[33], 'demon:hut:A': O[95],
+  'demon:melee:A': O[96], 'demon:melee:B': O[97], 'demon:melee:C': O[98],
+  'demon:melee:D': O[99], 'demon:melee:E': O[100], 'demon:melee:F': O[101], 'demon:melee:G': O[102],
+  'demon:ranged:A': O[103], 'demon:ranged:B': O[104], 'demon:ranged:C': O[105],
+  'demon:ranged:D': O[106], 'demon:ranged:E': O[107], 'demon:ranged:F': O[108], 'demon:ranged:G': O[109],
+  'demon:caster:A': O[88], 'demon:caster:B': O[89], 'demon:caster:C': O[90],
+  'demon:caster:D': O[91], 'demon:caster:E': O[92], 'demon:caster:F': O[93], 'demon:caster:G': O[94],
+  'demon:tower:A': O[110], 'demon:tower:B': O[111], 'demon:tower:C': O[112],
+  'demon:tower:D': O[113], 'demon:tower:E': O[114], 'demon:tower:F': O[115], 'demon:tower:G': O[116],
 
   // === TENDERS (Elf Pack — nature/healing) ===
-  'tenders:research:A': E(1), 'tenders:hut:A': E(90),
-  'tenders:melee:A': E(91), 'tenders:melee:B': E(92), 'tenders:melee:C': E(93),
-  'tenders:melee:D': E(94), 'tenders:melee:E': E(95), 'tenders:melee:F': E(96), 'tenders:melee:G': E(97),
-  'tenders:ranged:A': E(98), 'tenders:ranged:B': E(99), 'tenders:ranged:C': E(100),
-  'tenders:ranged:D': E(101), 'tenders:ranged:E': E(102), 'tenders:ranged:F': E(103), 'tenders:ranged:G': E(104),
-  'tenders:caster:A': E(83), 'tenders:caster:B': E(84), 'tenders:caster:C': E(85),
-  'tenders:caster:D': E(86), 'tenders:caster:E': E(87), 'tenders:caster:F': E(88), 'tenders:caster:G': E(89),
-  'tenders:tower:A': E(105), 'tenders:tower:B': E(106), 'tenders:tower:C': E(107),
-  'tenders:tower:D': E(108), 'tenders:tower:E': E(109), 'tenders:tower:F': E(110), 'tenders:tower:G': E(111),
+  'tenders:research:A': E[1], 'tenders:hut:A': E[90],
+  'tenders:melee:A': E[91], 'tenders:melee:B': E[92], 'tenders:melee:C': E[93],
+  'tenders:melee:D': E[94], 'tenders:melee:E': E[95], 'tenders:melee:F': E[96], 'tenders:melee:G': E[97],
+  'tenders:ranged:A': E[98], 'tenders:ranged:B': E[99], 'tenders:ranged:C': E[100],
+  'tenders:ranged:D': E[101], 'tenders:ranged:E': E[102], 'tenders:ranged:F': E[103], 'tenders:ranged:G': E[104],
+  'tenders:caster:A': E[83], 'tenders:caster:B': E[84], 'tenders:caster:C': E[85],
+  'tenders:caster:D': E[86], 'tenders:caster:E': E[87], 'tenders:caster:F': E[88], 'tenders:caster:G': E[89],
+  'tenders:tower:A': E[105], 'tenders:tower:B': E[106], 'tenders:tower:C': E[107],
+  'tenders:tower:D': E[108], 'tenders:tower:E': E[109], 'tenders:tower:F': E[110], 'tenders:tower:G': E[111],
   // E inherits B=E(18), F inherits C=E(19)
 
   // === WILD (Elf Pack — feral/aggressive) ===
-  'wild:research:A': E(2), 'wild:hut:A': E(61),
-  'wild:melee:A': E(62), 'wild:melee:B': E(63), 'wild:melee:C': E(64),
-  'wild:melee:D': E(65), 'wild:melee:E': E(66), 'wild:melee:F': E(67), 'wild:melee:G': E(68),
+  'wild:research:A': E[2], 'wild:hut:A': E[61],
+  'wild:melee:A': E[62], 'wild:melee:B': E[63], 'wild:melee:C': E[64],
+  'wild:melee:D': E[65], 'wild:melee:E': E[66], 'wild:melee:F': E[67], 'wild:melee:G': E[68],
   // F inherits C=E(28), G inherits C=E(28)
-  'wild:ranged:A': E(69), 'wild:ranged:B': E(70), 'wild:ranged:C': E(71),
-  'wild:ranged:D': E(72), 'wild:ranged:E': E(73), 'wild:ranged:F': E(74), 'wild:ranged:G': E(75),
-  'wild:caster:A': E(54), 'wild:caster:B': E(55), 'wild:caster:C': E(56),
-  'wild:caster:D': E(57), 'wild:caster:E': E(58), 'wild:caster:F': E(59), 'wild:caster:G': E(60),
+  'wild:ranged:A': E[69], 'wild:ranged:B': E[70], 'wild:ranged:C': E[71],
+  'wild:ranged:D': E[72], 'wild:ranged:E': E[73], 'wild:ranged:F': E[74], 'wild:ranged:G': E[75],
+  'wild:caster:A': E[54], 'wild:caster:B': E[55], 'wild:caster:C': E[56],
+  'wild:caster:D': E[57], 'wild:caster:E': E[58], 'wild:caster:F': E[59], 'wild:caster:G': E[60],
   // D/E inherit B=E(23), F/G inherit C=E(44)
-  'wild:tower:A': E(76), 'wild:tower:B': E(77), 'wild:tower:C': E(78),
-  'wild:tower:D': E(79), 'wild:tower:E': E(80), 'wild:tower:F': E(81), 'wild:tower:G': E(82),
+  'wild:tower:A': E[76], 'wild:tower:B': E[77], 'wild:tower:C': E[78],
+  'wild:tower:D': E[79], 'wild:tower:E': E[80], 'wild:tower:F': E[81], 'wild:tower:G': E[82],
 
   // === DEEP (NightElf Pack — teal/aquatic) ===
-  'deep:research:A': N(22), 'deep:hut:A': N(129),
-  'deep:melee:A': N(130), 'deep:melee:B': N(131), 'deep:melee:C': N(132),
-  'deep:melee:D': N(133), 'deep:melee:E': N(134), 'deep:melee:F': N(135), 'deep:melee:G': N(136),
-  'deep:ranged:A': N(137), 'deep:ranged:B': N(138), 'deep:ranged:C': N(139),
-  'deep:ranged:D': N(140), 'deep:ranged:E': N(141), 'deep:ranged:F': N(142), 'deep:ranged:G': N(143),
-  'deep:caster:A': N(122), 'deep:caster:B': N(123), 'deep:caster:C': N(124),
-  'deep:caster:D': N(125), 'deep:caster:E': N(126), 'deep:caster:F': N(127), 'deep:caster:G': N(128),
-  'deep:tower:A': N(56), 'deep:tower:B': N(57), 'deep:tower:C': N(58),
-  'deep:tower:D': N(59), 'deep:tower:E': N(60), 'deep:tower:F': N(61), 'deep:tower:G': N(62),
+  'deep:research:A': N[22], 'deep:hut:A': N[129],
+  'deep:melee:A': N[130], 'deep:melee:B': N[131], 'deep:melee:C': N[132],
+  'deep:melee:D': N[133], 'deep:melee:E': N[134], 'deep:melee:F': N[135], 'deep:melee:G': N[136],
+  'deep:ranged:A': N[137], 'deep:ranged:B': N[138], 'deep:ranged:C': N[139],
+  'deep:ranged:D': N[140], 'deep:ranged:E': N[141], 'deep:ranged:F': N[142], 'deep:ranged:G': N[143],
+  'deep:caster:A': N[122], 'deep:caster:B': N[123], 'deep:caster:C': N[124],
+  'deep:caster:D': N[125], 'deep:caster:E': N[126], 'deep:caster:F': N[127], 'deep:caster:G': N[128],
+  'deep:tower:A': N[56], 'deep:tower:B': N[57], 'deep:tower:C': N[58],
+  'deep:tower:D': N[59], 'deep:tower:E': N[60], 'deep:tower:F': N[61], 'deep:tower:G': N[62],
 
   // === GEISTS (NightElf Pack — purple/dark/undead) ===
   // 16 assets: N(1,10,14,15,16,17,21,24,27,30,32,33,36,37,40,43)
   // research=N(1), hut=N(14), melee=N(15), ranged=N(17), caster=N(21), tower=N(36)
   // Remaining for upgrades: N(10,16,24,27,30,32,33,37,40,43)
-  'geists:research:A': N(1), 'geists:hut:A': N(107),
-  'geists:melee:A': N(108), 'geists:melee:B': N(109), 'geists:melee:C': N(110),
-  'geists:melee:D': N(111), 'geists:melee:E': N(112), 'geists:melee:F': N(113), 'geists:melee:G': N(114),
-  'geists:ranged:A': N(115), 'geists:ranged:B': N(116), 'geists:ranged:C': N(117),
-  'geists:ranged:D': N(118), 'geists:ranged:E': N(119), 'geists:ranged:F': N(120), 'geists:ranged:G': N(121),
-  'geists:caster:A': N(100), 'geists:caster:B': N(101), 'geists:caster:C': N(102),
-  'geists:caster:D': N(103), 'geists:caster:E': N(104), 'geists:caster:F': N(105), 'geists:caster:G': N(106),
-  'geists:tower:A': N(93), 'geists:tower:B': N(94), 'geists:tower:C': N(98),
-  'geists:tower:D': N(96), 'geists:tower:E': N(97), 'geists:tower:F': N(95), 'geists:tower:G': N(99),
-  // all tower upgrades inherit base — N(36) only used here
+  'geists:research:A': N[1], 'geists:hut:A': N[107],
+  'geists:melee:A': N[108], 'geists:melee:B': N[109], 'geists:melee:C': N[110],
+  'geists:melee:D': N[111], 'geists:melee:E': N[112], 'geists:melee:F': N[113], 'geists:melee:G': N[114],
+  'geists:ranged:A': N[115], 'geists:ranged:B': N[116], 'geists:ranged:C': N[117],
+  'geists:ranged:D': N[118], 'geists:ranged:E': N[119], 'geists:ranged:F': N[120], 'geists:ranged:G': N[121],
+  'geists:caster:A': N[100], 'geists:caster:B': N[101], 'geists:caster:C': N[102],
+  'geists:caster:D': N[103], 'geists:caster:E': N[104], 'geists:caster:F': N[105], 'geists:caster:G': N[106],
+  'geists:tower:A': N[93], 'geists:tower:B': N[94], 'geists:tower:C': N[98],
+  'geists:tower:D': N[96], 'geists:tower:E': N[97], 'geists:tower:F': N[95], 'geists:tower:G': N[99],
+  // all tower upgrades inherit base — N[36] only used here
 
   // === OOZLINGS (NightElf Pack — green/alchemical) ===
   // 12 assets: N(2,3,4,5,6,8,18,23,25,28,41,44)
   // research=N(3), hut=N(28), melee=N(5), ranged=N(8), caster=N(18), tower=N(41)
   // Remaining unique for upgrades: N(2,4,6,23,25,44)
-  'oozlings:research:A': N(3), 'oozlings:hut:A': N(77),
-  'oozlings:melee:A': N(78), 'oozlings:melee:B': N(79), 'oozlings:melee:C': N(80),
-  'oozlings:melee:D': N(81), 'oozlings:melee:E': N(82), 'oozlings:melee:F': N(83), 'oozlings:melee:G': N(84),
-  'oozlings:ranged:A': N(86), 'oozlings:ranged:B': N(87), 'oozlings:ranged:C': N(88),
-  'oozlings:ranged:D': N(89), 'oozlings:ranged:E': N(90), 'oozlings:ranged:F': N(91), 'oozlings:ranged:G': N(92),
-  'oozlings:caster:A': N(70), 'oozlings:caster:B': N(71), 'oozlings:caster:C': N(72),
-  'oozlings:caster:D': N(73), 'oozlings:caster:E': N(74), 'oozlings:caster:F': N(75), 'oozlings:caster:G': N(76),
-  'oozlings:tower:A': N(63), 'oozlings:tower:B': N(64), 'oozlings:tower:C': N(65),
-  'oozlings:tower:D': N(66), 'oozlings:tower:E': N(67), 'oozlings:tower:F': N(68), 'oozlings:tower:G': N(69),
+  'oozlings:research:A': N[3], 'oozlings:hut:A': N[77],
+  'oozlings:melee:A': N[78], 'oozlings:melee:B': N[79], 'oozlings:melee:C': N[80],
+  'oozlings:melee:D': N[81], 'oozlings:melee:E': N[82], 'oozlings:melee:F': N[83], 'oozlings:melee:G': N[84],
+  'oozlings:ranged:A': N[86], 'oozlings:ranged:B': N[87], 'oozlings:ranged:C': N[88],
+  'oozlings:ranged:D': N[89], 'oozlings:ranged:E': N[90], 'oozlings:ranged:F': N[91], 'oozlings:ranged:G': N[92],
+  'oozlings:caster:A': N[70], 'oozlings:caster:B': N[71], 'oozlings:caster:C': N[72],
+  'oozlings:caster:D': N[73], 'oozlings:caster:E': N[74], 'oozlings:caster:F': N[75], 'oozlings:caster:G': N[76],
+  'oozlings:tower:A': N[63], 'oozlings:tower:B': N[64], 'oozlings:tower:C': N[65],
+  'oozlings:tower:D': N[66], 'oozlings:tower:E': N[67], 'oozlings:tower:F': N[68], 'oozlings:tower:G': N[69],
 };
 
 const RACE_KEY: Record<Race, string> = {
@@ -1199,6 +1530,30 @@ const ARROW_SPRITES: { [team: number]: SpriteDef } = {
 
 // Bone projectile: 4x1 spritesheet (256x64, use first frame 64x64)
 const BONE_SPRITE: SpriteDef = singleFrame(gnollBone, 64, 64, 0.5);
+
+// Per-unit projectile sprites (128x128 single-frame PNGs)
+const PROJECTILE_SPRITES: Record<string, SpriteDef> = {
+  arrow:          singleFrame(projArrow, 128, 128),
+  dagger:         singleFrame(projDagger, 128, 128),
+  fire_arrow:     singleFrame(projFireArrow, 128, 128),
+  fire_bolt:      singleFrame(projFireBolt, 128, 128),
+  harpoon:        singleFrame(projHarpoon, 128, 128),
+  holy_bolt:      singleFrame(projHolyBolt, 128, 128),
+  magic_missile:  singleFrame(projMagicMissile, 128, 128),
+  music_note:     singleFrame(projMusicNote, 128, 128),
+  nature_bolt:    singleFrame(projNatureBolt, 128, 128),
+  poison_arrow:   singleFrame(projPoisonArrow, 128, 128),
+  shadow_bolt:    singleFrame(projShadowBolt, 128, 128),
+  slime_missile:  singleFrame(projSlimeMissile, 128, 128),
+  stone_ball:     singleFrame(projStoneBall, 128, 128),
+  water_bolt:     singleFrame(projWaterBolt, 128, 128),
+  ice_arrow:      singleFrame(projIceArrow, 128, 128),
+  acid_spit:      singleFrame(projAcidSpit, 128, 128),
+  shadow_arrow:   singleFrame(projShadowArrow, 128, 128),
+};
+
+// Sprite keys that should spin in addition to rotating toward target
+const SPINNING_PROJECTILES = new Set(['stone_ball']);
 
 // Orbs — small 32px: 6x5 grid (288x240, 48x48/frame, 30 frames)
 const ORB_SM = {
@@ -1305,7 +1660,7 @@ export class SpriteLoader {
     return false;
   }
 
-  getBuildingSprite(type: BuildingType, playerId: number, isometric = false, race?: Race, upgradePath?: string[]): HTMLImageElement | null {
+  getBuildingSprite(type: BuildingType, playerId: number, _isometric = false, race?: Race, upgradePath?: string[]): HTMLImageElement | null {
     const bKey = BUILDING_KEY[type];
     if (!bKey) return null;
 
@@ -1328,7 +1683,7 @@ export class SpriteLoader {
 
     // Fall back to Tiny Swords
     const vid = playerId % NUM_SPRITE_VARIANTS;
-    if (isometric && bKey === 'hut') {
+    if (bKey === 'hut') {
       const isoUrl = ISO_HUT_URLS[vid];
       if (isoUrl) return this.loadImage(isoUrl);
     }
@@ -1401,7 +1756,20 @@ export class SpriteLoader {
     return !!(atkSprites?.[category]);
   }
 
-  getUnitSprite(race: Race, category: UnitCategory, playerId: number, attacking = false, upgradeNode?: string): [HTMLImageElement, SpriteDef] | null {
+  hasIdleSprite(race: Race, category: UnitCategory, upgradeNode?: string): boolean {
+    if (!upgradeNode) return false;
+    const key = upgradeKey(race, category, upgradeNode);
+    return !!UPGRADE_IDLE_SPRITES[key];
+  }
+
+  getUnitSprite(
+    race: Race,
+    category: UnitCategory,
+    playerId: number,
+    attacking = false,
+    upgradeNode?: string,
+    preferIdle = false,
+  ): [HTMLImageElement, SpriteDef] | null {
     // Check upgrade-path sprites first
     if (upgradeNode) {
       const key = upgradeKey(race, category, upgradeNode);
@@ -1410,6 +1778,13 @@ export class SpriteLoader {
         if (atkDef) {
           const atkImg = this.loadImage(atkDef.url);
           if (atkImg) return [atkImg, atkDef];
+        }
+      }
+      if (preferIdle) {
+        const idleDef = UPGRADE_IDLE_SPRITES[key];
+        if (idleDef) {
+          const idleImg = this.loadImage(idleDef.url);
+          if (idleImg) return [idleImg, idleDef];
         }
       }
       const moveDef = UPGRADE_MOVE_SPRITES[key];
@@ -1531,6 +1906,19 @@ export class SpriteLoader {
     return img ? [img, def] : null;
   }
 
+  /** Get a named projectile sprite (per-unit sprites) */
+  getProjectileSprite(key: string): [HTMLImageElement, SpriteDef] | null {
+    const def = PROJECTILE_SPRITES[key];
+    if (!def) return null;
+    const img = this.loadImage(def.url);
+    return img ? [img, def] : null;
+  }
+
+  /** Whether this sprite key should spin (e.g. stone_ball) */
+  isSpinningProjectile(key: string): boolean {
+    return SPINNING_PROJECTILES.has(key);
+  }
+
   // --- VFX ---
 
   getFxSprite(key: keyof typeof FX_SPRITES): [HTMLImageElement, SpriteDef | GridSpriteDef] | null {
@@ -1542,7 +1930,7 @@ export class SpriteLoader {
   // --- Preload all sprites ---
 
   /** Kick off loading all sprites. Returns a promise that resolves when every image is ready. */
-  preloadAll(): Promise<void> {
+  preloadAll(onProgress?: (loaded: number, total: number) => void): Promise<void> {
     const urls = new Set<string>();
 
     // Unit sprites (all races, all categories, all player variants)
@@ -1597,15 +1985,19 @@ export class SpriteLoader {
     for (const def of Object.values(ORB_LG)) urls.add(def.url);
     for (const def of Object.values(CIRCLE_SM)) urls.add(def.url);
     for (const def of Object.values(CIRCLE_LG)) urls.add(def.url);
+    for (const def of Object.values(PROJECTILE_SPRITES)) urls.add(def.url);
 
     // Kick off loading for all URLs and collect promises
+    const total = urls.size;
+    let loaded = 0;
+    const tick = () => { loaded++; onProgress?.(loaded, total); };
     const promises: Promise<void>[] = [];
     for (const url of urls) {
-      if (this.cache.has(url)) continue;
+      if (this.cache.has(url)) { tick(); continue; }
       promises.push(new Promise<void>((resolve) => {
         if (this.loading.has(url)) {
           const check = () => {
-            if (this.cache.has(url) || !this.loading.has(url)) resolve();
+            if (this.cache.has(url) || !this.loading.has(url)) { tick(); resolve(); }
             else setTimeout(check, 16);
           };
           check();
@@ -1614,8 +2006,8 @@ export class SpriteLoader {
         this.loading.add(url);
         const img = new Image();
         img.src = url;
-        img.onload = () => { this.cache.set(url, img); this.loading.delete(url); resolve(); };
-        img.onerror = () => { this.loading.delete(url); resolve(); };
+        img.onload = () => { this.cache.set(url, img); this.loading.delete(url); tick(); resolve(); };
+        img.onerror = () => { this.loading.delete(url); tick(); resolve(); };
       }));
     }
     return Promise.all(promises).then(() => {});
@@ -1631,9 +2023,13 @@ export function drawSpriteFrame(
   dx: number, dy: number,
   drawW: number, drawH: number,
 ): void {
-  const f = frame % def.cols;
-  const sx = f * def.frameW;
-  ctx.drawImage(img, sx, 0, def.frameW, def.frameH, dx, dy, drawW, drawH);
+  const totalFrames = def.cols * (def.rows ?? 1);
+  const f = frame % totalFrames;
+  const col = f % def.cols;
+  const row = Math.floor(f / def.cols);
+  const sx = (def.srcX ?? 0) + col * def.frameW;
+  const sy = (def.srcY ?? 0) + row * def.frameH;
+  ctx.drawImage(img, sx, sy, def.frameW, def.frameH, dx, dy, drawW, drawH);
 }
 
 /** Draw a frame from a grid-based spritesheet (cols x rows) */

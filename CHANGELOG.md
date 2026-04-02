@@ -1,5 +1,111 @@
 # Changelog
 
+## 2026-03-29 — v1.1.0 (since iOS 1.0.7 build 10)
+
+_44 commits: 8133aac → 8540c90_
+
+### Pending Polish Before Ship
+- **Weather ambience upgrade** — Replaced synthetic rain with looped rain audio, softened wind rumble, and added weather preview assets for rain, wind, snow, and sand states
+- **Stat icon pass** — Replaced remaining emoji-style stat markers with tinted SVG icons across upgrade buttons, unit gallery bars, hover tooltips, buff icons, and floating combat text
+- **UI audio polish** — Added toast dismiss SFX, slider tick feedback, and better tab/back/open/close sounds in title, race select, profile, difficulty, post-match, and unit gallery scenes
+- **Unit gallery cleanup** — Unified gallery/detail stat rendering with shared stat bar helpers and surfaced dodge / damage reduction rows where applicable
+- **Minor rendering cleanup** — Removed the old Tenders harvester hut green tint overlay so building art renders unmodified
+
+### New Features
+- **Tutorial system** — 16-step guided first-time match (miner hut → melee → tower → research → nuke → full menu tour) with spotlight overlays, gated input, and localStorage persistence
+- **Weather system** — 8 weather types across 5 biomes, split-depth particle rendering, gradual transitions with wind cues, procedural rain/wind/thunder audio
+- **Post-match minimap replay** — 30s animated replay with nuke markers, war heroes, scrollable scoreboard, portrait animations
+- **War Hero awards** — 4 hero categories (Reaper, Iron Wall, Battle Sage, Life Weaver) with animated sprites, confetti, and sortable summary tables
+- **Unit info panel** — Sprite art display, HUD-safe positioning, WoW-style buff icons, stat breakdown
+- **Building popup stat bars** — Dynamic bars (HP, DMG, DPS, Speed, Range, Spawn Rate) with hover delta previews showing upgrade impact before buying
+- **Race ability upgrade trees** — Each race gets a unique ability building with 4 upgrade tiers; ability buildings use `isAbilityBuilding()` helper for correct tower exclusion
+- **AI-generated building sprites** — Custom LoRA model, complete rework for all 9 races (205 PNGs across 4 asset packs)
+- **Bot composition profiles** — Difficulty-gated random strategy selection with tick fairness shuffles
+- **Race combat music** — Per-race thematic music tracks during matches
+- **Quick chat radial menu** — Ping targets radial center position; 3 new chat styles (Save Us, Sending Now, Random)
+- **Tenders tri-resource economy** — Huts cycle through generating Gold → Wood → Meat; "Growth Pod" popup with animated 3-segment progress bar
+- **Horde tri-resource economy** — Horde now uses Gold+Meat+Wood; huts generate all 3 resources
+- **Per-node upgrade costs** — All 9 races have explicit resource costs on every upgrade node; B vs C paths favor different resources creating meaningful economic choices
+- **Horde aura system expansion** — 3 new aura types: attack speed, heal-per-second, dodge. Casters and melee provide army-wide buffs with color-coded ground ring and glow visuals
+- **Bowcleaver multishot identity** — B-path reworked to fire 2→3 projectiles per tier (was generic stat buffs)
+
+### UI & Rendering
+- **Title screen duels** — Rotating subtitle with roll animation, dead unit strikethrough names, type filter
+- **Deep deluge vignette** — Blue screen-edge effect during Deluge ability
+- **Skill research icons** — Nhance Spell Icons (92 painted icons) for all upgrade nodes
+- **Mobile two-tap upgrades** — BuildingPopup: first tap selects (shows preview), second tap confirms
+- **Aura visuals** — Rotating colored ring on source units, pulsing dot at feet of buffed allies (color-coded: red=damage, blue=armor, green=speed, yellow=atk speed, purple=dodge)
+- **Isometric building sizing** — Tier scaling [0.85, 1.0, 1.15], width clamped to tile, bottom-anchored
+- **Minimap ping improvements** — Larger/pulsing markers, combat glow
+- **Two-column party layout** — Join popup buttons, mobile keyboard support, resource icons
+- **Unit gallery overhaul** — Shared StatBarUtils, per-node Elo ratings, responsive columns
+- **Race-flavored building names** — Upgrade-aware names (e.g., "Brute Camp", "Tidecaller Shrine")
+- Fix 1px seams in 9-slice panels and iso terrain tiles
+- flipX sprite support for directional units
+- Mobile UX: suppress long-press context menu, text truncation, gallery click-through
+- Post-match hero cards: fixed-width sprite column, better award icons (nuke/diamond/mana/star)
+- Bot name abbreviations in summary (Medium→Med, Nightmare→NM)
+- Building tooltip hidden at render-time when popup is open (hover tracking still active)
+- Wider title screen subtitle ribbon
+- Mobile upgrade buttons: "TAP TO CONFIRM" / "CAN'T AFFORD" label, cost always visible, dim glow on unaffordable
+- Info/help button removed; MVP button takes its position (one less button in HUD)
+- Touch devices: suppress unit/building hover tooltips (prevents synthetic mousemove flash)
+- HUD resource rate drops "/s" suffix for cleaner display
+- BuildingPopup clears stale upgrade selection when options change
+
+### Balance
+- **Stone → Meat** resource rename across entire codebase
+- Horde Brute 120→130 HP, Bowcleaver 71→76 HP
+- Demon Overlord 52→65 HP
+- Geists soul cost scaling +5→+10 per ability cast
+- Geists lifesteal nerf, economy rework
+- Crown/Oozlings costs reduced ~15%
+- Wild resource costs reduced
+- Burn/poison suppresses regen (BLIGHT combo at 3+ burn stacks)
+- Tower sell refund prorated by HP: 50% × (currentHp / maxHp)
+- Spectator achievement now requires 10 duels (was 1)
+- Tenders Treant 135→155 HP, Tinker 12→13 dmg
+- Geists Mini Skeleton 25→15 HP
+- Goblin rename: War Pig→War Boar, King Pig→King Boar
+
+### Simulation
+- `isAbilityBuilding()` centralized helper — replaces scattered manual flag checks
+- `totalBuffsApplied` player stat for support tracking
+- `damageTaken` on units for tank hero computation
+- Tenders seed: remove 10-stack cap, rework Fast Growth to bonus tick (2 of 5 ticks) for determinism
+- Exported `SEED_GROW_TIMES` constant (renderer uses same values as simulation)
+- Harvester floating text every tick (was every other)
+- Spatial grid optimization for combat tick
+- Fog of war throttled to every 3 ticks
+
+### Bot AI
+- 4th-tier race abilities for all 9 races
+- Research value scales with spawnerCount^1.5
+- Difficulty redesign: decision intervals + mistake rates replace spawn caps
+- Stronger profile steering (1.5x multipliers for build targets)
+- Correct ability building exclusion from tower counting
+- Diamond workers: send 2 instead of 1 (need to contest the node)
+- Demon mana worker capped at 1 (extras redirected to bottleneck resource)
+- Harvester reassignment hysteresis (10s cooldown prevents toggling)
+- Siege upgrade penalty (0.1x value before 8 min, 0.4x after)
+- Wild frenzy targets only allies within combat range (12 tiles from enemies)
+- Bowcleaver value function 1.05→1.15 for multishot throughput
+
+### Multiplayer & Networking
+- **CommandSync race condition fix** — Buffer all remote turn data on disconnect
+- **Cross-peer desync detection** — Compare all remote hashes, not just last
+- **Deferred turn resolution** — `queueMicrotask` for Firebase listener buffering
+- **Firebase rules tightened** — Slot-specific write permissions, `left` signal node
+- Camera `dragDisabled` flag for radial menu
+
+### Performance
+- Cached pixel coords in Y-sort buffer (eliminates redundant iso projections per entity per frame)
+- Inlined iso projection in fog/ambient particle loops (~14k fewer function calls/frame)
+- Viewport-culled ambient race particles
+- Removed building/HQ shadow ellipses
+
+---
+
 ## 2026-03-25 — Race Art, 4th Abilities, Balance Tuning
 
 _Commits: 43c7e38, 58b733a (since iOS build 3a65b22 on 2026-03-24)_

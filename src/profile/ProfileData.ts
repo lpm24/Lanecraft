@@ -153,7 +153,7 @@ export const ACHIEVEMENTS: AchievementDef[] = [
   { id: 'kills_40', name: 'Walking Apocalypse', desc: 'Get 40 kills on a single unit.', goal: 1, avatarUnlock: 'geists:ranged:C' },
   { id: 'kills_50', name: 'Demigod', desc: 'Get 50 kills on a single unit.', goal: 1, avatarUnlock: 'deep:ranged:C' },
   // ── Out-of-match achievements ──
-  { id: 'duel_watcher', name: 'Spectator', desc: 'Watch a duel on the title screen.', goal: 1, avatarUnlock: 'oozlings:melee:C' },
+  { id: 'duel_watcher', name: 'Spectator', desc: 'Watch 10 title screen duels.', goal: 10, avatarUnlock: 'oozlings:melee:C' },
   { id: 'duel_fan', name: 'Duel Fan', desc: 'Watch 100 title screen duels.', goal: 100, avatarUnlock: 'deep:caster:C' },
   { id: 'duel_addict', name: 'Duel Addict', desc: 'Watch 1,000 title screen duels.', goal: 1000, avatarUnlock: 'tenders:melee:B' },
   { id: 'multiplayer_first', name: 'Party Up', desc: 'Play a multiplayer game.', goal: 1, avatarUnlock: 'crown:melee:B' },

@@ -9,6 +9,7 @@ import { runAllBotAI, createBotContext, BotContext, BotDifficultyLevel, BOT_DIFF
 import { UIAssets } from '../rendering/UIAssets';
 import { CommandSync, TICKS_PER_TURN } from '../network/CommandSync';
 import { tileToPixel } from '../rendering/Projection';
+import { Capacitor } from '@capacitor/core';
 
 export interface GamePartyOptions {
   /** All human players in slot order: { slotIndex, race }.
@@ -33,7 +34,7 @@ export class Game {
   private loop: GameLoop;
   private pendingCommands: GameCommand[] = [];
   private input: InputHandler;
-  private sounds: SoundManager;
+  readonly sfx: SoundManager;
   onMatchEnd: (() => void) | null = null;
   onQuitGame: (() => void) | null = null;
   private matchEndTick = -1;
@@ -72,6 +73,7 @@ export class Game {
   /** How long (ms) we've been stalled waiting for the remote player's turn data. 0 = not stalled. */
   waitingForAllyMs = 0;
   private stallStartTime = 0;
+  private localConcedeQueued = false;
 
   /** Current round-trip latency in ms (0 for solo). */
   get networkLatencyMs(): number { return this.commandSync?.latencyMs ?? 0; }
@@ -192,7 +194,8 @@ export class Game {
     this.input = new InputHandler(this, canvas, this.renderer.camera, ui, this.renderer.sprites);
     this.input.onQuitGame = () => this.handleQuitGame();
     this.input.onConcede = () => this.handleConcede();
-    this.sounds = new SoundManager();
+    this.sfx = new SoundManager();
+    this.sfx.enableTabSuspend();
 
     // Center camera on local player's HQ at game start
     const localTeam = this.state.players[this.localPlayerId]?.team ?? Team.Bottom;
@@ -212,8 +215,11 @@ export class Game {
       () => this.render(),
     );
 
-    // Pause/resume Firebase connection on app background/foreground
-    if (this.commandSync) {
+    // Pause/resume Firebase connection on app background/foreground.
+    // Only on native platforms — on web, a brief tab switch fires visibilitychange
+    // and goOffline() severs the WebSocket, triggering onDisconnect handlers that
+    // remove the ready signal and disconnect the player irreversibly.
+    if (this.commandSync && Capacitor.isNativePlatform()) {
       const cs = this.commandSync;
       this.loop.onPause = () => cs.pause();
       this.loop.onResume = () => cs.resume();
@@ -234,7 +240,7 @@ export class Game {
     const musicRace = partyOpts
       ? (partyOpts.humanPlayers.find(h => h.slot === this.localPlayerId)?.race ?? playerRace)
       : playerRace;
-    this.sounds.startMusic(musicRace);
+    this.sfx.startMusic(musicRace);
   }
 
   /** Which player slot the local user controls (0 = host/solo, 1 = guest). */
@@ -290,8 +296,8 @@ export class Game {
   stop(): void {
     if (this.connectingInterval) { clearInterval(this.connectingInterval); this.connectingInterval = null; }
     this.loop.stop();
-    this.sounds.stopWeatherAudio();
-    this.sounds.dispose();
+    this.sfx.stopWeatherAudio();
+    this.sfx.dispose();
     this.input.destroy();
     this.renderer.destroy();
     this.renderer.camera.destroy();
@@ -319,19 +325,26 @@ export class Game {
 
   /** Concede the match — enemy team wins immediately. */
   private handleConcede(): void {
-    if (this.state.matchPhase === 'ended') return;
+    if (this.state.matchPhase === 'ended' || this.localConcedeQueued) return;
+
+    this.localConcedeQueued = true;
 
     if (this.isMultiplayer && this.commandSync) {
-      // Multiplayer: broadcast leave so peers know we conceded, then force-end locally
-      this.commandSync.broadcastLeave();
+      // End locally immediately before leaving. Queuing concede through the normal
+      // turn buffer races with the leave signal and can be dropped remotely.
+      const concedeCmd: GameCommand = { type: 'concede', playerId: this.localPlayerId };
+      this.localCommandBuffer.push(concedeCmd);
+      const nextTurn = Math.floor(this.state.tick / TICKS_PER_TURN) + 1;
+      this.commandSync.pushTurn(nextTurn, [...this.localCommandBuffer]);
       const localTeam = this.state.players[this.localPlayerId]?.team ?? Team.Bottom;
       const enemyTeam = localTeam === Team.Bottom ? Team.Top : Team.Bottom;
       this.state.winner = enemyTeam;
-      this.state.winCondition = 'military';
+      this.state.winCondition = 'concede';
       this.state.matchPhase = 'ended';
       this.state.soundEvents.push({ type: 'match_end_lose' });
+      this.commandSync.broadcastLeave();
     } else {
-      // Solo: send concede command through simulation
+      // Solo: process concede through simulation
       this.sendCommand({ type: 'concede', playerId: this.localPlayerId });
     }
   }
@@ -422,9 +435,14 @@ export class Game {
     // Apply player commands only on first tick of turn
     if (isFirstTickOfTurn) {
       this.pendingCommands.push(...turnCmds);
+      const concedingSlots = new Set<number>();
+      for (const cmd of turnCmds) {
+        if (cmd.type === 'concede') concedingSlots.add(cmd.playerId);
+      }
       // Drain leave queue deterministically at turn boundary (both clients are synced here)
       if (this.commandSync && this.commandSync.leftSlotQueue.length > 0) {
         for (const slotId of this.commandSync.leftSlotQueue) {
+          if (concedingSlots.has(slotId)) continue;
           this.convertPlayerToBot(slotId);
         }
         this.commandSync.leftSlotQueue = [];
@@ -514,23 +532,41 @@ export class Game {
       diamond: d ? { x: d.x, y: d.y, carried: d.carrierId !== null } : null,
       nukes: s.nukeTelegraphs.map(t => ({ x: t.x, y: t.y, radius: t.radius, playerId: t.playerId })),
       warHeroPositions: [...topKillers.values()].map(({ x, y, playerId }) => ({ x, y, playerId })),
+      playerStats: s.players.map((_, pid) => {
+        const ps = s.playerStats[pid];
+        return ps
+          ? { goldEarned: ps.totalGoldEarned, woodEarned: ps.totalWoodEarned,
+              meatEarned: ps.totalMeatEarned, damageDealt: ps.totalDamageDealt }
+          : { goldEarned: 0, woodEarned: 0, meatEarned: 0, damageDealt: 0 };
+      }),
+      harvesters: s.harvesters
+        .filter(h => h.state !== 'dead')
+        .map(h => ({ x: h.x, y: h.y, playerId: h.playerId, team: h.team as number })),
+      buildings: s.buildings.map(b => ({
+        x: b.worldX, y: b.worldY,
+        playerId: b.playerId,
+        team: (s.players[b.playerId]?.team ?? 0) as number,
+        btype: b.type as string,
+      })),
     });
   }
 
   private postTick(): void {
     // Play sounds emitted during this tick
     for (const ev of this.state.soundEvents) {
-      this.sounds.play(ev, this.renderer.camera, this.renderer.canvas);
+      this.sfx.play(ev, this.renderer.camera, this.renderer.canvas);
     }
     // Evaluate music intensity
     const myTeam = this.state.players[this.localPlayerId]?.team ?? Team.Bottom;
     const ownHqHpRatio = this.state.hqHp[myTeam] / HQ_HP;
     if (ownHqHpRatio < 0.3) {
-      this.sounds.setIntensity(2);
-    } else if (this.state.units.some(u => u.targetId !== null)) {
-      this.sounds.setIntensity(1);
+      this.sfx.setIntensity(2);
     } else {
-      this.sounds.setIntensity(0);
+      let anyCombat = false;
+      for (let i = 0; i < this.state.units.length; i++) {
+        if (this.state.units[i].targetId !== null) { anyCombat = true; break; }
+      }
+      this.sfx.setIntensity(anyCombat ? 1 : 0);
     }
 
     // Check for match end — delay 3 seconds so player can see the final moment
@@ -551,7 +587,7 @@ export class Game {
     this.renderer.render(this.state, latencyMs, this.desyncDetected, this.peerDisconnected, this.waitingForAllyMs);
     // Update weather ambient audio
     const w = this.renderer.weather;
-    this.sounds.updateWeatherAudio(w.type, w.lightningFlash, w.windStrength);
+    this.sfx.updateWeatherAudio(w.type, w.lightningFlash, w.windStrength);
     this.input.render(this.renderer, latencyMs);
   }
 

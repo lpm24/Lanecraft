@@ -14,12 +14,25 @@ function gitInfo() {
 export default defineConfig(({ command }) => {
   const git = gitInfo();
   return {
-    base: process.env.CAP_BUILD
-      ? '/'
-      : (command === 'serve' ? '/' : '/Lanecraft/'),
+    base: '/',
     define: {
       __BUILD_HASH__: JSON.stringify(git.hash),
       __BUILD_NUMBER__: JSON.stringify(git.count),
+    },
+    build: {
+      // Content-hashed filenames for long-term caching
+      rollupOptions: {
+        output: {
+          manualChunks: {
+            // Split Firebase into its own chunk — heavy dependency most users won't need on first load
+            firebase: ['firebase/app', 'firebase/auth', 'firebase/database'],
+          },
+        },
+      },
+      // Target modern browsers for smaller output
+      target: 'es2020',
+      // Inline small assets (< 8kb) to reduce HTTP requests
+      assetsInlineLimit: 8192,
     },
   };
 });

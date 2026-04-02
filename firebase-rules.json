@@ -97,27 +97,38 @@
     "games": {
       "$code": {
         ".read": "auth != null",
+        // Any participant can delete the game node (cleanup after match ends)
         ".write": "auth != null && !newData.exists()",
 
         "ready": {
           "$slot": {
-            ".write": "auth != null",
+            // Only the player assigned to this slot can write/remove their ready signal
+            ".write": "auth != null && root.child('parties/' + $code + '/players/' + $slot + '/uid').val() === auth.uid",
             ".validate": "newData.isBoolean()"
           }
         },
         "turns": {
           "$turn": {
+            // Allow turn-level deletion for cleanup by any participant
             ".write": "auth != null && !newData.exists()",
             "$slot": {
-              ".write": "auth != null",
+              // Only the player assigned to this slot can write turn data
+              ".write": "auth != null && root.child('parties/' + $code + '/players/' + $slot + '/uid').val() === auth.uid",
               ".validate": "newData.hasChild('t') && newData.child('t').isNumber()"
             }
           }
         },
         "ping": {
           "$slot": {
-            ".write": "auth != null",
+            ".write": "auth != null && root.child('parties/' + $code + '/players/' + $slot + '/uid').val() === auth.uid",
             ".validate": "newData.isNumber()"
+          }
+        },
+        "left": {
+          "$slot": {
+            // Only the player assigned to this slot can signal they left
+            ".write": "auth != null && root.child('parties/' + $code + '/players/' + $slot + '/uid').val() === auth.uid",
+            ".validate": "newData.isBoolean()"
           }
         }
       }

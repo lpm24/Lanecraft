@@ -27,7 +27,7 @@ const RACES: RaceOption[] = [
   { race: Race.Deep, label: 'DEEP', desc: 'Crush them slowly', econ: ['uiWood', 'uiGold'] },
   { race: Race.Wild, label: 'WILD', desc: 'Feral and relentless', econ: ['uiWood', 'uiMeat'] },
   { race: Race.Geists, label: 'GEISTS', desc: 'Death is only the beginning', econ: ['uiMeat', 'uiGold', 'uiSouls'] },
-  { race: Race.Tenders, label: 'TENDERS', desc: 'Outlast and overgrow', econ: ['uiWood', 'uiGold'] },
+  { race: Race.Tenders, label: 'TENDERS', desc: 'Outlast and overgrow', econ: ['uiWood', 'uiGold', 'uiMeat'] },
 ];
 
 const RANDOM_INDEX = RACES.length; // index 9
@@ -60,7 +60,6 @@ export class RaceSelectScene implements Scene {
   private settingsOpen = false;
   private sliderDrag = new SettingsSliderDrag();
   private music = new SoundManager();
-  private musicPlayer: MusicPlayer;
   private audioSettings = getAudioSettings();
   private audioSettingsUnsub: (() => void) | null = null;
 
@@ -73,12 +72,11 @@ export class RaceSelectScene implements Scene {
   private touchMoveHandler: ((e: TouchEvent) => void) | null = null;
   private touchEndHandler: (() => void) | null = null;
 
-  constructor(manager: SceneManager, canvas: HTMLCanvasElement, sprites: SpriteLoader, ui: UIAssets, musicPlayer: MusicPlayer, onConfirm: (race: Race) => void) {
+  constructor(manager: SceneManager, canvas: HTMLCanvasElement, sprites: SpriteLoader, ui: UIAssets, _musicPlayer: MusicPlayer, onConfirm: (race: Race) => void) {
     this.manager = manager;
     this.canvas = canvas;
     this.sprites = sprites;
     this.ui = ui;
-    this.musicPlayer = musicPlayer;
     this.onConfirm = onConfirm;
   }
 
@@ -100,12 +98,7 @@ export class RaceSelectScene implements Scene {
       }
     } catch {}
 
-    const raceForMusic = this.selectedIndex < RACES.length ? RACES[this.selectedIndex].race : Race.Crown;
-    this.music.startRaceSelectMusic(raceForMusic);
-    this.musicPlayer.playRaceSelect();
-
     this.keyHandler = (e) => {
-      const prevIndex = this.selectedIndex;
       if (this.selectedIndex === RANDOM_INDEX) {
         // Random button: up goes to middle of last row (Geists = 7)
         if (e.key === 'ArrowUp' || e.key === 'w') this.selectedIndex = 7;
@@ -121,14 +114,10 @@ export class RaceSelectScene implements Scene {
         }
         this.selectedIndex = Math.max(0, Math.min(RANDOM_INDEX, this.selectedIndex));
       }
-      if (this.selectedIndex !== prevIndex) {
-        const race = this.selectedIndex < RACES.length ? RACES[this.selectedIndex].race : Race.Crown;
-        this.music.previewRaceSelection(race);
-      }
-      if (e.key === 'Enter' || e.key === ' ') this.confirm();
+      if (e.key === 'Enter' || e.key === ' ') { this.music.playUIConfirm(); this.confirm(); }
       if (e.key === 'Escape') {
-        if (this.settingsOpen) this.settingsOpen = false;
-        else this.manager.switchTo('title');
+        if (this.settingsOpen) { this.settingsOpen = false; this.music.playUIClose(); }
+        else { this.music.playUIBack(); this.manager.switchTo('title'); }
       }
     };
 
@@ -137,18 +126,20 @@ export class RaceSelectScene implements Scene {
       if (Date.now() - lastTouchTime < 300) return;
       const [cx, cy] = this.toCanvasCoords(e.clientX, e.clientY);
       if (this.handleSettingsClick(cx, cy)) return;
-      if (this.isBackButtonAt(cx, cy)) { this.manager.switchTo('title'); return; }
+      if (this.isBackButtonAt(cx, cy)) { this.music.playUIBack(); this.manager.switchTo('title'); return; }
       if (this.isRandomButtonAt(cx, cy)) {
-        if (this.selectedIndex === RANDOM_INDEX) { this.confirm(); return; }
+        if (this.selectedIndex === RANDOM_INDEX) { this.music.playUIConfirm(); this.confirm(); return; }
         this.selectedIndex = RANDOM_INDEX;
+        this.music.playUIClick();
         return;
       }
       const idx = this.getBoxIndexAt(cx, cy);
       if (idx >= 0) {
-        if (idx === this.selectedIndex) { this.confirm(); return; }
+        if (idx === this.selectedIndex) { this.music.playUIConfirm(); this.confirm(); return; }
         this.selectedIndex = idx;
-        this.music.previewRaceSelection(RACES[this.selectedIndex].race);
+        this.music.playUIClick();
       } else if (this.isStartButtonAt(cx, cy)) {
+        this.music.playUIConfirm();
         this.confirm();
       }
     };
@@ -164,6 +155,7 @@ export class RaceSelectScene implements Scene {
         const [cx] = this.toCanvasCoords(e.clientX, e.clientY);
         const layout = getSettingsOverlayLayout(this.canvas.clientWidth, this.canvas.clientHeight);
         this.sliderDrag.move(cx, layout);
+        this.music.playUISlider();
         return;
       }
       const [cx, cy] = this.toCanvasCoords(e.clientX, e.clientY);
@@ -183,18 +175,20 @@ export class RaceSelectScene implements Scene {
       if (this.sliderDrag.start(cx, cy, layout, this.settingsOpen)) return;
       lastTouchTime = Date.now();
       if (this.handleSettingsClick(cx, cy)) return;
-      if (this.isBackButtonAt(cx, cy)) { this.manager.switchTo('title'); return; }
+      if (this.isBackButtonAt(cx, cy)) { this.music.playUIBack(); this.manager.switchTo('title'); return; }
       if (this.isRandomButtonAt(cx, cy)) {
-        if (this.selectedIndex === RANDOM_INDEX) { this.confirm(); return; }
+        if (this.selectedIndex === RANDOM_INDEX) { this.music.playUIConfirm(); this.confirm(); return; }
         this.selectedIndex = RANDOM_INDEX;
+        this.music.playUIClick();
         return;
       }
       const idx = this.getBoxIndexAt(cx, cy);
       if (idx >= 0) {
-        if (idx === this.selectedIndex) { this.confirm(); return; }
+        if (idx === this.selectedIndex) { this.music.playUIConfirm(); this.confirm(); return; }
         this.selectedIndex = idx;
-        this.music.previewRaceSelection(RACES[this.selectedIndex].race);
+        this.music.playUIClick();
       } else if (this.isStartButtonAt(cx, cy)) {
+        this.music.playUIConfirm();
         this.confirm();
       }
     };
@@ -206,6 +200,7 @@ export class RaceSelectScene implements Scene {
       const [cx] = this.toCanvasCoords(touch.clientX, touch.clientY);
       const layout = getSettingsOverlayLayout(this.canvas.clientWidth, this.canvas.clientHeight);
       this.sliderDrag.move(cx, layout);
+      this.music.playUISlider();
     };
     this.touchEndHandler = () => { this.sliderDrag.end(); };
 
@@ -239,30 +234,34 @@ export class RaceSelectScene implements Scene {
     this.sliderDrag.end();
     this.audioSettingsUnsub?.();
     this.audioSettingsUnsub = null;
-    this.music.dispose();
   }
 
   private handleSettingsClick(cx: number, cy: number): boolean {
     const layout = getSettingsOverlayLayout(this.canvas.clientWidth, this.canvas.clientHeight);
     if (hitRect(cx, cy, layout.button)) {
       this.settingsOpen = !this.settingsOpen;
+      if (this.settingsOpen) this.music.playUIOpen(); else this.music.playUIClose();
       return true;
     }
     if (!this.settingsOpen) return false;
     if (hitRect(cx, cy, layout.close)) {
       this.settingsOpen = false;
+      this.music.playUIClose();
       return true;
     }
     if (hitRect(cx, cy, layout.musicRow)) {
       updateAudioSettings({ musicVolume: sliderValueFromPoint(cx, layout.musicRow) });
+      this.music.playUISlider();
       return true;
     }
     if (hitRect(cx, cy, layout.sfxRow)) {
       updateAudioSettings({ sfxVolume: sliderValueFromPoint(cx, layout.sfxRow) });
+      this.music.playUISlider();
       return true;
     }
-    if (handleVisualToggleClick(cx, cy, layout)) return true;
+    if (handleVisualToggleClick(cx, cy, layout)) { this.music.playUIToggle(); return true; }
     if (hitRect(cx, cy, layout.panel)) return true;
+    this.music.playUIClose();
     this.settingsOpen = false;
     return false;
   }
@@ -284,7 +283,7 @@ export class RaceSelectScene implements Scene {
     const h = this.canvas.clientHeight;
     const headerH = 70 + getSafeTop();
     const footerH = 80;
-    const randomBtnReserve = 60; // space for the random button below the grid
+    const randomBtnReserve = 80; // space for the random button below the grid
     const availH = h - headerH - footerH - randomBtnReserve;
     const availW = w - 40;
     const gapX = 8;
@@ -347,13 +346,13 @@ export class RaceSelectScene implements Scene {
     const boxes = this.getBoxLayout();
     const lastRow = boxes[RACES.length - 1]; // Tenders (bottom-right)
     const btnW = lastRow.w; // same width as a race tile
-    const btnH = Math.max(40, lastRow.h * 0.40); // ~100% taller than before
+    const btnH = Math.max(36, lastRow.h * 0.35);
     const gridBottom = lastRow.y + lastRow.h;
     // Cap so it doesn't overlap the bottom BACK/NEXT buttons (pinned at h - 72, 56px tall)
     const maxY = h - 72 - btnH - 8;
     return {
       x: (this.canvas.clientWidth - btnW) / 2,
-      y: Math.min(gridBottom + 8, maxY),
+      y: Math.min(gridBottom + 16, maxY),
       w: btnW,
       h: btnH,
     };

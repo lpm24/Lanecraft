@@ -188,6 +188,7 @@ export class PartyManager {
     this._isHost = true;
     this._localSlot = 0;
     this.partyCode = code;
+    this._state = party; // Set immediately so callers don't race the onValue callback
     this.startHeartbeat();
     this.subscribeToParty(code);
     return code;
@@ -440,19 +441,49 @@ export class PartyManager {
     }
   }
 
+  /** Clean up all resources. Safe to call even if leaveParty() wasn't called. */
+  destroy(): void {
+    this.stopHeartbeat();
+    if (this.unsubscribe) {
+      this.unsubscribe();
+      this.unsubscribe = null;
+    }
+  }
+
   /** Find an open party (status=waiting, has empty slots) and join it.
    *  Returns true if joined, false if none found. */
   async findAndJoinGame(race: Race): Promise<boolean> {
     await this.leaveParty();
 
+    const candidates = await this.getJoinablePartyCodes();
+
+    // Try each candidate — may fail if someone else joined first
+    for (const code of candidates) {
+      try {
+        await this.joinParty(code, race);
+        return true;
+      } catch {
+        // Race condition — someone else grabbed it, try next
+      }
+    }
+
+    return false;
+  }
+
+  /** Count currently joinable public parties for home-screen UI. */
+  async getOpenGameCount(): Promise<number> {
+    const candidates = await this.getJoinablePartyCodes();
+    return candidates.length;
+  }
+
+  private async getJoinablePartyCodes(): Promise<string[]> {
     const db = getDb();
     const uid = getUserId();
     const q = query(ref(db, 'parties'), orderByChild('status'), equalTo('waiting'));
     const snap = await get(q);
 
-    if (!snap.exists()) return false;
+    if (!snap.exists()) return [];
 
-    // Collect all candidate parties (has empty slots, not ours, host alive)
     const now = Date.now();
     const HEARTBEAT_STALE_MS = 30 * 1000; // 30 seconds — host must have pinged within this window
     const candidates: string[] = [];
@@ -468,18 +499,7 @@ export class PartyManager {
         candidates.push(child.key);
       }
     });
-
-    // Try each candidate — may fail if someone else joined first
-    for (const code of candidates) {
-      try {
-        await this.joinParty(code, race);
-        return true;
-      } catch {
-        // Race condition — someone else grabbed it, try next
-      }
-    }
-
-    return false;
+    return candidates;
   }
 
   private subscribeToParty(code: string): void {

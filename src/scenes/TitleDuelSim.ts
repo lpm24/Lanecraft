@@ -1,6 +1,6 @@
 import { Race, BuildingType, StatusType, StatusEffect, TICK_RATE } from '../simulation/types';
 import { UNIT_STATS, UPGRADE_TREES } from '../simulation/data';
-import { getUnitUpgradeMultipliers } from '../simulation/GameState';
+import { getUnitUpgradeMultipliers } from '../simulation/SimShared';
 import { getAudioSettings } from '../audio/AudioSettings';
 
 // ─── Mini 1v1 simulation using real game stats ───
@@ -48,6 +48,7 @@ export interface DuelProjectile {
   damage: number;
   sourceRace: Race;
   sourceCategory: 'melee' | 'ranged' | 'caster';
+  sourceUpgradeNode: string; // 'A', 'B', etc. — for projectile visual lookup
   sourcePlayerId: number;
   targetUnit: DuelUnit;
   facingLeft: boolean;
@@ -91,7 +92,7 @@ export function createDuelUnit(race: Race, unitType: BuildingType, x: number, fa
     maxHp: Math.max(1, Math.round(stats.hp * upgrade.hp)),
     damage: Math.max(1, Math.round(stats.damage * upgrade.damage)),
     attackSpeed: Math.max(0.2, stats.attackSpeed * upgrade.attackSpeed),
-    attackTimer: stats.attackSpeed * upgrade.attackSpeed * 0.3,
+    attackTimer: 0,
     moveSpeed: Math.max(0.5, stats.moveSpeed * upgrade.moveSpeed),
     range: Math.max(1, stats.range * upgrade.range),
     facingLeft, statusEffects: [], shieldHp: 0, hitCount: 0, alive: true,
@@ -139,7 +140,7 @@ function dealDuelDamage(target: DuelUnit, amount: number): void {
   }
 }
 
-// On-hit effects matching the real game (GameState.ts applyOnHitEffects)
+// On-hit effects matching the real game combat subsystem (SimCombat.ts applyOnHitEffects)
 function applyDuelOnHit(attacker: DuelUnit, target: DuelUnit): void {
   const isMelee = attacker.range <= 2;
   const isCaster = attacker.category === 'caster';
@@ -253,21 +254,22 @@ export function tickDuelCombat(
 ): void {
   if (!attacker.alive || !target.alive) return;
 
-  const dist = Math.abs(target.x - attacker.x);
+  let dist = Math.abs(target.x - attacker.x);
 
   // Move toward target if out of range
   if (dist > attacker.range) {
     const speed = getEffectiveSpeed(attacker);
     const step = Math.min(speed * dtSec, dist - attacker.range);
     attacker.x += attacker.facingLeft ? -step : step;
+    dist = Math.abs(target.x - attacker.x);
   }
 
   // Attack
-  attacker.attackTimer -= dtSec;
-  if (attacker.attackTimer <= 0 && dist <= attacker.range + 0.5) {
-    attacker.attackTimer += attacker.attackSpeed;
+  attacker.attackTimer = Math.max(0, attacker.attackTimer - dtSec);
+  if (attacker.attackTimer <= 0 && dist <= attacker.range + 0.15) {
+    attacker.attackTimer = attacker.attackSpeed;
     attacker.isAttacking = true;
-    attacker.attackAnimTimer = 0.3;
+    attacker.attackAnimTimer = attacker.attackSpeed;
 
     const isMelee = attacker.range <= 2;
     const isCaster = attacker.category === 'caster';
@@ -292,6 +294,7 @@ export function tickDuelCombat(
         damage: attacker.damage,
         sourceRace: attacker.race,
         sourceCategory: attacker.category,
+        sourceUpgradeNode: attacker.upgradeNode ?? 'A',
         sourcePlayerId: attacker.playerId,
         targetUnit: target,
         facingLeft: attacker.facingLeft,
